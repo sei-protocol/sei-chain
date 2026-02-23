@@ -318,12 +318,14 @@ func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int6
 			latestVersion := db.GetLatestVersion()
 			pruneVersion := latestVersion - keepRecent
 			if pruneVersion > 0 {
+				// prune all versions up to and including the pruneVersion
 				if err := db.Prune(pruneVersion); err != nil {
 					log.Error("failed to prune receipt store till", "version", pruneVersion, "err", err)
 				}
 				log.Info(fmt.Sprintf("Pruned receipt store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime)))
 			}
 
+			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
 			randomPercentage := rand.Float64()
 			randomDelay := int64(float64(pruneInterval) * randomPercentage)
 			sleepDuration := time.Duration(pruneInterval+randomDelay) * time.Second
@@ -333,6 +335,7 @@ func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int6
 				log.Info("Receipt store pruning goroutine stopped")
 				return
 			case <-time.After(sleepDuration):
+				// Continue to next iteration
 			}
 		}
 	}()

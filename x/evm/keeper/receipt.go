@@ -162,15 +162,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 		}
 
 		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
-		receiptBytes, err := rcpt.Marshal()
-		if err != nil {
-			return err
-		}
-		records = append(records, receipt.ReceiptRecord{
-			TxHash:       txHash,
-			Receipt:      rcpt,
-			ReceiptBytes: receiptBytes,
-		})
+		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
 	}
 	if k.receiptStore == nil {
 		return receipt.ErrNotConfigured
