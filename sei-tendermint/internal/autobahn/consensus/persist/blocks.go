@@ -9,8 +9,8 @@
 //   - The blocking Queue (holes become impossible with sequential atomic
 //     appends, so dropping on overflow is safe).
 //
-// What survives: the async channel, the persisted watermark callback, and the
-// BlockPersister abstraction (Queue/Run/onPersisted contract).
+// What survives: the async channel, the AtomicSend tips, and the
+// BlockPersister abstraction (Queue/Run/Tips contract).
 
 package persist
 
@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // LoadedBlock is a block loaded from disk during state restoration.
@@ -42,10 +43,10 @@ type LoadedBlock struct {
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
 	ch  chan persistJob
-	// nextToPersist tracks the highest persisted block number + 1 (exclusive
-	// upper bound) per lane. With the current FIFO queue, this simply advances
-	// on every write.
-	nextToPersist map[types.LaneID]types.BlockNumber
+	// tips publishes the highest persisted block number + 1 (exclusive upper
+	// bound) per lane as an immutable map snapshot. Updated after each
+	// successful persist. Subscribers can watch for changes without callbacks.
+	tips utils.AtomicSend[map[types.LaneID]types.BlockNumber]
 }
 
 type persistJob struct {
@@ -68,19 +69,20 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 	}
 
 	bp := &BlockPersister{
-		dir:           dir,
-		ch:            make(chan persistJob, persistQueueSize),
-		nextToPersist: make(map[types.LaneID]types.BlockNumber),
+		dir: dir,
+		ch:  make(chan persistJob, persistQueueSize),
 	}
 	blocks, err := bp.loadAll()
 	if err != nil {
 		return nil, nil, err
 	}
+	initial := make(map[types.LaneID]types.BlockNumber, len(blocks))
 	for lane, bs := range blocks {
 		if len(bs) > 0 {
-			bp.nextToPersist[lane] = bs[len(bs)-1].Number + 1
+			initial[lane] = bs[len(bs)-1].Number + 1
 		}
 	}
+	bp.tips = utils.NewAtomicSend(initial)
 	return bp, blocks, nil
 }
 
@@ -168,10 +170,18 @@ func (bp *BlockPersister) Queue(ctx context.Context, proposal *types.Signed[*typ
 	}
 }
 
-// Run drains the internal queue, fsyncs each block to disk, and calls
-// onPersisted with the highest persisted block number + 1 (exclusive upper
-// bound) for the lane. Blocks until ctx is cancelled.
-func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID, types.BlockNumber)) error {
+// Tips returns a subscription to the persisted lane tips. Each value is an
+// immutable map snapshot of lane -> highest persisted block number + 1
+// (exclusive upper bound). Updated after each successful persist.
+func (bp *BlockPersister) Tips() utils.AtomicRecv[map[types.LaneID]types.BlockNumber] {
+	return bp.tips.Subscribe()
+}
+
+// Run drains the internal queue and fsyncs each block to disk.
+// After each successful write, it publishes an updated tips snapshot via Tips().
+// Blocks until ctx is cancelled.
+func (bp *BlockPersister) Run(ctx context.Context) error {
+	cur := bp.tips.Load()
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,12 +191,14 @@ func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID
 			if err := bp.PersistBlock(job.proposal); err != nil {
 				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 			}
-			// FIFO queue guarantees per-lane order, so n+1 is the highest
-			// persisted + 1. For parallel persistence, this would need to
-			// track individual completions.
-			next := h.BlockNumber() + 1
-			bp.nextToPersist[h.Lane()] = next
-			onPersisted(h.Lane(), next)
+			// Publish a new immutable snapshot with the updated tip.
+			next := make(map[types.LaneID]types.BlockNumber, len(cur))
+			for k, v := range cur {
+				next[k] = v
+			}
+			next[h.Lane()] = h.BlockNumber() + 1
+			cur = next
+			bp.tips.Store(cur)
 		}
 	}
 }

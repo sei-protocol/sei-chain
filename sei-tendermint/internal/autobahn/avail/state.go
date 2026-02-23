@@ -565,12 +565,19 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if bp, ok := s.blockPersist.Get(); ok {
+			tips := bp.Tips()
 			scope.SpawnNamed("blockPersistWriter", func() error {
-				return bp.Run(ctx, func(lane types.LaneID, next types.BlockNumber) {
+				return bp.Run(ctx)
+			})
+			scope.SpawnNamed("blockPersistTipsSync", func() error {
+				return tips.Iter(ctx, func(_ context.Context, m map[types.LaneID]types.BlockNumber) error {
 					for inner, ctrl := range s.inner.Lock() {
-						inner.nextBlockToPersist[lane] = next
+						for lane, next := range m {
+							inner.nextBlockToPersist[lane] = next
+						}
 						ctrl.Updated()
 					}
+					return nil
 				})
 			})
 		}
