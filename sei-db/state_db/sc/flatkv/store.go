@@ -118,12 +118,22 @@ func (s *CommitStore) flatkvDir() string {
 //   - targetVersion == 0: open latest (follow current symlink + catchup to end of WAL).
 //   - targetVersion > 0: seek the best snapshot <= targetVersion, open it, then
 //     catchup via WAL to reach targetVersion exactly.
-func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
+func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
 	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	_ = s.closeDBsOnly()
 
 	dir := s.flatkvDir()
+
+	// Track whether we acquire the lock in this call so we can release it
+	// on any error path (open() won't track a pre-held lock).
+	lockHeldBefore := s.fileLock != nil
+	defer func() {
+		if retErr != nil && !lockHeldBefore && s.fileLock != nil {
+			_ = s.fileLock.Unlock()
+			s.fileLock = nil
+		}
+	}()
 
 	if targetVersion > 0 {
 		if err := os.MkdirAll(dir, 0750); err != nil {
@@ -150,6 +160,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
 	}
 
 	if targetVersion > 0 && s.committedVersion != targetVersion {
+		_ = s.closeDBsOnly()
 		return nil, fmt.Errorf("FlatKV version mismatch: requested %d, reached %d",
 			targetVersion, s.committedVersion)
 	}

@@ -80,8 +80,6 @@ type Store interface {
 // Follows PebbleDB semantics: not positioned on creation.
 //
 // Keys are returned in internal format (without memiavl prefix).
-// Concrete implementations (e.g. dbIterator) expose Kind() for callers
-// that need to distinguish key types.
 type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool

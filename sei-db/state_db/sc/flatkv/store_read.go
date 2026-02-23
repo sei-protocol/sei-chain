@@ -162,9 +162,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 		// Internal key format: addr(20) || slot(32)
 		// For prefix scan: use addr(20) as prefix
 		addrBytes := prefix[len(statePrefix):]
-		internalEnd := PrefixEnd(addrBytes)
-
-		return s.newStoragePrefixIterator(addrBytes, internalEnd, prefix)
+		return s.newStoragePrefixIterator(addrBytes, prefix)
 	}
 
 	// Try parsing as full key
@@ -176,9 +174,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 
 	switch kind {
 	case evm.EVMKeyStorage:
-		// Full storage key as prefix (addr+slot): rare but supported
-		internalEnd := PrefixEnd(keyBytes)
-		return s.newStoragePrefixIterator(keyBytes, internalEnd, prefix)
+		return s.newStoragePrefixIterator(keyBytes, prefix)
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash, evm.EVMKeyCode:
 		return &emptyIterator{}

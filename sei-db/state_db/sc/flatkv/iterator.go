@@ -181,10 +181,6 @@ func (it *dbIterator) Prev() bool {
 	return it.iter.Prev()
 }
 
-func (it *dbIterator) Kind() evm.EVMKeyKind {
-	return it.kind
-}
-
 func (it *dbIterator) Key() []byte {
 	if !it.Valid() {
 		return nil
@@ -206,7 +202,7 @@ func (s *CommitStore) newStorageIterator(start, end []byte) Iterator {
 	return newDBIterator(s.storageDB, evm.EVMKeyStorage, start, end)
 }
 
-func (s *CommitStore) newStoragePrefixIterator(internalPrefix, internalEnd []byte, memiavlPrefix []byte) Iterator {
+func (s *CommitStore) newStoragePrefixIterator(internalPrefix []byte, memiavlPrefix []byte) Iterator {
 	return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
 }
 
@@ -226,7 +222,6 @@ func (it *emptyIterator) SeekGE(key []byte) bool   { return false }
 func (it *emptyIterator) SeekLT(key []byte) bool   { return false }
 func (it *emptyIterator) Next() bool               { return false }
 func (it *emptyIterator) Prev() bool               { return false }
-func (it *emptyIterator) Kind() evm.EVMKeyKind     { return evm.EVMKeyUnknown }
 func (it *emptyIterator) Key() []byte              { return nil }
 func (it *emptyIterator) Value() []byte            { return nil }
 
