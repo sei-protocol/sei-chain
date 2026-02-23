@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -338,16 +339,16 @@ func pebbleFilterLogs(
 	crit filters.FilterCriteria,
 ) ([]*ethtypes.Log, error) {
 	hasFilters := len(crit.Addresses) > 0 || len(crit.Topics) > 0
-	var filterIdxs [][]bloomIndexes
+	var filterIdxs [][]ethbloom.BloomIndexes
 	if hasFilters {
-		filterIdxs = encodeFilters(crit.Addresses, crit.Topics)
+		filterIdxs = ethbloom.EncodeFilters(crit.Addresses, crit.Topics)
 	}
 
 	var result []*ethtypes.Log
 	for block := fromBlock; block <= toBlock; block++ {
 		if hasFilters {
 			blockBloom := txIndex.blockBlooms[block]
-			if blockBloom != (ethtypes.Bloom{}) && !matchFilters(blockBloom, filterIdxs) {
+			if blockBloom != (ethtypes.Bloom{}) && !ethbloom.MatchFilters(blockBloom, filterIdxs) {
 				continue
 			}
 		}
@@ -362,7 +363,7 @@ func pebbleFilterLogs(
 
 			if hasFilters && len(receipt.LogsBloom) > 0 {
 				txBloom := ethtypes.Bloom(receipt.LogsBloom)
-				if !matchFilters(txBloom, filterIdxs) {
+				if !ethbloom.MatchFilters(txBloom, filterIdxs) {
 					logStartIndex += uint(len(receipt.Logs))
 					continue
 				}
@@ -371,7 +372,7 @@ func pebbleFilterLogs(
 			txLogs := getLogsForTx(receipt, logStartIndex)
 			logStartIndex += uint(len(txLogs))
 			for _, lg := range txLogs {
-				if isLogExactMatch(lg, crit) {
+				if ethbloom.MatchesCriteria(lg, crit) {
 					result = append(result, lg)
 				}
 			}

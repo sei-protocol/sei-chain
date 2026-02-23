@@ -490,6 +490,14 @@ func (s *Store) initWriters() error {
 	return nil
 }
 
+// Flush acquires the write lock and flushes all buffered data to disk.
+// Mostly used for testing and benchmarking.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushLocked()
+}
+
 func (s *Store) flushLocked() error {
 	if len(s.receiptsBuffer) == 0 {
 		return nil

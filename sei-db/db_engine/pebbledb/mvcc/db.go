@@ -466,9 +466,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			context.Background(),
 			int64(len(db.pendingChanges)),
 		)
-		if len(db.pendingChanges) > 10 {
-			fmt.Println("pendingChangesQueueDepth: ", len(db.pendingChanges))
-		}
 	}()
 	// Write to WAL
 	if db.streamHandler != nil {

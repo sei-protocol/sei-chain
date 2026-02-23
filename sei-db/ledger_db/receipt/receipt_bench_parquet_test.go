@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
 func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
