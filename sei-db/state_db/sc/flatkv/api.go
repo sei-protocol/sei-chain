@@ -17,12 +17,7 @@ type Exporter interface {
 
 // Options configures a FlatKV store.
 type Options struct {
-	// Dir is the base directory containing
-	// account/,
-	// code/,
-	// storage/,
-	// changelog/,
-	// __metadata.
+	// Dir is the base directory containing snapshot dirs, working/, and changelog/.
 	Dir string
 }
 
@@ -34,7 +29,8 @@ type Options struct {
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
 	// LoadVersion opens the database at the specified version.
-	// Note: FlatKV only stores latest state, so targetVersion is for verification only.
+	// targetVersion == 0 opens the latest; targetVersion > 0 seeks the best
+	// snapshot <= target and replays WAL to reach it exactly.
 	LoadVersion(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
@@ -73,7 +69,8 @@ type Store interface {
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
-	// Rollback restores state to targetVersion. Not implemented.
+	// Rollback restores state to targetVersion by rewinding to the best
+	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
 	Rollback(targetVersion int64) error
 
 	io.Closer

@@ -129,6 +129,13 @@ func (s *CommitStore) LoadVersion(targetVersion int64) (Store, error) {
 		if err := os.MkdirAll(dir, 0750); err != nil {
 			return nil, fmt.Errorf("create flatkv dir: %w", err)
 		}
+		// Acquire lock before mutating the current symlink to prevent
+		// a race with another process observing an unintended baseline.
+		if s.fileLock == nil {
+			if err := s.acquireFileLock(dir); err != nil {
+				return nil, err
+			}
+		}
 		if baseVer, err := seekSnapshot(dir, targetVersion); err == nil {
 			if err := updateCurrentSymlink(dir, snapshotName(baseVer)); err != nil {
 				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
@@ -233,8 +240,12 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	if err != nil {
 		return fmt.Errorf("create file lock: %w", err)
 	}
-	if _, err := fl.TryLock(); err != nil {
-		return fmt.Errorf("acquire file lock (another process may be using this DB): %w", err)
+	locked, err := fl.TryLock()
+	if err != nil {
+		return fmt.Errorf("acquire file lock: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("acquire file lock: already held by another process (%s)", lockPath)
 	}
 	s.fileLock = fl
 	return nil
