@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -598,17 +599,19 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
-			telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("success", "false"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
 				})
 			return sdkerrors.QueryResult(err)
 		} else {
-			telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("success", "true"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
 				})
 		}
 		defer rs.releaseHistProofPermit()
