@@ -45,9 +45,9 @@ const (
 func (r ResponseOfferSnapshot_Result) String() string {
 	switch r {
 	case ResponseOfferSnapshot_UNKNOWN:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	case ResponseOfferSnapshot_ACCEPT:
-		return "ACCEPT"
+		return "ACCEPT" //nolint:goconst
 	case ResponseOfferSnapshot_ABORT:
 		return "ABORT"
 	case ResponseOfferSnapshot_REJECT:
@@ -57,7 +57,7 @@ func (r ResponseOfferSnapshot_Result) String() string {
 	case ResponseOfferSnapshot_REJECT_SENDER:
 		return "REJECT_SENDER"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	}
 }
 
@@ -106,9 +106,9 @@ const (
 func (r ResponseApplySnapshotChunk_Result) String() string {
 	switch r {
 	case ResponseApplySnapshotChunk_UNKNOWN:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	case ResponseApplySnapshotChunk_ACCEPT:
-		return "ACCEPT"
+		return "ACCEPT" //nolint:goconst
 	case ResponseApplySnapshotChunk_ABORT:
 		return "ABORT"
 	case ResponseApplySnapshotChunk_RETRY:
@@ -118,7 +118,7 @@ func (r ResponseApplySnapshotChunk_Result) String() string {
 	case ResponseApplySnapshotChunk_REJECT_SNAPSHOT:
 		return "REJECT_SNAPSHOT"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	}
 }
 
@@ -145,13 +145,13 @@ const (
 func (s ResponseProcessProposal_ProposalStatus) String() string {
 	switch s {
 	case ResponseProcessProposal_UNKNOWN:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	case ResponseProcessProposal_ACCEPT:
-		return "ACCEPT"
+		return "ACCEPT" //nolint:goconst
 	case ResponseProcessProposal_REJECT:
 		return "REJECT"
 	default:
-		return "UNKNOWN"
+		return "UNKNOWN" //nolint:goconst
 	}
 }
 
