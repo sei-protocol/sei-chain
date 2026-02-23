@@ -79,7 +79,7 @@ var readBenchFilters = []filterConfig{
 }
 
 // BenchmarkReceiptReadStore100 is a focused benchmark: blocks=[1,100] (store-only),
-// concurrency=4, filter=address+topic0, for both pebble and parquet.
+// concurrency=16, filter=address+topic0, for both pebble and parquet.
 func BenchmarkReceiptReadStore100(b *testing.B) {
 	for _, backend := range []string{receiptBackendPebble, receiptBackendParquet} {
 		b.Run(backend, func(b *testing.B) {
@@ -95,7 +95,7 @@ func BenchmarkReceiptReadStore100(b *testing.B) {
 				Topics:    [][]common.Hash{{env.topic0s[0]}},
 			}
 			b.Run("query", func(b *testing.B) {
-				runFilterLogsBenchmark(b, env, backend, rc, 4, crit)
+				runFilterLogsBenchmark(b, env, backend, rc, 16, crit)
 			})
 		})
 	}
