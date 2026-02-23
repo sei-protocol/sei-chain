@@ -604,6 +604,12 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 					telemetry.NewLabel("success", "false"),
 				})
 			return sdkerrors.QueryResult(err)
+		} else {
+			telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "true"),
+				})
 		}
 		defer rs.releaseHistProofPermit()
 
@@ -616,6 +622,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+
 	}
 
 	res := store.Query(req)
@@ -632,11 +639,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
-	telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("success", "true"),
-		})
 
 	return res
 }
