@@ -1334,6 +1334,17 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	partSet, err := propBlock.MakePartSet(partSize)
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: partSet.Header()}
+	// Pre-build the round 2 proposal before cs1 transitions rounds to avoid
+	// burning round 2's propose timeout budget under CI load.
+	r2Round := round + 1
+	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, r2Round)
+	propBlockParts, err := propBlock.MakePartSet(partSize)
+	require.NoError(t, err)
+	r2BlockID := types.BlockID{
+		Hash:          propBlock.Hash(),
+		PartSetHeader: propBlockParts.Header(),
+	}
 	// the others sign a polka but we don't see it
 	prevotes := signVotes(ctx, t, tmproto.PrevoteType, config.ChainID(),
 		blockID,
@@ -1348,14 +1359,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 
 	incrementRound(vs2, vs3, vs4)
 	round++ // moving to the next round
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
-	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
-	propBlockParts, err := propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	r2BlockID := types.BlockID{
-		Hash:          propBlock.Hash(),
-		PartSetHeader: propBlockParts.Header(),
-	}
+	require.Equal(t, r2Round, round)
 
 	ensureNewRound(t, newRoundCh, height, round)
 
