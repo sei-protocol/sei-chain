@@ -36,7 +36,7 @@ type reactorTestSuite struct {
 	node    *p2p.TestNode
 	reactor *Reactor
 
-	conn          abci.Application
+	conn          *testStatesyncApp
 	stateProvider *mocks.StateProvider
 
 	stateStore *smmocks.Store
@@ -45,14 +45,14 @@ type reactorTestSuite struct {
 
 func setup(
 	t *testing.T,
-	conn abci.Application,
+	conn *testStatesyncApp,
 	stateProvider *mocks.StateProvider,
 	setSyncer bool,
 ) *reactorTestSuite {
 	t.Helper()
 
 	if conn == nil {
-		conn = newTestStatesyncApp(t)
+		conn = newTestStatesyncApp()
 	}
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
@@ -151,20 +151,18 @@ func TestReactor_Sync(t *testing.T) {
 	const snapshotHeight = 7
 	rts := setup(t, nil, nil, false)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	appConn := mustTestStatesyncApp(t, rts.conn)
-	appConn.SetOfferSnapshotHandler(func(context.Context, *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
+	appConn := rts.conn
+	appConn.offerSnapshot.Set(func(context.Context, *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, nil
 	})
-	appConn.SetApplySnapshotChunkHandler(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
+	appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 	})
-	appConn.ExpectInfo(&abci.ResponseInfo{
+	appConn.info.Push(mkHandler(&proxy.RequestInfo,&abci.ResponseInfo{
 		AppVersion:       testAppVersion,
 		LastBlockHeight:  snapshotHeight,
 		LastBlockAppHash: chain[snapshotHeight+1].AppHash,
-	}, nil, func(req *abci.RequestInfo) {
-		require.Equal(t, &proxy.RequestInfo, req)
-	})
+	}))
 
 	// store accepts state and validator sets
 	rts.stateStore.On("Bootstrap", mock.AnythingOfType("state.State")).Return(nil)
@@ -235,16 +233,13 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			ctx := t.Context()
 
 			// mock ABCI connection to return local snapshots
-			conn := newTestStatesyncApp(t)
+			conn := newTestStatesyncApp()
 			expected := &abci.RequestLoadSnapshotChunk{
 				Height: tc.request.Height,
 				Format: tc.request.Format,
 				Chunk:  tc.request.Index,
 			}
-			conn.ExpectLoadSnapshotChunk(func(_ context.Context, req *abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk,error) {
-				require.Equal(t, expected, req)
-				return &abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk},nil
-			})
+			conn.loadSnapshotChunk.Push(mkHandler(expected,&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
@@ -302,13 +297,8 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			}
 
 			// mock ABCI connection to return local snapshots
-			conn := newTestStatesyncApp(t)
-			conn.ExpectListSnapshots(func(_ context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots,error) {
-				require.Equal(t, &abci.RequestListSnapshots{}, req)
-				return &abci.ResponseListSnapshots{
-					Snapshots: snapshots,
-				},nil
-			})
+			conn := newTestStatesyncApp()
+			conn.listSnapshots.Push(mkHandler(&abci.RequestListSnapshots{},&abci.ResponseListSnapshots{Snapshots: snapshots}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)

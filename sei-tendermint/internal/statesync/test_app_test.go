@@ -5,22 +5,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
-type offerSnapshotHandler func(context.Context, *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error)
-type applySnapshotChunkHandler func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error)
-type listSnapshotsHandler func(context.Context, *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error)
-type loadSnapshotChunkHandler func(context.Context, *abci.RequestLoadSnapshotChunk) (*abci.ResponseLoadSnapshotChunk, error)
-type infoHandler func(context.Context, *abci.RequestInfo) (*abci.ResponseInfo, error)
-
 type Handler[V,R any] = func(context.Context,V) (R,error)
 
-func mkHandler[V,R any](t *testing.T, v V, r R) Handler[V,R] {
+func mkHandler[V,R any](v V, r R) Handler[V,R] {
 	return func(_ context.Context, got V) (R,error) {
-		require.Equal(t,got,v)
+		utils.OrPanic(utils.TestDiff(v,got))
 		return r,nil
 	}
 }
@@ -53,15 +48,8 @@ type testStatesyncApp struct {
 	info Queue[*abci.RequestInfo,*abci.ResponseInfo]
 }
 
-func newTestStatesyncApp(t testing.TB) *testStatesyncApp {
-	return &testStatesyncApp{BaseApplication: abci.NewBaseApplication()}
-}
-
-func mustTestStatesyncApp(t testing.TB, app abci.Application) *testStatesyncApp {
-	t.Helper()
-	ta, ok := app.(*testStatesyncApp)
-	require.True(t, ok, "expected *testStatesyncApp, got %T", app)
-	return ta
+func newTestStatesyncApp() *testStatesyncApp {
+	return &testStatesyncApp{}
 }
 
 func (app *testStatesyncApp) OfferSnapshot(ctx context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
