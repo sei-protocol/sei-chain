@@ -364,6 +364,8 @@ jobs:
       packages: write
     steps:
       - name: Delete app image from GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           IMG="${{ needs.build-localnode.outputs.image_name }}"
           TAG="${IMG##*:}"
