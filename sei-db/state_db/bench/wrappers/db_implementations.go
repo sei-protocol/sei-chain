@@ -46,6 +46,7 @@ func newFlatKVCommitStore(b *testing.B) DBWrapper {
 	b.Helper()
 	dir := b.TempDir()
 	cfg := flatkv.DefaultConfig()
+	cfg.Fsync = false
 	cs := flatkv.NewCommitStore(dir, logger.NewNopLogger(), cfg)
 
 	_, err := cs.LoadVersion(0)
