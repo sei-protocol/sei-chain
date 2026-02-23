@@ -20,9 +20,9 @@ func BenchmarkReceiptWriteAsync(b *testing.B) {
 		receiptsPerBlock = 3000
 	)
 	b.Run(fmt.Sprintf("blocks=%d/per_block=%d", blocks, receiptsPerBlock), func(b *testing.B) {
-		// b.Run("pebble-async-with-wal", func(b *testing.B) {
-		// 	benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
-		// })
+		b.Run("pebble-async-with-wal", func(b *testing.B) {
+			benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
+		})
 		b.Run("parquet-async-with-wal", func(b *testing.B) {
 			benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
 		})
