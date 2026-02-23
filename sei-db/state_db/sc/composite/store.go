@@ -261,8 +261,9 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-	// TODO: Add evm committer for Importer
-	return cs.cosmosCommitter.Importer(version)
+	cosmosImporter := cs.cosmosCommitter.Importer(version)
+	evmImporter := cs.evmCommitter.Importer(version)
+
 }
 
 // Close closes all backends

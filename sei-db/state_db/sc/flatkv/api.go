@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -80,6 +81,9 @@ type Store interface {
 
 	// Rollback restores state to targetVersion. Not implemented.
 	Rollback(targetVersion int64) error
+
+	// Import snapshot data into the database for a given version
+	Import(version int64, ch <-chan types.SnapshotNode) error
 
 	io.Closer
 }

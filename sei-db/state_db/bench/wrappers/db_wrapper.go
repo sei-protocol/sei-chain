@@ -1,6 +1,9 @@
 package wrappers
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+import (
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+)
 
 // This benchmarking utility is capable of benchmarking a DB that implements this interface.
 type DBWrapper interface {
@@ -16,4 +19,6 @@ type DBWrapper interface {
 
 	// Returns the latest committed version.
 	Version() int64
+
+	Importer(version int64) (types.Importer, error)
 }
