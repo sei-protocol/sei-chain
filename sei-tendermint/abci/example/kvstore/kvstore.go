@@ -13,6 +13,8 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/gogo/protobuf/proto"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -315,8 +317,7 @@ func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	for ; itr.Valid(); itr.Next() {
 		if isValidatorTx(itr.Key()) {
 			validator := new(types.ValidatorUpdate)
-			err := types.ReadMessage(bytes.NewBuffer(itr.Value()), validator)
-			if err != nil {
+			if err := proto.Unmarshal(itr.Value(), validator); err != nil {
 				panic(err)
 			}
 			validators = append(validators, *validator)
@@ -408,13 +409,13 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 		delete(app.valAddrToPubKeyMap, string(pubkey.Address()))
 	} else {
 		// add or update validator
-		value := bytes.NewBuffer(make([]byte, 0))
-		if err := types.WriteMessage(&v, value); err != nil {
+		bz, err := proto.Marshal(&v)
+		if err != nil {
 			return &types.ExecTxResult{
 				Code: code.CodeTypeEncodingError,
 				Log:  fmt.Sprintf("error encoding validator: %v", err)}
 		}
-		if err = app.state.db.Set(key, value.Bytes()); err != nil {
+		if err = app.state.db.Set(key, bz); err != nil {
 			panic(err)
 		}
 		app.valAddrToPubKeyMap[string(pubkey.Address())] = v.PubKey
