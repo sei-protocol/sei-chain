@@ -172,7 +172,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	fmt.Println("[DEBUG] In PebbleDB OpenDB, creating changelog WAL")
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
 		KeepRecent:    uint64(config.KeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
