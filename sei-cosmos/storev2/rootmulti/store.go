@@ -11,6 +11,7 @@ import (
 
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
+	"golang.org/x/time/rate"
 
 	protoio "github.com/gogo/protobuf/io"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
@@ -52,6 +53,9 @@ type Store struct {
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
 	pruningManager *pruning.Manager
+
+	histProofSem     chan struct{}
+	histProofLimiter *rate.Limiter
 }
 
 type VersionedChangesets struct {
@@ -72,14 +76,30 @@ func NewStore(
 	if scConfig.Directory != "" {
 		scDir = scConfig.Directory
 	}
+	maxInFlight := scConfig.HistoricalProofMaxInFlight
+	if maxInFlight <= 0 {
+		maxInFlight = 1
+	}
+
+	burst := scConfig.HistoricalProofBurst
+	if burst <= 0 {
+		burst = 1
+	}
+
+	var limiter *rate.Limiter
+	if scConfig.HistoricalProofRateLimit > 0 {
+		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
+	}
 	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
 	store := &Store{
-		logger:       logger,
-		scStore:      scStore,
-		storesParams: make(map[types.StoreKey]storeParams),
-		storeKeys:    make(map[string]types.StoreKey),
-		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:     gigaKeys,
+		logger:           logger,
+		scStore:          scStore,
+		storesParams:     make(map[types.StoreKey]storeParams),
+		storeKeys:        make(map[string]types.StoreKey),
+		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:         gigaKeys,
+		histProofSem:     make(chan struct{}, maxInFlight),
+		histProofLimiter: limiter,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
@@ -548,43 +568,95 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	if version <= 0 || version > rs.lastCommitInfo.Version {
 		version = rs.scStore.Version()
 	}
-	path := req.Path
-	storeName, subPath, err := parsePath(path)
+
+	storeName, subPath, err := parsePath(req.Path)
 	if err != nil {
 		return sdkerrors.QueryResult(err)
 	}
-	var store types.Queryable
-	var commitInfo *types.CommitInfo
+	req.Path = subPath
+	req.Height = version // keep downstream store.Query height consistent
 
-	if !req.Prove && rs.ssStore != nil {
-		// Serve abci query from ss store if no proofs needed
-		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
+	needProof := req.Prove && rootmulti.RequireProof(subPath)
+	latest := version == rs.scStore.Version()
+
+	// Fast path: no proof + SS enabled
+	if !needProof && rs.ssStore != nil {
+		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
+		return store.Query(req)
+	}
+
+	var (
+		store      types.Queryable
+		commitInfo *types.CommitInfo
+	)
+	if latest {
+		// latest never needs historical LoadVersion clone
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
-		// Serve abci query from historical sc store if proofs needed
+		// historical path (this is where RPC pressure happens)
+		if err := rs.tryAcquireHistProofPermit(); err != nil {
+			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
+			return sdkerrors.QueryResult(err)
+		}
+		defer rs.releaseHistProofPermit()
+
 		scStore, err := rs.scStore.LoadVersion(version, true)
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
 		defer func() { _ = scStore.Close() }()
+
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
-	// trim the path and execute the query
-	req.Path = subPath
 	res := store.Query(req)
 
-	if !req.Prove || !rootmulti.RequireProof(subPath) {
+	// If underlying query failed (e.g. invalid height/path), return as-is.
+	if res.Code != 0 {
 		return res
-	} else if commitInfo != nil {
-		// Restore origin path and append proof op.
-		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
+
+	if !needProof {
+		return res
+	}
+
+	// Must have proof ops from underlying store query before appending commit proof.
+	if res.ProofOps == nil {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
+
+	if commitInfo != nil {
+		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
+	}
+
+	if len(res.ProofOps.Ops) == 0 {
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	}
+
 	return res
+}
+
+func (rs *Store) tryAcquireHistProofPermit() error {
+	if rs.histProofLimiter != nil && !rs.histProofLimiter.Allow() {
+		return errors.Wrap(sdkerrors.ErrConflict, "historical proof rate limited")
+	}
+	select {
+	case rs.histProofSem <- struct{}{}:
+		return nil
+	default:
+		return errors.Wrap(sdkerrors.ErrConflict, "historical proof busy")
+	}
+}
+
+func (rs *Store) releaseHistProofPermit() {
+	select {
+	case <-rs.histProofSem:
+	default:
+	}
 }
 
 // parsePath expects a format like /<storeName>[/<subpath>]
