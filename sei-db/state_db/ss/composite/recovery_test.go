@@ -55,7 +55,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, "pebbledb", log)
 	require.NoError(t, err)
 	defer evmStore.Close()
 
@@ -185,7 +185,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, "pebbledb", log)
 	require.NoError(t, err)
 
 	// Create composite store using test helper - EVM store starts at version 0
@@ -315,7 +315,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 
 	// Step 3: Open via NewCompositeStateStore -- EVM_SS starts at v0, Cosmos at v5.
 	// The constructor must detect this and replay WAL to catch EVM up.
-	compositeStore, err := NewCompositeStateStore(ssConfig, dir, log)
+	compositeStore, err := testNewCompositeStateStore(ssConfig, dir, log)
 	require.NoError(t, err)
 	defer compositeStore.Close()
 

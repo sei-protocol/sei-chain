@@ -443,3 +443,9 @@ func (it *EVMIterator) Next() {
 func (it *EVMIterator) Close() error {
 	return nil
 }
+
+func init() {
+	RegisterEVMBackend("pebbledb", func(dir string, storeType EVMStoreType) (EVMDBEngine, error) {
+		return OpenDB(dir, storeType)
+	})
+}

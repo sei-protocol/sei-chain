@@ -9,12 +9,28 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
+
+// testNewCompositeStateStore opens a PebbleDB cosmos backend and creates a
+// CompositeStateStore. Test-only helper to avoid repeating the two-step creation.
+func testNewCompositeStateStore(ssConfig config.StateStoreConfig, homeDir string, log logger.Logger) (*CompositeStateStore, error) {
+	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
+	if ssConfig.DBDirectory != "" {
+		dbHome = ssConfig.DBDirectory
+	}
+	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
+	if err != nil {
+		return nil, err
+	}
+	return NewCompositeStateStore(cosmosStore, ssConfig, homeDir, log)
+}
 
 func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 	dir, err := os.MkdirTemp("", "composite_store_test")
@@ -29,7 +45,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
-	compositeStore, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	compositeStore, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 
 	cleanup := func() {
@@ -182,7 +198,7 @@ func TestCompositeStateStoreWithoutEVM(t *testing.T) {
 	}
 
 	// Create composite store with EVM disabled (default cosmos_only modes)
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -436,7 +452,7 @@ func TestBug1Fix_WriteModeControlsEVMWrites(t *testing.T) {
 			ReadMode:         config.CosmosOnlyRead,
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -477,7 +493,7 @@ func TestBug1Fix_WriteModeControlsEVMWrites(t *testing.T) {
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -533,7 +549,7 @@ func TestBug1Fix_ReadModeControlsEVMReads(t *testing.T) {
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -578,7 +594,7 @@ func TestBug1Fix_ReadModeControlsEVMReads(t *testing.T) {
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -784,7 +800,7 @@ func TestCompositeStateStorePrunesBothStores(t *testing.T) {
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -852,7 +868,7 @@ func TestE2E_AllEVMDBsReadableViaComposite(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -979,7 +995,7 @@ func TestE2E_MVCCConsistencyAcrossBothStores(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1057,7 +1073,7 @@ func TestE2E_NonEVMModulesUnaffectedByDualWrite(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1155,7 +1171,7 @@ func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1200,7 +1216,7 @@ func TestE2E_DeleteTombstonePropagatedToBothStores(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1302,7 +1318,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -1329,7 +1345,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 		}
 		// Default WriteMode=CosmosOnlyWrite, ReadMode=CosmosOnlyRead → no EVM stores
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -1358,7 +1374,7 @@ func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
 	ssConfig.ReadMode = config.SplitRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1424,7 +1440,7 @@ func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1478,7 +1494,7 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 	ssConfig.ReadMode = config.SplitRead  // But reads from EVM only, no fallback
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -1565,7 +1581,7 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 			ReadMode:         config.CosmosOnlyRead,
 		}
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -1607,7 +1623,7 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 		ssConfig.ReadMode = config.EVMFirstRead
 		ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-		store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+		store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -1649,7 +1665,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	store, err := NewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
+	store, err := testNewCompositeStateStore(ssConfig, dir, logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
