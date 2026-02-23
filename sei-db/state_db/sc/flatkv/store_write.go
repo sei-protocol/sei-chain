@@ -18,10 +18,13 @@ import (
 // - accountDB: key=addr, value=AccountValue (balance(32)||nonce(8)||codehash(32)
 // - codeDB: key=addr, value=bytecode
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+	// Save original changesets for changelog
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
+	// Collect LtHash pairs per DB (using internal key format)
 	var storagePairs []lthash.KVPairWithLastValue
 	var codePairs []lthash.KVPairWithLastValue
+	// Account pairs are collected at the end after all account changes are processed
 
 	// Pre-capture account values so LtHash delta uses the correct baseline
 	// across multiple ApplyChangeSets calls before Commit.
@@ -33,14 +36,17 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 
 		for _, pair := range namedCS.Changeset.Pairs {
+			// Parse memiavl key to determine type
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 			if kind == evm.EVMKeyUnknown {
 				// Skip non-EVM keys silently
 				continue
 			}
 
+			// Route to appropriate DB based on key type
 			switch kind {
 			case evm.EVMKeyStorage:
+				// Get old value for LtHash
 				oldValue, err := s.getStorageValue(keyBytes)
 				if err != nil {
 					return fmt.Errorf("failed to get storage value: %w", err)
@@ -60,6 +66,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					}
 				}
 
+				// LtHash pair: internal key directly
 				storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
 					Key:       keyBytes,
 					Value:     pair.Value,
@@ -116,6 +123,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 
 			case evm.EVMKeyCode:
+				// Get old value for LtHash
 				oldValue, err := s.getCodeValue(keyBytes)
 				if err != nil {
 					return fmt.Errorf("failed to get code value: %w", err)
@@ -135,6 +143,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					}
 				}
 
+				// LtHash pair: internal key directly
 				codePairs = append(codePairs, lthash.KVPairWithLastValue{
 					Key:       keyBytes,
 					Value:     pair.Value,
@@ -176,6 +185,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		})
 	}
 
+	// Combine all pairs and update working LtHash
 	allPairs := append(storagePairs, accountPairs...)
 	allPairs = append(allPairs, codePairs...)
 
@@ -191,9 +201,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
+	// Auto-increment version
 	version := s.committedVersion + 1
 
-	// WAL write (NoSync: blocking but not durable until OS cache flush).
+	// Step 1: Write Changelog (WAL) - source of truth (always sync)
 	changelogEntry := proto.ChangelogEntry{
 		Version:    version,
 		Changesets: s.pendingChangeSets,
@@ -202,24 +213,21 @@ func (s *CommitStore) Commit() (int64, error) {
 		return 0, fmt.Errorf("changelog write: %w", err)
 	}
 
+	// Step 2: Commit to each DB (data + LocalMeta.CommittedVersion atomically)
 	if err := s.commitBatches(version); err != nil {
 		return 0, fmt.Errorf("db commit: %w", err)
 	}
 
+	// Step 3: Update in-memory committed state
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
 
-	// Flush before metaDB update to ensure ordering.
-	if !s.config.Fsync {
-		if err := s.flushAllDBs(); err != nil {
-			return 0, fmt.Errorf("flush: %w", err)
-		}
-	}
-
+	// Step 4: Persist global metadata to metadata DB (always every block)
 	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
 
+	// Step 5: Clear pending buffers
 	s.clearPendingWrites()
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
@@ -244,6 +252,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	return version, nil
 }
 
+// flushAllDBs flushes all data DBs to ensure data is on disk.
 func (s *CommitStore) flushAllDBs() error {
 	if err := s.accountDB.Flush(); err != nil {
 		return fmt.Errorf("accountDB flush: %w", err)
@@ -260,6 +269,7 @@ func (s *CommitStore) flushAllDBs() error {
 	return nil
 }
 
+// clearPendingWrites clears all pending write buffers
 func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*pendingAccountWrite)
 	s.codeWrites = make(map[string]*pendingKVWrite)
@@ -273,7 +283,8 @@ func (s *CommitStore) clearPendingWrites() {
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := db_engine.WriteOptions{Sync: s.config.Fsync}
 
-	// accountDB: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
+	// Commit to accountDB
+	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
 	if len(s.accountWrites) > 0 || version > s.localMeta[accountDBDir].CommittedVersion {
 		batch := s.accountDB.NewBatch()
 		defer func() { _ = batch.Close() }()
@@ -285,6 +296,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 					return fmt.Errorf("accountDB delete: %w", err)
 				}
 			} else {
+				// Encode AccountValue and store with addr as key
 				encoded := EncodeAccountValue(paw.value)
 				if err := batch.Set(key, encoded); err != nil {
 					return fmt.Errorf("accountDB set: %w", err)
@@ -292,8 +304,10 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// LocalMeta update is in the same batch for atomicity.
-		newLocalMeta := &LocalMeta{CommittedVersion: version}
+		// Update local meta atomically with data (same batch)
+		newLocalMeta := &LocalMeta{
+			CommittedVersion: version,
+		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("accountDB local meta set: %w", err)
 		}
@@ -301,9 +315,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("accountDB commit: %w", err)
 		}
+
+		// Update in-memory local meta after successful commit
 		s.localMeta[accountDBDir] = newLocalMeta
 	}
 
+	// Commit to codeDB
 	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
 		batch := s.codeDB.NewBatch()
 		defer func() { _ = batch.Close() }()
@@ -320,7 +337,10 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{CommittedVersion: version}
+		// Update local meta atomically with data (same batch)
+		newLocalMeta := &LocalMeta{
+			CommittedVersion: version,
+		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("codeDB local meta set: %w", err)
 		}
@@ -328,9 +348,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("codeDB commit: %w", err)
 		}
+
+		// Update in-memory local meta after successful commit
 		s.localMeta[codeDBDir] = newLocalMeta
 	}
 
+	// Commit to storageDB
 	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
 		batch := s.storageDB.NewBatch()
 		defer func() { _ = batch.Close() }()
@@ -347,7 +370,10 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{CommittedVersion: version}
+		// Update local meta atomically with data (same batch)
+		newLocalMeta := &LocalMeta{
+			CommittedVersion: version,
+		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("storageDB local meta set: %w", err)
 		}
@@ -355,6 +381,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("storageDB commit: %w", err)
 		}
+
+		// Update in-memory local meta after successful commit
 		s.localMeta[storageDBDir] = newLocalMeta
 	}
 
