@@ -53,10 +53,10 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	// Get the inner state
 	for inner := range state.inner.Lock() {
 		// Now call prune with mismatched QCs directly to test the safety check
-		updated, err := inner.prune(appQC1, qc0)
+		laneFirsts, err := inner.prune(appQC1, qc0)
 
 		require.Error(t, err)
-		require.False(t, updated, "prune should return false for mismatched indices")
+		require.Nil(t, laneFirsts, "prune should return nil for mismatched indices")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
 	}
 }

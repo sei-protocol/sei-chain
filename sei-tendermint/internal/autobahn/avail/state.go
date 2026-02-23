@@ -226,11 +226,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(appQC, qc)
+		laneFirsts, err := inner.prune(appQC, qc)
 		if err != nil {
 			return err
 		}
-		if updated {
+		if laneFirsts != nil {
 			// TODO: persistence errors should be handled by a dedicated background
 			// task (with retry) rather than propagated to the caller, since the
 			// caller is a peer message handler and disconnecting a peer for a local
@@ -239,7 +239,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
 			if bp, ok := s.blockPersist.Get(); ok {
-				if err := bp.QueueDeleteBefore(ctx, firstBlockPerLane(inner)); err != nil {
+				if err := bp.QueueDeleteBefore(ctx, laneFirsts); err != nil {
 					log.Error().Err(err).Msg("failed to queue block cleanup")
 				}
 			}
@@ -268,18 +268,18 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(appQC, commitQC)
+		laneFirsts, err := inner.prune(appQC, commitQC)
 		if err != nil {
 			return err
 		}
-		if updated {
+		if laneFirsts != nil {
 			// TODO: same as PushAppVote -- persistence errors should be retried
 			// by a background task, not returned to the caller.
 			if err := s.persistAppQC(appQC); err != nil {
 				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
 			if bp, ok := s.blockPersist.Get(); ok {
-				if err := bp.QueueDeleteBefore(context.Background(), firstBlockPerLane(inner)); err != nil {
+				if err := bp.QueueDeleteBefore(context.Background(), laneFirsts); err != nil {
 					log.Error().Err(err).Msg("failed to queue block cleanup")
 				}
 			}
@@ -289,13 +289,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	return nil
 }
 
-func firstBlockPerLane(inner *inner) map[types.LaneID]types.BlockNumber {
-	m := make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
-	for lane, q := range inner.blocks {
-		m[lane] = q.first
-	}
-	return m
-}
 
 // persistAppQC writes the AppQC to the A/B file. Called under the inner lock.
 // Errors are logged but not fatal -- on crash we reload an older AppQC and re-converge.
