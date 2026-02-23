@@ -6,26 +6,31 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// RequestListSnapshots is the plain Go replacement for the legacy protobuf message.
+// RequestListSnapshots is emitted at the start of state sync to ask the application
+// which previously committed snapshots are available for peers to download.
 type RequestListSnapshots struct{}
 
-// ResponseListSnapshots is the plain Go replacement for the legacy protobuf message.
+// ResponseListSnapshots returns the snapshot metadata advertised by the
+// application so Tendermint can decide which snapshot to fetch.
 type ResponseListSnapshots struct {
 	Snapshots []*Snapshot
 }
 
-// RequestOfferSnapshot is the plain Go replacement for the legacy protobuf message.
+// RequestOfferSnapshot propagates a snapshot offered by a peer so the
+// application can inspect the metadata and the peer's app hash before accepting.
 type RequestOfferSnapshot struct {
 	Snapshot *Snapshot
 	AppHash  []byte
 }
 
-// ResponseOfferSnapshot is the plain Go replacement for the legacy protobuf message.
+// ResponseOfferSnapshot instructs Tendermint how to proceed with the offered
+// snapshot (accept, reject, retry, etc.).
 type ResponseOfferSnapshot struct {
 	Result ResponseOfferSnapshot_Result
 }
 
-// ResponseOfferSnapshot_Result mirrors the historical protobuf enum.
+// ResponseOfferSnapshot_Result enumerates the possible decisions an
+// application can take when a snapshot offer is received.
 type ResponseOfferSnapshot_Result int32
 
 const (
@@ -56,33 +61,37 @@ func (r ResponseOfferSnapshot_Result) String() string {
 	}
 }
 
-// RequestLoadSnapshotChunk is the plain Go replacement for the legacy protobuf message.
+// RequestLoadSnapshotChunk asks the application to load a specific chunk from
+// the accepted snapshot so Tendermint can forward it to peers.
 type RequestLoadSnapshotChunk struct {
 	Height uint64
 	Format uint32
 	Chunk  uint32
 }
 
-// ResponseLoadSnapshotChunk is the plain Go replacement for the legacy protobuf message.
+// ResponseLoadSnapshotChunk carries the raw bytes for the requested snapshot chunk.
 type ResponseLoadSnapshotChunk struct {
 	Chunk []byte
 }
 
-// RequestApplySnapshotChunk is the plain Go replacement for the legacy protobuf message.
+// RequestApplySnapshotChunk delivers a snapshot chunk to the application so it
+// can reconstruct state during state sync.
 type RequestApplySnapshotChunk struct {
 	Index  uint32
 	Chunk  []byte
 	Sender string
 }
 
-// ResponseApplySnapshotChunk is the plain Go replacement for the legacy protobuf message.
+// ResponseApplySnapshotChunk lets the application signal whether it accepted
+// the chunk or needs Tendermint to resend or reject certain senders/chunks.
 type ResponseApplySnapshotChunk struct {
 	Result        ResponseApplySnapshotChunk_Result
 	RefetchChunks []uint32
 	RejectSenders []string
 }
 
-// ResponseApplySnapshotChunk_Result mirrors the historical protobuf enum.
+// ResponseApplySnapshotChunk_Result captures the application-side outcome when
+// applying a chunk (accept, abort, retry, etc.).
 type ResponseApplySnapshotChunk_Result int32
 
 const (
@@ -113,7 +122,8 @@ func (r ResponseApplySnapshotChunk_Result) String() string {
 	}
 }
 
-// ResponseProcessProposal is the plain Go replacement for the legacy protobuf message.
+// ResponseProcessProposal communicates the application's decision after
+// evaluating a proposed block before votes are cast in the ProcessProposal step.
 type ResponseProcessProposal struct {
 	Status                ResponseProcessProposal_ProposalStatus
 	AppHash               []byte
@@ -122,7 +132,8 @@ type ResponseProcessProposal struct {
 	ConsensusParamUpdates *tmproto.ConsensusParams
 }
 
-// ResponseProcessProposal_ProposalStatus mirrors the historical protobuf enum.
+// ResponseProcessProposal_ProposalStatus lists the possible verdicts when an
+// application inspects a proposed block (accept, reject, or unknown).
 type ResponseProcessProposal_ProposalStatus int32
 
 const (
@@ -144,7 +155,9 @@ func (s ResponseProcessProposal_ProposalStatus) String() string {
 	}
 }
 
-// RequestProcessProposal is the plain Go replacement for the legacy protobuf message.
+// RequestProcessProposal bundles all of the proposed block data that the
+// application can inspect to decide whether the block should move forward in
+// consensus.
 type RequestProcessProposal struct {
 	Txs                   [][]byte
 	ProposedLastCommit    CommitInfo
@@ -292,7 +305,8 @@ func (m *RequestProcessProposal) GetLastResultsHash() []byte {
 	return m.LastResultsHash
 }
 
-// RequestFinalizeBlock is the plain Go replacement for the legacy protobuf message.
+// RequestFinalizeBlock is emitted after a proposal is committed so the
+// application can run FinalizeBlock logic over the same block data it agreed to.
 type RequestFinalizeBlock struct {
 	Txs                   [][]byte
 	DecidedLastCommit     CommitInfo
