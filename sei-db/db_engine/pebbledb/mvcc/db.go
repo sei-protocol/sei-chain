@@ -83,7 +83,6 @@ type VersionedChangesets struct {
 }
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
-	fmt.Println("[DEBUG] In PebbleDB OpenDB")
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 

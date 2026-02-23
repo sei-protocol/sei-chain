@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,8 +16,9 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = b.TempDir()
-	cfg.KeepRecent = 0
-	cfg.PruneIntervalSeconds = 0
+	fmt.Println("cfg.DBDirectory = ", cfg.DBDirectory)
+	cfg.KeepRecent = 1000
+	cfg.PruneIntervalSeconds = 10
 	cfg.Backend = receiptBackendParquet
 
 	store, err := newReceiptBackend(dbLogger.NewNopLogger(), cfg, storeKey)
@@ -25,40 +27,39 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.Cleanup(func() { _ = store.Close() })
 
-	ps, ok := store.(*cachedReceiptStore)
+	pqs, ok := store.(*parquetReceiptStore)
 	if !ok {
-		b.Fatalf("expected cached receipt store, got %T", store)
-	}
-	pqs, ok := ps.backend.(*parquetReceiptStore)
-	if !ok {
-		b.Fatalf("expected parquet receipt store backend, got %T", ps.backend)
+		b.Fatalf("expected parquet receipt store, got %T", store)
 	}
 
-	// Use batched flush interval (every 25 blocks) instead of per-block
-	pqs.store.SetBlockFlushInterval(25)
+	pqs.store.SetBlockFlushInterval(100)
 
 	totalReceipts := receiptsPerBlock * blocks
-	allBatches := make([][]ReceiptRecord, blocks)
-	var seed uint64
-	for block := 0; block < blocks; block++ {
-		allBatches[block] = makeDummyReceiptBatch(uint64(block+1), receiptsPerBlock, seed)
-		seed += uint64(receiptsPerBlock)
-	}
-	bytePerReceipt := len(allBatches[0][0].ReceiptBytes)
+	batch := makeDummyReceiptBatch(1, receiptsPerBlock, 0)
+	bytePerReceipt := len(batch[0].ReceiptBytes)
 	totalBytes := int64(bytePerReceipt * totalReceipts)
 
+	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for block := 0; block < blocks; block++ {
 			blockNumber := int64(i*blocks + block + 1)
-			if err := pqs.SetReceipts(ctx.WithBlockHeight(blockNumber), allBatches[block]); err != nil {
+			for j := range batch {
+				batch[j].Receipt.BlockNumber = uint64(blockNumber) //nolint:gosec
+			}
+			if err := pqs.SetReceipts(ctx.WithBlockHeight(blockNumber), batch); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
+			if (block+1)%1000 == 0 {
+				fmt.Printf("parquet: block %d/%d (%.1f%%)\n", block+1, blocks, float64(block+1)/float64(blocks)*100)
+			}
 		}
+		fmt.Println("parquet: starting final flush...")
 		if err := pqs.store.Flush(); err != nil {
 			b.Fatalf("failed to flush parquet files: %v", err)
 		}
+		fmt.Println("parquet: final flush complete")
 	}
 	b.StopTimer()
 
@@ -82,16 +83,11 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 	}
 	b.Cleanup(func() { _ = store.Close() })
 
-	ps, ok := store.(*cachedReceiptStore)
+	pqs, ok := store.(*parquetReceiptStore)
 	if !ok {
-		b.Fatalf("expected cached receipt store, got %T", store)
-	}
-	pqs, ok := ps.backend.(*parquetReceiptStore)
-	if !ok {
-		b.Fatalf("expected parquet receipt store backend, got %T", ps.backend)
+		b.Fatalf("expected parquet receipt store, got %T", store)
 	}
 
-	// Disable intermediate flushes - only flush at end of iteration
 	pqs.store.SetBlockFlushInterval(10000)
 
 	totalReceipts := receiptsPerBlock * blocks

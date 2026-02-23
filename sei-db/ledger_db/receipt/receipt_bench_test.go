@@ -16,19 +16,16 @@ import (
 // BenchmarkReceiptWriteAsync compares async write throughput between pebble and parquet.
 func BenchmarkReceiptWriteAsync(b *testing.B) {
 	const (
-		blocks           = 100000 // 100k
+		blocks           = 5000 // 5k
 		receiptsPerBlock = 3000
 	)
 	b.Run(fmt.Sprintf("blocks=%d/per_block=%d", blocks, receiptsPerBlock), func(b *testing.B) {
-		b.Run("pebble-async-with-wal", func(b *testing.B) {
-			benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
+		// b.Run("pebble-async-with-wal", func(b *testing.B) {
+		// 	benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
+		// })
+		b.Run("parquet-async-with-wal", func(b *testing.B) {
+			benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
 		})
-		// b.Run("parquet-async-with-wal", func(b *testing.B) {
-		// 	benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
-		// })
-		// b.Run("parquet-no-wal", func(b *testing.B) {
-		// 	benchmarkParquetWriteNoWAL(b, receiptsPerBlock, blocks)
-		// })
 	})
 }
 
@@ -73,6 +70,9 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 			if err := applyReceiptsAsync(rs, blockNumber, batch); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
+			if (block+1)%1000 == 0 {
+				fmt.Printf("pebble: block %d/%d (%.1f%%)\n", block+1, blocks, float64(block+1)/float64(blocks)*100)
+			}
 		}
 	}
 	rs.db.WaitForPendingWrites()
@@ -112,8 +112,6 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 	}
 	return store.db.ApplyChangesetAsync(version, []*proto.NamedChangeSet{ncs})
 }
-
-var printed = false
 
 func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []ReceiptRecord {
 	records := make([]ReceiptRecord, count)
@@ -155,11 +153,6 @@ func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []Receipt
 		if err != nil {
 			panic(fmt.Sprintf("failed to marshal receipt in benchmark setup: %v", err))
 		}
-		if !printed {
-			printed = true
-			fmt.Println("individual receipt bytes = ", len(receiptBytes))
-			fmt.Println("receipt contents = ", receipt.String())
-		}
 		records[i] = ReceiptRecord{
 			TxHash:       txHash,
 			Receipt:      receipt,
@@ -178,15 +171,10 @@ func hashFromUint64(value uint64) common.Hash {
 func reportBenchMetrics(b *testing.B, totalReceipts int, totalBytes int64, blocks int) {
 	b.Helper()
 	elapsed := b.Elapsed()
-	fmt.Println("elapsed.Seconds() = ", elapsed.Seconds())
-	fmt.Println("b.N = ", b.N)
 	if elapsed > 0 && b.N > 0 {
 		perOpSeconds := elapsed.Seconds() / float64(b.N)
 		if perOpSeconds > 0 {
-			fmt.Println("totalReceipts = ", totalReceipts)
-			fmt.Println("perOpSeconds = ", perOpSeconds)
 			receiptsPerSecond := float64(totalReceipts) / perOpSeconds
-			fmt.Println("receiptsPerSecond = ", receiptsPerSecond)
 			b.ReportMetric(receiptsPerSecond, "receipts/s")
 			bytesPerSecond := float64(totalBytes) / perOpSeconds
 			b.ReportMetric(bytesPerSecond, "bytes/s")

@@ -70,6 +70,7 @@ type Store struct {
 
 	log       dbLogger.Logger
 	pruneStop chan struct{}
+	pruneWG   sync.WaitGroup
 
 	// WarmupRecords holds receipts recovered from WAL for cache warming.
 	WarmupRecords []ReceiptRecord
@@ -245,6 +246,7 @@ func (s *Store) Close() error {
 	s.closeOnce.Do(func() {
 		if s.pruneStop != nil {
 			close(s.pruneStop)
+			s.pruneWG.Wait()
 		}
 
 		s.mu.Lock()
@@ -307,7 +309,9 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 	if s.config.KeepRecent <= 0 || pruneIntervalSeconds <= 0 {
 		return
 	}
+	s.pruneWG.Add(1)
 	go func() {
+		defer s.pruneWG.Done()
 		for {
 			latestVersion := s.latestVersion.Load()
 			pruneBeforeBlock := latestVersion - s.config.KeepRecent
