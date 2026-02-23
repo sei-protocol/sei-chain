@@ -21,8 +21,8 @@ const (
 	// EVMStoreName simulates the EVM module store
 	EVMStoreName = "evm"
 
-	// KeySize EVM storage key: 20-byte address + 32-byte slot = 52 bytes
-	KeySize   = 52
+	// KeySize EVM storage key: 0x03 prefix + 20-byte address + 32-byte slot = 53 bytes
+	KeySize   = 53
 	ValueSize = 32
 )
 
@@ -237,7 +237,7 @@ func startChangesetGenerator(scenario TestScenario) <-chan *proto.NamedChangeSet
 
 func keyFromIndex(index int64) []byte {
 	key := make([]byte, KeySize)
-	copy(key, "0x")
+	key[0] = 0x03
 	var input [9]byte
 	if index < 0 {
 		panic(fmt.Sprintf("negative key index: %d", index))
@@ -246,8 +246,8 @@ func keyFromIndex(index int64) []byte {
 	sum1 := sha256.Sum256(input[:])
 	input[0] = 1
 	sum2 := sha256.Sum256(input[:])
-	copy(key[2:], sum1[:])
-	copy(key[2+len(sum1):], sum2[:len(key)-2-len(sum1)])
+	copy(key[1:], sum1[:])
+	copy(key[1+len(sum1):], sum2[:len(key)-1-len(sum1)])
 	return key
 }
 
