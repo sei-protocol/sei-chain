@@ -1811,6 +1811,29 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}
 	}
 
+	// 5. Insufficient balance check for gas * price + value (INSUFFICIENT_FUNDS_FOR_TRANSFER)
+	// V2: x/evm/ante/fee.go calls st.BuyGas() which checks if sender has enough balance
+	// to cover gas * GasFeeCap + value before allowing execution.
+	// IMPORTANT: BuyGas uses GasFeeCap (not effectiveGasPrice) for the balance check!
+	// This ensures the user can pay the max fee they specified, even if actual fee is lower.
+	// If insufficient, V2 returns ErrInsufficientFunds but still bumps nonce via DeliverTxCallback.
+	if validationErr == nil {
+		// BuyGas checks balance against GasLimit * GasFeeCap + Value (see go-ethereum/core/state_transition.go:264-291)
+		balanceCheck := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), ethTx.GasFeeCap())
+		balanceCheck.Add(balanceCheck, ethTx.Value())
+
+		// Get sender's current balance (usei + wei combined as wei)
+		// GigaEvmKeeper.GetBalance takes sdk.AccAddress and returns total wei balance
+		senderBalance := app.GigaEvmKeeper.GetBalance(ctx, seiAddr)
+
+		if senderBalance.Cmp(balanceCheck) < 0 {
+			validationErr = &abci.ExecTxResult{
+				Code: uint32(sdkerrors.ErrInsufficientFunds.ABCICode()),
+				Log:  fmt.Sprintf("insufficient funds for gas * price + value: address %s have %v want %v: insufficient funds", sender.Hex(), senderBalance, balanceCheck),
+			}
+		}
+	}
+
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
