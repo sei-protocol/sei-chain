@@ -15,23 +15,22 @@ type inner struct {
 	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
 	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
-	// blockPersisted tracks per-lane how far block persistence has progressed.
+	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
 	// nil when persistence is disabled (testing); RecvBatch then uses q.next.
-	// blockPersisted itself is not persisted to disk: on restart it is
+	// nextBlockToPersist itself is not persisted to disk: on restart it is
 	// reconstructed from the blocks already on disk (see newInner).
-	blockPersisted map[types.LaneID]types.BlockNumber
+	nextBlockToPersist map[types.LaneID]types.BlockNumber
 }
 
 // loadedAvailState holds data loaded from disk on restart.
-// nil means fresh start (no persisted data).
 // blocks are sorted by number and contiguous (gaps already resolved by loader).
 type loadedAvailState struct {
 	appQC  utils.Option[*types.AppQC]
 	blocks map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
+func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
@@ -48,13 +47,14 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		votes:          votes,
 	}
 
-	if loaded == nil {
+	l, ok := loaded.Get()
+	if !ok {
 		return i
 	}
 
 	// Restore AppQC and advance queues past already-processed indices.
-	i.latestAppQC = loaded.appQC
-	if aq, ok := loaded.appQC.Get(); ok {
+	i.latestAppQC = l.appQC
+	if aq, ok := l.appQC.Get(); ok {
 		// CommitQCs through this index have been processed; skip them.
 		i.commitQCs.first = aq.Proposal().RoadIndex() + 1
 		i.commitQCs.next = i.commitQCs.first
@@ -63,36 +63,32 @@ func newInner(c *types.Committee, loaded *loadedAvailState) *inner {
 		i.appVotes.next = i.appVotes.first
 	}
 
-	// blockPersisted gates RecvBatch: only blocks below this cursor are
+	// nextBlockToPersist gates RecvBatch: only blocks below this cursor are
 	// eligible for voting. Lanes without loaded blocks start at 0, which
 	// is safe — an empty queue has nothing to vote on. New blocks must
 	// arrive in order via PushBlock, get persisted, and the callback will
-	// advance blockPersisted accordingly.
-	i.blockPersisted = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
+	// advance nextBlockToPersist accordingly.
+	i.nextBlockToPersist = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
 
 	// Restore persisted blocks into their lane queues.
-	for lane, bs := range loaded.blocks {
+	for lane, bs := range l.blocks {
 		q, ok := i.blocks[lane]
 		if !ok || len(bs) == 0 {
 			continue
 		}
 		first := bs[0].Number
-		q.first = first
-		q.next = first
+		q.prune(first)
 		for _, b := range bs {
-			q.q[q.next] = b.Proposal
-			q.next++
+			q.pushBack(b.Proposal)
 		}
 		// Loaded blocks are already on disk, so immediately consider them persisted.
-		i.blockPersisted[lane] = q.next
+		i.nextBlockToPersist[lane] = q.next
 		// Votes are not persisted (cheap to re-gossip, short-lived, and
 		// high-volume per block × validator). Advance the votes queue past
 		// loaded blocks so that headers() returns ErrPruned for blocks
 		// before `first` instead of blocking forever waiting for votes
 		// that will never arrive.
-		vq := i.votes[lane]
-		vq.first = first
-		vq.next = first
+		i.votes[lane].prune(first)
 	}
 
 	return i

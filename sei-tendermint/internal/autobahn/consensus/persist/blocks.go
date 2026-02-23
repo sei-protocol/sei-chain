@@ -42,11 +42,11 @@ type LoadedBlock struct {
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
 	ch  chan persistJob
-	// persisted tracks the exclusive upper bound of contiguously persisted
+	// nextToPersist tracks the exclusive upper bound of contiguously persisted
 	// blocks per lane. With the current FIFO queue, this simply advances on
 	// every write. For future parallel storage, this would need to track
 	// individual completions and compute the contiguous prefix.
-	persisted map[types.LaneID]types.BlockNumber
+	nextToPersist map[types.LaneID]types.BlockNumber
 }
 
 type persistJob struct {
@@ -71,9 +71,9 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 	}
 
 	bp := &BlockPersister{
-		dir:       dir,
-		ch:        make(chan persistJob, persistQueueSize),
-		persisted: make(map[types.LaneID]types.BlockNumber),
+		dir:           dir,
+		ch:            make(chan persistJob, persistQueueSize),
+		nextToPersist: make(map[types.LaneID]types.BlockNumber),
 	}
 	blocks, err := bp.loadAll()
 	if err != nil {
@@ -81,7 +81,7 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 	}
 	for lane, bs := range blocks {
 		if len(bs) > 0 {
-			bp.persisted[lane] = bs[len(bs)-1].Number + 1
+			bp.nextToPersist[lane] = bs[len(bs)-1].Number + 1
 		}
 	}
 	return bp, blocks, nil
@@ -158,7 +158,7 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 
 // Queue enqueues a block for async persistence. Blocks if the queue is full
 // until space is available or ctx is cancelled. We must not drop blocks because
-// the blockPersisted cursor advances sequentially — a hole would stall voting
+// the nextBlockToPersist cursor advances sequentially — a hole would stall voting
 // on the affected lane until restart (which reconstructs the cursor from disk).
 // TODO: add retry on persistence failure to avoid restart-only recovery.
 func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.BlockNumber, proposal *types.Signed[*types.LaneProposal]) error {
@@ -187,7 +187,7 @@ func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID
 			// to track individual completions and advance past the longest
 			// contiguous prefix.
 			next := job.number + 1
-			bp.persisted[job.lane] = next
+			bp.nextToPersist[job.lane] = next
 			onPersisted(job.lane, next)
 		}
 	}

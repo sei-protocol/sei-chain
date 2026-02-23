@@ -81,18 +81,18 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister, *pers
 // NewState constructs a new availability state.
 // stateDir is None when persistence is disabled (testing only).
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
-	var loaded *loadedAvailState
+	var loaded utils.Option[*loadedAvailState]
 	var p utils.Option[persist.Persister]
 	var bp *persist.BlockPersister
 
 	if dir, ok := stateDir.Get(); ok {
-		var persister persist.Persister
-		var err error
-		loaded, persister, bp, err = loadPersistedState(dir)
+		l, persister, blockPersist, err := loadPersistedState(dir)
 		if err != nil {
 			return nil, err
 		}
+		loaded = utils.Some(l)
 		p = utils.Some(persister)
+		bp = blockPersist
 	}
 
 	return &State{
@@ -566,7 +566,7 @@ func (s *State) Run(ctx context.Context) error {
 			scope.SpawnNamed("blockPersistWriter", func() error {
 				return s.blockPersist.Run(ctx, func(lane types.LaneID, next types.BlockNumber) {
 					for inner, ctrl := range s.inner.Lock() {
-						inner.blockPersisted[lane] = next
+						inner.nextBlockToPersist[lane] = next
 						ctrl.Updated()
 					}
 				})
