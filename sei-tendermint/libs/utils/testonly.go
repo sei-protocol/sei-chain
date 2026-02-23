@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -218,4 +219,15 @@ func (c *ProtoConv[T, P]) Test(want T) error {
 		return fmt.Errorf("Decode(Encode()): %w", err)
 	}
 	return TestDiff(want, got)
+}
+
+// IgnoreAfterCancel silently drops the error if the context is already canceled.
+// Should be used for background tasks in tests, which cannot be guaranteed to exit gracefully.
+// For example - if you have a tcp connection, then during cleanup one end will disconnect faster than the other,
+// causing a race condition between context cancellation and disconnection error.
+func IgnoreAfterCancel(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
 }

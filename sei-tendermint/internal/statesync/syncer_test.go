@@ -614,17 +614,27 @@ func TestSyncer_applyChunks_RefetchChunks(t *testing.T) {
 			// Since removing the chunk will cause Next() to block, we spawn a goroutine, then
 			// check the queue contents, and finally close the queue to end the goroutine.
 			// We don't really care about the result of applyChunks, since it has separate test.
+			done := make(chan struct{})
 			go func() {
-				rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime) //nolint:errcheck // purposefully ignore error
+				defer close(done)
+				// purposefully ignore error
+				_ = rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime)
 			}()
 
-			time.Sleep(50 * time.Millisecond)
-			require.True(t, chunks.Has(0))
-			require.False(t, chunks.Has(1))
-			require.True(t, chunks.Has(2))
+			require.Eventually(t, func() bool {
+				return chunks.Has(0) && !chunks.Has(1) && chunks.Has(2)
+			}, 2*time.Second, 20*time.Millisecond)
 
-			require.NoError(t, chunks.Close())
-			app.AssertExpectations(t)
+			t.Cleanup(func() {
+				err = chunks.Close()
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					t.Errorf("applyChunks goroutine did not exit")
+				}
+				require.NoError(t, err)
+				app.AssertExpectations(t)
+			})
 		})
 	}
 }

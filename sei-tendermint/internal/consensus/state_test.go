@@ -1303,6 +1303,9 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 // then we see the polka from round 1 but shouldn't unlock
 func TestStateLock_POLSafety1(t *testing.T) {
 	config := configSetup(t)
+	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
+	config.Consensus.UnsafeProposeTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
 	logger := log.NewNopLogger()
 	ctx := t.Context()
 
