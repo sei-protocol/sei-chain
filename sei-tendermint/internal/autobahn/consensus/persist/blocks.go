@@ -42,16 +42,13 @@ type LoadedBlock struct {
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
 	ch  chan persistJob
-	// nextToPersist tracks the exclusive upper bound of contiguously persisted
-	// blocks per lane. With the current FIFO queue, this simply advances on
-	// every write. For future parallel storage, this would need to track
-	// individual completions and compute the contiguous prefix.
+	// nextToPersist tracks the highest persisted block number + 1 (exclusive
+	// upper bound) per lane. With the current FIFO queue, this simply advances
+	// on every write.
 	nextToPersist map[types.LaneID]types.BlockNumber
 }
 
 type persistJob struct {
-	lane     types.LaneID
-	number   types.BlockNumber
 	proposal *types.Signed[*types.LaneProposal]
 }
 
@@ -113,13 +110,14 @@ func parseBlockFilename(name string) (types.LaneID, types.BlockNumber, error) {
 }
 
 // PersistBlock writes a signed lane proposal to its own file.
-func (bp *BlockPersister) PersistBlock(lane types.LaneID, n types.BlockNumber, proposal *types.Signed[*types.LaneProposal]) error {
+func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposal]) error {
+	h := proposal.Msg().Block().Header()
 	pb := types.SignedMsgConv[*types.LaneProposal]().Encode(proposal)
 	data, err := proto.Marshal(pb)
 	if err != nil {
-		return fmt.Errorf("marshal block %s/%d: %w", lane, n, err)
+		return fmt.Errorf("marshal block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 	}
-	path := filepath.Join(bp.dir, blockFilename(lane, n))
+	path := filepath.Join(bp.dir, blockFilename(h.Lane(), h.BlockNumber()))
 	return writeAndSync(path, data)
 }
 
@@ -161,9 +159,9 @@ func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 // the nextBlockToPersist cursor advances sequentially — a hole would stall voting
 // on the affected lane until restart (which reconstructs the cursor from disk).
 // TODO: add retry on persistence failure to avoid restart-only recovery.
-func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.BlockNumber, proposal *types.Signed[*types.LaneProposal]) error {
+func (bp *BlockPersister) Queue(ctx context.Context, proposal *types.Signed[*types.LaneProposal]) error {
 	select {
-	case bp.ch <- persistJob{lane: lane, number: n, proposal: proposal}:
+	case bp.ch <- persistJob{proposal: proposal}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -171,24 +169,24 @@ func (bp *BlockPersister) Queue(ctx context.Context, lane types.LaneID, n types.
 }
 
 // Run drains the internal queue, fsyncs each block to disk, and calls
-// onPersisted with the exclusive upper bound of contiguously persisted blocks
-// for the lane. Blocks until ctx is cancelled.
+// onPersisted with the highest persisted block number + 1 (exclusive upper
+// bound) for the lane. Blocks until ctx is cancelled.
 func (bp *BlockPersister) Run(ctx context.Context, onPersisted func(types.LaneID, types.BlockNumber)) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case job := <-bp.ch:
-			if err := bp.PersistBlock(job.lane, job.number, job.proposal); err != nil {
-				return fmt.Errorf("persist block %s/%d: %w", job.lane, job.number, err)
+			h := job.proposal.Msg().Block().Header()
+			if err := bp.PersistBlock(job.proposal); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 			}
-			// FIFO queue guarantees per-lane order, so n+1 is always the
-			// contiguous watermark. For parallel persistence, this would need
-			// to track individual completions and advance past the longest
-			// contiguous prefix.
-			next := job.number + 1
-			bp.nextToPersist[job.lane] = next
-			onPersisted(job.lane, next)
+			// FIFO queue guarantees per-lane order, so n+1 is the highest
+			// persisted + 1. For parallel persistence, this would need to
+			// track individual completions.
+			next := h.BlockNumber() + 1
+			bp.nextToPersist[h.Lane()] = next
+			onPersisted(h.Lane(), next)
 		}
 	}
 }

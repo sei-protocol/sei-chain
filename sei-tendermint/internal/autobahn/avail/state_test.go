@@ -359,7 +359,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PersistBlock(lane, n, signed))
+			require.NoError(t, bp.PersistBlock(signed))
 		}
 
 		// Now construct state — it should load the blocks.
@@ -393,7 +393,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PersistBlock(lane, n, signed))
+			require.NoError(t, bp.PersistBlock(signed))
 		}
 
 		// Construct state.
@@ -425,7 +425,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for n := types.BlockNumber(5); n < 8; n++ {
 			b := testSignedBlock(keys[0], lane, n, parent, rng)
 			parent = b.Msg().Block().Header().Hash()
-			require.NoError(t, bp.PersistBlock(lane, n, b))
+			require.NoError(t, bp.PersistBlock(b))
 		}
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))

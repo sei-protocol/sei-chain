@@ -391,7 +391,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		return utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, h.Lane(), h.BlockNumber(), p))
+		return utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, p))
 	}
 	return nil
 }
@@ -554,7 +554,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		if err := utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, lane, blockNum, result)); err != nil {
+		if err := utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, result)); err != nil {
 			return nil, err
 		}
 	}

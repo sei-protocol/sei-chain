@@ -40,8 +40,8 @@ func TestPersistBlockAndLoad(t *testing.T) {
 
 	b0 := testSignedProposal(rng, key, 0)
 	b1 := testSignedProposal(rng, key, 1)
-	require.NoError(t, bp.PersistBlock(lane, 0, b0))
-	require.NoError(t, bp.PersistBlock(lane, 1, b1))
+	require.NoError(t, bp.PersistBlock(b0))
+	require.NoError(t, bp.PersistBlock(b1))
 
 	bp2, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
@@ -67,8 +67,8 @@ func TestPersistBlockMultipleLanes(t *testing.T) {
 
 	b1 := testSignedProposal(rng, key1, 0)
 	b2 := testSignedProposal(rng, key2, 0)
-	require.NoError(t, bp.PersistBlock(lane1, 0, b1))
-	require.NoError(t, bp.PersistBlock(lane2, 0, b2))
+	require.NoError(t, bp.PersistBlock(b1))
+	require.NoError(t, bp.PersistBlock(b2))
 
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestLoadSkipsCorruptBlockFile(t *testing.T) {
 
 	// Write a good block
 	b0 := testSignedProposal(rng, key, 0)
-	require.NoError(t, bp.PersistBlock(lane, 0, b0))
+	require.NoError(t, bp.PersistBlock(b0))
 
 	// Write a corrupt file with a valid filename
 	corruptName := blockFilename(lane, 1)
@@ -115,8 +115,8 @@ func TestLoadCorruptMidSequenceTruncatesAtGap(t *testing.T) {
 	// After skipping corrupt-1, raw has {0, 2} → gap at 1 → contiguous prefix [0].
 	b0 := testSignedProposal(rng, key, 0)
 	b2 := testSignedProposal(rng, key, 2)
-	require.NoError(t, bp.PersistBlock(lane, 0, b0))
-	require.NoError(t, bp.PersistBlock(lane, 2, b2))
+	require.NoError(t, bp.PersistBlock(b0))
+	require.NoError(t, bp.PersistBlock(b2))
 	corruptName := blockFilename(lane, 1)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocks", corruptName), []byte("corrupt"), 0600))
 
@@ -138,7 +138,7 @@ func TestLoadTruncatesAtGap(t *testing.T) {
 
 	// Persist blocks 3, 4, 6, 7 (gap at 5).
 	for _, n := range []types.BlockNumber{3, 4, 6, 7} {
-		require.NoError(t, bp.PersistBlock(lane, n, testSignedProposal(rng, key, n)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key, n)))
 	}
 
 	_, blocks, err := NewBlockPersister(dir)
@@ -161,7 +161,7 @@ func TestLoadSkipsMismatchedHeader(t *testing.T) {
 
 	// Write block for lane1 but save it under lane2's filename
 	b := testSignedProposal(rng, key1, 5)
-	require.NoError(t, bp.PersistBlock(lane1, 5, b))
+	require.NoError(t, bp.PersistBlock(b))
 
 	// Rename the file to use lane2 in the filename
 	oldPath := filepath.Join(dir, "blocks", blockFilename(lane1, 5))
@@ -203,7 +203,7 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 
 	// Persist blocks 0..4
 	for i := types.BlockNumber(0); i < 5; i++ {
-		require.NoError(t, bp.PersistBlock(lane, i, testSignedProposal(rng, key, i)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key, i)))
 	}
 
 	// Delete blocks before 3
@@ -229,8 +229,8 @@ func TestDeleteBeforeMultipleLanes(t *testing.T) {
 
 	// Lane1: blocks 0,1,2; Lane2: blocks 0,1,2
 	for i := types.BlockNumber(0); i < 3; i++ {
-		require.NoError(t, bp.PersistBlock(lane1, i, testSignedProposal(rng, key1, i)))
-		require.NoError(t, bp.PersistBlock(lane2, i, testSignedProposal(rng, key2, i)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key1, i)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key2, i)))
 	}
 
 	// Delete lane1 < 2, lane2 < 1
@@ -254,7 +254,7 @@ func TestDeleteBeforeEmptyMap(t *testing.T) {
 	bp, _, err := NewBlockPersister(dir)
 	require.NoError(t, err)
 
-	require.NoError(t, bp.PersistBlock(lane, 0, testSignedProposal(rng, key, 0)))
+	require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key, 0)))
 
 	// Empty map — should not delete anything
 	bp.DeleteBefore(map[types.LaneID]types.BlockNumber{})
@@ -278,8 +278,8 @@ func TestDeleteBeforeRemovesOrphanedLanes(t *testing.T) {
 
 	// Persist blocks on both lanes.
 	for n := types.BlockNumber(0); n < 3; n++ {
-		require.NoError(t, bp.PersistBlock(lane1, n, testSignedProposal(rng, key1, n)))
-		require.NoError(t, bp.PersistBlock(lane2, n, testSignedProposal(rng, key2, n)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key1, n)))
+		require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key2, n)))
 	}
 
 	// Only lane1 is in the current committee; lane2 is orphaned.
