@@ -224,19 +224,12 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
 
-	// Step 4: Flush data DBs if not using fsync (ensures data is on disk before metaDB update)
-	if !s.config.Fsync {
-		if err := s.flushAllDBs(); err != nil {
-			return 0, fmt.Errorf("flush: %w", err)
-		}
-	}
-
-	// Step 5: Persist global metadata to metadata DB (always every block)
+	// Step 4: Persist global metadata to metadata DB (always every block)
 	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
 
-	// Step 6: Clear pending buffers
+	// Step 5: Clear pending buffers
 	s.clearPendingWrites()
 
 	s.log.Info("Committed version", "version", version)
