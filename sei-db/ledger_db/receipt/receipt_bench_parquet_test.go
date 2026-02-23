@@ -37,21 +37,22 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	// Use batched flush interval (every 25 blocks) instead of per-block
 	pqs.store.SetBlockFlushInterval(25)
 
-	var seed uint64
 	totalReceipts := receiptsPerBlock * blocks
-	bytesPerReceipt := receiptBytesPerReceipt(b)
-	totalBytes := int64(bytesPerReceipt * totalReceipts)
-	b.SetBytes(totalBytes)
+	allBatches := make([][]ReceiptRecord, blocks)
+	var seed uint64
+	for block := 0; block < blocks; block++ {
+		allBatches[block] = makeDummyReceiptBatch(uint64(block+1), receiptsPerBlock, seed)
+		seed += uint64(receiptsPerBlock)
+	}
+	bytePerReceipt := len(allBatches[0][0].ReceiptBytes)
+	totalBytes := int64(bytePerReceipt * totalReceipts)
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for block := 0; block < blocks; block++ {
-			blockNumber := uint64(i*blocks + block + 1)
-			b.StopTimer()
-			records := makeDummyReceiptBatch(blockNumber, receiptsPerBlock, seed)
-			seed += uint64(receiptsPerBlock)
-			b.StartTimer()
-			if err := pqs.SetReceipts(ctx.WithBlockHeight(int64(blockNumber)), records); err != nil {
+			blockNumber := int64(i*blocks + block + 1)
+			if err := pqs.SetReceipts(ctx.WithBlockHeight(blockNumber), allBatches[block]); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
 		}
@@ -93,22 +94,24 @@ func benchmarkParquetWriteNoWAL(b *testing.B, receiptsPerBlock int, blocks int) 
 	// Disable intermediate flushes - only flush at end of iteration
 	pqs.store.SetBlockFlushInterval(10000)
 
-	var seed uint64
 	totalReceipts := receiptsPerBlock * blocks
-	bytesPerReceipt := receiptBytesPerReceipt(b)
-	totalBytes := int64(bytesPerReceipt * totalReceipts)
+
+	allBatches := make([][]ReceiptRecord, blocks)
+	var seed uint64
+	for block := 0; block < blocks; block++ {
+		allBatches[block] = makeDummyReceiptBatch(uint64(block+1), receiptsPerBlock, seed)
+		seed += uint64(receiptsPerBlock)
+	}
+	bytePerReceipt := len(allBatches[0][0].ReceiptBytes)
+	totalBytes := int64(bytePerReceipt * totalReceipts)
+
 	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for block := 0; block < blocks; block++ {
 			blockNumber := uint64(i*blocks + block + 1)
-			b.StopTimer()
-			records := makeDummyReceiptBatch(blockNumber, receiptsPerBlock, seed)
-			seed += uint64(receiptsPerBlock)
-			b.StartTimer()
-
-			if err := writeParquetNoWAL(pqs, blockNumber, records); err != nil {
+			if err := writeParquetNoWAL(pqs, blockNumber, allBatches[block]); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
 		}
@@ -131,17 +134,7 @@ func writeParquetNoWAL(ps *parquetReceiptStore, blockNumber uint64, records []Re
 			continue
 		}
 
-		receipt := record.Receipt
-		receiptBytes := record.ReceiptBytes
-		if len(receiptBytes) == 0 {
-			var err error
-			receiptBytes, err = receipt.Marshal()
-			if err != nil {
-				return err
-			}
-		}
-
-		txLogs := getLogsForTx(receipt, 0)
+		txLogs := getLogsForTx(record.Receipt, 0)
 		for _, lg := range txLogs {
 			lg.BlockHash = blockHash
 		}
@@ -151,10 +144,10 @@ func writeParquetNoWAL(ps *parquetReceiptStore, blockNumber uint64, records []Re
 			Receipt: parquet.ReceiptRecord{
 				TxHash:       parquet.CopyBytes(record.TxHash[:]),
 				BlockNumber:  blockNumber,
-				ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
+				ReceiptBytes: parquet.CopyBytesOrEmpty(record.ReceiptBytes),
 			},
 			Logs:         buildParquetLogRecords(txLogs, blockHash),
-			ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
+			ReceiptBytes: parquet.CopyBytesOrEmpty(record.ReceiptBytes),
 		})
 	}
 

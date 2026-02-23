@@ -14,27 +14,22 @@ import (
 )
 
 // BenchmarkReceiptWriteAsync compares async write throughput between pebble and parquet.
-// Writes total receipts across 100 blocks.
 func BenchmarkReceiptWriteAsync(b *testing.B) {
-	const blocks = 100
-	// Total receipts spread across 100 blocks
-	// 100,000 total = 1,000 receipts/block
-	// 1,000,000 total = 10,000 receipts/block
-	totalReceipts := []int{100_000, 1_000_000}
-	for _, total := range totalReceipts {
-		receiptsPerBlock := total / blocks
-		b.Run(fmt.Sprintf("blocks=%d/receipts=%d/per_block=%d", blocks, total, receiptsPerBlock), func(b *testing.B) {
-			b.Run("pebble-async", func(b *testing.B) {
-				benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
-			})
-			b.Run("parquet-async", func(b *testing.B) {
-				benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
-			})
-			b.Run("parquet-no-wal", func(b *testing.B) {
-				benchmarkParquetWriteNoWAL(b, receiptsPerBlock, blocks)
-			})
+	const (
+		blocks           = 100000 // 100k
+		receiptsPerBlock = 3000
+	)
+	b.Run(fmt.Sprintf("blocks=%d/per_block=%d", blocks, receiptsPerBlock), func(b *testing.B) {
+		b.Run("pebble-async-with-wal", func(b *testing.B) {
+			benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
 		})
-	}
+		// b.Run("parquet-async-with-wal", func(b *testing.B) {
+		// 	benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
+		// })
+		// b.Run("parquet-no-wal", func(b *testing.B) {
+		// 	benchmarkParquetWriteNoWAL(b, receiptsPerBlock, blocks)
+		// })
+	})
 }
 
 func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
@@ -43,8 +38,8 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	_, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = b.TempDir()
-	cfg.KeepRecent = 0
-	cfg.PruneIntervalSeconds = 0
+	cfg.KeepRecent = 1000
+	cfg.PruneIntervalSeconds = 10
 	cfg.Backend = receiptBackendPebble
 
 	store, err := newReceiptBackend(dbLogger.NewNopLogger(), cfg, storeKey)
@@ -58,26 +53,41 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 		b.Fatalf("expected pebble receipt store, got %T", store)
 	}
 
-	var seed uint64
 	totalReceipts := receiptsPerBlock * blocks
-	bytesPerReceipt := receiptBytesPerReceipt(b)
-	totalBytes := int64(bytesPerReceipt * totalReceipts)
+	batch := makeDummyReceiptBatch(1, receiptsPerBlock, 0)
+	totalBytes := int64(len(batch[0].ReceiptBytes) * totalReceipts)
+
+	// Get Pebble metrics before writing mostly to track compaction and flush counts.
+	before := rs.db.PebbleMetrics()
+	beforeCompactCount := int64(before.Compact.Count)
+	beforeCompactDuration := before.Compact.Duration.Seconds()
+	beforeFlushCount := int64(before.Flush.Count)
+	beforeFlushBytes := int64(before.Flush.WriteThroughput.Bytes)
+
 	b.SetBytes(totalBytes)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for block := 0; block < blocks; block++ {
-			blockNumber := uint64(i*blocks + block + 1)
-			b.StopTimer()
-			records := makeDummyReceiptBatch(blockNumber, receiptsPerBlock, seed)
-			seed += uint64(receiptsPerBlock)
-			b.StartTimer()
-			if err := applyReceiptsAsync(rs, int64(blockNumber), records); err != nil {
+			blockNumber := int64(i*blocks + block + 1)
+			if err := applyReceiptsAsync(rs, blockNumber, batch); err != nil {
 				b.Fatalf("failed to write receipts: %v", err)
 			}
 		}
 	}
+	rs.db.WaitForPendingWrites()
 	b.StopTimer()
+
+	// Get Pebble metrics after writing to track compaction and flush counts.
+	after := rs.db.PebbleMetrics()
+	afterCompactCount := int64(after.Compact.Count)
+	afterCompactDuration := after.Compact.Duration.Seconds()
+	afterFlushCount := int64(after.Flush.Count)
+	afterFlushBytes := int64(after.Flush.WriteThroughput.Bytes)
+	b.ReportMetric(float64(afterCompactCount-beforeCompactCount), "compactions")
+	b.ReportMetric(afterCompactDuration-beforeCompactDuration, "compaction_s")
+	b.ReportMetric(float64(afterFlushCount-beforeFlushCount), "flushes")
+	b.ReportMetric(float64(afterFlushBytes-beforeFlushBytes), "flush_bytes")
 
 	reportBenchMetrics(b, totalReceipts, totalBytes, blocks)
 }
@@ -89,17 +99,9 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 		if record.Receipt == nil {
 			continue
 		}
-		marshalledReceipt := record.ReceiptBytes
-		if len(marshalledReceipt) == 0 {
-			var err error
-			marshalledReceipt, err = record.Receipt.Marshal()
-			if err != nil {
-				return err
-			}
-		}
 		kvPair := &iavl.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
-			Value: marshalledReceipt,
+			Value: record.ReceiptBytes,
 		}
 		pairs = append(pairs, kvPair)
 	}
@@ -110,6 +112,8 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 	}
 	return store.db.ApplyChangesetAsync(version, []*proto.NamedChangeSet{ncs})
 }
+
+var printed = false
 
 func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []ReceiptRecord {
 	records := make([]ReceiptRecord, count)
@@ -151,6 +155,11 @@ func makeDummyReceiptBatch(blockNumber uint64, count int, seed uint64) []Receipt
 		if err != nil {
 			panic(fmt.Sprintf("failed to marshal receipt in benchmark setup: %v", err))
 		}
+		if !printed {
+			printed = true
+			fmt.Println("individual receipt bytes = ", len(receiptBytes))
+			fmt.Println("receipt contents = ", receipt.String())
+		}
 		records[i] = ReceiptRecord{
 			TxHash:       txHash,
 			Receipt:      receipt,
@@ -166,29 +175,18 @@ func hashFromUint64(value uint64) common.Hash {
 	return common.BytesToHash(buf[:])
 }
 
-func receiptBytesPerReceipt(b *testing.B) int {
-	b.Helper()
-	records := makeDummyReceiptBatch(1, 1, 0)
-	if len(records) == 0 || records[0].Receipt == nil {
-		b.Fatalf("failed to build receipt for size calculation")
-	}
-	if len(records[0].ReceiptBytes) > 0 {
-		return len(records[0].ReceiptBytes)
-	}
-	data, err := records[0].Receipt.Marshal()
-	if err != nil {
-		b.Fatalf("failed to marshal receipt for size calculation: %v", err)
-	}
-	return len(data)
-}
-
 func reportBenchMetrics(b *testing.B, totalReceipts int, totalBytes int64, blocks int) {
 	b.Helper()
 	elapsed := b.Elapsed()
+	fmt.Println("elapsed.Seconds() = ", elapsed.Seconds())
+	fmt.Println("b.N = ", b.N)
 	if elapsed > 0 && b.N > 0 {
 		perOpSeconds := elapsed.Seconds() / float64(b.N)
 		if perOpSeconds > 0 {
+			fmt.Println("totalReceipts = ", totalReceipts)
+			fmt.Println("perOpSeconds = ", perOpSeconds)
 			receiptsPerSecond := float64(totalReceipts) / perOpSeconds
+			fmt.Println("receiptsPerSecond = ", receiptsPerSecond)
 			b.ReportMetric(receiptsPerSecond, "receipts/s")
 			bytesPerSecond := float64(totalBytes) / perOpSeconds
 			b.ReportMetric(bytesPerSecond, "bytes/s")
