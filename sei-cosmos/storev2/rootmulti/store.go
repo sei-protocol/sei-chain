@@ -632,13 +632,16 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		return res
 	}
 
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	emptyProofError := sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	if res.ProofOps == nil {
+		return emptyProofError
 	}
-
 	// Must have proof ops from underlying store query before appending commit proof.
 	if commitInfo != nil {
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
+	}
+	if len(res.ProofOps.Ops) == 0 {
+		return emptyProofError
 	}
 
 	return res
