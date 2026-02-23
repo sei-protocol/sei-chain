@@ -598,6 +598,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
+			telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "false"),
+				})
 			return sdkerrors.QueryResult(err)
 		}
 		defer rs.releaseHistProofPermit()
@@ -615,27 +620,23 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	res := store.Query(req)
 
-	// If underlying query failed (e.g. invalid height/path), return as-is.
-	if res.Code != 0 {
-		return res
-	}
-
-	if !needProof {
+	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
+	if res.Code != 0 || !needProof {
 		return res
 	}
 
 	// Must have proof ops from underlying store query before appending commit proof.
-	if res.ProofOps == nil {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
-	}
-
 	if commitInfo != nil {
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-
-	if len(res.ProofOps.Ops) == 0 {
+	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
+	telemetry.IncrCounterWithLabels([]string{"historical", "proof"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("success", "true"),
+		})
 
 	return res
 }
