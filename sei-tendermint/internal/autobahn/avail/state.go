@@ -43,6 +43,8 @@ type State struct {
 
 	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
 	persister utils.Option[persist.Persister[*apb.AppQC]]
+	// appQCSend publishes the latest AppQC for async persistence by Run().
+	appQCSend utils.AtomicSend[utils.Option[*types.AppQC]]
 	// blockPersist writes/deletes individual block files; None when persistence is disabled.
 	blockPersist utils.Option[*persist.BlockPersister]
 }
@@ -100,6 +102,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		data:         data,
 		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
 		persister:    p,
+		appQCSend:    utils.NewAtomicSend(utils.None[*types.AppQC]()),
 		blockPersist: bp,
 	}, nil
 }
@@ -231,13 +234,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			return err
 		}
 		if laneFirsts != nil {
-			// TODO: persistence errors should be handled by a dedicated background
-			// task (with retry) rather than propagated to the caller, since the
-			// caller is a peer message handler and disconnecting a peer for a local
-			// disk failure is misleading.
-			if err := s.persistAppQC(appQC); err != nil {
-				log.Error().Err(err).Msg("failed to persist AppQC")
-			}
+			s.appQCSend.Store(utils.Some(appQC))
 			if bp, ok := s.blockPersist.Get(); ok {
 				if err := bp.QueueDeleteBefore(ctx, laneFirsts); err != nil {
 					log.Error().Err(err).Msg("failed to queue block cleanup")
@@ -273,11 +270,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return err
 		}
 		if laneFirsts != nil {
-			// TODO: same as PushAppVote -- persistence errors should be retried
-			// by a background task, not returned to the caller.
-			if err := s.persistAppQC(appQC); err != nil {
-				log.Error().Err(err).Msg("failed to persist AppQC")
-			}
+			s.appQCSend.Store(utils.Some(appQC))
 			if bp, ok := s.blockPersist.Get(); ok {
 				if err := bp.QueueDeleteBefore(context.Background(), laneFirsts); err != nil {
 					log.Error().Err(err).Msg("failed to queue block cleanup")
@@ -287,16 +280,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		}
 	}
 	return nil
-}
-
-// persistAppQC writes the AppQC to the A/B file. Called under the inner lock.
-// Errors are logged but not fatal -- on crash we reload an older AppQC and re-converge.
-func (s *State) persistAppQC(appQC *types.AppQC) error {
-	p, ok := s.persister.Get()
-	if !ok {
-		return nil
-	}
-	return p.Persist(types.AppQCConv.Encode(appQC))
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
@@ -382,7 +365,6 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	}
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
-		// See Queue() for why we must not drop blocks.
 		return bp.Queue(ctx, p)
 	}
 	return nil
@@ -539,13 +521,11 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		}
 		blockNum = q.next
 		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, blockNum, parent, payload)))
-		q.q[q.next] = result
-		q.next += 1
+		q.pushBack(result)
 		ctrl.Updated()
 	}
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
-		// See Queue() for why we must not drop blocks.
 		if err := bp.Queue(ctx, result); err != nil {
 			return nil, err
 		}
@@ -556,6 +536,21 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		if p, ok := s.persister.Get(); ok {
+			appQCRecv := s.appQCSend.Subscribe()
+			scope.SpawnNamed("appQCPersist", func() error {
+				return appQCRecv.Iter(ctx, func(_ context.Context, v utils.Option[*types.AppQC]) error {
+					appQC, ok := v.Get()
+					if !ok {
+						return nil
+					}
+					if err := p.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+						log.Error().Err(err).Msg("failed to persist AppQC")
+					}
+					return nil
+				})
+			})
+		}
 		if bp, ok := s.blockPersist.Get(); ok {
 			tips := bp.Tips()
 			scope.SpawnNamed("blockPersistWriter", func() error {

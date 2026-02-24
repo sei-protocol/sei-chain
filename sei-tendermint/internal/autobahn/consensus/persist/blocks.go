@@ -54,9 +54,10 @@ type persistJob struct {
 	deleteBefore map[types.LaneID]types.BlockNumber
 }
 
-// persistQueueSize is the buffer for async block persistence. With 40 validators,
-// a 1/3 Byzantine burst produces up to ~13 lanes × 30 blocks = 390 blocks at once.
-// 512 covers that with margin.
+// persistQueueSize is the buffer for async block persistence and cleanup jobs.
+// With 40 validators, a 1/3 Byzantine burst produces up to ~13 lanes × 30 blocks
+// = 390 block persist jobs at once. DeleteBefore cleanup jobs are infrequent
+// (one per AppQC finalization) and add negligible load. 512 covers both with margin.
 const persistQueueSize = 512
 
 // NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
