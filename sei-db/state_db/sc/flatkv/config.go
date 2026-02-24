@@ -49,7 +49,7 @@ func (c Config) SnapshotMinTimeDuration() time.Duration {
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() Config {
 	return Config{
-		Fsync:                   true,
+		Fsync:                   false,
 		AsyncWriteBuffer:        0,
 		SnapshotInterval:        DefaultSnapshotInterval,
 		SnapshotKeepRecent:      DefaultSnapshotKeepRecent,

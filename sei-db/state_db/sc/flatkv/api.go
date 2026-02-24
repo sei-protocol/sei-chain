@@ -48,11 +48,16 @@ type Store interface {
 
 	// Iterator returns an iterator over [start, end) in memiavl key order.
 	// Pass nil for unbounded.
+	//
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	Iterator(start, end []byte) Iterator
 
 	// IteratorByPrefix iterates all keys with the given prefix (more efficient than Iterator).
 	// Currently only supports: StateKeyPrefix||addr (storage iteration).
-	// Account/code iteration will be added with state-sync support.
+	//
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	IteratorByPrefix(prefix []byte) Iterator
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
@@ -81,6 +86,9 @@ type Store interface {
 // Follows PebbleDB semantics: not positioned on creation.
 //
 // Keys are returned in internal format (without memiavl prefix).
+//
+// EXPERIMENTAL: not used in production. Interface may change when
+// Exporter/state-sync is implemented.
 type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool

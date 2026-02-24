@@ -10,6 +10,9 @@ import (
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
 // and converts keys between internal and external (memiavl) formats.
+//
+// EXPERIMENTAL: not used in production; only storage keys supported.
+// Interface may change when Exporter/state-sync is implemented.
 type dbIterator struct {
 	iter   db_engine.Iterator
 	kind   evm.EVMKeyKind // key type for conversion

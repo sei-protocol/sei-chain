@@ -116,8 +116,8 @@ func (s *CommitStore) Has(key []byte) bool {
 // IMPORTANT: Iterator only reads COMMITTED state from the underlying DBs.
 // Pending writes from ApplyChangeSets are NOT visible until after Commit().
 //
-// Current limitation: Only storage keys (0x03) are supported.
-// Account/code iteration will be added with state-sync support.
+// EXPERIMENTAL: not used in production; only storage keys (0x03) supported.
+// Interface may change when Exporter/state-sync is implemented.
 func (s *CommitStore) Iterator(start, end []byte) Iterator {
 	// Validate bounds: start must be < end
 	if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
@@ -146,6 +146,9 @@ func (s *CommitStore) Iterator(start, end []byte) Iterator {
 //
 // IMPORTANT: Like Iterator(), this only reads COMMITTED state.
 // Pending writes are not visible until Commit().
+//
+// EXPERIMENTAL: not used in production; only storage keys supported.
+// Interface may change when Exporter/state-sync is implemented.
 func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	if len(prefix) == 0 {
 		return s.Iterator(nil, nil)
