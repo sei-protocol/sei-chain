@@ -319,7 +319,6 @@ func TestNewStateWithPersistence(t *testing.T) {
 		dir := t.TempDir()
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 
-		// Persist an AppQC to the A/B file.
 		roadIdx := types.RoadIndex(7)
 		globalNum := types.GlobalBlockNumber(50)
 		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
@@ -329,7 +328,16 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, persister.Persist(types.AppQCConv.Encode(appQC)))
 
-		// Now construct state — it should load the AppQC.
+		// Persist commitQCs 0-7 so the matching one at roadIdx exists.
+		cp, _, err := persist.NewCommitQCPersister(dir)
+		require.NoError(t, err)
+		prev := utils.None[*types.CommitQC]()
+		for i := types.RoadIndex(0); i <= roadIdx; i++ {
+			qc := makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qc)
+			require.NoError(t, cp.PersistCommitQC(qc))
+		}
+
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
@@ -339,8 +347,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Equal(t, roadIdx, got.Proposal().RoadIndex())
 		require.Equal(t, globalNum, got.Proposal().GlobalNumber())
 
-		// commitQCs queue should be advanced past the AppQC's road index.
-		require.Equal(t, roadIdx+1, state.FirstCommitQC())
+		require.Equal(t, roadIdx, state.FirstCommitQC())
 	})
 
 	t.Run("loads persisted blocks", func(t *testing.T) {
@@ -372,7 +379,6 @@ func TestNewStateWithPersistence(t *testing.T) {
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 		lane := keys[0].Public()
 
-		// Persist AppQC.
 		roadIdx := types.RoadIndex(2)
 		globalNum := types.GlobalBlockNumber(5)
 		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
@@ -381,6 +387,16 @@ func TestNewStateWithPersistence(t *testing.T) {
 		persister, _, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 		require.NoError(t, err)
 		require.NoError(t, persister.Persist(types.AppQCConv.Encode(appQC)))
+
+		// Persist commitQCs 0-2 so the matching one at roadIdx exists.
+		cp, _, err := persist.NewCommitQCPersister(dir)
+		require.NoError(t, err)
+		prev := utils.None[*types.CommitQC]()
+		for i := types.RoadIndex(0); i <= roadIdx; i++ {
+			qc := makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qc)
+			require.NoError(t, cp.PersistCommitQC(qc))
+		}
 
 		// Persist blocks.
 		bp, _, err := persist.NewBlockPersister(dir)
@@ -394,20 +410,15 @@ func TestNewStateWithPersistence(t *testing.T) {
 			require.NoError(t, bp.PersistBlock(signed))
 		}
 
-		// Construct state.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
-		// AppQC loaded.
 		got, ok := state.LastAppQC().Get()
 		require.True(t, ok)
 		require.Equal(t, roadIdx, got.Proposal().RoadIndex())
 
-		// Blocks loaded.
 		require.Equal(t, types.BlockNumber(13), state.NextBlock(lane))
-
-		// commitQCs advanced.
-		require.Equal(t, roadIdx+1, state.FirstCommitQC())
+		require.Equal(t, roadIdx, state.FirstCommitQC())
 	})
 
 	t.Run("headers returns ErrPruned for blocks before loaded range", func(t *testing.T) {
@@ -497,8 +508,8 @@ func TestNewStateWithPersistence(t *testing.T) {
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
-		// AppQC at index 1 → commitQCs.first = 2. Only indices 2-4 restored.
-		require.Equal(t, types.RoadIndex(2), state.FirstCommitQC())
+		// inner.prune(appQC@1, commitQC@1) sets commitQCs.first = 1.
+		require.Equal(t, types.RoadIndex(1), state.FirstCommitQC())
 		latest, ok := state.LastCommitQC().Load().Get()
 		require.True(t, ok)
 		require.NoError(t, utils.TestDiff(qcs[4], latest))

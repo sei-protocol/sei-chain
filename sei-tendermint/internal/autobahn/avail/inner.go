@@ -32,7 +32,7 @@ type loadedAvailState struct {
 	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner {
+func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inner, error) {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for _, lane := range c.Lanes().All() {
@@ -51,30 +51,17 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner
 
 	l, ok := loaded.Get()
 	if !ok {
-		return i
+		return i, nil
 	}
 
-	// Restore AppQC and advance queues past already-processed indices.
-	i.latestAppQC = l.appQC
-	if aq, ok := l.appQC.Get(); ok {
-		// CommitQCs through this index have been processed; skip them.
-		i.commitQCs.first = aq.Proposal().RoadIndex() + 1
-		i.commitQCs.next = i.commitQCs.first
-		// AppVotes through this global block number have been processed.
-		i.appVotes.first = aq.Proposal().GlobalNumber() + 1
-		i.appVotes.next = i.appVotes.first
-	}
-
-	// Restore persisted CommitQCs into the queue. Only CommitQCs at or
-	// after commitQCs.first (i.e. not yet processed by an AppQC) are
-	// useful; earlier ones are already accounted for.
-	for _, lqc := range l.commitQCs {
-		if lqc.Index >= i.commitQCs.first && lqc.Index == i.commitQCs.next {
-			i.commitQCs.pushBack(lqc.QC)
+	// Restore persisted CommitQCs into the queue.
+	if len(l.commitQCs) > 0 {
+		i.commitQCs.prune(l.commitQCs[0].Index)
+		for _, lqc := range l.commitQCs {
+			if lqc.Index == i.commitQCs.next {
+				i.commitQCs.pushBack(lqc.QC)
+			}
 		}
-	}
-	if i.commitQCs.next > i.commitQCs.first {
-		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
 	// nextBlockToPersist gates RecvBatch: only blocks below this cursor are
@@ -105,7 +92,31 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner
 		i.votes[lane].prune(first)
 	}
 
-	return i
+	// Prune all queues based on the persisted AppQC. Called after loading
+	// so that prune() operates on populated queues (same path as runtime).
+	if aq, ok := l.appQC.Get(); ok {
+		idx := aq.Proposal().RoadIndex()
+		qc, ok := i.commitQCs.q[idx]
+		if !ok {
+			// The AppQC persist goroutine writes a single file and is
+			// triggered immediately when prune() stores the new AppQC.
+			// The commitQC file cleanup (DeleteBefore) runs much later,
+			// after the persist goroutine batch-writes all pending blocks
+			// and commitQCs. So the AppQC is always on disk before the
+			// matching commitQC file is eligible for deletion. If we get
+			// here, the persisted state is corrupt.
+			return nil, fmt.Errorf("persisted AppQC at road index %d but no matching commitQC on disk", idx)
+		}
+		if _, err := i.prune(aq, qc); err != nil {
+			return nil, fmt.Errorf("prune: %w", err)
+		}
+	}
+
+	if i.commitQCs.next > i.commitQCs.first {
+		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
+	}
+
+	return i, nil
 }
 
 func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {

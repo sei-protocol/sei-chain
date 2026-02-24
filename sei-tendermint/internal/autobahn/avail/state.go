@@ -106,10 +106,15 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		cp = utils.Some(commitQCPersist)
 	}
 
+	inner, err := newInner(data.Committee(), loaded)
+	if err != nil {
+		return nil, err
+	}
+
 	return &State{
 		key:             key,
 		data:            data,
-		inner:           utils.NewWatch(newInner(data.Committee(), loaded)),
+		inner:           utils.NewWatch(inner),
 		persister:       p,
 		appQCSend:       utils.NewAtomicSend(utils.None[*types.AppQC]()),
 		blockPersist:    bp,
