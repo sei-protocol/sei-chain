@@ -36,7 +36,6 @@ const (
 // RouterOptions specifies options for a PeerManager.
 type RouterOptions struct {
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
-	// If Hostname and Port are unset, Advertise() will include no self-announcement
 	SelfAddress utils.Option[NodeAddress]
 
 	// Whether sei giga connections should be established.
@@ -115,7 +114,7 @@ type RouterOptions struct {
 	MaxConnected utils.Option[int]
 
 	// MaxOutboundConnections is the maximum number of outbound connections.
-	// Note that MaxConnected is still respected the actual number of outbound connections
+	// Note that MaxConnected is still respected and the actual number of outbound connections
 	// is bounded by min(MaxConnected,MaxOutboundConnections)
 	// Defaults to 10.
 	MaxOutboundConnections utils.Option[int]

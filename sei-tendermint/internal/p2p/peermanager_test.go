@@ -466,7 +466,7 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 	}
 }
 
-func TestPeerManager_MaxOutboundConnectionsLimitsDialing(t *testing.T) {
+func TestPeerManager_MaxOutboundConnectionsForDialing(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	maxOutbound := 3
@@ -519,6 +519,35 @@ func TestPeerManager_MaxOutboundConnectionsLimitsDialing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPeerManager_AcceptsInboundWhenOutboundFull(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	maxOutbound := 2
+	maxConns := 7
+
+	var addrs []NodeAddress
+	for range maxConns {
+		addrs = append(addrs, makeAddr(rng))
+	}
+	m := makePeerManager(makeNodeID(rng), &RouterOptions{
+		BootstrapPeers:         addrs,
+		MaxConcurrentDials:     utils.Some(maxConns),
+		MaxConnected:           utils.Some(maxConns),
+		MaxOutboundConnections: utils.Some(maxOutbound),
+	})
+	// Fill up outbound slots.
+	for range maxOutbound {
+		addr := utils.OrPanic1(m.StartDial(ctx, false))
+		require.NoError(t, m.Connected(makeConnTo(addr)))
+	}
+	require.Equal(t, maxOutbound, m.Conns().Len())
+	// Fill up inbound slots.
+	for range maxConns - maxOutbound {
+		require.NoError(t, m.Connected(makeConn(rng, false)))
+	}
+	require.Equal(t, maxConns, m.Conns().Len())
 }
 
 // Test checking that StartDial will wake up whenever address can be dialed.

@@ -31,9 +31,7 @@ func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
 	if i.isPersistent[addr.NodeID] {
 		return false
 	}
-	added := i.regular.AddAddr(addr)
-	fmt.Printf("AddAddr(%v) = %v\n", addr, added)
-	return added
+	return i.regular.AddAddr(addr)
 }
 
 func (i *peerManagerInner[C]) TryStartDial(persistentPeer bool) (NodeAddress, bool) {
@@ -209,7 +207,6 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		inner.persistent.AddAddr(addr)
 	}
 	for _, addr := range options.BootstrapPeers {
-		fmt.Printf("adding bootstrap %v\n", addr)
 		inner.AddAddr(addr)
 	}
 	return &peerManager[C]{

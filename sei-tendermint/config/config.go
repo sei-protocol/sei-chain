@@ -697,7 +697,7 @@ type P2PConfig struct {
 	// with the default being "priority".
 	QueueType string `mapstructure:"queue-type"`
 
-	// List of node IDs, from which a connection will be accepted regardless of the connection limits. 
+	// List of node IDs, from which a connection will be accepted regardless of the connection limits.
 	UnconditionalPeerIDs string `mapstructure:"unconditional-peer-ids"`
 }
 
