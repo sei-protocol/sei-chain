@@ -507,7 +507,6 @@ func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*type
 func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
-	var blockNum types.BlockNumber
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -520,8 +519,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if q.first < q.next {
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		blockNum = q.next
-		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, blockNum, parent, payload)))
+		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
 		q.pushBack(result)
 		ctrl.Updated()
 	}
@@ -549,77 +547,7 @@ func (s *State) Run(ctx context.Context) error {
 		if bp, ok := s.blockPersist.Get(); ok {
 			cp, _ := s.commitQCPersist.Get()
 			scope.SpawnNamed("persist", func() error {
-				blockCur := bp.LoadTips()
-				var commitQCCur types.RoadIndex
-				if cp != nil {
-					commitQCCur = cp.LoadNext()
-				}
-				for {
-					// Collect unpersisted blocks and commitQCs under lock.
-					var blockBatch []*types.Signed[*types.LaneProposal]
-					var commitQCBatch []*types.CommitQC
-					var laneFirsts map[types.LaneID]types.BlockNumber
-					var commitQCFirst types.RoadIndex
-					for inner, ctrl := range s.inner.Lock() {
-						if err := ctrl.WaitUntil(ctx, func() bool {
-							for lane, q := range inner.blocks {
-								if blockCur[lane] < q.next {
-									return true
-								}
-							}
-							return cp != nil && commitQCCur < inner.commitQCs.next
-						}); err != nil {
-							return err
-						}
-						laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
-						for lane, q := range inner.blocks {
-							// Clamp cursor: prune may have deleted entries below q.first
-							// between iterations while the lock was not held.
-							blockCur[lane] = max(blockCur[lane], q.first)
-							for n := blockCur[lane]; n < q.next; n++ {
-								blockBatch = append(blockBatch, q.q[n])
-							}
-							laneFirsts[lane] = q.first
-						}
-						if cp != nil {
-							commitQCCur = max(commitQCCur, inner.commitQCs.first)
-							commitQCFirst = inner.commitQCs.first
-							for n := commitQCCur; n < inner.commitQCs.next; n++ {
-								commitQCBatch = append(commitQCBatch, inner.commitQCs.q[n])
-							}
-						}
-					}
-
-					// Persist blocks + cleanup (no lock held).
-					var err error
-					blockCur, err = bp.PersistBatch(blockCur, blockBatch, laneFirsts)
-					if err != nil {
-						return err
-					}
-
-					// Persist commitQCs + cleanup (no lock held).
-					for _, qc := range commitQCBatch {
-						if err := cp.PersistCommitQC(qc); err != nil {
-							return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
-						}
-						commitQCCur = qc.Index() + 1
-					}
-					if len(commitQCBatch) > 0 {
-						if err := cp.DeleteBefore(commitQCFirst); err != nil {
-							return fmt.Errorf("commitqc deleteBefore: %w", err)
-						}
-					}
-
-					// Update nextBlockToPersist under lock.
-					if len(blockBatch) > 0 {
-						for inner, ctrl := range s.inner.Lock() {
-							for lane, next := range blockCur {
-								inner.nextBlockToPersist[lane] = next
-							}
-							ctrl.Updated()
-						}
-					}
-				}
+				return s.persistLoop(ctx, bp, cp)
 			})
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.
@@ -656,4 +584,98 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// persistBatch holds the data collected under lock for one persist iteration.
+type persistBatch struct {
+	blocks        []*types.Signed[*types.LaneProposal]
+	commitQCs     []*types.CommitQC
+	laneFirsts    map[types.LaneID]types.BlockNumber
+	commitQCFirst types.RoadIndex
+	commitQCCur   types.RoadIndex // clamped cursor (may have advanced past pruned entries)
+}
+
+func (s *State) persistLoop(ctx context.Context, bp *persist.BlockPersister, cp *persist.CommitQCPersister) error {
+	blockCur := bp.LoadTips()
+	var commitQCCur types.RoadIndex
+	if cp != nil {
+		commitQCCur = cp.LoadNext()
+	}
+	for {
+		batch, err := s.collectPersistBatch(ctx, cp, blockCur, commitQCCur)
+		if err != nil {
+			return err
+		}
+		commitQCCur = batch.commitQCCur
+
+		// Persist blocks + cleanup (no lock held).
+		blockCur, err = bp.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
+		if err != nil {
+			return err
+		}
+
+		// Persist commitQCs + cleanup (no lock held).
+		for _, qc := range batch.commitQCs {
+			if err := cp.PersistCommitQC(qc); err != nil {
+				return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
+			}
+			commitQCCur = qc.Index() + 1
+		}
+		if len(batch.commitQCs) > 0 {
+			if err := cp.DeleteBefore(batch.commitQCFirst); err != nil {
+				return fmt.Errorf("commitqc deleteBefore: %w", err)
+			}
+		}
+
+		// Update nextBlockToPersist under lock.
+		if len(batch.blocks) > 0 {
+			for inner, ctrl := range s.inner.Lock() {
+				for lane, next := range blockCur {
+					inner.nextBlockToPersist[lane] = next
+				}
+				ctrl.Updated()
+			}
+		}
+	}
+}
+
+// collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
+func (s *State) collectPersistBatch(
+	ctx context.Context,
+	cp *persist.CommitQCPersister,
+	blockCur map[types.LaneID]types.BlockNumber,
+	commitQCCur types.RoadIndex,
+) (persistBatch, error) {
+	var b persistBatch
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			for lane, q := range inner.blocks {
+				if blockCur[lane] < q.next {
+					return true
+				}
+			}
+			return cp != nil && commitQCCur < inner.commitQCs.next
+		}); err != nil {
+			return b, err
+		}
+		b.laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
+		for lane, q := range inner.blocks {
+			// Clamp cursor: prune may have deleted entries below q.first
+			// between iterations while the lock was not held.
+			blockCur[lane] = max(blockCur[lane], q.first)
+			for n := blockCur[lane]; n < q.next; n++ {
+				b.blocks = append(b.blocks, q.q[n])
+			}
+			b.laneFirsts[lane] = q.first
+		}
+		if cp != nil {
+			commitQCCur = max(commitQCCur, inner.commitQCs.first)
+			b.commitQCFirst = inner.commitQCs.first
+			for n := commitQCCur; n < inner.commitQCs.next; n++ {
+				b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
+			}
+		}
+		b.commitQCCur = commitQCCur
+	}
+	return b, nil
 }

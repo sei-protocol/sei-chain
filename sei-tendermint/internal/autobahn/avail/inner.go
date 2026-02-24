@@ -62,6 +62,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 				i.commitQCs.pushBack(lqc.QC)
 			}
 		}
+		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
 	// nextBlockToPersist gates RecvBatch: only blocks below this cursor are
@@ -110,10 +111,6 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		if _, err := i.prune(aq, qc); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
-	}
-
-	if i.commitQCs.next > i.commitQCs.first {
-		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
 	return i, nil
