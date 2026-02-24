@@ -5,6 +5,7 @@ package mvcc
 
 import (
 	"bytes"
+	"sync"
 
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
