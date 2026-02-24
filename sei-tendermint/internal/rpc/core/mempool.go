@@ -190,7 +190,3 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 	}
 	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
 }
-
-func (env *Environment) RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error {
-	return env.Mempool.RemoveTxByKey(req.TxKey)
-}
