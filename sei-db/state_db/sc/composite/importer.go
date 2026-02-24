@@ -3,7 +3,6 @@ package composite
 import (
 	"errors"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -11,11 +10,11 @@ var _ types.Importer = (*SnapshotImporter)(nil)
 
 type SnapshotImporter struct {
 	cosmosImporter types.Importer
-	evmImporter    flatkv.Importer
+	evmImporter    types.Importer
 	currentModule  string
 }
 
-func NewImporter(cosmosImporter types.Importer, evmImporter flatkv.Importer) *SnapshotImporter {
+func NewImporter(cosmosImporter types.Importer, evmImporter types.Importer) *SnapshotImporter {
 	return &SnapshotImporter{
 		cosmosImporter: cosmosImporter,
 		evmImporter:    evmImporter,

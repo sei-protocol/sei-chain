@@ -314,16 +314,17 @@ func openSnapshotStream(chunksDir string) (*snapshots.StreamReader, error) {
 // item through the given Importer (AddModule / AddNode). This is the same
 // import path used by the real state sync restore logic.
 // Returns the total number of leaf keys imported.
-func importSnapshot(chunksDir string, importer sctypes.Importer) (int64, error) {
+func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 	streamReader, err := openSnapshotStream(chunksDir)
 	if err != nil {
-		return 0, fmt.Errorf("create stream reader: %w", err)
+		return fmt.Errorf("create stream reader: %w", err)
 	}
 	defer streamReader.Close()
 
 	var (
-		totalKeys int64
-		startTime = time.Now()
+		totalKeys  int64
+		startTime  = time.Now()
+		currModule = ""
 	)
 
 	for {
@@ -333,27 +334,32 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) (int64, error) 
 			break
 		}
 		if err != nil {
-			return totalKeys, fmt.Errorf("read snapshot item: %w", err)
+			return fmt.Errorf("read snapshot item: %w", err)
 		}
 
 		switch i := item.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
-			if err := importer.AddModule(i.Store.Name); err != nil {
-				return totalKeys, fmt.Errorf("add module %s: %w", i.Store.Name, err)
+			currModule = i.Store.Name
+			if currModule == "evm" {
+				if err := importer.AddModule(i.Store.Name); err != nil {
+					return fmt.Errorf("add module %s: %w", i.Store.Name, err)
+				}
+				fmt.Printf("[Snapshot] Importing store: %s\n", i.Store.Name)
+			} else {
+				fmt.Printf("[Snapshot] Skipping store: %s\n", i.Store.Name)
 			}
-			fmt.Printf("[Snapshot] Importing store: %s\n", i.Store.Name)
 		case *snapshottypes.SnapshotItem_IAVL:
+			if currModule != "evm" {
+				continue
+			}
 			if i.IAVL.Height > math.MaxInt8 {
-				return totalKeys, fmt.Errorf("node height %d exceeds int8", i.IAVL.Height)
+				return fmt.Errorf("node height %d exceeds int8", i.IAVL.Height)
 			}
 			node := &sctypes.SnapshotNode{
 				Key:     i.IAVL.Key,
 				Value:   i.IAVL.Value,
 				Height:  int8(i.IAVL.Height), //nolint:gosec
 				Version: i.IAVL.Version,
-			}
-			if node.Key == nil {
-				continue
 			}
 			if node.Height == 0 && node.Value == nil {
 				node.Value = []byte{}
@@ -373,10 +379,10 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) (int64, error) 
 	}
 
 	elapsed := time.Since(startTime).Seconds()
-	fmt.Printf("[Snapshot] Done: keys=%d, keys/sec=%.0f, elapsed=%.2fs\n",
+	fmt.Printf("[Snapshot] Import Done: keys=%d, keys/sec=%.0f, elapsed=%.2fs\n",
 		totalKeys, float64(totalKeys)/elapsed, elapsed)
 
-	return totalKeys, nil
+	return nil
 }
 
 // runBenchmark runs the benchmark with optional progress reporting.
@@ -392,19 +398,20 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 	for range b.N {
 		func() {
 			b.StopTimer()
-
-			var cs wrappers.DBWrapper
-			if scenario.SnapshotPath != "" {
-				height, err := parseSnapshotHeight(scenario.SnapshotPath)
-				require.NoError(b, err)
-				cs = wrappers.NewDBImplFromSnapshot(b, scenario.Backend, height, func(imp sctypes.Importer) (int64, error) {
-					return importSnapshot(scenario.SnapshotPath, imp)
-				})
-			} else {
-				cs = wrappers.NewDBImpl(b, scenario.Backend)
-			}
+			cs := wrappers.NewDBImpl(b, scenario.Backend)
 			require.NotNil(b, cs)
 
+			if scenario.SnapshotPath != "" {
+				snapshotHeight, err := parseSnapshotHeight(scenario.SnapshotPath)
+				require.NoError(b, err)
+				importer, err := cs.Importer(snapshotHeight)
+				require.NoError(b, err)
+				err = importSnapshot(scenario.SnapshotPath, importer)
+				require.NoError(b, err)
+				// restart DB after import
+				cs.Close()
+				cs = wrappers.NewDBImpl(b, scenario.Backend)
+			}
 			changesetChannel := startChangesetGenerator(scenario)
 
 			var progress *ProgressReporter

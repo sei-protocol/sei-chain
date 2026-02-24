@@ -10,7 +10,7 @@ import (
 
 const importBatchSize = 10000
 
-var _ Importer = (*KVImporter)(nil)
+var _ types.Importer = (*KVImporter)(nil)
 
 type KVImporter struct {
 	store   *CommitStore
@@ -18,7 +18,11 @@ type KVImporter struct {
 	batch   []*iavl.KVPair
 }
 
-func NewKVImporter(store *CommitStore, version int64) Importer {
+func (imp *KVImporter) AddModule(_ string) error {
+	return nil
+}
+
+func NewKVImporter(store *CommitStore, version int64) types.Importer {
 	return &KVImporter{
 		store:   store,
 		version: version,

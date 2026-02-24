@@ -23,7 +23,7 @@ Progress is printed to stdout every few seconds while the benchmark is running.
 
 ### With snapshot pre-population
 
-`BenchmarkLongRunningWriteWithInitialState` loads a Cosmos SDK state sync
+`BenchmarkMemIAVLLongRunningWriteWithInitialState` loads a Cosmos SDK state sync
 snapshot into the database before starting the timed benchmark. This lets you
 measure write throughput on a realistically sized tree instead of an empty one.
 
@@ -32,9 +32,9 @@ numbered chunk files (`0`, `1`, `2`, …). The typical on-disk layout is
 `<node_home>/data/snapshots/<height>/<format>/`.
 
 ```bash
-SNAPSHOT_PATH=/data/snapshots/12345678/2/ \
+SNAPSHOT_PATH=/data/snapshots/12345678/1/ \
   go test ./sei-db/state_db/bench -run ^$ \
-    -bench BenchmarkLongRunningWriteWithInitialState \
+    -bench BenchmarkMemIAVLLongRunningWriteWithInitialState \
     -benchmem -benchtime=24h -tags=slow_bench
 ```
 

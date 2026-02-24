@@ -17,8 +17,9 @@ type DBWrapper interface {
 	// Close releases any resources held by the DB.
 	Close() error
 
-	// Returns the latest committed version.
+	// Version returns the latest committed version.
 	Version() int64
 
+	// Importer return an importer which load snapshot data into the database
 	Importer(version int64) (types.Importer, error)
 }
