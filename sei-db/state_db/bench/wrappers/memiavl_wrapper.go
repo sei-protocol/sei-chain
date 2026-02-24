@@ -36,5 +36,10 @@ func (m *memIAVLWrapper) Close() error {
 }
 
 func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
-	// TODO: Implement this.
+	store := m.base.GetChildStoreByName(EVMStoreName)
+	if store == nil {
+		return nil, false, nil
+	}
+	data = store.Get(key)
+	return data, data != nil, nil
 }

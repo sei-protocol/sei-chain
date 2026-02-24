@@ -100,7 +100,7 @@ func (rb *RandomBuffer) Int64() int64 {
 // the address will be deterministic, and any two unique account IDs are guaranteed to generate unique addresses.
 func (rb *RandomBuffer) Address(
 	// The prefix to use for the address.
-	keyPrefix []byte,
+	keyPrefix string,
 	// The size of the address to generate, not including the key prefix.
 	addressSize int,
 	// The account ID to use for the address.

@@ -61,5 +61,9 @@ func resolveAndCreateDataDir(dataDir string) (string, error) {
 			return "", fmt.Errorf("failed to create data directory: %w", err)
 		}
 	}
-	return dataDir, nil
+	abs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+	return abs, nil
 }

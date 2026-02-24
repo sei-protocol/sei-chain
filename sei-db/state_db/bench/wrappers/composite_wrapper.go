@@ -34,3 +34,12 @@ func (c *compositeWrapper) Version() int64 {
 func (c *compositeWrapper) Close() error {
 	return c.base.Close()
 }
+
+func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	store := c.base.GetChildStoreByName(EVMStoreName)
+	if store == nil {
+		return nil, false, nil
+	}
+	data = store.Get(key)
+	return data, data != nil, nil
+}
