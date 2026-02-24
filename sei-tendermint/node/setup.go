@@ -222,7 +222,7 @@ func createRouter(
 	}
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
-	options.MaxOutboundConnections = 10
+	options.MaxOutboundConnections = utils.Some(cfg.P2P.MaxOutboundConnections)
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
 	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
