@@ -82,6 +82,7 @@ type Database struct {
 type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
+	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
 }
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
@@ -218,6 +219,15 @@ func (db *Database) Close() error {
 	err := db.storage.Close()
 	db.storage = nil
 	return err
+}
+
+// PebbleMetrics returns the underlying Pebble DB metrics for observability (e.g. compaction/flush counts).
+// Returns nil if the database is closed.
+func (db *Database) PebbleMetrics() *pebble.Metrics {
+	if db.storage == nil {
+		return nil
+	}
+	return db.storage.Metrics()
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -461,11 +471,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			int64(len(db.pendingChanges)),
 		)
 	}()
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
-		Version:    version,
-		Changesets: changesets,
-	}
 	// Write to WAL
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
@@ -478,18 +483,33 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-
+	// Add to pending changes first
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
 	return nil
 }
 
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
+		if nextChange.Done != nil {
+			close(nextChange.Done)
+			continue
+		}
 		version := nextChange.Version
 		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 			panic(err)
 		}
 	}
+}
+
+// WaitForPendingWrites waits for all pending writes to be processed
+func (db *Database) WaitForPendingWrites() {
+	done := make(chan struct{})
+	db.pendingChanges <- VersionedChangesets{Done: done}
+	<-done
 }
 
 // Prune attempts to prune all versions up to and including the current version
