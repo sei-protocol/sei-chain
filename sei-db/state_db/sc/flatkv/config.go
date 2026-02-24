@@ -18,7 +18,7 @@ type Config struct {
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() Config {
 	return Config{
-		Fsync:            true,
+		Fsync:            false,
 		AsyncWriteBuffer: 0,
 	}
 }

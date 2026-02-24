@@ -3,6 +3,8 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // Close closes all database instances.
@@ -54,9 +56,8 @@ func (s *CommitStore) Close() error {
 // Exporter creates an exporter for the given version.
 // NOTE: Not yet implemented. Will be added with state-sync support.
 // The future implementation will export each DB separately with internal key format.
-func (s *CommitStore) Exporter(version int64) (Exporter, error) {
-	// Return a placeholder exporter that indicates not implemented
-	return &notImplementedExporter{}, nil
+func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 // WriteSnapshot writes a complete snapshot to the given directory.

@@ -5,7 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"math"
 	mrand "math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,8 +18,11 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
@@ -26,12 +34,6 @@ const (
 	ValueSize = 32
 )
 
-type DBBackend string
-
-const (
-	DBBackendMemIAVL DBBackend = "memiavl"
-)
-
 // TestScenario bundles benchmark parameters and distribution.
 type TestScenario struct {
 	Name           string
@@ -41,6 +43,13 @@ type TestScenario struct {
 	// The database backend to use for the benchmark.
 	Backend      wrappers.DBType
 	Distribution KeyDistribution
+
+	// SnapshotPath, when set, points to a state sync snapshot chunks directory
+	// (e.g. "<node_home>/data/snapshots/<height>/<format>/") containing numbered
+	// chunk files (0, 1, 2, ...). Before the benchmark begins, the snapshot is
+	// imported into the database via the native Committer.Importer path as a
+	// preparation stage.
+	SnapshotPath string
 }
 
 // KeyDistribution defines how many keys to generate per block.
@@ -251,6 +260,127 @@ func keyFromIndex(index int64) []byte {
 	return key
 }
 
+// parseSnapshotHeight extracts the block height from a state sync snapshot
+// chunks directory path. The expected layout is <snapshots>/<height>/<format>/,
+// so the height is the parent of the format directory.
+func parseSnapshotHeight(chunksDir string) (int64, error) {
+	heightStr := filepath.Base(filepath.Dir(filepath.Clean(chunksDir)))
+	h, err := strconv.ParseInt(heightStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse snapshot height from path %q: %w", chunksDir, err)
+	}
+	if h <= 0 || h > math.MaxUint32 {
+		return 0, fmt.Errorf("snapshot height %d out of range", h)
+	}
+	return h, nil
+}
+
+// openSnapshotStream opens the numbered chunk files in chunksDir and returns a
+// StreamReader that decompresses and demuxes the protobuf item stream.
+func openSnapshotStream(chunksDir string) (*snapshots.StreamReader, error) {
+	if _, err := os.Stat(filepath.Join(chunksDir, "0")); err != nil {
+		return nil, fmt.Errorf("no chunk files found in %s: %w", chunksDir, err)
+	}
+
+	chunks := make(chan io.ReadCloser)
+	go func() {
+		defer close(chunks)
+		for i := 0; ; i++ {
+			path := filepath.Join(chunksDir, strconv.Itoa(i))
+			f, err := os.Open(filepath.Clean(path))
+			if err != nil {
+				if os.IsNotExist(err) {
+					return
+				}
+				pr, pw := io.Pipe()
+				_ = pw.CloseWithError(fmt.Errorf("open chunk %d: %w", i, err))
+				chunks <- pr
+				return
+			}
+			chunks <- f
+		}
+	}()
+
+	return snapshots.NewStreamReader(chunks)
+}
+
+// importSnapshot reads a state sync snapshot from chunksDir and feeds every
+// item through the given Importer (AddModule / AddNode). This is the same
+// import path used by the real state sync restore logic.
+// Returns the total number of leaf keys imported.
+func importSnapshot(chunksDir string, importer sctypes.Importer) error {
+	streamReader, err := openSnapshotStream(chunksDir)
+	if err != nil {
+		return fmt.Errorf("create stream reader: %w", err)
+	}
+	defer func() {
+		_ = streamReader.Close()
+	}()
+
+	var (
+		totalKeys  int64
+		startTime  = time.Now()
+		currModule = ""
+	)
+
+	for {
+		var item snapshottypes.SnapshotItem
+		err := streamReader.ReadMsg(&item)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read snapshot item: %w", err)
+		}
+
+		switch i := item.Item.(type) {
+		case *snapshottypes.SnapshotItem_Store:
+			currModule = i.Store.Name
+			if currModule == "evm" {
+				if err := importer.AddModule(i.Store.Name); err != nil {
+					return fmt.Errorf("add module %s: %w", i.Store.Name, err)
+				}
+				fmt.Printf("[Snapshot] Importing store: %s\n", i.Store.Name)
+			} else {
+				fmt.Printf("[Snapshot] Skipping store: %s\n", i.Store.Name)
+			}
+		case *snapshottypes.SnapshotItem_IAVL:
+			if currModule != "evm" {
+				continue
+			}
+			if i.IAVL.Height > math.MaxInt8 {
+				return fmt.Errorf("node height %d exceeds int8", i.IAVL.Height)
+			}
+			node := &sctypes.SnapshotNode{
+				Key:     i.IAVL.Key,
+				Value:   i.IAVL.Value,
+				Height:  int8(i.IAVL.Height), //nolint:gosec
+				Version: i.IAVL.Version,
+			}
+			if node.Height == 0 && node.Value == nil {
+				node.Value = []byte{}
+			}
+			importer.AddNode(node)
+			if node.Height == 0 {
+				totalKeys++
+				if totalKeys%1_000_000 == 0 {
+					elapsed := time.Since(startTime).Seconds()
+					fmt.Printf("[Snapshot] keys=%d, keys/sec=%.0f, elapsed=%.2fs\n",
+						totalKeys, float64(totalKeys)/elapsed, elapsed)
+				}
+			}
+		default:
+			break
+		}
+	}
+
+	elapsed := time.Since(startTime).Seconds()
+	fmt.Printf("[Snapshot] Import Done: keys=%d, keys/sec=%.0f, elapsed=%.2fs\n",
+		totalKeys, float64(totalKeys)/elapsed, elapsed)
+
+	return importer.Close()
+}
+
 // runBenchmark runs the benchmark with optional progress reporting.
 // If withProgress is true, reports keys/sec every 5 seconds to stdout.
 func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
@@ -263,9 +393,22 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 
 	for range b.N {
 		func() {
+			dbDir := b.TempDir()
 			b.StopTimer()
-			cs := wrappers.NewDBImpl(b, scenario.Backend)
+			cs := wrappers.NewDBImpl(b, dbDir, scenario.Backend)
 			require.NotNil(b, cs)
+
+			// Load snapshot if available
+			if scenario.SnapshotPath != "" {
+				snapshotHeight, err := parseSnapshotHeight(scenario.SnapshotPath)
+				require.NoError(b, err)
+				importer, err := cs.Importer(snapshotHeight)
+				require.NoError(b, err)
+				err = importSnapshot(scenario.SnapshotPath, importer)
+				require.NoError(b, err)
+				err = cs.LoadVersion(0)
+				require.NoError(b, err)
+			}
 			changesetChannel := startChangesetGenerator(scenario)
 
 			var progress *ProgressReporter
@@ -274,7 +417,9 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				progress.Start()
 			}
 
+			baseVersion := cs.Version()
 			b.StartTimer()
+			fmt.Printf("Opening DB with base version %d\n", baseVersion)
 
 			for block := int64(1); block < scenario.NumBlocks; block++ {
 				changeset, ok := <-changesetChannel
@@ -283,10 +428,9 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				}
 				err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
 				require.NoError(b, err)
-				require.Equal(b, block, cs.Version())
 				version, err := cs.Commit()
 				require.NoError(b, err)
-				require.Equal(b, block, version)
+				require.Equal(b, baseVersion+block, version)
 				if progress != nil {
 					progress.Add(len(changeset.Changeset.Pairs))
 				}
