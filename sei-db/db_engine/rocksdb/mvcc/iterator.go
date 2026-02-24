@@ -19,6 +19,7 @@ type iterator struct {
 	version            int64
 	reverse            bool
 	invalid            bool
+	closeOnce          sync.Once
 }
 
 func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOptions, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
@@ -158,13 +159,20 @@ func (itr *iterator) Error() error {
 }
 
 func (itr *iterator) Close() error {
-	itr.source.Close()
-	itr.source = nil
-	if itr.readOpts != nil {
-		itr.readOpts.Destroy()
+	itr.closeOnce.Do(func() {
+		src := itr.source
+		ro := itr.readOpts
+		itr.source = nil
 		itr.readOpts = nil
-	}
-	itr.invalid = true
+		itr.invalid = true
+
+		if src != nil {
+			src.Close()
+		}
+		if ro != nil {
+			ro.Destroy()
+		}
+	})
 	return nil
 }
 
