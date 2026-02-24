@@ -10,17 +10,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+const maxAddrsPerPeer = 10
+
 type connSet[C peerConn] = im.Map[types.NodeID, C]
 
 type peerManagerInner[C peerConn] struct {
-	selfID           types.NodeID
-	options          *RouterOptions
-	isPersistent  map[types.NodeID]bool
-	// sum of conditional and persistent connection sets.
-	conns       utils.AtomicSend[connSet[C]]
-	
-	conditional *pool[C]
-	persistent  *pool[C]
+	selfID       types.NodeID
+	options      *RouterOptions
+	isPersistent map[types.NodeID]bool
+	// sum of regular and persistent connection sets.
+	conns utils.AtomicSend[connSet[C]]
+
+	regular    *pool[C]
+	persistent *pool[C]
 }
 
 func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
@@ -29,60 +31,69 @@ func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
 	if i.isPersistent[addr.NodeID] {
 		return false
 	}
-	return i.conditional.AddAddr(addr)
+	added := i.regular.AddAddr(addr)
+	fmt.Printf("AddAddr(%v) = %v\n", addr, added)
+	return added
 }
 
 func (i *peerManagerInner[C]) TryStartDial(persistentPeer bool) (NodeAddress, bool) {
-	if persistentPeer {
-		return i.persistent.TryStartDial()
-	} 
-	if len(i.conditional.dialing)+i.conditional.outbound >= i.options.maxOutboundConns() {
+	// Check concurrent dials limit.
+	if len(i.regular.dialing)+len(i.persistent.dialing) >= i.options.maxDials() {
 		return NodeAddress{}, false
 	}
-	return i.conditional.TryStartDial()
+	if persistentPeer {
+		return i.persistent.TryStartDial()
+	}
+	// Regular peers are additionally subject to outbound connections limit.
+	// We should not dial if it would result in too many outbound connections.
+	if len(i.regular.dialing)+i.regular.outbound >= i.options.maxOutboundConns() {
+		return NodeAddress{}, false
+	}
+	return i.regular.TryStartDial()
 }
 
 func (i *peerManagerInner[C]) DialFailed(addr NodeAddress) {
 	if i.isPersistent[addr.NodeID] {
 		i.persistent.DialFailed(addr)
 	} else {
-		i.conditional.DialFailed(addr)
+		i.regular.DialFailed(addr)
 	}
 }
 
 func (i *peerManagerInner[C]) Evict(id types.NodeID) {
 	if !i.isPersistent[id] {
-		i.conditional.Evict(id)
+		i.regular.Evict(id)
 	}
 }
 
 // Connected registers a new connection.
 // If it is an outbound connection the dialing status is cleared (EVEN IF IT RETURNS AN ERROR).
-// It atomically checks maximum connection limit and duplicate connections.
-func (i *peerManagerInner[C]) Connected(conn C) (err error) {
+func (i *peerManagerInner[C]) Connected(conn C) error {
 	info := conn.Info()
-	defer func() {
-		if err==nil {	
-			i.conns.Store(i.conns.Load().Set(info.ID,conn))
-		}
-	}()
+	pool := i.regular
 	if i.isPersistent[info.ID] {
-		return i.persistent.Connected(conn)
-	} else {
-		return i.conditional.Connected(conn)
-	}	
+		pool = i.persistent
+	}
+	err := pool.Connected(conn)
+	// Copy the update to the total connection pool.
+	conns := i.conns.Load()
+	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
+		i.conns.Store(conns.SetOpt(info.ID, want))
+	}
+	return err
 }
 
 func (i *peerManagerInner[C]) Disconnected(conn C) {
 	info := conn.Info()
+	pool := i.regular
 	if i.isPersistent[info.ID] {
-		i.persistent.Disconnected(conn)
-	} else {
-		i.conditional.Disconnected(conn)
+		pool = i.persistent
 	}
+	pool.Disconnected(conn)
+	// Copy the update to the total connection pool.
 	conns := i.conns.Load()
-	if got,ok := conns.Get(info.ID); ok && got==conn {
-		i.conns.Store(conns.Delete(info.ID))
+	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
+		i.conns.Store(conns.SetOpt(info.ID, want))
 	}
 }
 
@@ -108,7 +119,7 @@ type peerManager[C peerConn] struct {
 func (p *peerManager[C]) LogState(logger log.Logger) {
 	for inner := range p.inner.Lock() {
 		logger.Info("p2p connections",
-			"regular", fmt.Sprintf("%v/%v", len(inner.conditional.conns), p.options.maxConns()),
+			"regular", fmt.Sprintf("%v/%v", len(inner.regular.conns), p.options.maxConns()),
 			"unconditional", len(inner.persistent.conns),
 		)
 	}
@@ -168,17 +179,17 @@ func (m *peerManager[C]) Subscribe() *peerUpdatesRecv[C] {
 
 func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	inner := &peerManagerInner[C]{
-		selfID:          selfID,
-		options:         options,
+		selfID:       selfID,
+		options:      options,
 		isPersistent: map[types.NodeID]bool{},
-		conns:   utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
+		conns:        utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
 
-		persistent: newPool[C](poolConfig{selfID:selfID}), 
-		conditional: newPool[C](poolConfig {
-			selfID: selfID,
-			maxConns: utils.Some(options.maxConns()),
-			maxAddrs: utils.Some(options.maxPeers()),
-			maxAddrsPerPeer: utils.Some(10),
+		persistent: newPool[C](poolConfig{selfID: selfID}),
+		regular: newPool[C](poolConfig{
+			selfID:          selfID,
+			maxConns:        utils.Some(options.maxConns()),
+			maxAddrs:        utils.Some(options.maxPeers()),
+			maxAddrsPerPeer: utils.Some(maxAddrsPerPeer),
 		}),
 	}
 	isBlockSyncPeer := map[types.NodeID]bool{}
@@ -191,16 +202,15 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 	}
 	for _, id := range options.BlockSyncPeers {
 		inner.isPersistent[id] = true
+		isBlockSyncPeer[id] = true
 	}
 	for _, addr := range options.PersistentPeers {
 		inner.isPersistent[addr.NodeID] = true
 		inner.persistent.AddAddr(addr)
 	}
 	for _, addr := range options.BootstrapPeers {
+		fmt.Printf("adding bootstrap %v\n", addr)
 		inner.AddAddr(addr)
-	}
-	for _, id := range options.BlockSyncPeers {
-		isBlockSyncPeer[id] = true
 	}
 	return &peerManager[C]{
 		options:         options,
@@ -224,14 +234,23 @@ func (m *peerManager[C]) Conns() connSet[C] {
 // If some address is invalid, an error is returned.
 // Even if an error is returned, some addresses might have been added.
 func (m *peerManager[C]) AddAddrs(addrs []NodeAddress) error {
+	if len(addrs) == 0 {
+		return nil
+	}
+	for _, addr := range addrs {
+		if err := addr.Validate(); err != nil {
+			return err
+		}
+	}
 	for inner, ctrl := range m.inner.Lock() {
+		updated := false
 		for _, addr := range addrs {
-			if err := addr.Validate(); err != nil {
-				return err
-			}
 			if inner.AddAddr(addr) {
-				ctrl.Updated()
+				updated = true
 			}
+		}
+		if updated {
+			ctrl.Updated()
 		}
 	}
 	return nil
@@ -286,8 +305,8 @@ func (m *peerManager[C]) Disconnected(conn C) {
 	}
 }
 
-// Evict removes known addresses of the peer (if not persistent) and
-// closes and drops connection to the peer (if not unconditional).
+// Evict removes known addresses of the regular peer and closed connection to the regular peer.
+// NOTE: noop for persistent peers.
 func (m *peerManager[C]) Evict(id types.NodeID) {
 	for inner, ctrl := range m.inner.Lock() {
 		inner.Evict(id)
@@ -309,7 +328,7 @@ func (m *peerManager[C]) State(id types.NodeID) string {
 				return "dialing"
 			}
 		} else {
-			if _, ok := inner.conditional.dialing[id]; ok {
+			if _, ok := inner.regular.dialing[id]; ok {
 				return "dialing"
 			}
 		}
@@ -339,11 +358,11 @@ func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
 func (m *peerManager[C]) Peers() []types.NodeID {
 	var ids []types.NodeID
 	for inner := range m.inner.Lock() {
-		ids = make([]types.NodeID, 0, len(inner.persistent.addrs)+len(inner.conditional.addrs))
+		ids = make([]types.NodeID, 0, len(inner.persistent.addrs)+len(inner.regular.addrs))
 		for id := range inner.persistent.addrs {
 			ids = append(ids, id)
 		}
-		for id := range inner.conditional.addrs {
+		for id := range inner.regular.addrs {
 			ids = append(ids, id)
 		}
 	}
@@ -353,7 +372,7 @@ func (m *peerManager[C]) Peers() []types.NodeID {
 func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
 	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
-		peerAddrs := inner.conditional.addrs
+		peerAddrs := inner.regular.addrs
 		if inner.isPersistent[id] {
 			peerAddrs = inner.persistent.addrs
 		}

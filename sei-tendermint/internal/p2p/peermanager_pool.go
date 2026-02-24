@@ -22,18 +22,17 @@ func before(a, b utils.Option[time.Time]) bool {
 	return at.Before(bt)
 }
 
-func get[K comparable, V any](m map[K]V, k K) utils.Option[V] {
+func getOpt[K comparable, V any](m map[K]V, k K) utils.Option[V] {
 	if v, ok := m[k]; ok {
 		return utils.Some(v)
 	}
 	return utils.None[V]()
 }
 
-
 type poolConfig struct {
-	selfID types.NodeID
-	maxConns utils.Option[int]
-	maxAddrs utils.Option[int]
+	selfID          types.NodeID
+	maxConns        utils.Option[int]
+	maxAddrs        utils.Option[int]
 	maxAddrsPerPeer utils.Option[int]
 }
 
@@ -41,17 +40,17 @@ type pool[C peerConn] struct {
 	poolConfig
 
 	outbound int
-	conns map[types.NodeID]C
-	addrs map[types.NodeID]*peerAddrs
-	dialing map[types.NodeID]NodeAddress
+	conns    map[types.NodeID]C
+	addrs    map[types.NodeID]*peerAddrs
+	dialing  map[types.NodeID]NodeAddress
 }
 
 func newPool[C peerConn](cfg poolConfig) *pool[C] {
 	return &pool[C]{
 		poolConfig: cfg,
-		conns: map[types.NodeID]C{},
-		addrs: map[types.NodeID]*peerAddrs{},
-		dialing: map[types.NodeID]NodeAddress{},
+		conns:      map[types.NodeID]C{},
+		addrs:      map[types.NodeID]*peerAddrs{},
+		dialing:    map[types.NodeID]NodeAddress{},
 	}
 }
 
@@ -92,7 +91,7 @@ func (p *pool[C]) AddAddr(addr NodeAddress) bool {
 	// Add new peerAddrs if missing.
 	if !ok {
 		// Prune some peer if maxPeers limit has been reached.
-		if m,ok := p.maxAddrs.Get(); ok && len(p.addrs) == m {
+		if m, ok := p.maxAddrs.Get(); ok && len(p.addrs) == m {
 			toPrune, ok := p.findFailedPeer()
 			if !ok {
 				return false
@@ -107,7 +106,7 @@ func (p *pool[C]) AddAddr(addr NodeAddress) bool {
 		return false
 	}
 	// Prune any failing address if maxAddrsPerPeer has been reached.
-	if m,ok := p.maxAddrsPerPeer.Get(); ok && len(pa.addrs) >= m {
+	if m, ok := p.maxAddrsPerPeer.Get(); ok && len(pa.addrs) >= m {
 		var failedAddr utils.Option[NodeAddress]
 		for old := range pa.fails {
 			failedAddr = utils.Some(old)
@@ -141,7 +140,7 @@ func (p *pool[C]) DialFailed(addr NodeAddress) {
 }
 
 func (p *pool[C]) Evict(id types.NodeID) {
-	delete(p.addrs,id)
+	delete(p.addrs, id)
 	if conn, ok := p.conns[id]; ok {
 		conn.Close()
 	}
@@ -157,7 +156,12 @@ func (p *pool[C]) findFailedPeer() (types.NodeID, bool) {
 	return "", false
 }
 
-func (p *pool[C]) TryStartDial() (NodeAddress, bool) {	
+func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
+	// Check the connections limit.
+	if m, ok := p.maxConns.Get(); ok && len(p.dialing)+len(p.conns) >= m {
+		return NodeAddress{}, false
+	}
+
 	// Choose peer with the oldest lastFail.
 	var bestPeer utils.Option[*peerAddrs]
 	for id, peerAddrs := range p.addrs {
@@ -175,7 +179,7 @@ func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 	var best utils.Option[NodeAddress]
 	if peer, ok := bestPeer.Get(); ok {
 		for addr := range peer.addrs {
-			if x, ok := best.Get(); !ok || before(get(peer.fails, addr), get(peer.fails, x)) {
+			if x, ok := best.Get(); !ok || before(getOpt(peer.fails, addr), getOpt(peer.fails, x)) {
 				best = utils.Some(addr)
 			}
 		}
@@ -200,7 +204,7 @@ func (p *pool[C]) Connected(conn C) (err error) {
 	}
 	if addr, ok := info.DialAddr.Get(); ok && p.dialing[addr.NodeID] == addr {
 		delete(p.dialing, addr.NodeID)
-	}		
+	}
 	newIsOutbound := info.DialAddr.IsPresent()
 	if old, ok := p.conns[info.ID]; ok {
 		// * allow to override connections in the same direction.
@@ -215,8 +219,8 @@ func (p *pool[C]) Connected(conn C) (err error) {
 		if oldIsOutbound {
 			p.outbound -= 1
 		}
-	} 
-	if m,ok := p.maxConns.Get(); ok && len(p.conns) >= m {
+	}
+	if m, ok := p.maxConns.Get(); ok && len(p.conns) >= m {
 		return errors.New("too many connections")
 	}
 	if newIsOutbound {
@@ -230,7 +234,7 @@ func (p *pool[C]) Disconnected(conn C) {
 	info := conn.Info()
 	if old, ok := p.conns[info.ID]; ok && old == conn {
 		old.Close()
-		delete(p.conns,info.ID)
+		delete(p.conns, info.ID)
 		if info.DialAddr.IsPresent() {
 			p.outbound -= 1
 		}

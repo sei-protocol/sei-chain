@@ -136,10 +136,12 @@ type RouterOptions struct {
 	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int { return o.MaxConcurrentDials.Or(10) }
+func (o *RouterOptions) maxDials() int   { return o.MaxConcurrentDials.Or(10) }
 func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) }
-func (o *RouterOptions) maxConns() int { return o.MaxConnected.Or(64) }
-func (o *RouterOptions) maxOutboundConns() int { return min(o.maxConns(),o.MaxOutboundConnections.Or(10)) }
+func (o *RouterOptions) maxConns() int   { return o.MaxConnected.Or(64) }
+func (o *RouterOptions) maxOutboundConns() int {
+	return min(o.maxConns(), o.MaxOutboundConnections.Or(10))
+}
 
 func (o *RouterOptions) maxPeers() int {
 	return o.MaxPeers.Or(128)
