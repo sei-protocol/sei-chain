@@ -55,8 +55,10 @@ func OpenRocksDB(dir string, storeType EVMStoreType) (*EVMDatabaseRocksDB, error
 	defaultOpts := grocksdb.NewDefaultOptions()
 	defaultOpts.SetCreateIfMissing(true)
 	defaultOpts.SetCreateIfMissingColumnFamilies(true)
+	defer defaultOpts.Destroy()
 
 	cfOpts := newRocksDBEVMOpts()
+	defer cfOpts.Destroy()
 
 	db, cfHandles, err := grocksdb.OpenDbColumnFamilies(
 		defaultOpts,
@@ -180,11 +182,13 @@ func (db *EVMDatabaseRocksDB) Delete(key []byte, version int64) error {
 
 	batch := grocksdb.NewWriteBatch()
 	batch.DeleteCFWithTS(db.cfHandle, key, ts[:])
+	batch.Put([]byte(rocksLatestVersionKey), ts[:])
 	defer batch.Destroy()
 
 	if err := db.storage.Write(rocksDefaultWriteOpts, batch); err != nil {
 		return err
 	}
+	db.latestVersion.Store(version)
 	return nil
 }
 
@@ -266,7 +270,10 @@ func (db *EVMDatabaseRocksDB) Close() error {
 	if db.storage == nil {
 		return nil
 	}
-	db.cfHandle = nil
+	if db.cfHandle != nil {
+		db.cfHandle.Destroy()
+		db.cfHandle = nil
+	}
 	db.storage.Close()
 	db.storage = nil
 	return nil
