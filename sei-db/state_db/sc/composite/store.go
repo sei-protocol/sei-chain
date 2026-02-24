@@ -262,9 +262,12 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	if err != nil {
 		return nil, err
 	}
-	evmImporter, err := cs.evmCommitter.Importer(version)
-	if err != nil {
-		return nil, err
+	var evmImporter types.Importer
+	if cs.evmCommitter != nil {
+		evmImporter, err = cs.evmCommitter.Importer(version)
+		if err != nil {
+			return nil, err
+		}
 	}
 	compositeImporter := NewImporter(cosmosImporter, evmImporter)
 	return compositeImporter, nil
