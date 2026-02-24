@@ -446,7 +446,13 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	rts.reactor.cfg.TrustHeight = 1
 	rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
 
-	ictx, cancel := context.WithTimeout(ctx, time.Second)
+	// Peer registration is asynchronous; wait for a minimum set before
+	// initializing the provider to avoid CI flakes under load.
+	require.Eventually(t, func() bool {
+		return rts.reactor.peers.Len() >= 2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	ictx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	func() {

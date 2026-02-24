@@ -433,6 +433,10 @@ func TestStateFullRound2(t *testing.T) {
 // two vals take turns proposing. val1 locks on first one, precommits nil on everything else
 func TestStateLock_NoPOL(t *testing.T) {
 	config := configSetup(t)
+	// Deflake: when cs1 is proposer in round 3, proposal construction can race
+	// timeoutPropose on loaded CI runners and force an early prevote nil.
+	config.Consensus.UnsafeProposeTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})

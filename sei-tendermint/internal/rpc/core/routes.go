@@ -48,7 +48,6 @@ func NewRoutesMap(svc RPCService, opts *RouteOptions) RoutesMap {
 		"block_results":        rpc.NewRPCFunc(svc.BlockResults),
 		"commit":               rpc.NewRPCFunc(svc.Commit),
 		"check_tx":             rpc.NewRPCFunc(svc.CheckTx),
-		"remove_tx":            rpc.NewRPCFunc(svc.RemoveTx),
 		"tx":                   rpc.NewRPCFunc(svc.Tx),
 		"tx_search":            rpc.NewRPCFunc(svc.TxSearch),
 		"block_search":         rpc.NewRPCFunc(svc.BlockSearch),
@@ -108,7 +107,6 @@ type RPCService interface {
 	Health(ctx context.Context) (*coretypes.ResultHealth, error)
 	NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error)
 	NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error)
-	RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error
 	Status(ctx context.Context) (*coretypes.ResultStatus, error)
 	LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error)
 	Subscribe(ctx context.Context, req *coretypes.RequestSubscribe) (*coretypes.ResultSubscribe, error)
