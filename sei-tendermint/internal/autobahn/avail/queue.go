@@ -16,6 +16,12 @@ func (q *queue[I, T]) Len() uint64 {
 	return uint64(q.next) - uint64(q.first)
 }
 
+// reset sets the starting position of an empty queue.
+func (q *queue[I, T]) reset(start I) {
+	q.first = start
+	q.next = start
+}
+
 func (q *queue[I, T]) pushBack(t T) {
 	q.q[q.next] = t
 	q.next += 1

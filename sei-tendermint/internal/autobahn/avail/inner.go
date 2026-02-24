@@ -56,7 +56,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 
 	// Restore persisted CommitQCs into the queue.
 	if len(l.commitQCs) > 0 {
-		i.commitQCs.prune(l.commitQCs[0].Index)
+		i.commitQCs.reset(l.commitQCs[0].Index)
 		for _, lqc := range l.commitQCs {
 			if lqc.Index == i.commitQCs.next {
 				i.commitQCs.pushBack(lqc.QC)
@@ -78,7 +78,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 			continue
 		}
 		first := bs[0].Number
-		q.prune(first)
+		q.reset(first)
 		for _, b := range bs {
 			q.pushBack(b.Proposal)
 		}
@@ -89,7 +89,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		// loaded blocks so that headers() returns ErrPruned for blocks
 		// before `first` instead of blocking forever waiting for votes
 		// that will never arrive.
-		i.votes[lane].prune(first)
+		i.votes[lane].reset(first)
 	}
 
 	// Prune all queues based on the persisted AppQC. Called after loading
