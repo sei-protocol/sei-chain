@@ -25,9 +25,11 @@ type inner struct {
 
 // loadedAvailState holds data loaded from disk on restart.
 // blocks are sorted by number and contiguous (gaps already resolved by loader).
+// commitQCs are sorted by road index and contiguous (gaps already resolved by loader).
 type loadedAvailState struct {
-	appQC  utils.Option[*types.AppQC]
-	blocks map[types.LaneID][]persist.LoadedBlock
+	appQC     utils.Option[*types.AppQC]
+	commitQCs []persist.LoadedCommitQC
+	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
 func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner {
@@ -61,6 +63,18 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) *inner
 		// AppVotes through this global block number have been processed.
 		i.appVotes.first = aq.Proposal().GlobalNumber() + 1
 		i.appVotes.next = i.appVotes.first
+	}
+
+	// Restore persisted CommitQCs into the queue. Only CommitQCs at or
+	// after commitQCs.first (i.e. not yet processed by an AppQC) are
+	// useful; earlier ones are already accounted for.
+	for _, lqc := range l.commitQCs {
+		if lqc.Index >= i.commitQCs.first && lqc.Index == i.commitQCs.next {
+			i.commitQCs.pushBack(lqc.QC)
+		}
+	}
+	if i.commitQCs.next > i.commitQCs.first {
+		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
 	// nextBlockToPersist gates RecvBatch: only blocks below this cursor are

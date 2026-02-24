@@ -47,23 +47,25 @@ type State struct {
 	appQCSend utils.AtomicSend[utils.Option[*types.AppQC]]
 	// blockPersist writes/deletes individual block files; None when persistence is disabled.
 	blockPersist utils.Option[*persist.BlockPersister]
+	// commitQCPersist writes/deletes individual CommitQC files; None when persistence is disabled.
+	commitQCPersist utils.Option[*persist.CommitQCPersister]
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
 const innerFile = "avail_inner"
 
 // loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
-func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.AppQC], *persist.BlockPersister, error) {
+func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.AppQC], *persist.BlockPersister, *persist.CommitQCPersister, error) {
 	persister, persistedProto, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+		return nil, nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
 	}
 
 	var appQC utils.Option[*types.AppQC]
 	if pb, ok := persistedProto.Get(); ok {
 		qc, err := types.AppQCConv.Decode(pb)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("decode persisted AppQC: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("decode persisted AppQC: %w", err)
 		}
 		log.Info().
 			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
@@ -74,10 +76,15 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.A
 
 	bp, blocks, err := persist.NewBlockPersister(dir)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
 	}
 
-	return &loadedAvailState{appQC: appQC, blocks: blocks}, persister, bp, nil
+	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("NewCommitQCPersister: %w", err)
+	}
+
+	return &loadedAvailState{appQC: appQC, commitQCs: commitQCs, blocks: blocks}, persister, bp, cp, nil
 }
 
 // NewState constructs a new availability state.
@@ -86,24 +93,27 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	var loaded utils.Option[*loadedAvailState]
 	var p utils.Option[persist.Persister[*apb.AppQC]]
 	var bp utils.Option[*persist.BlockPersister]
+	var cp utils.Option[*persist.CommitQCPersister]
 
 	if dir, ok := stateDir.Get(); ok {
-		l, persister, blockPersist, err := loadPersistedState(dir)
+		l, persister, blockPersist, commitQCPersist, err := loadPersistedState(dir)
 		if err != nil {
 			return nil, err
 		}
 		loaded = utils.Some(l)
 		p = utils.Some(persister)
 		bp = utils.Some(blockPersist)
+		cp = utils.Some(commitQCPersist)
 	}
 
 	return &State{
-		key:          key,
-		data:         data,
-		inner:        utils.NewWatch(newInner(data.Committee(), loaded)),
-		persister:    p,
-		appQCSend:    utils.NewAtomicSend(utils.None[*types.AppQC]()),
-		blockPersist: bp,
+		key:             key,
+		data:            data,
+		inner:           utils.NewWatch(newInner(data.Committee(), loaded)),
+		persister:       p,
+		appQCSend:       utils.NewAtomicSend(utils.None[*types.AppQC]()),
+		blockPersist:    bp,
+		commitQCPersist: cp,
 	}, nil
 }
 
@@ -532,45 +542,73 @@ func (s *State) Run(ctx context.Context) error {
 			})
 		}
 		if bp, ok := s.blockPersist.Get(); ok {
-			scope.SpawnNamed("blockPersist", func() error {
-				cur := bp.LoadTips()
+			cp, _ := s.commitQCPersist.Get()
+			scope.SpawnNamed("persist", func() error {
+				blockCur := bp.LoadTips()
+				var commitQCCur types.RoadIndex
+				if cp != nil {
+					commitQCCur = cp.LoadNext()
+				}
 				for {
-					// Collect unpersisted blocks under lock.
-					var batch []*types.Signed[*types.LaneProposal]
+					// Collect unpersisted blocks and commitQCs under lock.
+					var blockBatch []*types.Signed[*types.LaneProposal]
+					var commitQCBatch []*types.CommitQC
 					var laneFirsts map[types.LaneID]types.BlockNumber
+					var commitQCFirst types.RoadIndex
 					for inner, ctrl := range s.inner.Lock() {
 						if err := ctrl.WaitUntil(ctx, func() bool {
 							for lane, q := range inner.blocks {
-								if cur[lane] < q.next {
+								if blockCur[lane] < q.next {
 									return true
 								}
 							}
-							return false
+							return cp != nil && commitQCCur < inner.commitQCs.next
 						}); err != nil {
 							return err
 						}
 						laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
 						for lane, q := range inner.blocks {
-							for n := cur[lane]; n < q.next; n++ {
-								batch = append(batch, q.q[n])
+							for n := blockCur[lane]; n < q.next; n++ {
+								blockBatch = append(blockBatch, q.q[n])
 							}
 							laneFirsts[lane] = q.first
 						}
+						if cp != nil {
+							commitQCFirst = inner.commitQCs.first
+							for n := commitQCCur; n < inner.commitQCs.next; n++ {
+								commitQCBatch = append(commitQCBatch, inner.commitQCs.q[n])
+							}
+						}
 					}
 
-					// Persist batch + cleanup (no lock held).
+					// Persist blocks + cleanup (no lock held).
 					var err error
-					cur, err = bp.PersistBatch(cur, batch, laneFirsts)
+					blockCur, err = bp.PersistBatch(blockCur, blockBatch, laneFirsts)
 					if err != nil {
 						return err
 					}
 
-					// Update nextBlockToPersist under lock.
-					for inner, ctrl := range s.inner.Lock() {
-						for lane, next := range cur {
-							inner.nextBlockToPersist[lane] = next
+					// Persist commitQCs + cleanup (no lock held).
+					for _, qc := range commitQCBatch {
+						if err := cp.PersistCommitQC(qc); err != nil {
+							return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
 						}
-						ctrl.Updated()
+						commitQCCur = qc.Index() + 1
+					}
+					if len(commitQCBatch) > 0 {
+						if err := cp.DeleteBefore(commitQCFirst); err != nil {
+							return fmt.Errorf("commitqc deleteBefore: %w", err)
+						}
+					}
+
+					// Update nextBlockToPersist under lock.
+					if len(blockBatch) > 0 {
+						for inner, ctrl := range s.inner.Lock() {
+							for lane, next := range blockCur {
+								inner.nextBlockToPersist[lane] = next
+							}
+							ctrl.Updated()
+						}
 					}
 				}
 			})

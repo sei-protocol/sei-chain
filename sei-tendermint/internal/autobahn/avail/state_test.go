@@ -441,6 +441,69 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.ErrorIs(t, err, data.ErrPruned)
 	})
 
+	t.Run("loads persisted commitQCs", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		// Persist CommitQCs to disk.
+		cp, _, err := persist.NewCommitQCPersister(dir)
+		require.NoError(t, err)
+
+		qcs := make([]*types.CommitQC, 3)
+		prev := utils.None[*types.CommitQC]()
+		for i := range qcs {
+			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qcs[i])
+			require.NoError(t, cp.PersistCommitQC(qcs[i]))
+		}
+
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		// All 3 commitQCs should be loaded (no AppQC to skip past).
+		require.Equal(t, types.RoadIndex(0), state.FirstCommitQC())
+		// LastCommitQC should be set to the last loaded one.
+		latest, ok := state.LastCommitQC().Load().Get()
+		require.True(t, ok)
+		require.NoError(t, utils.TestDiff(qcs[2], latest))
+	})
+
+	t.Run("loads persisted commitQCs with AppQC", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		// Persist AppQC at road index 1.
+		roadIdx := types.RoadIndex(1)
+		globalNum := types.GlobalBlockNumber(5)
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+		persister, _, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
+		require.NoError(t, err)
+		require.NoError(t, persister.Persist(types.AppQCConv.Encode(appQC)))
+
+		// Persist CommitQCs 0-4.
+		cp, _, err := persist.NewCommitQCPersister(dir)
+		require.NoError(t, err)
+
+		qcs := make([]*types.CommitQC, 5)
+		prev := utils.None[*types.CommitQC]()
+		for i := range qcs {
+			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qcs[i])
+			require.NoError(t, cp.PersistCommitQC(qcs[i]))
+		}
+
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		// AppQC at index 1 → commitQCs.first = 2. Only indices 2-4 restored.
+		require.Equal(t, types.RoadIndex(2), state.FirstCommitQC())
+		latest, ok := state.LastCommitQC().Load().Get()
+		require.True(t, ok)
+		require.NoError(t, utils.TestDiff(qcs[4], latest))
+	})
+
 	t.Run("corrupt AppQC data returns error", func(t *testing.T) {
 		dir := t.TempDir()
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())

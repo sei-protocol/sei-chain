@@ -1,10 +1,11 @@
 // TODO: Block file persistence is a temporary solution that will be replaced by
-// a WAL (Write-Ahead Log) library before launch. With a WAL, atomic appends
-// eliminate several complexities in this file:
+// a WAL (Write-Ahead Log) library before launch. CommitQC file persistence
+// (commitqcs.go) shares the same migration plan. With a WAL, atomic appends
+// eliminate several complexities in both files:
 //   - Gap detection / contiguous prefix truncation in loadAll (WAL replay is
 //     always contiguous).
 //   - Corrupt file handling (WAL handles its own integrity).
-//   - Per-block file naming, parsing, and directory scanning.
+//   - Per-file naming, parsing, and directory scanning.
 //   - Orphaned file cleanup (WAL truncation replaces DeleteBefore).
 //
 // What survives: the AtomicSend tips and the BlockPersister abstraction

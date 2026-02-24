@@ -301,3 +301,137 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 	require.Equal(t, types.BlockNumber(4), i.nextBlockToPersist[lane0])
 	require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane1])
 }
+
+func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	// Create 3 sequential CommitQCs.
+	qcs := make([]*types.CommitQC, 3)
+	prev := utils.None[*types.CommitQC]()
+	for i := range qcs {
+		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		prev = utils.Some(qcs[i])
+	}
+
+	var loadedQCs []persist.LoadedCommitQC
+	for i, qc := range qcs {
+		loadedQCs = append(loadedQCs, persist.LoadedCommitQC{Index: types.RoadIndex(i), QC: qc})
+	}
+
+	loaded := &loadedAvailState{
+		appQC:     utils.None[*types.AppQC](),
+		commitQCs: loadedQCs,
+	}
+
+	inner := newInner(committee, utils.Some(loaded))
+
+	// Without AppQC, commitQCs.first = 0. All 3 should be restored.
+	require.Equal(t, types.RoadIndex(0), inner.commitQCs.first)
+	require.Equal(t, types.RoadIndex(3), inner.commitQCs.next)
+	for i, qc := range qcs {
+		require.NoError(t, utils.TestDiff(qc, inner.commitQCs.q[types.RoadIndex(i)]))
+	}
+
+	// latestCommitQC should be set to the last loaded one.
+	latest, ok := inner.latestCommitQC.Load().Get()
+	require.True(t, ok)
+	require.NoError(t, utils.TestDiff(qcs[2], latest))
+}
+
+func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	// AppQC at road index 2.
+	roadIdx := types.RoadIndex(2)
+	globalNum := types.GlobalBlockNumber(10)
+	appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+	// Create 5 sequential CommitQCs (indices 0-4).
+	qcs := make([]*types.CommitQC, 5)
+	prev := utils.None[*types.CommitQC]()
+	for i := range qcs {
+		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		prev = utils.Some(qcs[i])
+	}
+
+	var loadedQCs []persist.LoadedCommitQC
+	for i, qc := range qcs {
+		loadedQCs = append(loadedQCs, persist.LoadedCommitQC{Index: types.RoadIndex(i), QC: qc})
+	}
+
+	loaded := &loadedAvailState{
+		appQC:     utils.Some[*types.AppQC](appQC),
+		commitQCs: loadedQCs,
+	}
+
+	inner := newInner(committee, utils.Some(loaded))
+
+	// AppQC at index 2 means commitQCs.first = 3.
+	// Only indices 3 and 4 should be restored.
+	require.Equal(t, types.RoadIndex(3), inner.commitQCs.first)
+	require.Equal(t, types.RoadIndex(5), inner.commitQCs.next)
+	require.NoError(t, utils.TestDiff(qcs[3], inner.commitQCs.q[3]))
+	require.NoError(t, utils.TestDiff(qcs[4], inner.commitQCs.q[4]))
+
+	// latestCommitQC should be the last restored one (index 4).
+	latest, ok := inner.latestCommitQC.Load().Get()
+	require.True(t, ok)
+	require.NoError(t, utils.TestDiff(qcs[4], latest))
+}
+
+func TestNewInnerLoadedCommitQCsAllBeforeAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	// AppQC at road index 5.
+	appProposal := types.NewAppProposal(20, 5, types.GenAppHash(rng))
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+	// CommitQCs at indices 0-2 — all before the AppQC.
+	qcs := make([]*types.CommitQC, 3)
+	prev := utils.None[*types.CommitQC]()
+	for i := range qcs {
+		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		prev = utils.Some(qcs[i])
+	}
+
+	var loadedQCs []persist.LoadedCommitQC
+	for i, qc := range qcs {
+		loadedQCs = append(loadedQCs, persist.LoadedCommitQC{Index: types.RoadIndex(i), QC: qc})
+	}
+
+	loaded := &loadedAvailState{
+		appQC:     utils.Some[*types.AppQC](appQC),
+		commitQCs: loadedQCs,
+	}
+
+	inner := newInner(committee, utils.Some(loaded))
+
+	// AppQC at index 5 → commitQCs.first = 6. All loaded QCs are stale.
+	require.Equal(t, types.RoadIndex(6), inner.commitQCs.first)
+	require.Equal(t, types.RoadIndex(6), inner.commitQCs.next)
+
+	// latestCommitQC should remain None (no useful commitQCs loaded).
+	_, ok := inner.latestCommitQC.Load().Get()
+	require.False(t, ok)
+}
+
+func TestNewInnerLoadedCommitQCsEmpty(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := types.GenCommittee(rng, 4)
+
+	loaded := &loadedAvailState{
+		appQC:     utils.None[*types.AppQC](),
+		commitQCs: nil,
+	}
+
+	inner := newInner(committee, utils.Some(loaded))
+
+	require.Equal(t, types.RoadIndex(0), inner.commitQCs.first)
+	require.Equal(t, types.RoadIndex(0), inner.commitQCs.next)
+	_, ok := inner.latestCommitQC.Load().Get()
+	require.False(t, ok)
+}
