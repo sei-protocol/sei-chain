@@ -647,9 +647,13 @@ type P2PConfig struct {
 	// UPNP port forwarding. UNUSED
 	UPNP bool `mapstructure:"upnp"`
 
-	// MaxConnections defines the maximum number of connected peers (inbound and
-	// outbound).
+	// MaxConnections limits the number of connected peers (inbound and outbound).
 	MaxConnections uint16 `mapstructure:"max-connections"`
+
+	// MaxConnections limits the number of outbound peers.
+	// It should be significantly lower than MaxConnections, unless
+	// the node is supposed to have a small number of connections altogether.
+	MaxOutboundConnections int
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address.
@@ -693,7 +697,7 @@ type P2PConfig struct {
 	// with the default being "priority".
 	QueueType string `mapstructure:"queue-type"`
 
-	// List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
+	// List of node IDs, from which a connection will be accepted regardless of the connection limits. 
 	UnconditionalPeerIDs string `mapstructure:"unconditional-peer-ids"`
 }
 
@@ -704,6 +708,7 @@ func DefaultP2PConfig() *P2PConfig {
 		ExternalAddress:               "",
 		UPNP:                          false,
 		MaxConnections:                100,
+		MaxOutboundConnections:        10,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
 		MaxPacketMsgPayloadSize:       1000000,

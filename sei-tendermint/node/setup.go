@@ -222,8 +222,12 @@ func createRouter(
 	}
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
+	options.MaxOutboundConnections = 10
+	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts) 
 	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
+	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
 	options.Connection = conn.DefaultMConnConfig()
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate
@@ -445,18 +449,6 @@ func createAndStartPrivValidatorGRPCClient(
 	}
 
 	return pvsc, nil
-}
-
-func makeDefaultPrivval(conf *config.Config) (*privval.FilePV, error) {
-	if conf.Mode == config.ModeValidator {
-		pval, err := privval.LoadOrGenFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile())
-		if err != nil {
-			return nil, err
-		}
-		return pval, nil
-	}
-
-	return nil, nil
 }
 
 func createPrivval(ctx context.Context, logger log.Logger, conf *config.Config, genDoc *types.GenesisDoc, defaultPV *privval.FilePV) (types.PrivValidator, error) {
