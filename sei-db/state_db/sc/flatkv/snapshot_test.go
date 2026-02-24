@@ -563,3 +563,568 @@ func TestRollbackTargetBeforeWALStart(t *testing.T) {
 	require.Equal(t, int64(2), s2.Version())
 	require.Equal(t, hashAtV2, s2.RootHash())
 }
+
+// =============================================================================
+// removeTmpDirs
+// =============================================================================
+
+func TestRemoveTmpDirs(t *testing.T) {
+	dir := t.TempDir()
+
+	keepDir := filepath.Join(dir, "keepme")
+	tmpDir := filepath.Join(dir, "snapshot-00000000000000000005-tmp")
+	removingDir := filepath.Join(dir, "snapshot-00000000000000000003-removing")
+
+	require.NoError(t, os.MkdirAll(keepDir, 0750))
+	require.NoError(t, os.MkdirAll(tmpDir, 0750))
+	require.NoError(t, os.MkdirAll(removingDir, 0750))
+
+	require.NoError(t, removeTmpDirs(dir))
+
+	_, err := os.Stat(keepDir)
+	require.NoError(t, err, "non-tmp dir should survive")
+
+	_, err = os.Stat(tmpDir)
+	require.True(t, os.IsNotExist(err), "-tmp dir should be removed")
+
+	_, err = os.Stat(removingDir)
+	require.True(t, os.IsNotExist(err), "-removing dir should be removed")
+}
+
+func TestRemoveTmpDirsNoOpOnCleanDir(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "snapshot-00000000000000000001"), 0750))
+	require.NoError(t, removeTmpDirs(dir))
+
+	entries, _ := os.ReadDir(dir)
+	require.Len(t, entries, 1, "clean dir should be untouched")
+}
+
+// =============================================================================
+// cloneDir / copyFile
+// =============================================================================
+
+func TestCloneDirHardlinksSST(t *testing.T) {
+	src := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	sstData := []byte("fake sst content")
+	manifestData := []byte("fake manifest")
+
+	require.NoError(t, os.WriteFile(filepath.Join(src, "000001.sst"), sstData, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "MANIFEST"), manifestData, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "LOCK"), []byte("lock"), 0644))
+
+	require.NoError(t, cloneDir(src, dst))
+
+	gotSST, err := os.ReadFile(filepath.Join(dst, "000001.sst"))
+	require.NoError(t, err)
+	require.Equal(t, sstData, gotSST)
+
+	gotManifest, err := os.ReadFile(filepath.Join(dst, "MANIFEST"))
+	require.NoError(t, err)
+	require.Equal(t, manifestData, gotManifest)
+
+	_, err = os.Stat(filepath.Join(dst, "LOCK"))
+	require.True(t, os.IsNotExist(err), "LOCK file should be skipped")
+
+	srcInfo, _ := os.Stat(filepath.Join(src, "000001.sst"))
+	dstInfo, _ := os.Stat(filepath.Join(dst, "000001.sst"))
+	require.True(t, os.SameFile(srcInfo, dstInfo), ".sst should be hardlinked")
+}
+
+func TestCloneDirSkipsSubdirectories(t *testing.T) {
+	src := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(src, "subdir"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "file.txt"), []byte("data"), 0644))
+
+	require.NoError(t, cloneDir(src, dst))
+
+	_, err := os.Stat(filepath.Join(dst, "subdir"))
+	require.True(t, os.IsNotExist(err), "subdirectories should be skipped")
+
+	_, err = os.Stat(filepath.Join(dst, "file.txt"))
+	require.NoError(t, err, "regular files should be copied")
+}
+
+func TestCopyFileContent(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src.txt")
+	dstPath := filepath.Join(dir, "dst.txt")
+
+	data := []byte("hello world, this is a test for copyFile")
+	require.NoError(t, os.WriteFile(srcPath, data, 0644))
+
+	require.NoError(t, copyFile(srcPath, dstPath))
+
+	got, err := os.ReadFile(dstPath)
+	require.NoError(t, err)
+	require.Equal(t, data, got)
+}
+
+// =============================================================================
+// atomicRemoveDir
+// =============================================================================
+
+func TestAtomicRemoveDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(target, "sub"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "sub", "f.txt"), []byte("x"), 0644))
+
+	require.NoError(t, atomicRemoveDir(target))
+
+	_, err := os.Stat(target)
+	require.True(t, os.IsNotExist(err))
+
+	_, err = os.Stat(target + removingSuffix)
+	require.True(t, os.IsNotExist(err), "trash dir should also be gone")
+}
+
+// =============================================================================
+// reuseWorkingDir
+// =============================================================================
+
+func TestReuseWorkingDir(t *testing.T) {
+	workDir := t.TempDir()
+
+	require.False(t, reuseWorkingDir(workDir, "snapshot-00000000000000000005"),
+		"no SNAPSHOT_BASE file should not reuse")
+
+	require.NoError(t, writeSnapshotBase(workDir, "snapshot-00000000000000000005"))
+
+	require.True(t, reuseWorkingDir(workDir, "snapshot-00000000000000000005"),
+		"matching base should reuse")
+
+	require.False(t, reuseWorkingDir(workDir, "snapshot-00000000000000000010"),
+		"different base should not reuse")
+}
+
+func TestCreateWorkingDirReusesExisting(t *testing.T) {
+	dir := t.TempDir()
+
+	snapDir := filepath.Join(dir, snapshotName(5))
+	for _, sub := range snapshotDBDirs {
+		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
+	}
+
+	workDir := filepath.Join(dir, workingDirName)
+
+	require.NoError(t, createWorkingDir(snapDir, workDir))
+
+	marker := filepath.Join(workDir, "account", "MARKER")
+	require.NoError(t, os.WriteFile(marker, []byte("test"), 0644))
+
+	require.NoError(t, createWorkingDir(snapDir, workDir))
+
+	_, err := os.Stat(marker)
+	require.NoError(t, err, "MARKER should survive reuse (no re-clone)")
+}
+
+func TestCreateWorkingDirReclones(t *testing.T) {
+	dir := t.TempDir()
+
+	snap5 := filepath.Join(dir, snapshotName(5))
+	snap10 := filepath.Join(dir, snapshotName(10))
+	for _, sub := range snapshotDBDirs {
+		require.NoError(t, os.MkdirAll(filepath.Join(snap5, sub), 0750))
+		require.NoError(t, os.MkdirAll(filepath.Join(snap10, sub), 0750))
+	}
+
+	workDir := filepath.Join(dir, workingDirName)
+
+	require.NoError(t, createWorkingDir(snap5, workDir))
+
+	marker := filepath.Join(workDir, "account", "MARKER")
+	require.NoError(t, os.WriteFile(marker, []byte("test"), 0644))
+
+	require.NoError(t, createWorkingDir(snap10, workDir))
+
+	_, err := os.Stat(marker)
+	require.True(t, os.IsNotExist(err), "MARKER should be gone after re-clone from different snapshot")
+}
+
+// =============================================================================
+// pruneSnapshots
+// =============================================================================
+
+func TestPruneSnapshotsKeepsRecent(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, Config{SnapshotKeepRecent: 1})
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	for i := 0; i < 5; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		require.NoError(t, s.WriteSnapshot(""))
+	}
+
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	var snapshots []int64
+	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+		snapshots = append(snapshots, v)
+		return false, nil
+	})
+
+	require.Len(t, snapshots, 2, "should keep current(5) + 1 recent")
+	require.Contains(t, snapshots, int64(5))
+	require.Contains(t, snapshots, int64(4))
+	require.NoError(t, s.Close())
+}
+
+func TestPruneSnapshotsKeepAll(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, Config{SnapshotKeepRecent: 100})
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	for i := 0; i < 3; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		require.NoError(t, s.WriteSnapshot(""))
+	}
+
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	var count int
+	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+		count++
+		return false, nil
+	})
+	// 4 snapshots: initial snapshot-0 + three manual snapshots (1,2,3)
+	require.Equal(t, 4, count, "all snapshots should be kept when KeepRecent is large")
+}
+
+// =============================================================================
+// Orphan snapshot recovery
+// =============================================================================
+
+func TestOrphanSnapshotRecovery(t *testing.T) {
+	dir := t.TempDir()
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
+
+	snapDir := filepath.Join(flatkvDir, snapshotName(5))
+	for _, sub := range snapshotDBDirs {
+		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
+	}
+
+	_, err := os.Lstat(currentPath(flatkvDir))
+	require.True(t, os.IsNotExist(err), "no current symlink should exist")
+
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	target, err := os.Readlink(currentPath(flatkvDir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(5), target, "symlink should be recovered to orphan snapshot")
+}
+
+// =============================================================================
+// Traverse helpers edge cases
+// =============================================================================
+
+func TestTraverseSnapshotsNonExistentDir(t *testing.T) {
+	var versions []int64
+	err := traverseSnapshots("/nonexistent/path", true, func(v int64) (bool, error) {
+		versions = append(versions, v)
+		return false, nil
+	})
+	require.NoError(t, err, "non-existent dir should not error")
+	require.Empty(t, versions)
+}
+
+func TestTraverseSnapshotsSkipsBadNames(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(10)), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "not-a-snapshot"), 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "snapshot-short"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, snapshotName(5)), []byte("file"), 0644))
+
+	var versions []int64
+	err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		versions = append(versions, v)
+		return false, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{10}, versions, "only valid snapshot dirs should be found")
+}
+
+func TestTraverseSnapshotsEarlyStop(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{1, 5, 10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	var visited []int64
+	err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+		visited = append(visited, v)
+		return true, nil
+	})
+	require.NoError(t, err)
+	require.Len(t, visited, 1, "should stop after first callback returns true")
+	require.Equal(t, int64(20), visited[0], "descending should visit highest first")
+}
+
+// =============================================================================
+// verifyWALTail
+// =============================================================================
+
+func TestVerifyWALTailSuccess(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x02}, []byte{0x02})
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x03}, []byte{0x03})
+
+	require.NoError(t, s.verifyWALTail(3))
+}
+
+func TestVerifyWALTailMismatch(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x02}, []byte{0x02})
+
+	err = s.verifyWALTail(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "WAL integrity check failed")
+}
+
+// =============================================================================
+// tryTruncateWAL
+// =============================================================================
+
+func TestTryTruncateWAL(t *testing.T) {
+	dir := t.TempDir()
+	// SnapshotKeepRecent=0 so pruneSnapshots removes snapshot-0 once
+	// the manual snapshot at v5 is created; this makes v5 the earliest
+	// snapshot and gives tryTruncateWAL a positive truncation offset.
+	s := NewCommitStore(dir, nil, Config{SnapshotKeepRecent: 0})
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	for i := 0; i < 5; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	require.NoError(t, s.WriteSnapshot(""))
+
+	for i := 5; i < 10; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	firstBefore, _ := s.changelog.FirstOffset()
+
+	s.tryTruncateWAL()
+
+	firstAfter, _ := s.changelog.FirstOffset()
+	require.Greater(t, firstAfter, firstBefore, "WAL should be truncated after snapshot")
+}
+
+func TestTryTruncateWALNoSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+
+	firstBefore, _ := s.changelog.FirstOffset()
+
+	s.tryTruncateWAL()
+
+	firstAfter, _ := s.changelog.FirstOffset()
+	require.Equal(t, firstBefore, firstAfter, "no snapshot means no truncation")
+}
+
+// =============================================================================
+// Rollback removes post-target snapshots
+// =============================================================================
+
+func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	for i := 0; i < 3; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+	require.NoError(t, s.WriteSnapshot(""))
+
+	for i := 3; i < 6; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+	require.NoError(t, s.WriteSnapshot(""))
+
+	for i := 6; i < 8; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	var beforeRollback []int64
+	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+		beforeRollback = append(beforeRollback, v)
+		return false, nil
+	})
+	require.Contains(t, beforeRollback, int64(6))
+
+	require.NoError(t, s.Rollback(5))
+
+	var afterRollback []int64
+	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+		afterRollback = append(afterRollback, v)
+		return false, nil
+	})
+
+	for _, v := range afterRollback {
+		require.LessOrEqual(t, v, int64(5), "snapshot %d should not exist after rollback to 5", v)
+	}
+	require.Contains(t, afterRollback, int64(3))
+
+	require.NoError(t, s.Close())
+}
+
+// =============================================================================
+// updateCurrentSymlink
+// =============================================================================
+
+func TestUpdateCurrentSymlinkAtomic(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, updateCurrentSymlink(dir, "snapshot-00000000000000000001"))
+	target1, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-00000000000000000001", target1)
+
+	require.NoError(t, updateCurrentSymlink(dir, "snapshot-00000000000000000002"))
+	target2, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-00000000000000000002", target2)
+
+	_, err = os.Lstat(filepath.Join(dir, currentTmpLink))
+	require.True(t, os.IsNotExist(err), "tmp symlink should be cleaned up")
+}
+
+// =============================================================================
+// seekSnapshot edge cases
+// =============================================================================
+
+func TestSeekSnapshotEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	_, err := seekSnapshot(dir, 10)
+	require.Error(t, err, "empty dir should not find any snapshot")
+}
+
+func TestSeekSnapshotExact(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{10, 20, 30} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	v, err := seekSnapshot(dir, 30)
+	require.NoError(t, err)
+	require.Equal(t, int64(30), v)
+
+	v, err = seekSnapshot(dir, 25)
+	require.NoError(t, err)
+	require.Equal(t, int64(20), v)
+
+	v, err = seekSnapshot(dir, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), v)
+}
+
+// =============================================================================
+// Multiple snapshots and reopen
+// =============================================================================
+
+func TestMultipleSnapshotsAndReopen(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, Config{SnapshotKeepRecent: 10})
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	var hashes [][]byte
+	for i := 0; i < 3; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		require.NoError(t, s.WriteSnapshot(""))
+		hashes = append(hashes, s.RootHash())
+	}
+	require.NoError(t, s.Close())
+
+	for i, expectedHash := range hashes {
+		ver := int64(i + 1)
+		s2 := NewCommitStore(dir, nil, Config{SnapshotKeepRecent: 10})
+		_, err := s2.LoadVersion(ver)
+		require.NoError(t, err)
+		require.Equal(t, ver, s2.Version())
+		require.Equal(t, expectedHash, s2.RootHash(), "hash mismatch at version %d", ver)
+		require.NoError(t, s2.Close())
+	}
+}
+
+// =============================================================================
+// Snapshot with all key types
+// =============================================================================
+
+func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	addr := Address{0xAB}
+	slot := Slot{0xCD}
+
+	pairs := []*iavl.KVPair{
+		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
+		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
+		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
+	}
+	cs := &proto.NamedChangeSet{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err = s.Commit()
+	require.NoError(t, err)
+
+	hash := s.RootHash()
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, hash, s2.RootHash())
+
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	v, ok := s2.Get(storageKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x11}, v)
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	v, ok = s2.Get(nonceKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 7}, v)
+
+	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	v, ok = s2.Get(codeKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x60, 0x80}, v)
+}
