@@ -50,7 +50,7 @@ type BlockPersister struct {
 }
 
 type persistJob struct {
-	proposal   *types.Signed[*types.LaneProposal]
+	proposal     *types.Signed[*types.LaneProposal]
 	deleteBefore map[types.LaneID]types.BlockNumber
 }
 

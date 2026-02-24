@@ -289,7 +289,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	return nil
 }
 
-
 // persistAppQC writes the AppQC to the A/B file. Called under the inner lock.
 // Errors are logged but not fatal -- on crash we reload an older AppQC and re-converge.
 func (s *State) persistAppQC(appQC *types.AppQC) error {
@@ -384,7 +383,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		return utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, p))
+		return bp.Queue(ctx, p)
 	}
 	return nil
 }
@@ -547,7 +546,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 	if bp, ok := s.blockPersist.Get(); ok {
 		// Blocking: called outside the inner lock so only this goroutine stalls.
 		// See Queue() for why we must not drop blocks.
-		if err := utils.IgnoreAfterCancel(ctx, bp.Queue(ctx, result)); err != nil {
+		if err := bp.Queue(ctx, result); err != nil {
 			return nil, err
 		}
 	}
