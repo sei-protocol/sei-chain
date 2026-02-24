@@ -274,30 +274,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /remove_tx:
-    get:
-      summary: Removes a transaction from the mempool.
-      tags:
-        - TxKey
-      operationId: remove_tx
-      parameters:
-        - in: query
-          name: txKey
-          required: true
-          schema:
-            type: string
-            example: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          description: The transaction key
-      responses:
-        "200":
-          description: empty response.
-        "500":
-          description: empty error.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
   /events:
     get:
       summary: Fetch events posted by the consensus node.

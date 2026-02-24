@@ -172,6 +172,14 @@ func (s *Store) CacheRotateInterval() uint64 {
 	return s.config.MaxBlocksPerFile
 }
 
+// SetBlockFlushInterval overrides the number of blocks buffered before
+// flushing to a parquet file. Intended for testing.
+func (s *Store) SetBlockFlushInterval(interval uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.BlockFlushInterval = interval
+}
+
 // GetReceiptByTxHash retrieves a receipt by transaction hash.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
@@ -480,6 +488,14 @@ func (s *Store) initWriters() error {
 	s.logWriter = logWriter
 
 	return nil
+}
+
+// Flush acquires the write lock and flushes all buffered data to disk.
+// Mostly used for testing and benchmarking.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushLocked()
 }
 
 func (s *Store) flushLocked() error {

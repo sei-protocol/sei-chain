@@ -55,8 +55,6 @@ func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
 
-	defer os.RemoveAll(cfg.RootDir)
-
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
@@ -67,7 +65,11 @@ func TestNodeStartStop(t *testing.T) {
 	n, ok := ns.(*nodeImpl)
 	require.True(t, ok)
 	t.Cleanup(func() {
+		if n.IsRunning() {
+			n.Stop()
+		}
 		n.Wait()
+		require.False(t, n.IsRunning(), "node must shut down")
 	})
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
 
@@ -84,11 +86,6 @@ func TestNodeStartStop(t *testing.T) {
 	require.NoError(t, err)
 	_, err = blocksSub.Next(tctx)
 	require.NoError(t, err, "waiting for event")
-
-	t.Cleanup(func() {
-		n.Wait()
-		require.False(t, n.IsRunning(), "node must shut down")
-	})
 }
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger log.Logger) *nodeImpl {
