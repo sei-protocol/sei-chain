@@ -31,10 +31,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	_, err = cryptosim.NewCryptoSim(ctx, config)
+	cs, err := cryptosim.NewCryptoSim(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to create cryptosim: %w", err)
 	}
+	defer func() {
+		err := cs.Close()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
+		}
+	}()
 
 	<-ctx.Done()
 

@@ -11,11 +11,6 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
-const (
-	// Used to store the next account ID to be used when creating a new account.
-	nonceKey = string(evm.EVMKeyNonce) + "nonce"
-)
-
 // The test runner for the cryptosim benchmark.
 type CryptoSim struct {
 	ctx context.Context
@@ -34,6 +29,10 @@ type CryptoSim struct {
 
 	// The current batch of changesets waiting to be committed.
 	batch map[string]*proto.NamedChangeSet
+
+	// Memiavl nonce key for the account ID counter (0x0a + reserved 20-byte addr).
+	// Uses non-zero sentinel address to avoid potential edge cases with all-zero key.
+	accountIDCounterKey []byte
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -61,12 +60,18 @@ func NewCryptoSim(
 	fmt.Printf("Initializing random buffer\n")
 	rand := NewRandomBuffer(config.RandomBufferSize, config.Seed)
 
+	// Reserved address for counter: 20 bytes of 0x01 (avoids all-zero key edge cases).
+	reservedAddr := make([]byte, 20)
+	for i := range reservedAddr {
+		reservedAddr[i] = 0x01
+	}
 	c := &CryptoSim{
-		ctx:    ctx,
-		config: config,
-		db:     db,
-		rand:   rand,
-		batch:  make(map[string]*proto.NamedChangeSet, config.TransactionsPerBlock),
+		ctx:                 ctx,
+		config:              config,
+		db:                  db,
+		rand:                rand,
+		batch:               make(map[string]*proto.NamedChangeSet, config.TransactionsPerBlock),
+		accountIDCounterKey: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, reservedAddr),
 	}
 
 	err = c.setup()
@@ -85,9 +90,9 @@ func (c *CryptoSim) setup() error {
 		c.config.MinimumNumberOfAccounts = c.config.HotSetSize + 1
 	}
 
-	nextAccountID, found, err := c.db.Read([]byte(nonceKey))
+	nextAccountID, found, err := c.db.Read(c.accountIDCounterKey)
 	if err != nil {
-		return fmt.Errorf("failed to read nonce: %w", err)
+		return fmt.Errorf("failed to read account counter: %w", err)
 	}
 	if found {
 		c.nextAccountID = int64(binary.BigEndian.Uint64(nextAccountID))
@@ -112,12 +117,10 @@ func (c *CryptoSim) setup() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 	}
-	err = c.commitBatch()
-	if err != nil {
+	if err := c.commitBatch(); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
-	_, err = c.db.Commit()
-	if err != nil {
+	if _, err := c.db.Commit(); err != nil {
 		return fmt.Errorf("failed to commit database: %w", err)
 	}
 
@@ -136,7 +139,9 @@ func (c *CryptoSim) createNewAccount() error {
 	accountID := c.nextAccountID
 	c.nextAccountID++
 
-	address := c.rand.Address(nonceKey, c.config.AccountKeySize, accountID)
+	// Use memiavl code key format (0x07 + addr) so FlatKV persists account data.
+	addr := c.rand.Address(c.config.AccountKeySize, accountID)
+	address := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 	balance := c.rand.Int64()
 
 	accountData := make([]byte, c.config.PaddedAccountSize)
@@ -175,15 +180,13 @@ func (c *CryptoSim) commitBatch() error {
 	for _, cs := range c.batch {
 		changeSets = append(changeSets, cs)
 	}
-
-	// Within each batch, be sure to include the nonce key.
-	nonceKey := []byte(nonceKey)
+	// Persist the account ID counter in every batch.
 	nonceValue := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceValue, uint64(c.nextAccountID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
 		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: nonceKey, Value: nonceValue},
+			{Key: c.accountIDCounterKey, Value: nonceValue},
 		}},
 	})
 
@@ -233,4 +236,30 @@ func (c *CryptoSim) get(key []byte) ([]byte, bool, error) {
 	}
 
 	return nil, false, nil
+}
+
+// Shut down the benchmark and release any resources.
+func (c *CryptoSim) Close() error {
+
+	fmt.Printf("Committing final batch...\n")
+
+	if err := c.commitBatch(); err != nil {
+		return fmt.Errorf("failed to commit batch: %w", err)
+	}
+	if _, err := c.db.Commit(); err != nil {
+		return fmt.Errorf("failed to commit database: %w", err)
+	}
+
+	fmt.Printf("Closing database...\n")
+	err := c.db.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+
+	fmt.Printf("benchmark terminated successfully\n")
+
+	// Specifically release rand, since it's likely to hold a lot of memory.
+	c.rand = nil
+
+	return nil
 }
