@@ -6,16 +6,13 @@
 //   - Corrupt file handling (WAL handles its own integrity).
 //   - Per-block file naming, parsing, and directory scanning.
 //   - Orphaned file cleanup (WAL truncation replaces DeleteBefore).
-//   - The blocking Queue (holes become impossible with sequential atomic
-//     appends, so dropping on overflow is safe).
 //
-// What survives: the async channel, the AtomicSend tips, and the
-// BlockPersister abstraction (Queue/Run/Tips contract).
+// What survives: the AtomicSend tips and the BlockPersister abstraction
+// (PersistBlock/DeleteBefore/Tips contract).
 
 package persist
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"maps"
@@ -40,25 +37,15 @@ type LoadedBlock struct {
 
 // BlockPersister manages individual block files in a blocks/ subdirectory.
 // Each block is stored as <lane_hex>_<blocknum>.pb.
+// The caller is responsible for driving persistence (typically a goroutine that
+// watches in-memory block state and calls PersistBlock / DeleteBefore / StoreTips).
 type BlockPersister struct {
 	dir string // full path to the blocks/ subdirectory
-	ch  chan persistJob
 	// tips publishes the highest persisted block number + 1 (exclusive upper
-	// bound) per lane as an immutable map snapshot. Updated after each
-	// successful persist. Subscribers can watch for changes without callbacks.
+	// bound) per lane as an immutable map snapshot. Updated via StoreTips
+	// after each successful persist.
 	tips utils.AtomicSend[map[types.LaneID]types.BlockNumber]
 }
-
-type persistJob struct {
-	proposal     *types.Signed[*types.LaneProposal]
-	deleteBefore map[types.LaneID]types.BlockNumber
-}
-
-// persistQueueSize is the buffer for async block persistence and cleanup jobs.
-// With 40 validators, a 1/3 Byzantine burst produces up to ~13 lanes × 30 blocks
-// = 390 block persist jobs at once. DeleteBefore cleanup jobs are infrequent
-// (one per AppQC finalization) and add negligible load. 512 covers both with margin.
-const persistQueueSize = 512
 
 // NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
 // returns a block persister. Loads all persisted blocks from disk as sorted,
@@ -72,7 +59,6 @@ func NewBlockPersister(stateDir string) (*BlockPersister, map[types.LaneID][]Loa
 
 	bp := &BlockPersister{
 		dir: dir,
-		ch:  make(chan persistJob, persistQueueSize),
 	}
 	blocks, err := bp.loadAll()
 	if err != nil {
@@ -125,13 +111,13 @@ func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposa
 	return writeAndSync(path, data)
 }
 
-// deleteBefore removes persisted block files that are no longer needed.
+// DeleteBefore removes persisted block files that are no longer needed.
 // For lanes in laneFirsts, deletes files with block number below the map value.
 // For lanes NOT in laneFirsts (orphaned from a previous committee/epoch),
 // deletes all files — old blocks are not reusable after a committee change.
 // Returns an error if the directory cannot be read; individual file removal
 // failures are logged but do not cause an error.
-func (bp *BlockPersister) deleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
+func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
 	if len(laneFirsts) == 0 {
 		return nil
 	}
@@ -159,72 +145,33 @@ func (bp *BlockPersister) deleteBefore(laneFirsts map[types.LaneID]types.BlockNu
 	return nil
 }
 
-// QueueDeleteBefore enqueues an async cleanup of persisted block files older
-// than the given lane boundaries. Processed by Run(); critical failures (e.g.
-// unreadable directory) terminate Run().
-func (bp *BlockPersister) QueueDeleteBefore(ctx context.Context, laneFirsts map[types.LaneID]types.BlockNumber) error {
-	if len(laneFirsts) == 0 {
-		return nil
-	}
-	select {
-	case bp.ch <- persistJob{deleteBefore: laneFirsts}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// Queue enqueues a block for async persistence. Blocks if the queue is full
-// until space is available or ctx is cancelled. We must not drop blocks because
-// the nextBlockToPersist cursor advances sequentially — a hole would stall voting
-// on the affected lane until restart (which reconstructs the cursor from disk).
-// TODO: add retry on persistence failure to avoid restart-only recovery.
-func (bp *BlockPersister) Queue(ctx context.Context, proposal *types.Signed[*types.LaneProposal]) error {
-	select {
-	case bp.ch <- persistJob{proposal: proposal}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// Tips returns a subscription to the persisted lane tips. Each value is an
-// immutable map snapshot of lane -> highest persisted block number + 1
-// (exclusive upper bound). Updated after each successful persist.
-func (bp *BlockPersister) Tips() utils.AtomicRecv[map[types.LaneID]types.BlockNumber] {
-	return bp.tips.Subscribe()
-}
-
-// Run drains the internal queue and fsyncs each block to disk.
-// After each successful write, it publishes an updated tips snapshot via Tips().
-// Blocks until ctx is cancelled.
-func (bp *BlockPersister) Run(ctx context.Context) error {
-	cur := bp.tips.Load()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case job := <-bp.ch:
-			if job.deleteBefore != nil {
-				if err := bp.deleteBefore(job.deleteBefore); err != nil {
-					return fmt.Errorf("deleteBefore: %w", err)
-				}
-				continue
-			}
-			h := job.proposal.Msg().Block().Header()
-			if err := bp.PersistBlock(job.proposal); err != nil {
-				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
-			}
-			// Publish a new immutable snapshot with the updated tip.
-			next := make(map[types.LaneID]types.BlockNumber, len(cur))
-			for k, v := range cur {
-				next[k] = v
-			}
-			next[h.Lane()] = h.BlockNumber() + 1
-			cur = next
-			bp.tips.Store(cur)
+// PersistBatch persists a batch of blocks to disk, updates tips after each
+// successful write, and cleans up old files below laneFirsts.
+// Returns the updated tips snapshot.
+func (bp *BlockPersister) PersistBatch(
+	cur map[types.LaneID]types.BlockNumber,
+	batch []*types.Signed[*types.LaneProposal],
+	laneFirsts map[types.LaneID]types.BlockNumber,
+) (map[types.LaneID]types.BlockNumber, error) {
+	for _, proposal := range batch {
+		h := proposal.Msg().Block().Header()
+		if err := bp.PersistBlock(proposal); err != nil {
+			return cur, fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 		}
+		next := maps.Clone(cur)
+		next[h.Lane()] = h.BlockNumber() + 1
+		cur = next
+		bp.tips.Store(cur)
 	}
+	if err := bp.DeleteBefore(laneFirsts); err != nil {
+		return cur, fmt.Errorf("deleteBefore: %w", err)
+	}
+	return cur, nil
+}
+
+// LoadTips returns the current tips snapshot.
+func (bp *BlockPersister) LoadTips() map[types.LaneID]types.BlockNumber {
+	return bp.tips.Load()
 }
 
 // loadAll loads all persisted blocks from the blocks/ directory.

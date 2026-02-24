@@ -235,11 +235,6 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		if laneFirsts != nil {
 			s.appQCSend.Store(utils.Some(appQC))
-			if bp, ok := s.blockPersist.Get(); ok {
-				if err := bp.QueueDeleteBefore(ctx, laneFirsts); err != nil {
-					log.Error().Err(err).Msg("failed to queue block cleanup")
-				}
-			}
 			ctrl.Updated()
 		}
 	}
@@ -271,11 +266,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		}
 		if laneFirsts != nil {
 			s.appQCSend.Store(utils.Some(appQC))
-			if bp, ok := s.blockPersist.Get(); ok {
-				if err := bp.QueueDeleteBefore(context.Background(), laneFirsts); err != nil {
-					log.Error().Err(err).Msg("failed to queue block cleanup")
-				}
-			}
 			ctrl.Updated()
 		}
 	}
@@ -362,10 +352,6 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		}
 		q.pushBack(p)
 		ctrl.Updated()
-	}
-	if bp, ok := s.blockPersist.Get(); ok {
-		// Blocking: called outside the inner lock so only this goroutine stalls.
-		return bp.Queue(ctx, p)
 	}
 	return nil
 }
@@ -524,12 +510,6 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		q.pushBack(result)
 		ctrl.Updated()
 	}
-	if bp, ok := s.blockPersist.Get(); ok {
-		// Blocking: called outside the inner lock so only this goroutine stalls.
-		if err := bp.Queue(ctx, result); err != nil {
-			return nil, err
-		}
-	}
 	return result, nil
 }
 
@@ -552,20 +532,47 @@ func (s *State) Run(ctx context.Context) error {
 			})
 		}
 		if bp, ok := s.blockPersist.Get(); ok {
-			tips := bp.Tips()
-			scope.SpawnNamed("blockPersistWriter", func() error {
-				return bp.Run(ctx)
-			})
-			scope.SpawnNamed("blockPersistTipsSync", func() error {
-				return tips.Iter(ctx, func(_ context.Context, m map[types.LaneID]types.BlockNumber) error {
+			scope.SpawnNamed("blockPersist", func() error {
+				cur := bp.LoadTips()
+				for {
+					// Collect unpersisted blocks under lock.
+					var batch []*types.Signed[*types.LaneProposal]
+					var laneFirsts map[types.LaneID]types.BlockNumber
 					for inner, ctrl := range s.inner.Lock() {
-						for lane, next := range m {
+						if err := ctrl.WaitUntil(ctx, func() bool {
+							for lane, q := range inner.blocks {
+								if cur[lane] < q.next {
+									return true
+								}
+							}
+							return false
+						}); err != nil {
+							return err
+						}
+						laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
+						for lane, q := range inner.blocks {
+							for n := cur[lane]; n < q.next; n++ {
+								batch = append(batch, q.q[n])
+							}
+							laneFirsts[lane] = q.first
+						}
+					}
+
+					// Persist batch + cleanup (no lock held).
+					var err error
+					cur, err = bp.PersistBatch(cur, batch, laneFirsts)
+					if err != nil {
+						return err
+					}
+
+					// Update nextBlockToPersist under lock.
+					for inner, ctrl := range s.inner.Lock() {
+						for lane, next := range cur {
 							inner.nextBlockToPersist[lane] = next
 						}
 						ctrl.Updated()
 					}
-					return nil
-				})
+				}
 			})
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.

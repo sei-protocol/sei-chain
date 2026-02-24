@@ -207,7 +207,7 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	}
 
 	// Delete blocks before 3
-	require.NoError(t, bp.deleteBefore(map[types.LaneID]types.BlockNumber{lane: 3}))
+	require.NoError(t, bp.DeleteBefore(map[types.LaneID]types.BlockNumber{lane: 3}))
 
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestDeleteBeforeMultipleLanes(t *testing.T) {
 	}
 
 	// Delete lane1 < 2, lane2 < 1
-	require.NoError(t, bp.deleteBefore(map[types.LaneID]types.BlockNumber{lane1: 2, lane2: 1}))
+	require.NoError(t, bp.DeleteBefore(map[types.LaneID]types.BlockNumber{lane1: 2, lane2: 1}))
 
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestDeleteBeforeEmptyMap(t *testing.T) {
 	require.NoError(t, bp.PersistBlock(testSignedProposal(rng, key, 0)))
 
 	// Empty map — should not delete anything
-	require.NoError(t, bp.deleteBefore(map[types.LaneID]types.BlockNumber{}))
+	require.NoError(t, bp.DeleteBefore(map[types.LaneID]types.BlockNumber{}))
 
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestDeleteBeforeRemovesOrphanedLanes(t *testing.T) {
 	}
 
 	// Only lane1 is in the current committee; lane2 is orphaned.
-	require.NoError(t, bp.deleteBefore(map[types.LaneID]types.BlockNumber{lane1: 1}))
+	require.NoError(t, bp.DeleteBefore(map[types.LaneID]types.BlockNumber{lane1: 1}))
 
 	_, blocks, err := NewBlockPersister(dir)
 	require.NoError(t, err)
