@@ -1,24 +1,11 @@
 package flatkv
 
 import (
-	"errors"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
-
-// ErrReadOnlyNotSupported is returned when LoadVersion is called with readOnly=true.
-// Callers should fall back to Cosmos-only mode when this error is returned.
-var ErrReadOnlyNotSupported = errors.New("FlatKV read-only mode not yet supported")
-
-// Exporter streams FlatKV state for snapshots.
-// NOTE: Not yet implemented. Will be implemented with state-sync support.
-type Exporter interface {
-	// Next returns the next key/value pair. Returns (nil, nil, io.EOF) when done.
-	Next() (key, value []byte, err error)
-
-	io.Closer
-}
 
 // Options configures a FlatKV store.
 type Options struct {
@@ -72,14 +59,17 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	// Exporter creates an exporter for the given version (0 = current).
-	Exporter(version int64) (Exporter, error)
-
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
 	// Rollback restores state to targetVersion. Not implemented.
 	Rollback(targetVersion int64) error
+
+	// Exporter creates an exporter for the given version (0 = current).
+	Exporter(version int64) (types.Exporter, error)
+
+	// Importer load data from snapshot to the database
+	Importer(version int64) (types.Importer, error)
 
 	io.Closer
 }
