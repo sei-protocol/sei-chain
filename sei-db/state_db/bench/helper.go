@@ -313,7 +313,9 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 	if err != nil {
 		return fmt.Errorf("create stream reader: %w", err)
 	}
-	defer streamReader.Close()
+	defer func() {
+		_ = streamReader.Close()
+	}()
 
 	var (
 		totalKeys  int64

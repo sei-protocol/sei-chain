@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
