@@ -20,6 +20,8 @@ type DBWrapper interface {
 	// Version returns the latest committed version.
 	Version() int64
 
+	LoadVersion(version int64) error
+
 	// Importer return an importer which load snapshot data into the database
 	Importer(version int64) (types.Importer, error)
 }

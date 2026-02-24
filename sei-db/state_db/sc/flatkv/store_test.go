@@ -410,7 +410,7 @@ func TestStoreExporterNotImplemented(t *testing.T) {
 	defer exporter.Close()
 
 	// Next() should return not implemented error
-	_, _, err = exporter.Next()
+	_, err = exporter.Next()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not implemented")
 }

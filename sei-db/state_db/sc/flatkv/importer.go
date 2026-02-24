@@ -8,7 +8,7 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
-const importBatchSize = 10000
+const importBatchSize = 20000
 
 var _ types.Importer = (*KVImporter)(nil)
 
@@ -16,10 +16,7 @@ type KVImporter struct {
 	store   *CommitStore
 	version int64
 	batch   []*iavl.KVPair
-}
-
-func (imp *KVImporter) AddModule(_ string) error {
-	return nil
+	err     error
 }
 
 func NewKVImporter(store *CommitStore, version int64) types.Importer {
@@ -30,25 +27,24 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 	}
 }
 
+func (imp *KVImporter) AddModule(_ string) error {
+	return nil
+}
+
 func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
-	if node.Height != 0 || node.Key == nil {
+	if imp.err != nil || node.Height != 0 || node.Key == nil {
 		return
 	}
 
-	key := node.Key
-	value := node.Value
-	imp.batch = append(imp.batch, &iavl.KVPair{Key: key, Value: value})
+	imp.batch = append(imp.batch, &iavl.KVPair{Key: node.Key, Value: node.Value})
 	if len(imp.batch) >= importBatchSize {
-		if err := imp.flush(); err != nil {
-			panic(err)
-		}
+		imp.flush()
 	}
-	imp.batch = make([]*iavl.KVPair, 0, importBatchSize)
 }
 
-func (imp *KVImporter) flush() error {
+func (imp *KVImporter) flush() {
 	if len(imp.batch) == 0 {
-		return nil
+		return
 	}
 
 	cs := []*proto.NamedChangeSet{{
@@ -56,24 +52,30 @@ func (imp *KVImporter) flush() error {
 		Changeset: iavl.ChangeSet{Pairs: imp.batch},
 	}}
 	if err := imp.store.ApplyChangeSets(cs); err != nil {
-		return err
+		imp.err = fmt.Errorf("import apply changesets: %w", err)
+		return
 	}
 	if err := imp.store.commitBatches(imp.version); err != nil {
-		return fmt.Errorf("import commit batches: %w", err)
+		imp.err = fmt.Errorf("import commit batches: %w", err)
+		return
 	}
 	imp.store.clearPendingWrites()
-	return nil
+	imp.batch = make([]*iavl.KVPair, 0, importBatchSize)
 }
 
 func (imp *KVImporter) Close() error {
-	err := imp.flush()
-	if err != nil {
-		return err
+	if imp.err != nil {
+		return imp.err
+	}
+
+	imp.flush()
+	if imp.err != nil {
+		return imp.err
 	}
 
 	imp.store.committedVersion = imp.version
 	imp.store.committedLtHash = imp.store.workingLtHash.Clone()
-	if err = imp.store.commitGlobalMetadata(imp.version, imp.store.committedLtHash); err != nil {
+	if err := imp.store.commitGlobalMetadata(imp.version, imp.store.committedLtHash); err != nil {
 		return fmt.Errorf("import global metadata: %w", err)
 	}
 

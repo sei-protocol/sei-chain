@@ -24,8 +24,13 @@ func (m *memIAVLWrapper) Commit() (int64, error) {
 	return m.base.Commit()
 }
 
+func (m *memIAVLWrapper) LoadVersion(version int64) error {
+	_, err := m.base.LoadVersion(version, false)
+	return err
+}
+
 func (m *memIAVLWrapper) Version() int64 {
-	return m.base.WorkingCommitInfo().Version
+	return m.base.Version()
 }
 
 func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
@@ -33,8 +38,8 @@ func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 }
 
 func (m *memIAVLWrapper) Importer(version int64) (types.Importer, error) {
-	err := m.base.Close()
-	if err != nil {
+	// Close DB first to release lock
+	if err := m.Close(); err != nil {
 		return nil, err
 	}
 	return m.base.Importer(version)

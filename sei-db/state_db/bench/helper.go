@@ -34,12 +34,6 @@ const (
 	ValueSize = 32
 )
 
-type DBBackend string
-
-const (
-	DBBackendMemIAVL DBBackend = "memiavl"
-)
-
 // TestScenario bundles benchmark parameters and distribution.
 type TestScenario struct {
 	Name           string
@@ -382,7 +376,7 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 	fmt.Printf("[Snapshot] Import Done: keys=%d, keys/sec=%.0f, elapsed=%.2fs\n",
 		totalKeys, float64(totalKeys)/elapsed, elapsed)
 
-	return nil
+	return importer.Close()
 }
 
 // runBenchmark runs the benchmark with optional progress reporting.
@@ -397,10 +391,12 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 
 	for range b.N {
 		func() {
+			dbDir := b.TempDir()
 			b.StopTimer()
-			cs := wrappers.NewDBImpl(b, scenario.Backend)
+			cs := wrappers.NewDBImpl(b, dbDir, scenario.Backend)
 			require.NotNil(b, cs)
 
+			// Load snapshot if available
 			if scenario.SnapshotPath != "" {
 				snapshotHeight, err := parseSnapshotHeight(scenario.SnapshotPath)
 				require.NoError(b, err)
@@ -408,9 +404,8 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				require.NoError(b, err)
 				err = importSnapshot(scenario.SnapshotPath, importer)
 				require.NoError(b, err)
-				// restart DB after import
-				cs.Close()
-				cs = wrappers.NewDBImpl(b, scenario.Backend)
+				err = cs.LoadVersion(0)
+				require.NoError(b, err)
 			}
 			changesetChannel := startChangesetGenerator(scenario)
 
@@ -422,6 +417,7 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 
 			baseVersion := cs.Version()
 			b.StartTimer()
+			fmt.Printf("Opening DB with base version %d\n", baseVersion)
 
 			for block := int64(1); block < scenario.NumBlocks; block++ {
 				changeset, ok := <-changesetChannel
