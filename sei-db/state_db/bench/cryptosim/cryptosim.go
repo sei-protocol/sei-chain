@@ -14,7 +14,8 @@ import (
 
 // The test runner for the cryptosim benchmark.
 type CryptoSim struct {
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// The configuration for the benchmark.
 	config *CryptoSimConfig
@@ -31,7 +32,11 @@ type CryptoSim struct {
 	// The total number of transactions executed by the benchmark since it last started.
 	transactionCount int64
 
-	// The current batch of changesets waiting to be committed.
+	// The number of blocks that have been executed since the last commit.
+	uncommitedBlockCount int64
+
+	// The current batch of changesets waiting to be committed. Represents changes we are accumulating
+	// as part of a simulated "block".
 	batch map[string]*proto.NamedChangeSet
 
 	// Memiavl nonce key for the account ID counter (0x0a + reserved 20-byte addr).
@@ -50,6 +55,12 @@ type CryptoSim struct {
 
 	// The number of transactions executed by the benchmark the last time the console was updated.
 	lastConsoleUpdateTransactionCount int64
+
+	// The time the benchmark started.
+	startTimestamp time.Time
+
+	// The run channel sends a signal on this channel when it has halted.
+	runHaltedChan chan struct{}
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -67,14 +78,14 @@ func NewCryptoSim(
 		return nil, err
 	}
 
-	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
+	fmt.Printf("running cryptosim benchmark from data directory: %s\n", dataDir)
 
 	db, err := wrappers.NewDBImpl(config.Backend, dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	fmt.Printf("Initializing canned random\n")
+	fmt.Printf("initializing random number generator\n")
 	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
 
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, rand.Address(config.AccountKeySize, 0))
@@ -87,8 +98,13 @@ func NewCryptoSim(
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
+	start := time.Now()
+
+	ctx, cancel := context.WithCancel(ctx)
+
 	c := &CryptoSim{
 		ctx:                               ctx,
+		cancel:                            cancel,
 		config:                            config,
 		db:                                db,
 		rand:                              rand,
@@ -96,8 +112,10 @@ func NewCryptoSim(
 		accountIDCounterKey:               evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, reservedAddr),
 		feeCollectionAddress:              feeCollectionAddress,
 		consoleUpdatePeriod:               consoleUpdatePeriod,
-		lastConsoleUpdateTime:             time.Now(),
+		lastConsoleUpdateTime:             start,
 		lastConsoleUpdateTransactionCount: 0,
+		startTimestamp:                    start,
+		runHaltedChan:                     make(chan struct{}, 1),
 	}
 
 	err = c.setup()
@@ -135,21 +153,34 @@ func (c *CryptoSim) setup() error {
 		c.config.MinimumNumberOfAccounts, int64(c.config.MinimumNumberOfAccounts)-c.nextAccountID)
 
 	for c.nextAccountID < int64(c.config.MinimumNumberOfAccounts) {
+
+		if c.ctx.Err() != nil {
+			fmt.Printf("benchmark aborted during account creation\n")
+			break
+		}
+
 		_, err := c.createNewAccount()
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
-		err = c.maybeCommitBatch()
+		err = c.maybeFinalizeBlock()
 		if err != nil {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
+
+		if c.nextAccountID%c.config.SetupUpdateIntervalCount == 0 {
+			fmt.Printf("created %s of %s accounts\r",
+				int64Commas(c.nextAccountID), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+		}
 	}
-	if err := c.commitBatch(); err != nil {
-		return fmt.Errorf("failed to commit batch: %w", err)
+	fmt.Printf("created %d of %d accounts\n", c.nextAccountID, c.config.MinimumNumberOfAccounts)
+	if err := c.finalizeBlock(); err != nil {
+		return fmt.Errorf("failed to commit block: %w", err)
 	}
 	if _, err := c.db.Commit(); err != nil {
 		return fmt.Errorf("failed to commit database: %w", err)
 	}
+	c.uncommitedBlockCount = 0
 
 	fmt.Printf("There are now %d accounts in the database.\n", c.nextAccountID)
 
@@ -158,9 +189,18 @@ func (c *CryptoSim) setup() error {
 
 // The main loop of the benchmark.
 func (c *CryptoSim) run() {
+
+	defer func() {
+		c.runHaltedChan <- struct{}{}
+	}()
+
 	for {
 		select {
 		case <-c.ctx.Done():
+			if c.transactionCount > 0 {
+				c.generateConsoleReport(true)
+				fmt.Printf("\ntransaction workload halted\n")
+			}
 			return
 		default:
 			err := c.executeTransaction()
@@ -168,7 +208,7 @@ func (c *CryptoSim) run() {
 				fmt.Printf("failed to execute transaction: %v\n", err)
 			}
 			c.transactionCount++
-			c.generateConsoleReport()
+			c.generateConsoleReport(false)
 		}
 	}
 }
@@ -193,8 +233,7 @@ func (c *CryptoSim) executeTransaction() error {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
 	if !found {
-		// return fmt.Errorf("source account not found")
-		panic(fmt.Sprintf("source account not found: %s", srcAccount)) // TODO
+		return fmt.Errorf("source account not found")
 	}
 
 	dstValue, found, err := c.get(dstAccount)
@@ -243,7 +282,7 @@ func (c *CryptoSim) executeTransaction() error {
 }
 
 // Generates a human readable report of the benchmark's progress.
-func (c *CryptoSim) generateConsoleReport() {
+func (c *CryptoSim) generateConsoleReport(force bool) {
 
 	// TODO measuring time each cycle is not efficient
 
@@ -251,7 +290,8 @@ func (c *CryptoSim) generateConsoleReport() {
 	timeSinceLastUpdate := now.Sub(c.lastConsoleUpdateTime)
 	transactionsSinceLastUpdate := c.transactionCount - c.lastConsoleUpdateTransactionCount
 
-	if timeSinceLastUpdate < c.consoleUpdatePeriod &&
+	if !force &&
+		timeSinceLastUpdate < c.consoleUpdatePeriod &&
 		transactionsSinceLastUpdate < int64(c.config.ConsoleUpdateIntervalTransactions) {
 
 		// Not yet time to update the console.
@@ -261,12 +301,15 @@ func (c *CryptoSim) generateConsoleReport() {
 	c.lastConsoleUpdateTime = now
 	c.lastConsoleUpdateTransactionCount = c.transactionCount
 
+	totalElapsedTime := now.Sub(c.startTimestamp)
+	transactionsPerSecond := float64(c.transactionCount) / totalElapsedTime.Seconds()
+
 	// Generate the report.
-	fmt.Printf("%d txns executed in %s (%.2f txns/sec), totall number of accounts: %d\n",
-		transactionsSinceLastUpdate,
-		timeSinceLastUpdate,
-		float64(transactionsSinceLastUpdate)/timeSinceLastUpdate.Seconds(),
-		c.nextAccountID)
+	fmt.Printf("%s txns executed in %v (%s txns/sec), total number of accounts: %s\r",
+		int64Commas(c.transactionCount),
+		totalElapsedTime,
+		formatNumberFloat64(transactionsPerSecond, 2),
+		int64Commas(c.nextAccountID))
 }
 
 // Select a random account for a transaction.
@@ -277,14 +320,12 @@ func (c *CryptoSim) randomAccount() ([]byte, error) {
 		firstHotAccountID := 1
 		lastHotAccountID := c.config.HotSetSize
 		accountID := c.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
-
-		fmt.Printf("selected hot account: %d\n", accountID) // TODO
-		return c.rand.Address(c.config.AccountKeySize, accountID), nil
+		addr := c.rand.Address(c.config.AccountKeySize, accountID)
+		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	} else {
 
 		new := c.rand.Float64() < c.config.NewAccountProbably
 		if new {
-			fmt.Printf("creating new account, id: %d\n", c.nextAccountID) // TODO
 			account, err := c.createNewAccount()
 			if err != nil {
 				return nil, fmt.Errorf("failed to create new account: %w", err)
@@ -294,9 +335,8 @@ func (c *CryptoSim) randomAccount() ([]byte, error) {
 
 		firstNonHotAccountID := c.config.HotSetSize + 1
 		accountID := c.rand.Int64Range(int64(firstNonHotAccountID), int64(c.nextAccountID))
-
-		fmt.Printf("selected cold account: %d\n", accountID) // TODO
-		return c.rand.Address(c.config.AccountKeySize, accountID), nil
+		addr := c.rand.Address(c.config.AccountKeySize, accountID)
+		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	}
 }
 
@@ -330,15 +370,15 @@ func (c *CryptoSim) createNewAccount() ([]byte, error) {
 }
 
 // Commit the current batch if it has reached the configured number of transactions.
-func (c *CryptoSim) maybeCommitBatch() error {
+func (c *CryptoSim) maybeFinalizeBlock() error {
 	if len(c.batch) >= c.config.TransactionsPerBlock {
-		return c.commitBatch()
+		return c.finalizeBlock()
 	}
 	return nil
 }
 
-// Commit the current batch.
-func (c *CryptoSim) commitBatch() error {
+// Push the current block out to the database.
+func (c *CryptoSim) finalizeBlock() error {
 	if len(c.batch) == 0 {
 		return nil
 	}
@@ -362,6 +402,17 @@ func (c *CryptoSim) commitBatch() error {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
 	c.batch = make(map[string]*proto.NamedChangeSet)
+
+	// Periodically commit the changes to the database.
+	c.uncommitedBlockCount++
+	if c.uncommitedBlockCount >= int64(c.config.BlocksPerCommit) {
+		_, err := c.db.Commit()
+		if err != nil {
+			return fmt.Errorf("failed to commit: %w", err)
+		}
+		c.uncommitedBlockCount = 0
+	}
+
 	return nil
 }
 
@@ -407,17 +458,19 @@ func (c *CryptoSim) get(key []byte) ([]byte, bool, error) {
 
 // Shut down the benchmark and release any resources.
 func (c *CryptoSim) Close() error {
+	c.cancel()
+	<-c.runHaltedChan
 
-	fmt.Printf("Committing final batch...\n")
+	fmt.Printf("committing final batch\n")
 
-	if err := c.commitBatch(); err != nil {
+	if err := c.finalizeBlock(); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 	if _, err := c.db.Commit(); err != nil {
 		return fmt.Errorf("failed to commit database: %w", err)
 	}
 
-	fmt.Printf("Closing database...\n")
+	fmt.Printf("closing database\n")
 	err := c.db.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close database: %w", err)

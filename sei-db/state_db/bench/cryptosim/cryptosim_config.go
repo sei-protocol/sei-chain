@@ -39,6 +39,9 @@ type CryptoSimConfig struct {
 	// The number of transactions that will be processed in each "block".
 	TransactionsPerBlock int
 
+	// Commit is called on the database after this many blocks have been processed.
+	BlocksPerCommit int
+
 	// The directory to store the benchmark data.
 	DataDir string
 
@@ -62,24 +65,29 @@ type CryptoSimConfig struct {
 
 	// If this many transactions are executed without a console update, the benchmark will print a report to the console.
 	ConsoleUpdateIntervalTransactions float64
+
+	// When setting up the benchmark, print a console update after adding this many accounts to the DB.
+	SetupUpdateIntervalCount int64
 }
 
 // Returns the default configuration for the cryptosim benchmark.
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 	return &CryptoSimConfig{
-		MinimumNumberOfAccounts:           1000,
+		MinimumNumberOfAccounts:           1_000_000,
 		HotAccountProbably:                0.5,
 		NewAccountProbably:                0.001,
 		HotSetSize:                        100,
 		AccountKeySize:                    20,
-		PaddedAccountSize:                 100,
-		TransactionsPerBlock:              100,
+		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		TransactionsPerBlock:              1024,
+		BlocksPerCommit:                   32,
 		DataDir:                           "",
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
+		SetupUpdateIntervalCount:          100_000,
 	}
 }
 

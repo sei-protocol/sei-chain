@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -66,4 +67,68 @@ func resolveAndCreateDataDir(dataDir string) (string, error) {
 		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 	return abs, nil
+}
+
+// int64Commas formats n with commas as thousands separators (e.g., 1000000 -> "1,000,000").
+func int64Commas(n int64) string {
+	abs := n
+	if n < 0 {
+		abs = -n
+	}
+	s := strconv.FormatInt(abs, 10)
+	if len(s) <= 3 {
+		if n < 0 {
+			return "-" + s
+		}
+		return s
+	}
+	firstGroupLen := len(s) % 3
+	if firstGroupLen == 0 {
+		firstGroupLen = 3
+	}
+	var b strings.Builder
+	if n < 0 {
+		b.WriteByte('-')
+	}
+	b.WriteString(s[:firstGroupLen])
+	for i := firstGroupLen; i < len(s); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// formatNumberFloat64 formats f with commas in the integer part and the given number of decimal places.
+// Special values (NaN, Inf) are formatted as strconv.FormatFloat would.
+func formatNumberFloat64(f float64, decimals int) string {
+	switch {
+	case math.IsNaN(f):
+		return "NaN"
+	case math.IsInf(f, 1):
+		return "+Inf"
+	case math.IsInf(f, -1):
+		return "-Inf"
+	}
+	format := fmt.Sprintf("%%.%df", decimals)
+	s := fmt.Sprintf(format, f)
+	// Handle negative sign - we'll need to format the abs and prepend minus
+	neg := strings.HasPrefix(s, "-")
+	if neg {
+		s = s[1:]
+	}
+	parts := strings.SplitN(s, ".", 2)
+	integerPart, _ := strconv.ParseInt(parts[0], 10, 64)
+	if neg {
+		integerPart = -integerPart
+	}
+	var b strings.Builder
+	if neg && integerPart == 0 {
+		b.WriteString("-")
+	}
+	b.WriteString(int64Commas(integerPart))
+	if len(parts) == 2 {
+		b.WriteByte('.')
+		b.WriteString(parts[1])
+	}
+	return b.String()
 }
