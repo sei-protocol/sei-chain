@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/zbiljic/go-filelock"
 )
@@ -415,4 +416,8 @@ func (s *CommitStore) Version() int64 {
 func (s *CommitStore) RootHash() []byte {
 	checksum := s.workingLtHash.Checksum()
 	return checksum[:]
+}
+
+func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return NewKVImporter(s, version), nil
 }

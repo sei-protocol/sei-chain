@@ -4,16 +4,8 @@ import (
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
-
-// Exporter streams FlatKV state for snapshots.
-// NOTE: Not yet implemented. Will be implemented with state-sync support.
-type Exporter interface {
-	// Next returns the next key/value pair. Returns (nil, nil, io.EOF) when done.
-	Next() (key, value []byte, err error)
-
-	io.Closer
-}
 
 // Options configures a FlatKV store.
 type Options struct {
@@ -68,16 +60,18 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	// Exporter creates an exporter for the given version (0 = current).
-	Exporter(version int64) (Exporter, error)
-
-	// WriteSnapshot creates a PebbleDB checkpoint of the committed state.
-	// The dir parameter is ignored; snapshots are stored alongside the live data.
+	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
 	// Rollback restores state to targetVersion by rewinding to the best
 	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
 	Rollback(targetVersion int64) error
+
+	// Exporter creates an exporter for the given version (0 = current).
+	Exporter(version int64) (types.Exporter, error)
+
+	// Importer load data from snapshot to the database
+	Importer(version int64) (types.Importer, error)
 
 	io.Closer
 }
