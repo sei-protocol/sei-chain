@@ -210,7 +210,7 @@ func createWorkingDir(snapDir, workDir string) error {
 // reuseWorkingDir returns true if workDir exists and was cloned from the
 // same snapshot, meaning a full re-clone can be skipped.
 func reuseWorkingDir(workDir, snapBase string) bool {
-	data, err := os.ReadFile(filepath.Join(workDir, snapshotBaseFile))
+	data, err := os.ReadFile(filepath.Join(workDir, snapshotBaseFile)) //nolint:gosec // path built from internal working dir layout
 	if err != nil {
 		return false
 	}
@@ -218,7 +218,7 @@ func reuseWorkingDir(workDir, snapBase string) bool {
 }
 
 func writeSnapshotBase(workDir, snapBase string) error {
-	return os.WriteFile(filepath.Join(workDir, snapshotBaseFile), []byte(snapBase+"\n"), 0640)
+	return os.WriteFile(filepath.Join(workDir, snapshotBaseFile), []byte(snapBase+"\n"), 0600)
 }
 
 // cloneDir copies a single PebbleDB directory. Immutable .sst files are
