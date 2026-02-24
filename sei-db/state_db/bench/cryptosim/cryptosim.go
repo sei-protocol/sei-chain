@@ -114,7 +114,6 @@ func NewCryptoSim(
 		consoleUpdatePeriod:               consoleUpdatePeriod,
 		lastConsoleUpdateTime:             start,
 		lastConsoleUpdateTransactionCount: 0,
-		startTimestamp:                    start,
 		runHaltedChan:                     make(chan struct{}, 1),
 	}
 
@@ -122,6 +121,8 @@ func NewCryptoSim(
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup benchmark: %w", err)
 	}
+
+	c.startTimestamp = time.Now()
 
 	go c.run()
 	return c, nil
@@ -143,14 +144,15 @@ func (c *CryptoSim) setup() error {
 		c.nextAccountID = int64(binary.BigEndian.Uint64(nextAccountID))
 	}
 
-	fmt.Printf("There are currently %d keys in the database.\n", c.nextAccountID)
+	fmt.Printf("There are currently %s keys in the database.\n", int64Commas(c.nextAccountID))
 
 	if c.nextAccountID >= int64(c.config.MinimumNumberOfAccounts) {
 		return nil
 	}
 
-	fmt.Printf("Benchmark is configured to run with a minimum of %d accounts. Creating %d new accounts.\n",
-		c.config.MinimumNumberOfAccounts, int64(c.config.MinimumNumberOfAccounts)-c.nextAccountID)
+	fmt.Printf("Benchmark is configured to run with a minimum of %s accounts. Creating %s new accounts.\n",
+		int64Commas(int64(c.config.MinimumNumberOfAccounts)),
+		int64Commas(int64(c.config.MinimumNumberOfAccounts)-c.nextAccountID))
 
 	for c.nextAccountID < int64(c.config.MinimumNumberOfAccounts) {
 
