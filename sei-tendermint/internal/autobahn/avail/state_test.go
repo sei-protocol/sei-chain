@@ -81,6 +81,21 @@ func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
 }
 
 func TestState(t *testing.T) {
+	testState(t, utils.None[string]())
+}
+
+// TestStateWithPersistence runs the same flow as TestState but with disk
+// persistence enabled. The persist goroutine and prune (triggered by AppQC)
+// run concurrently, exercising the cursor-clamp logic that prevents reading
+// pruned map entries.
+func TestStateWithPersistence(t *testing.T) {
+	for range 5 {
+		testState(t, utils.Some(t.TempDir()))
+	}
+}
+
+func testState(t *testing.T, stateDir utils.Option[string]) {
+	t.Helper()
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -92,7 +107,7 @@ func TestState(t *testing.T) {
 		s.SpawnBgNamed("data.State.Run()", func() error {
 			return utils.IgnoreCancel(ds.Run(ctx))
 		})
-		state, err := NewState(keys[0], ds, utils.None[string]())
+		state, err := NewState(keys[0], ds, stateDir)
 		require.NoError(t, err)
 		s.SpawnBgNamed("da.State.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))

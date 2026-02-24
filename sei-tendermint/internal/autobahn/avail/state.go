@@ -573,12 +573,16 @@ func (s *State) Run(ctx context.Context) error {
 						}
 						laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
 						for lane, q := range inner.blocks {
+							// Clamp cursor: prune may have deleted entries below q.first
+							// between iterations while the lock was not held.
+							blockCur[lane] = max(blockCur[lane], q.first)
 							for n := blockCur[lane]; n < q.next; n++ {
 								blockBatch = append(blockBatch, q.q[n])
 							}
 							laneFirsts[lane] = q.first
 						}
 						if cp != nil {
+							commitQCCur = max(commitQCCur, inner.commitQCs.first)
 							commitQCFirst = inner.commitQCs.first
 							for n := commitQCCur; n < inner.commitQCs.next; n++ {
 								commitQCBatch = append(commitQCBatch, inner.commitQCs.q[n])
