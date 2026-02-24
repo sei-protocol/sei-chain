@@ -290,13 +290,6 @@ func (c *baseRPCClient) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.Re
 	return result, nil
 }
 
-func (c *baseRPCClient) RemoveTx(ctx context.Context, txKey types.TxKey) error {
-	if err := c.caller.Call(ctx, "remove_tx", &coretypes.RequestRemoveTx{TxKey: txKey}, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (c *baseRPCClient) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	result := new(coretypes.ResultNetInfo)
 	if err := c.caller.Call(ctx, "net_info", nil, result); err != nil {

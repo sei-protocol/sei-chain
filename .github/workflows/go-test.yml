@@ -87,6 +87,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Download modules
+        run: go mod download
+
       - name: Determine coverage packages (PR)
         id: cov-pkgs
         if: github.event_name == 'pull_request'
@@ -124,32 +127,28 @@ jobs:
 
           # Find one level of reverse dependencies (packages that import
           # the changed packages) so their tests exercise our changes too.
-          MODULE=$(go list -m)
-          ALL_PKGS=$(go list ./...)
+          ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
 
-          REV_DEPS=""
-          for pkg in $DIRECT_PKGS; do
-            # Find packages that directly import this changed package.
-            IMPORTERS=$(printf "%s\n" "$ALL_PKGS" \
-              | xargs -r -I{} sh -c \
-                'go list -f "{{range .Imports}}{{.}} {{end}}{{range .TestImports}}{{.}} {{end}}" "$1" 2>/dev/null \
-                 | tr " " "\n" | grep -qxF "'"$pkg"'" && echo "$1"' _ {} \
-              || true)
-            if [[ -n "$IMPORTERS" ]]; then
-              REV_DEPS=$(printf "%s\n%s" "$REV_DEPS" "$IMPORTERS")
-            fi
-          done
+          REV_DEPS=$(awk '
+            NR == FNR { if (NF) targets[$1] = 1; next }
+            {
+              pkg = $1
+              for (i = 2; i <= NF; i++) {
+                if ($i in targets) { print pkg; break }
+              }
+            }
+          ' <(printf "%s\n" "$DIRECT_PKGS") <(printf "%s\n" "$ALL_IMPORTS") | sort -u)
 
           # Merge direct + reverse-dep packages, deduplicate.
-          TEST_PKGS=$(printf "%s\n%s" "$DIRECT_PKGS" "$REV_DEPS" \
-            | grep -v '^$' \
-            | sort -u \
-            | tr '\n' ' ')
+          TEST_PKGS=$(printf "%s\n%s\n" "$DIRECT_PKGS" "$REV_DEPS" \
+            | awk 'NF && !seen[$0]++ { printf "%s ", $0 }')
+          TEST_PKGS="${TEST_PKGS% }"
 
           # coverpkg stays as the direct changed packages — we want coverage
           # measured on the code that actually changed, but tested via a wider
           # set of packages (including reverse deps).
-          COV_PKGS=$(printf "%s\n" "$DIRECT_PKGS" | tr '\n' ',' | sed 's/,$//')
+          COV_PKGS=$(printf "%s\n" "$DIRECT_PKGS" \
+            | awk 'NF { printf "%s%s", sep, $0; sep = "," }')
 
           echo "test_packages=$TEST_PKGS" >> "$GITHUB_OUTPUT"
           echo "coverpkg=$COV_PKGS" >> "$GITHUB_OUTPUT"
