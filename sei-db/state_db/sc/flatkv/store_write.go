@@ -152,8 +152,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				})
 
 			default:
-				// EVMKeyLegacy (including CodeSize) and other unhandled kinds
-				// are silently ignored — FlatKV only stores optimized key types.
+				// TODO: route EVMKeyLegacy writes to legacyDB and include in LtHash in a follow-up PR.
 			}
 		}
 	}

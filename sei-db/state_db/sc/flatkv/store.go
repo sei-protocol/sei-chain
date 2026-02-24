@@ -65,7 +65,7 @@ type CommitStore struct {
 	accountDB  db_engine.DB // addr(20) → AccountValue (40 or 72 bytes)
 	codeDB     db_engine.DB // addr(20) → bytecode
 	storageDB  db_engine.DB // addr(20)||slot(32) → value(32)
-	legacyDB   db_engine.DB // Legacy data for backward compatibility
+	legacyDB   db_engine.DB // TODO: integrate into ApplyChangeSets and LtHash in a follow-up PR.
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
