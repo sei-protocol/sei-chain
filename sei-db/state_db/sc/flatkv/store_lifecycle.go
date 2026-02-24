@@ -57,8 +57,7 @@ func (s *CommitStore) Close() error {
 // NOTE: Not yet implemented. Will be added with state-sync support.
 // The future implementation will export each DB separately with internal key format.
 func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
-	// TODO: Implement exporter
-	return nil, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 // WriteSnapshot writes a complete snapshot to the given directory.

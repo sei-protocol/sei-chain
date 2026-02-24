@@ -53,10 +53,12 @@ func (imp *KVImporter) flush() {
 	}}
 	if err := imp.store.ApplyChangeSets(cs); err != nil {
 		imp.err = fmt.Errorf("import apply changesets: %w", err)
+		imp.store.log.Error("import flush failed when apply changesets", "err", err)
 		return
 	}
 	if err := imp.store.commitBatches(imp.version); err != nil {
 		imp.err = fmt.Errorf("import commit batches: %w", err)
+		imp.store.log.Error("import flush failed when commit batches", "err", err)
 		return
 	}
 	imp.store.clearPendingWrites()
