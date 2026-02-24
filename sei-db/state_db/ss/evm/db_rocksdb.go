@@ -132,7 +132,10 @@ func (db *EVMDatabaseRocksDB) Get(key []byte, version int64) ([]byte, error) {
 	if version < db.earliestVersion.Load() {
 		return nil, nil
 	}
-	slice, err := db.storage.GetCF(rocksNewTSReadOpts(version), db.cfHandle, key)
+	readOpts := rocksNewTSReadOpts(version)
+	defer readOpts.Destroy()
+
+	slice, err := db.storage.GetCF(readOpts, db.cfHandle, key)
 	if err != nil {
 		return nil, fmt.Errorf("rocksdb evm get: %w", err)
 	}
@@ -143,7 +146,10 @@ func (db *EVMDatabaseRocksDB) Has(key []byte, version int64) (bool, error) {
 	if version < db.earliestVersion.Load() {
 		return false, nil
 	}
-	slice, err := db.storage.GetCF(rocksNewTSReadOpts(version), db.cfHandle, key)
+	readOpts := rocksNewTSReadOpts(version)
+	defer readOpts.Destroy()
+
+	slice, err := db.storage.GetCF(readOpts, db.cfHandle, key)
 	if err != nil {
 		return false, err
 	}
@@ -269,10 +275,10 @@ func (db *EVMDatabaseRocksDB) Close() error {
 // --- helpers ---
 
 func rocksNewTSReadOpts(version int64) *grocksdb.ReadOptions {
-	var ts [rocksTimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	ts := make([]byte, rocksTimestampSize)
+	binary.LittleEndian.PutUint64(ts, uint64(version))
 	ro := grocksdb.NewDefaultReadOptions()
-	ro.SetTimestamp(ts[:])
+	ro.SetTimestamp(ts)
 	return ro
 }
 
