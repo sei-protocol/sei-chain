@@ -1,4 +1,5 @@
 {
     "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
-    "DataDir": "data/basic"
+    "DataDir": "data/basic",
+    "MinimumNumberOfAccounts": 1000000
 }

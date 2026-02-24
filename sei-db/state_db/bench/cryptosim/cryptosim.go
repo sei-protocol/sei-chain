@@ -33,7 +33,7 @@ type CryptoSim struct {
 	nextAccountID int64
 
 	// The current batch of changesets waiting to be committed.
-	batch []*proto.NamedChangeSet
+	batch map[string]*proto.NamedChangeSet
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -66,7 +66,7 @@ func NewCryptoSim(
 		config: config,
 		db:     db,
 		rand:   rand,
-		batch:  make([]*proto.NamedChangeSet, 0, config.TransactionsPerBlock),
+		batch:  make(map[string]*proto.NamedChangeSet, config.TransactionsPerBlock),
 	}
 
 	err = c.setup()
@@ -107,8 +107,21 @@ func (c *CryptoSim) setup() error {
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
+		err = c.maybeCommitBatch()
+		if err != nil {
+			return fmt.Errorf("failed to maybe commit batch: %w", err)
+		}
 	}
-	c.commitBatch()
+	err = c.commitBatch()
+	if err != nil {
+		return fmt.Errorf("failed to commit batch: %w", err)
+	}
+	_, err = c.db.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit database: %w", err)
+	}
+
+	fmt.Printf("There are now %d accounts in the database.\n", c.nextAccountID)
 
 	return nil
 }
@@ -136,15 +149,10 @@ func (c *CryptoSim) createNewAccount() error {
 	randomBytes := c.rand.Bytes(c.config.PaddedAccountSize - 8)
 	copy(accountData[8:], randomBytes)
 
-	cs := &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: address, Value: accountData},
-		}},
+	err := c.put(address, accountData)
+	if err != nil {
+		return fmt.Errorf("failed to put account: %w", err)
 	}
-	c.batch = append(c.batch, cs)
-
-	c.maybeCommitBatch()
 
 	return nil
 }
@@ -162,10 +170,67 @@ func (c *CryptoSim) commitBatch() error {
 	if len(c.batch) == 0 {
 		return nil
 	}
-	err := c.db.ApplyChangeSets(c.batch)
+
+	changeSets := make([]*proto.NamedChangeSet, 0, len(c.batch)+1)
+	for _, cs := range c.batch {
+		changeSets = append(changeSets, cs)
+	}
+
+	// Within each batch, be sure to include the nonce key.
+	nonceKey := []byte(nonceKey)
+	nonceValue := make([]byte, 8)
+	binary.BigEndian.PutUint64(nonceValue, uint64(c.nextAccountID))
+	changeSets = append(changeSets, &proto.NamedChangeSet{
+		Name: wrappers.EVMStoreName,
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: nonceKey, Value: nonceValue},
+		}},
+	})
+
+	err := c.db.ApplyChangeSets(changeSets)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
-	c.batch = make([]*proto.NamedChangeSet, 0, c.config.TransactionsPerBlock)
+	c.batch = make(map[string]*proto.NamedChangeSet)
 	return nil
+}
+
+// Insert a key-value pair into the database/cache.
+func (c *CryptoSim) put(key []byte, value []byte) error {
+	stringKey := string(key)
+
+	pending, found := c.batch[stringKey]
+	if found {
+		pending.Changeset.Pairs[0].Value = value
+		return nil
+	}
+
+	c.batch[stringKey] = &proto.NamedChangeSet{
+		Name: wrappers.EVMStoreName,
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: key, Value: value},
+		}},
+	}
+
+	return nil
+}
+
+// Retrieve a value from the database/cache.
+func (c *CryptoSim) get(key []byte) ([]byte, bool, error) {
+	stringKey := string(key)
+
+	pending, found := c.batch[stringKey]
+	if found {
+		return pending.Changeset.Pairs[0].Value, true, nil
+	}
+
+	value, found, err := c.db.Read(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read from database: %w", err)
+	}
+	if found {
+		return value, true, nil
+	}
+
+	return nil, false, nil
 }
