@@ -2,10 +2,10 @@ package flatkv
 
 import (
 	"errors"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // ErrReadOnlyNotSupported is returned when LoadVersion is called with readOnly=true.
@@ -17,6 +17,12 @@ var ErrReadOnlyNotSupported = errors.New("FlatKV read-only mode not yet supporte
 type Exporter interface {
 	// Next returns the next key/value pair. Returns (nil, nil, io.EOF) when done.
 	Next() (key, value []byte, err error)
+
+	io.Closer
+}
+
+type Importer interface {
+	AddNode(node *types.SnapshotNode)
 
 	io.Closer
 }
@@ -82,8 +88,7 @@ type Store interface {
 	// Rollback restores state to targetVersion. Not implemented.
 	Rollback(targetVersion int64) error
 
-	// Import snapshot data into the database for a given version
-	Import(version int64, ch <-chan types.SnapshotNode) error
+	Importer(version int64) (Importer, error)
 
 	io.Closer
 }

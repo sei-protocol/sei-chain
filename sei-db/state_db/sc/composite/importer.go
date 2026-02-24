@@ -3,25 +3,26 @@ package composite
 import (
 	"errors"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-var _ types.Importer = (*StateImporter)(nil)
+var _ types.Importer = (*SnapshotImporter)(nil)
 
-type StateImporter struct {
+type SnapshotImporter struct {
 	cosmosImporter types.Importer
-	evmImporter    types.Importer
+	evmImporter    flatkv.Importer
 	currentModule  string
 }
 
-func NewImporter(cosmosImporter types.Importer, evmImporter types.Importer) *StateImporter {
-	return &StateImporter{
+func NewImporter(cosmosImporter types.Importer, evmImporter flatkv.Importer) *SnapshotImporter {
+	return &SnapshotImporter{
 		cosmosImporter: cosmosImporter,
 		evmImporter:    evmImporter,
 	}
 }
 
-func (si *StateImporter) Close() error {
+func (si *SnapshotImporter) Close() error {
 	var errCosmos, errEVM error
 	if si.cosmosImporter != nil {
 		errCosmos = si.cosmosImporter.Close()
@@ -32,19 +33,14 @@ func (si *StateImporter) Close() error {
 	return errors.Join(errCosmos, errEVM)
 }
 
-func (si *StateImporter) AddModule(name string) error {
-	si.currentModule = name
-	var errCosmos, errEVM error
+func (si *SnapshotImporter) AddModule(name string) error {
 	if si.cosmosImporter != nil {
-		errCosmos = si.cosmosImporter.AddModule(name)
+		return si.cosmosImporter.AddModule(name)
 	}
-	if si.evmImporter != nil {
-		errEVM = si.evmImporter.AddModule(name)
-	}
-	return errors.Join(errCosmos, errEVM)
+	return nil
 }
 
-func (si *StateImporter) AddNode(node *types.SnapshotNode) {
+func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {
 	if si.cosmosImporter != nil {
 		si.cosmosImporter.AddNode(node)
 	}

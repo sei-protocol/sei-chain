@@ -2,18 +2,15 @@ package flatkv
 
 import (
 	"fmt"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -274,44 +271,6 @@ func (s *CommitStore) RootHash() []byte {
 	return checksum[:]
 }
 
-func (s *CommitStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	var wg sync.WaitGroup
-	importCommitBatchSize := 10000
-	importNumWorkers := 2
-
-	worker := func() {
-		defer wg.Done()
-		batch := make([]*iavl.KVPair, 0, importCommitBatchSize)
-		for entry := range ch {
-			if entry.Height != 0 {
-				continue
-			}
-			key := entry.Key
-			value := entry.Value
-			batch = append(batch, &iavl.KVPair{Key: key, Value: value})
-
-			if len(batch) >= importCommitBatchSize {
-				cs := []*proto.NamedChangeSet{{
-					Name:      "evm",
-					Changeset: iavl.ChangeSet{Pairs: batch},
-				}}
-				if err := s.ApplyChangeSets(cs); err != nil {
-					panic(fmt.Errorf("import apply changesets: %w", err))
-				}
-				s.Commit()
-
-			}
-		}
-	}
-
-	wg.Add(importNumWorkers)
-	for i := 0; i < importNumWorkers; i++ {
-		go worker()
-	}
-	wg.Wait()
-
-	// All data imported, update version
-	s.
-
-	return nil
+func (s *CommitStore) Importer(version int64) (Importer, error) {
+	return NewKVImporter(s, version), nil
 }
