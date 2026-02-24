@@ -3,10 +3,11 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 )
 
-// A utility that buffers randomness in a way that is highly performant for benchmarking.
+// CannedRandom provides pre-generated randomness for benchmarking.
 // It contains a buffer of random bytes that it reuses to avoid generating lots of random numbers
 // at runtime.
 //
@@ -16,7 +17,7 @@ import (
 // This utility is not thread safe.
 //
 // In case it requires saying, this utility is NOT a suitable source cryptographically secure random numbers.
-type RandomBuffer struct {
+type CannedRandom struct {
 	// Pre-generated buffer of random bytes.
 	buffer []byte
 
@@ -24,8 +25,8 @@ type RandomBuffer struct {
 	index int64
 }
 
-// Creates a new random buffer.
-func NewRandomBuffer(
+// NewCannedRandom creates a new CannedRandom.
+func NewCannedRandom(
 	// The size of the buffer to create. A slice of this size is instantiated, so avoid setting this too large.
 	// Do not set this too small though, as the buffer will panic if the requested number of bytes is greater
 	// than the buffer size.
@@ -33,7 +34,7 @@ func NewRandomBuffer(
 	// The seed to use to generate the random bytes. This utility provides deterministic random numbers
 	// given the same seed.
 	seed int64,
-) *RandomBuffer {
+) *CannedRandom {
 
 	if bufferSize < 8 {
 		panic(fmt.Sprintf("buffer size must be at least 8 bytes, got %d", bufferSize))
@@ -50,7 +51,7 @@ func NewRandomBuffer(
 	buffer := make([]byte, bufferSize)
 	rng.Read(buffer)
 
-	return &RandomBuffer{
+	return &CannedRandom{
 		buffer: buffer,
 		index:  0,
 	}
@@ -59,52 +60,75 @@ func NewRandomBuffer(
 // Returns a slice of random bytes.
 //
 // Returned slice is NOT safe to modify. If modification is required, the caller should make a copy of the slice.
-func (rb *RandomBuffer) Bytes(count int) []byte {
-	return rb.SeededBytes(count, rb.Int64())
+func (cr *CannedRandom) Bytes(count int) []byte {
+	return cr.SeededBytes(count, cr.Int64())
 }
 
 // Returns a slice of random bytes from a given seed. Bytes are deterministic given the same seed.
 //
 // Returned slice is NOT safe to modify. If modification is required, the caller should make a copy of the slice.
-func (rb *RandomBuffer) SeededBytes(count int, seed int64) []byte {
+func (cr *CannedRandom) SeededBytes(count int, seed int64) []byte {
 
 	if count < 0 {
 		panic(fmt.Sprintf("count must be non-negative, got %d", count))
 	}
-	if count > len(rb.buffer) {
+	if count > len(cr.buffer) {
 		panic(fmt.Sprintf("count must be less than or equal to the buffer size, got %d", count))
-	} else if count == len(rb.buffer) {
-		return rb.buffer
+	} else if count == len(cr.buffer) {
+		return cr.buffer
 	}
 
-	startIndex := PositiveHash64(seed) % int64(len(rb.buffer)-count)
-	return rb.buffer[startIndex : startIndex+int64(count)]
+	startIndex := PositiveHash64(seed) % int64(len(cr.buffer)-count)
+	return cr.buffer[startIndex : startIndex+int64(count)]
 }
 
 // Generate a random-ish int64.
-func (rb *RandomBuffer) Int64() int64 {
-	bufLen := int64(len(rb.buffer))
+func (cr *CannedRandom) Int64() int64 {
+	bufLen := int64(len(cr.buffer))
 	var buf [8]byte
 	for i := int64(0); i < 8; i++ {
-		buf[i] = rb.buffer[(rb.index+i)%bufLen]
+		buf[i] = cr.buffer[(cr.index+i)%bufLen]
 	}
 	base := binary.BigEndian.Uint64(buf[:])
-	result := Hash64(int64(base) + rb.index)
+	result := Hash64(int64(base) + cr.index)
 
 	// Add 8 to the index to skip the 8 bytes we just read.
-	rb.index = (rb.index + 8) % bufLen
+	cr.index = (cr.index + 8) % bufLen
 	return result
+}
+
+// Int64Range returns a random int64 in [min, max). Min is inclusive, max is exclusive.
+// If min == max, returns min.
+func (cr *CannedRandom) Int64Range(min int64, max int64) int64 {
+	if min == max {
+		return min
+	}
+	if max < min {
+		panic(fmt.Sprintf("max must be >= min, got min=%d max=%d", min, max))
+	}
+	return min + int64(uint64(cr.Int64())%uint64(max-min))
+}
+
+// Float64 returns a random float64 in the range [0.0, 1.0].
+// It uses Int64() internally and converts the result to the proper range.
+func (cr *CannedRandom) Float64() float64 {
+	return float64(uint64(cr.Int64())) / float64(math.MaxUint64)
+}
+
+// Bool returns a random boolean.
+func (cr *CannedRandom) Bool() bool {
+	return cr.Int64()%2 == 0
 }
 
 // Generate a random address suitable for use simulating an eth-style address. Given the same account ID,
 // the address will be deterministic, and any two unique account IDs are guaranteed to generate unique addresses.
-func (rb *RandomBuffer) Address(addressSize int, accountID int64) []byte {
+func (cr *CannedRandom) Address(addressSize int, accountID int64) []byte {
 	if addressSize < 8 {
 		panic(fmt.Sprintf("address size must be at least 8 bytes, got %d", addressSize))
 	}
 
 	result := make([]byte, addressSize)
-	baseBytes := rb.SeededBytes(addressSize, accountID)
+	baseBytes := cr.SeededBytes(addressSize, accountID)
 
 	accountIDIndex := addressSize / 2
 	if accountIDIndex+8 > addressSize {

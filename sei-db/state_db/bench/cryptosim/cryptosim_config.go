@@ -16,17 +16,13 @@ type CryptoSimConfig struct {
 	// accounts before starting its regular operations.
 	MinimumNumberOfAccounts int
 
-	// When selecting an account for a transaction, the benchmark will select a hot account with this
-	// weight. The actual probability depends on the ratio of this weight to the other account weight configurations.
-	HotAccountWeight float64
+	// When selecting an account for a transaction, select a hot account with this probability. Should be
+	// a value between 0.0 and 1.0.
+	HotAccountProbably float64
 
-	// When selecting an account for a transaction, the benchmark will select a cold account with this
-	// weight. The actual probability depends on the ratio of this weight to the other account weight configurations.
-	ColdAccountWeight float64
-
-	// When selecting an account for a transaction, the benchmark will create a new account with this
-	// weight. The actual probability depends on the ratio of this weight to the other account weight configurations.
-	NewAccountWeight float64
+	// When selecting a non-hot account for a transaction, the benchmark will create a new account with this
+	// probability. Should be a value between 0.0 and 1.0.
+	NewAccountProbably float64
 
 	// The number of hot accounts.
 	//
@@ -50,9 +46,9 @@ type CryptoSimConfig struct {
 	// in undefined behavior, don't change the seed unless you are starting a new run from scratch.
 	Seed int64
 
-	// The size of the buffer for random data. Similar to the seed, altering this size for a pre-existing DB will result
+	// The size of the CannedRandom buffer. Similar to the seed, altering this size for a pre-existing DB will result
 	// in undefined behavior, don't change the size unless you are starting a new run from scratch.
-	RandomBufferSize int
+	CannedRandomSize int
 
 	// The backend to use for the benchmark database.
 	Backend wrappers.DBType
@@ -60,23 +56,30 @@ type CryptoSimConfig struct {
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
 	Comment string
+
+	// If this many seconds go by without a console update, the benchmark will print a report to the console.
+	ConsoleUpdateIntervalSeconds float64
+
+	// If this many transactions are executed without a console update, the benchmark will print a report to the console.
+	ConsoleUpdateIntervalTransactions float64
 }
 
 // Returns the default configuration for the cryptosim benchmark.
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 	return &CryptoSimConfig{
-		MinimumNumberOfAccounts: 1000,
-		HotAccountWeight:        50,
-		ColdAccountWeight:       49,
-		NewAccountWeight:        1,
-		HotSetSize:              100,
-		AccountKeySize:          20,
-		PaddedAccountSize:       100,
-		TransactionsPerBlock:    100,
-		DataDir:                 "",
-		Seed:                    1337,
-		RandomBufferSize:        1024 * 1024 * 1024, // 1GB
-		Backend:                 wrappers.FlatKV,
+		MinimumNumberOfAccounts:           1000,
+		HotAccountProbably:                0.5,
+		NewAccountProbably:                0.001,
+		HotSetSize:                        100,
+		AccountKeySize:                    20,
+		PaddedAccountSize:                 100,
+		TransactionsPerBlock:              100,
+		DataDir:                           "",
+		Seed:                              1337,
+		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
+		Backend:                           wrappers.FlatKV,
+		ConsoleUpdateIntervalSeconds:      1,
+		ConsoleUpdateIntervalTransactions: 1_000_000,
 	}
 }
 
