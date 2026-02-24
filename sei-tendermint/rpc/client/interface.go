@@ -28,8 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-//go:generate ../../scripts/mockery_generate.sh Client
-
 // Client describes the interface of Tendermint RPC client implementations.
 type Client interface {
 	// Start the client, which will run until the context terminates.
