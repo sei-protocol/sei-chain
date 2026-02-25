@@ -242,11 +242,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		laneFirsts, err := inner.prune(appQC, qc)
+		updated, err := inner.prune(appQC, qc)
 		if err != nil {
 			return err
 		}
-		if laneFirsts != nil {
+		if updated {
 			s.appQCSend.Store(utils.Some(appQC))
 			ctrl.Updated()
 		}
@@ -273,11 +273,11 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		laneFirsts, err := inner.prune(appQC, commitQC)
+		updated, err := inner.prune(appQC, commitQC)
 		if err != nil {
 			return err
 		}
-		if laneFirsts != nil {
+		if updated {
 			s.appQCSend.Store(utils.Some(appQC))
 			ctrl.Updated()
 		}

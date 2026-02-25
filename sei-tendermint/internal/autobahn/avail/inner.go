@@ -127,15 +127,14 @@ func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumbe
 }
 
 // prune advances the state to account for a new AppQC/CommitQC pair.
-// Returns the first block number per lane after pruning (for cleanup), or nil
-// if the QC was stale and no pruning occurred.
-func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (map[types.LaneID]types.BlockNumber, error) {
+// Returns true if pruning occurred, false if the QC was stale.
+func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
 	idx := appQC.Proposal().RoadIndex()
 	if idx != commitQC.Proposal().Index() {
-		return nil, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
+		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
 	}
 	if idx < types.NextOpt(i.latestAppQC) {
-		return nil, nil
+		return false, nil
 	}
 	i.latestAppQC = utils.Some(appQC)
 	i.commitQCs.prune(idx)
@@ -149,9 +148,5 @@ func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (map[types.L
 		i.votes[lr.Lane()].prune(lr.First())
 		i.blocks[lr.Lane()].prune(lr.First())
 	}
-	firsts := make(map[types.LaneID]types.BlockNumber, len(i.blocks))
-	for lane, q := range i.blocks {
-		firsts[lane] = q.first
-	}
-	return firsts, nil
+	return true, nil
 }
