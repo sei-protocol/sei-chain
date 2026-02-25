@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"golang.org/x/exp/constraints"
 	"unsafe"
+
+	"golang.org/x/exp/constraints"
 )
 
 // Bits returns the number of bits of the given integer type.
