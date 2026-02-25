@@ -12,6 +12,17 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
+const (
+	// Used to store the next account ID in the database.
+	accountIdCounterKey = "accountIdCounterKey"
+	// Used to store the next ERC20 contract ID in the database.
+	erc20IdCounterKey = "erc20IdCounterKey"
+
+	accountPrefix    = 'a'
+	contractPrefix   = 'c'
+	ethStoragePrefix = 's'
+)
+
 // The test runner for the cryptosim benchmark.
 type CryptoSim struct {
 	ctx    context.Context
@@ -29,19 +40,24 @@ type CryptoSim struct {
 	// The next account ID to be used when creating a new account.
 	nextAccountID int64
 
+	// Key for the account ID counter in the database.
+	accountIDCounterKey []byte
+
+	// The next ERC20 contract ID to be used when creating a new ERC20 contract.
+	nextErc20ContractID int64
+
+	// Key for the ERC20 contract ID counter in the database.
+	erc20IDCounterKey []byte
+
 	// The total number of transactions executed by the benchmark since it last started.
 	transactionCount int64
 
 	// The number of blocks that have been executed since the last commit.
-	uncommitedBlockCount int64
+	uncommittedBlockCount int64
 
 	// The current batch of changesets waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block".
 	batch map[string]*proto.NamedChangeSet
-
-	// Memiavl nonce key for the account ID counter (0x0a + reserved 20-byte addr).
-	// Uses non-zero sentinel address to avoid potential edge cases with all-zero key.
-	accountIDCounterKey []byte
 
 	// The address of the fee account (i.e. the account that collects gas fees). This is a special account
 	// and has account ID 0. Since we reuse this account very often, it is cached for performance.
@@ -61,6 +77,20 @@ type CryptoSim struct {
 
 	// The run channel sends a signal on this channel when it has halted.
 	runHaltedChan chan struct{}
+}
+
+// The keys that a transaction will read and write.
+type transactionKeys struct {
+	// The simualted ERC20 contract that will be interacted with. This value is read.
+	erc20Contract []byte
+	// The source account that will be interacted with. This value is read and written.
+	srcAccount []byte
+	// The destination account that will be interacted with. This value is read and written.
+	dstAccount []byte
+	// The source account's storage slot that will be interacted with. This value is read and written.
+	srcAccountSlot []byte
+	// The destination account's storage slot that will be interacted with. This value is read and written.
+	dstAccountSlot []byte
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -88,13 +118,18 @@ func NewCryptoSim(
 	fmt.Printf("initializing random number generator\n")
 	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
 
-	feeCollectionAddress := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, rand.Address(config.AccountKeySize, 0))
+	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
+		evm.EVMKeyCode,
+		rand.Address(accountPrefix, 0),
+	)
 
-	// Reserved address for counter: 20 bytes of 0x01 (avoids all-zero key edge cases).
-	reservedAddr := make([]byte, 20)
-	for i := range reservedAddr {
-		reservedAddr[i] = 0x01
-	}
+	accountIdCounterBytes := make([]byte, 20)
+	copy(accountIdCounterBytes, []byte(accountIdCounterKey))
+	accountIDCounterKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, accountIdCounterBytes)
+
+	erc20IdCounterBytes := make([]byte, 20)
+	copy(erc20IdCounterBytes, []byte(erc20IdCounterKey))
+	erc20IDCounterKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, erc20IdCounterBytes)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -109,7 +144,8 @@ func NewCryptoSim(
 		db:                                db,
 		rand:                              rand,
 		batch:                             make(map[string]*proto.NamedChangeSet, config.TransactionsPerBlock),
-		accountIDCounterKey:               evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, reservedAddr),
+		accountIDCounterKey:               accountIDCounterKey,
+		erc20IDCounterKey:                 erc20IDCounterKey,
 		feeCollectionAddress:              feeCollectionAddress,
 		consoleUpdatePeriod:               consoleUpdatePeriod,
 		lastConsoleUpdateTime:             start,
@@ -130,10 +166,21 @@ func NewCryptoSim(
 
 // Prepare the benchmark by pre-populating the database with the minimum number of accounts.
 func (c *CryptoSim) setup() error {
+	err := c.setupAccounts()
+	if err != nil {
+		return fmt.Errorf("failed to setup accounts: %w", err)
+	}
+	err = c.setupErc20Contracts()
+	if err != nil {
+		return fmt.Errorf("failed to setup ERC20 contracts: %w", err)
+	}
+	return nil
+}
 
-	// Ensure that we at least have as many accounts as the hot set + 1. This simplifies logic elsewhere.
-	if c.config.MinimumNumberOfAccounts < c.config.HotSetSize+1 {
-		c.config.MinimumNumberOfAccounts = c.config.HotSetSize + 1
+func (c *CryptoSim) setupAccounts() error {
+	// Ensure that we at least have as many accounts as the hot set + 2. This simplifies logic elsewhere.
+	if c.config.MinimumNumberOfAccounts < c.config.HotAccountSetSize+2 {
+		c.config.MinimumNumberOfAccounts = c.config.HotAccountSetSize + 2
 	}
 
 	nextAccountID, found, err := c.db.Read(c.accountIDCounterKey)
@@ -155,13 +202,12 @@ func (c *CryptoSim) setup() error {
 		int64Commas(int64(c.config.MinimumNumberOfAccounts)-c.nextAccountID))
 
 	for c.nextAccountID < int64(c.config.MinimumNumberOfAccounts) {
-
 		if c.ctx.Err() != nil {
 			fmt.Printf("benchmark aborted during account creation\n")
 			break
 		}
 
-		_, err := c.createNewAccount()
+		_, _, err := c.createNewAccount()
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
@@ -175,16 +221,94 @@ func (c *CryptoSim) setup() error {
 				int64Commas(c.nextAccountID), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
 		}
 	}
-	fmt.Printf("created %d of %d accounts\n", c.nextAccountID, c.config.MinimumNumberOfAccounts)
+	if c.nextAccountID >= c.config.SetupUpdateIntervalCount {
+		fmt.Printf("\n")
+	}
+	fmt.Printf("Created %s of %s accounts.\n",
+		int64Commas(c.nextAccountID), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
 	if err := c.finalizeBlock(); err != nil {
 		return fmt.Errorf("failed to commit block: %w", err)
 	}
 	if _, err := c.db.Commit(); err != nil {
 		return fmt.Errorf("failed to commit database: %w", err)
 	}
-	c.uncommitedBlockCount = 0
+	c.uncommittedBlockCount = 0
 
 	fmt.Printf("There are now %d accounts in the database.\n", c.nextAccountID)
+
+	return nil
+}
+
+func (c *CryptoSim) setupErc20Contracts() error {
+
+	// Ensure that we at least have as many ERC20 contracts as the hot set + 1. This simplifies logic elsewhere.
+	if c.config.MinimumNumberOfErc20Contracts < c.config.HotErc20ContractSetSize+1 {
+		c.config.MinimumNumberOfErc20Contracts = c.config.HotErc20ContractSetSize + 1
+	}
+
+	nextErc20ContractID, found, err := c.db.Read(c.erc20IDCounterKey)
+	if err != nil {
+		return fmt.Errorf("failed to read ERC20 contract counter: %w", err)
+	}
+	if found {
+		c.nextErc20ContractID = int64(binary.BigEndian.Uint64(nextErc20ContractID))
+	}
+
+	fmt.Printf("There are currently %s simulated ERC20 contracts in the database.\n",
+		int64Commas(c.nextErc20ContractID))
+
+	if c.nextErc20ContractID >= int64(c.config.MinimumNumberOfErc20Contracts) {
+		return nil
+	}
+
+	fmt.Printf("Benchmark is configured to run with a minimum of %s simulated ERC20 contracts. "+
+		"Creating %s new ERC20 contracts.\n",
+		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)),
+		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)-c.nextErc20ContractID))
+
+	for c.nextErc20ContractID < int64(c.config.MinimumNumberOfErc20Contracts) {
+		if c.ctx.Err() != nil {
+			fmt.Printf("benchmark aborted during ERC20 contract creation\n")
+			break
+		}
+
+		_, err := c.createNewErc20Contract()
+		if err != nil {
+			return fmt.Errorf("failed to create new ERC20 contract: %w", err)
+		}
+		err = c.maybeFinalizeBlock()
+		if err != nil {
+			return fmt.Errorf("failed to maybe commit batch: %w", err)
+		}
+
+		if c.nextErc20ContractID%c.config.SetupUpdateIntervalCount == 0 {
+			fmt.Printf("created %s of %s simulated ERC20 contracts\r",
+				int64Commas(c.nextErc20ContractID), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+		}
+	}
+
+	// As a final step, write the ERC20 contract ID counter to the database.
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint64(data, uint64(c.nextErc20ContractID))
+	err = c.put(c.erc20IDCounterKey, data)
+	if err != nil {
+		return fmt.Errorf("failed to put ERC20 contract ID counter: %w", err)
+	}
+
+	if c.nextErc20ContractID >= c.config.SetupUpdateIntervalCount {
+		fmt.Printf("\n")
+	}
+	fmt.Printf("Created %s of %s simulated ERC20 contracts.\n",
+		int64Commas(c.nextErc20ContractID), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+	if err := c.finalizeBlock(); err != nil {
+		return fmt.Errorf("failed to commit block: %w", err)
+	}
+	if _, err := c.db.Commit(); err != nil {
+		return fmt.Errorf("failed to commit database: %w", err)
+	}
+	c.uncommittedBlockCount = 0
+
+	fmt.Printf("There are now %d simulated ERC20 contracts in the database.\n", c.nextErc20ContractID)
 
 	return nil
 }
@@ -201,7 +325,7 @@ func (c *CryptoSim) run() {
 		case <-c.ctx.Done():
 			if c.transactionCount > 0 {
 				c.generateConsoleReport(true)
-				fmt.Printf("\ntransaction workload halted\n")
+				fmt.Printf("\nTransaction workload halted.\n")
 			}
 			return
 		default:
@@ -215,22 +339,66 @@ func (c *CryptoSim) run() {
 	}
 }
 
+// Selects the keys that a transaction will read and write.
+func (c *CryptoSim) selectTransactionKeys() (*transactionKeys, error) {
+	srcAccountID, srcAccountAddress, err := c.randomAccount()
+	if err != nil {
+		return nil, fmt.Errorf("failed to select source account: %w", err)
+	}
+	dstAccountID, dstAccountAddress, err := c.randomAccount()
+	if err != nil {
+		return nil, fmt.Errorf("failed to select destination account: %w", err)
+	}
+
+	srcAccountSlot, err := c.randomAccountSlot(srcAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select source account slot: %w", err)
+	}
+	dstAccountSlot, err := c.randomAccountSlot(dstAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select destination account slot: %w", err)
+	}
+	erc20Contract, err := c.randomErc20Contract()
+	if err != nil {
+		return nil, fmt.Errorf("failed to select ERC20 contract: %w", err)
+	}
+
+	return &transactionKeys{
+		srcAccount:     srcAccountAddress,
+		dstAccount:     dstAccountAddress,
+		srcAccountSlot: srcAccountSlot,
+		dstAccountSlot: dstAccountSlot,
+		erc20Contract:  erc20Contract,
+	}, nil
+}
+
 // Perform a single transaction.
 func (c *CryptoSim) executeTransaction() error {
 
-	// Determine which accounts will be involved in the transaction.
-	srcAccount, err := c.randomAccount()
+	// Determine which accounts and ERC20 contract will be involved in the transaction.
+	keys, err := c.selectTransactionKeys()
 	if err != nil {
-		return fmt.Errorf("failed to select source account: %w", err)
-	}
-	dstAccount, err := c.randomAccount()
-	if err != nil {
-		return fmt.Errorf("failed to select destination account: %w", err)
+		return fmt.Errorf("failed to select transaction keys: %w", err)
 	}
 
-	// Read the current balances of the accounts.
-	// TODO we should be able to parrelize these reads, do this as a follow up
-	srcValue, found, err := c.get(srcAccount)
+	// Read the simulated ERC20 contract.
+	_, found, err := c.get(keys.erc20Contract)
+	if err != nil {
+		return fmt.Errorf("failed to get ERC20 contract: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("ERC20 contract not found")
+	}
+
+	// Read the following:
+	// - the sender's native balance / nonce / codehash
+	// - the receiver's native balance
+	// - the sender's storage slot for the ERC20 contract
+	// - the receiver's storage slot for the ERC20 contract
+	// - the fee collection account's native balance
+
+	// Read the sender's native balance / nonce / codehash.
+	srcAccountValue, found, err := c.get(keys.srcAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
@@ -238,7 +406,8 @@ func (c *CryptoSim) executeTransaction() error {
 		return fmt.Errorf("source account not found")
 	}
 
-	dstValue, found, err := c.get(dstAccount)
+	// Read the receiver's native balance.
+	dstAccountValue, found, err := c.get(keys.dstAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account: %w", err)
 	}
@@ -246,6 +415,21 @@ func (c *CryptoSim) executeTransaction() error {
 		return fmt.Errorf("destination account not found")
 	}
 
+	// Read the sender's storage slot for the ERC20 contract.
+	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
+	_, _, err = c.get(keys.srcAccountSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get source account slot: %w", err)
+	}
+
+	// Read the receiver's storage slot for the ERC20 contract.
+	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
+	_, _, err = c.get(keys.dstAccountSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get destination account slot: %w", err)
+	}
+
+	// Read the fee collection account's native balance.
 	feeValue, found, err := c.get(c.feeCollectionAddress)
 	if err != nil {
 		return fmt.Errorf("failed to get fee collection account: %w", err)
@@ -254,27 +438,52 @@ func (c *CryptoSim) executeTransaction() error {
 		return fmt.Errorf("fee collection account not found")
 	}
 
-	// Generate new balances for the accounts.
-	// The "balance" is simulated as the first 8 bytes of the account data.
-	// We can just choose a new random balance, since we don't care about the actual balance.
+	// Generate new data for the sender and reciver's native balance / nonce / codehash, as well
+	// as the sender and receiver's storage slot for the ERC20 contract.
 
 	newSrcBalance := c.rand.Int64()
 	newDstBalance := c.rand.Int64()
 	newFeeBalance := c.rand.Int64()
 
-	binary.BigEndian.PutUint64(srcValue[:8], uint64(newSrcBalance))
-	binary.BigEndian.PutUint64(dstValue[:8], uint64(newDstBalance))
+	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(newSrcBalance))
+	binary.BigEndian.PutUint64(dstAccountValue[:8], uint64(newDstBalance))
 	binary.BigEndian.PutUint64(feeValue[:8], uint64(newFeeBalance))
 
-	// Write the new balances to the DB.
-	err = c.put(srcAccount, srcValue)
+	newSrcAccountSlotValue := c.rand.Bytes(c.config.Erc20StorageSlotSize)
+	newDstAccountSlotValue := c.rand.Bytes(c.config.Erc20StorageSlotSize)
+
+	// Write the following:
+	// - the sender's native balance / nonce / codehash
+	// - the receiver's native balance
+	// - the sender's storage slot for the ERC20 contract
+	// - the receiver's storage slot for the ERC20 contract
+	// - the fee collection account's native balance
+
+	// Write the sender's account data.
+	err = c.put(keys.srcAccount, srcAccountValue)
 	if err != nil {
 		return fmt.Errorf("failed to put source account: %w", err)
 	}
-	err = c.put(dstAccount, dstValue)
+
+	// Write the receiver's account data.
+	err = c.put(keys.dstAccount, dstAccountValue)
 	if err != nil {
 		return fmt.Errorf("failed to put destination account: %w", err)
 	}
+
+	// Write the sender's storage slot for the ERC20 contract.
+	err = c.put(keys.srcAccountSlot, newSrcAccountSlotValue)
+	if err != nil {
+		return fmt.Errorf("failed to put source account slot: %w", err)
+	}
+
+	// Write the receiver's storage slot for the ERC20 contract.
+	err = c.put(keys.dstAccountSlot, newDstAccountSlotValue)
+	if err != nil {
+		return fmt.Errorf("failed to put destination account slot: %w", err)
+	}
+
+	// Write the fee collection account's native balance.
 	err = c.put(c.feeCollectionAddress, feeValue)
 	if err != nil {
 		return fmt.Errorf("failed to put fee collection account: %w", err)
@@ -286,7 +495,7 @@ func (c *CryptoSim) executeTransaction() error {
 // Generates a human readable report of the benchmark's progress.
 func (c *CryptoSim) generateConsoleReport(force bool) {
 
-	// TODO measuring time each cycle is not efficient
+	// Future work: determine overhead of measuring time each cycle and change accordingly.
 
 	now := time.Now()
 	timeSinceLastUpdate := now.Sub(c.lastConsoleUpdateTime)
@@ -315,57 +524,99 @@ func (c *CryptoSim) generateConsoleReport(force bool) {
 }
 
 // Select a random account for a transaction.
-func (c *CryptoSim) randomAccount() ([]byte, error) {
-	hot := c.rand.Float64() < c.config.HotAccountProbably
+func (c *CryptoSim) randomAccount() (id int64, address []byte, err error) {
+	hot := c.rand.Float64() < c.config.HotAccountProbability
 
 	if hot {
 		firstHotAccountID := 1
-		lastHotAccountID := c.config.HotSetSize
+		lastHotAccountID := c.config.HotAccountSetSize
 		accountID := c.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
-		addr := c.rand.Address(c.config.AccountKeySize, accountID)
-		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+		addr := c.rand.Address(accountPrefix, accountID)
+		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	} else {
 
-		new := c.rand.Float64() < c.config.NewAccountProbably
+		new := c.rand.Float64() < c.config.NewAccountProbability
 		if new {
-			account, err := c.createNewAccount()
+			id, address, err := c.createNewAccount()
 			if err != nil {
-				return nil, fmt.Errorf("failed to create new account: %w", err)
+				return 0, nil, fmt.Errorf("failed to create new account: %w", err)
 			}
-			return account, nil
+			return id, address, nil
 		}
 
-		firstNonHotAccountID := c.config.HotSetSize + 1
+		firstNonHotAccountID := c.config.HotAccountSetSize + 1
 		accountID := c.rand.Int64Range(int64(firstNonHotAccountID), int64(c.nextAccountID))
-		addr := c.rand.Address(c.config.AccountKeySize, accountID)
-		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+		addr := c.rand.Address(accountPrefix, accountID)
+		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	}
 }
 
+// Selects a random account slot for a transaction.
+func (c *CryptoSim) randomAccountSlot(accountID int64) ([]byte, error) {
+	slotNumber := c.rand.Int64Range(0, int64(c.config.Erc20InteractionsPerAccount))
+	slotID := accountID*int64(c.config.Erc20InteractionsPerAccount) + slotNumber
+
+	addr := c.rand.Address(ethStoragePrefix, slotID)
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+}
+
+// Selects a random ERC20 contract for a transaction.
+func (c *CryptoSim) randomErc20Contract() ([]byte, error) {
+
+	hot := c.rand.Float64() < c.config.HotErc20ContractProbability
+
+	if hot {
+		erc20ContractID := c.rand.Int64Range(0, int64(c.config.HotErc20ContractSetSize))
+		addr := c.rand.Address(contractPrefix, erc20ContractID)
+		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+	}
+
+	// Otherwise, select a cold ERC20 contract at random.
+
+	erc20ContractID := c.rand.Int64Range(int64(c.config.HotErc20ContractSetSize), int64(c.nextErc20ContractID))
+	addr := c.rand.Address(contractPrefix, erc20ContractID)
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+}
+
 // Creates a new account and writes it to the database. Returns the address of the new account.
-func (c *CryptoSim) createNewAccount() ([]byte, error) {
+func (c *CryptoSim) createNewAccount() (id int64, address []byte, err error) {
 
 	accountID := c.nextAccountID
 	c.nextAccountID++
 
 	// Use memiavl code key format (0x07 + addr) so FlatKV persists account data.
-	addr := c.rand.Address(c.config.AccountKeySize, accountID)
-	address := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
+	addr := c.rand.Address(accountPrefix, accountID)
+	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 	balance := c.rand.Int64()
 
 	accountData := make([]byte, c.config.PaddedAccountSize)
 
-	// The first 8 bytes of the account data are the balance. For the sake of simplicity,
-	// For the sake of simplicity, we allow negative balances and don't care about overflow.
 	binary.BigEndian.PutUint64(accountData[:8], uint64(balance))
 
 	// The remaining bytes are random data for padding.
 	randomBytes := c.rand.Bytes(c.config.PaddedAccountSize - 8)
 	copy(accountData[8:], randomBytes)
 
-	err := c.put(address, accountData)
+	err = c.put(address, accountData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to put account: %w", err)
+		return 0, nil, fmt.Errorf("failed to put account: %w", err)
+	}
+
+	return accountID, address, nil
+}
+
+// Creates a new ERC20 contract and writes it to the database. Returns the address of the new ERC20 contract.
+func (c *CryptoSim) createNewErc20Contract() ([]byte, error) {
+	erc20ContractID := c.nextErc20ContractID
+	c.nextErc20ContractID++
+
+	erc20Address := c.rand.Address(contractPrefix, erc20ContractID)
+	address := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, erc20Address)
+
+	erc20Data := c.rand.Bytes(c.config.Erc20ContractSize)
+	err := c.put(address, erc20Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to put ERC20 contract: %w", err)
 	}
 
 	return address, nil
@@ -406,13 +657,13 @@ func (c *CryptoSim) finalizeBlock() error {
 	c.batch = make(map[string]*proto.NamedChangeSet)
 
 	// Periodically commit the changes to the database.
-	c.uncommitedBlockCount++
-	if c.uncommitedBlockCount >= int64(c.config.BlocksPerCommit) {
+	c.uncommittedBlockCount++
+	if c.uncommittedBlockCount >= int64(c.config.BlocksPerCommit) {
 		_, err := c.db.Commit()
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
-		c.uncommitedBlockCount = 0
+		c.uncommittedBlockCount = 0
 	}
 
 	return nil
@@ -463,7 +714,7 @@ func (c *CryptoSim) Close() error {
 	c.cancel()
 	<-c.runHaltedChan
 
-	fmt.Printf("committing final batch\n")
+	fmt.Printf("Committing final batch.\n")
 
 	if err := c.finalizeBlock(); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
@@ -472,13 +723,13 @@ func (c *CryptoSim) Close() error {
 		return fmt.Errorf("failed to commit database: %w", err)
 	}
 
-	fmt.Printf("closing database\n")
+	fmt.Printf("Closing database.\n")
 	err := c.db.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close database: %w", err)
 	}
 
-	fmt.Printf("benchmark terminated successfully\n")
+	fmt.Printf("Benchmark terminated successfully.\n")
 
 	// Specifically release rand, since it's likely to hold a lot of memory.
 	c.rand = nil

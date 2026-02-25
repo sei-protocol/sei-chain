@@ -42,7 +42,7 @@ func NewCannedRandom(
 
 	// Adjust the buffer size so that (bufferSize % 8) == 1. This way when the index wraps around, it won't align
 	// perfectly with the buffer, giving us a longer runway before we repeat the exact same sequence of bytes.
-	// TODO verify that this logic works as intended.
+	// The expression maps (bufferSize%8) -> add: 0->1, 1->0, 2->7, 3->6, 4->5, 5->4, 6->3, 7->2.
 	bufferSize += (1 - (bufferSize % 8) + 8) % 8
 
 	source := rand.NewSource(seed)
@@ -68,7 +68,6 @@ func (cr *CannedRandom) Bytes(count int) []byte {
 //
 // Returned slice is NOT safe to modify. If modification is required, the caller should make a copy of the slice.
 func (cr *CannedRandom) SeededBytes(count int, seed int64) []byte {
-
 	if count < 0 {
 		panic(fmt.Sprintf("count must be non-negative, got %d", count))
 	}
@@ -120,22 +119,35 @@ func (cr *CannedRandom) Bool() bool {
 	return cr.Int64()%2 == 0
 }
 
-// Generate a random address suitable for use simulating an eth-style address. Given the same account ID,
-// the address will be deterministic, and any two unique account IDs are guaranteed to generate unique addresses.
-func (cr *CannedRandom) Address(addressSize int, accountID int64) []byte {
-	if addressSize < 8 {
-		panic(fmt.Sprintf("address size must be at least 8 bytes, got %d", addressSize))
-	}
+// Generate a random 20 byte address suitable for use simulating an eth-style address.
+// For the same input arguments, a canned random generator with the same seed and size will produce
+// deterministic results addresses.
+//
+// Addresses have the following shape:
+//
+//		1 byte addressType
+//		8 bytes of random data
+//		8 bytes containing the ID
+//	    3 bytes of random data (to bring the total to 20 bytes)
+//
+// The ID is not included in the begining so that adjacent IDs will not appear close to each other if addresses
+// are sorted in lexicographic order.
+func (cr *CannedRandom) Address(
+	// A one-char byte descriptor. Allows for keys for different types of things to have different values
+	// even if they have the same ID.
+	addressType uint8,
+	// A unique ID for the key.
+	id int64,
 
-	result := make([]byte, addressSize)
-	baseBytes := cr.SeededBytes(addressSize, accountID)
+) []byte {
 
-	accountIDIndex := addressSize / 2
-	if accountIDIndex+8 > addressSize {
-		accountIDIndex = addressSize - 8
-	}
+	result := make([]byte, 20)
+
+	baseBytes := cr.SeededBytes(20, id)
 	copy(result, baseBytes)
-	binary.BigEndian.PutUint64(result[accountIDIndex:accountIDIndex+8], uint64(accountID))
+
+	result[0] = addressType
+	binary.BigEndian.PutUint64(result[9:], uint64(id))
 
 	return result
 }

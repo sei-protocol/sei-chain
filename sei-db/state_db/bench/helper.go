@@ -265,12 +265,12 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 		func() {
 			b.StopTimer()
 			cs, err := wrappers.NewDBImpl(scenario.Backend, b.TempDir())
+			require.NoError(b, err)
+			require.NotNil(b, cs)
 			defer func() {
 				err := cs.Close()
 				require.NoError(b, err)
 			}()
-			require.NoError(b, err)
-			require.NotNil(b, cs)
 			changesetChannel := startChangesetGenerator(scenario)
 
 			var progress *ProgressReporter

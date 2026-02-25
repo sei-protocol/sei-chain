@@ -18,23 +18,43 @@ type CryptoSimConfig struct {
 
 	// When selecting an account for a transaction, select a hot account with this probability. Should be
 	// a value between 0.0 and 1.0.
-	HotAccountProbably float64
+	HotAccountProbability float64
 
 	// When selecting a non-hot account for a transaction, the benchmark will create a new account with this
 	// probability. Should be a value between 0.0 and 1.0.
-	NewAccountProbably float64
+	NewAccountProbability float64
 
 	// The number of hot accounts.
 	//
 	// Future work: add different distributions of hot account access. Currently, distribution is flat.
-	HotSetSize int
-
-	// The number of bytes in the account key.
-	AccountKeySize int
+	HotAccountSetSize int
 
 	// Each account contains an integer value used to track a balance, plus a bunch of random
 	// bytes for padding. This is the total size of the account after padding is added.
 	PaddedAccountSize int
+
+	// The minimum number of ERC20 contracts that should be in the DB prior to the start of the benchmark.
+	// If there are fewer than this number of contracts, the benchmark will first create the necessary
+	// contracts before starting its regular operations.
+	MinimumNumberOfErc20Contracts int
+
+	// When selecting an ERC20 contract for a transaction, select a hot ERC20 contract with this probability.
+	// Should be a value between 0.0 and 1.0.
+	HotErc20ContractProbability float64
+
+	// The number of hot ERC20 contracts.
+	HotErc20ContractSetSize int
+
+	// The size of the a simulated ERC20 contract, in bytes.
+	Erc20ContractSize int
+
+	// The size of a simulated ERC20 storage slot, in bytes.
+	Erc20StorageSlotSize int
+
+	// The number of of ERC20 tokens that each account will interact with.
+	// Each account will have an eth storage slot for tracking the balance of each ERC20 token it owns.
+	// It is not legal to modify this value after the benchmark has started.
+	Erc20InteractionsPerAccount int
 
 	// The number of transactions that will be processed in each "block".
 	TransactionsPerBlock int
@@ -74,14 +94,18 @@ type CryptoSimConfig struct {
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 	return &CryptoSimConfig{
 		MinimumNumberOfAccounts:           1_000_000,
-		HotAccountProbably:                0.5,
-		NewAccountProbably:                0.001,
-		HotSetSize:                        100,
-		AccountKeySize:                    20,
+		HotAccountProbability:             0.5,
+		NewAccountProbability:             0.001,
+		HotAccountSetSize:                 100,
 		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		MinimumNumberOfErc20Contracts:     10_000,
+		HotErc20ContractProbability:       0.5,
+		HotErc20ContractSetSize:           100,
+		Erc20ContractSize:                 1024 * 2, // 2kb
+		Erc20StorageSlotSize:              32,
+		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
 		BlocksPerCommit:                   32,
-		DataDir:                           "",
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
