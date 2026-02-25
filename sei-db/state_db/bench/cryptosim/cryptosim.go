@@ -280,7 +280,6 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
-				// os.Exit(1) // TODO use more elegant teardown mechanism
 			}
 
 			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
@@ -289,7 +288,6 @@ func (c *CryptoSim) run() {
 			err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
-				// os.Exit(1)
 			}
 
 			c.database.IncrementTransactionCount()
