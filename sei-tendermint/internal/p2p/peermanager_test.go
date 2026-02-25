@@ -160,16 +160,22 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	for _, id := range ids[2:] {
 		bootstrapAddrs = append(bootstrapAddrs, addrs[id][:2]...)
 	}
+	unconditionalPeer := makeNodeID(rng)
 
 	t.Log("Create peer manager.")
 	maxPeers := 10
 	m := makePeerManager(selfID, &RouterOptions{
-		BootstrapPeers:     bootstrapAddrs,
-		PersistentPeers:    persistentAddrs,
-		UnconditionalPeers: utils.Slice(ids[2]),
-		BlockSyncPeers:     utils.Slice(ids[3]),
-		PrivatePeers:       utils.Slice(ids[4]),
-		MaxPeers:           utils.Some(maxPeers),
+		BootstrapPeers:  bootstrapAddrs,
+		PersistentPeers: persistentAddrs,
+		// Unconditional peers are just persistent peers that don't need to be dialed.
+		UnconditionalPeers: utils.Slice(unconditionalPeer),
+		// Blocksync peers are a subset of persistent peers.
+		// It is also a valid configuration to add blocksync peer without adding
+		// an address to persistent peers, but in such a case we expect such a peer to
+		// connect to us instead.
+		BlockSyncPeers: utils.Slice(ids[1]),
+		PrivatePeers:   utils.Slice(ids[4]),
+		MaxPeers:       utils.Some(maxPeers),
 	})
 
 	t.Log("Check that all expected addrs are present.")
@@ -179,6 +185,7 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	for _, id := range ids[2:] {
 		require.ElementsMatch(t, addrs[id][:2], m.Addresses(id))
 	}
+	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
 
 	t.Log("Add all addresses at once.")
 	var allAddrs []NodeAddress
@@ -191,10 +198,13 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	for _, id := range ids {
 		require.ElementsMatch(t, addrs[id], m.Addresses(id))
 	}
+	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
 
 	t.Log("Check that adding new persistent peer address is ignored.")
 	require.NoError(t, m.AddAddrs(utils.Slice(makeAddrFor(rng, ids[0]))))
 	require.ElementsMatch(t, addrs[ids[0]], m.Addresses(ids[0]))
+	require.NoError(t, m.AddAddrs(utils.Slice(makeAddrFor(rng, unconditionalPeer))))
+	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
 
 	t.Log("Check that maxAddrsPerPeer limit is respected")
 	idWithManyAddrs := ids[2]

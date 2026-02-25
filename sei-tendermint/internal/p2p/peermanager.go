@@ -46,7 +46,7 @@ type peerConn interface {
 type peerManagerInner[C peerConn] struct {
 	selfID           types.NodeID
 	options          *RouterOptions
-	isUnconditional  map[types.NodeID]bool
+	isPersistent     map[types.NodeID]bool
 	persistentAddrs  map[types.NodeID]*peerAddrs
 	conns            utils.AtomicSend[connSet[C]]
 	conditionalConns int // counts conditional connections in conns.
@@ -64,11 +64,6 @@ func (i *peerManagerInner[C]) findFailedPeer() (types.NodeID, bool) {
 	return "", false
 }
 
-func (i *peerManagerInner[C]) isPersistent(id types.NodeID) bool {
-	_, ok := i.persistentAddrs[id]
-	return ok
-}
-
 func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
 	id := addr.NodeID
 	// Ignore self.
@@ -77,7 +72,7 @@ func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
 	}
 	// Adding persistent peer addrs is only allowed during initialization.
 	// This is to make sure that malicious peers won't cause the preconfigured addrs to be dropped.
-	if i.isPersistent(id) {
+	if i.isPersistent[addr.NodeID] {
 		return false
 	}
 	pa, ok := i.addrs[id]
@@ -186,7 +181,7 @@ func (i *peerManagerInner[C]) DialFailed(addr NodeAddress) {
 	}
 	var peerAddrs *peerAddrs
 	var ok bool
-	if i.isPersistent(addr.NodeID) {
+	if i.isPersistent[addr.NodeID] {
 		peerAddrs, ok = i.persistentAddrs[addr.NodeID]
 	} else {
 		peerAddrs, ok = i.addrs[addr.NodeID]
@@ -203,10 +198,8 @@ func (i *peerManagerInner[C]) DialFailed(addr NodeAddress) {
 }
 
 func (i *peerManagerInner[C]) Evict(id types.NodeID) {
-	if !i.isPersistent(id) {
+	if !i.isPersistent[id] {
 		delete(i.addrs, id)
-	}
-	if !i.isUnconditional[id] {
 		if conn, ok := i.conns.Load().Get(id); ok {
 			conn.Close()
 		}
@@ -245,7 +238,7 @@ func (i *peerManagerInner[C]) Connected(conn C) (err error) {
 		i.conns.Store(conns.Set(peerID, conn))
 		return nil
 	}
-	if !i.isUnconditional[peerID] {
+	if !i.isPersistent[peerID] {
 		if i.conditionalConns >= i.options.maxConns() {
 			return errors.New("too many connections")
 		}
@@ -259,7 +252,7 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 	peerID := conn.Info().ID
 	conns := i.conns.Load()
 	if old, ok := conns.Get(peerID); ok && old == conn {
-		if !i.isUnconditional[peerID] {
+		if !i.isPersistent[peerID] {
 			i.conditionalConns -= 1
 		}
 		old.Close()
@@ -352,7 +345,7 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		selfID:          selfID,
 		options:         options,
 		persistentAddrs: map[types.NodeID]*peerAddrs{},
-		isUnconditional: map[types.NodeID]bool{},
+		isPersistent:    map[types.NodeID]bool{},
 
 		conns:   utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
 		addrs:   map[types.NodeID]*peerAddrs{},
@@ -364,13 +357,14 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		isPrivate[id] = true
 	}
 	for _, id := range options.UnconditionalPeers {
-		inner.isUnconditional[id] = true
+		inner.isPersistent[id] = true
 	}
 	for _, id := range options.BlockSyncPeers {
-		inner.isUnconditional[id] = true
+		inner.isPersistent[id] = true
+		isBlockSyncPeer[id] = true
 	}
 	for _, addr := range options.PersistentPeers {
-		inner.isUnconditional[addr.NodeID] = true
+		inner.isPersistent[addr.NodeID] = true
 		if _, ok := inner.persistentAddrs[addr.NodeID]; !ok {
 			inner.persistentAddrs[addr.NodeID] = newPeerAddrs()
 		}
@@ -378,9 +372,6 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 	}
 	for _, addr := range options.BootstrapPeers {
 		inner.AddAddr(addr)
-	}
-	for _, id := range options.BlockSyncPeers {
-		isBlockSyncPeer[id] = true
 	}
 	return &peerManager[C]{
 		options:         options,
@@ -528,7 +519,7 @@ func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
 	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
 		peerAddrs := inner.addrs
-		if inner.isPersistent(id) {
+		if inner.isPersistent[id] {
 			peerAddrs = inner.persistentAddrs
 		}
 		if pa, ok := peerAddrs[id]; ok {
