@@ -216,6 +216,7 @@ func (p *pool[C]) Connected(conn C) (err error) {
 			return fmt.Errorf("duplicate connection from peer %q", info.ID)
 		}
 		old.Close()
+		delete(p.conns,info.ID)
 		if oldIsOutbound {
 			p.outbound -= 1
 		}

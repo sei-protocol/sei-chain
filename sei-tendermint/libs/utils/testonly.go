@@ -159,6 +159,14 @@ func GenString(rng Rng, n int) string {
 	return string(s)
 }
 
+// Shuffle reorders the elements of s uniformly at random.
+func Shuffle[T any](rng Rng, s []T) {
+	for i := 1; i<len(s); i += 1 {
+		j := rng.Intn(i) 
+		s[i],s[j] = s[j],s[i]
+	}
+}
+
 // GenBytes generates a random byte slice.
 func GenBytes(rng Rng, n int) []byte {
 	s := make([]byte, n)
