@@ -52,6 +52,9 @@ type persisters struct {
 	appQC     persist.Persister[*apb.AppQC]
 	blocks    *persist.BlockPersister
 	commitQCs *persist.CommitQCPersister
+
+	inner     *utils.Watch[*inner]
+	appQCSend *utils.AtomicSend[utils.Option[*types.AppQC]]
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -110,13 +113,18 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	return &State{
-		key:        key,
-		data:       data,
-		inner:      utils.NewWatch(inner),
-		persisters: pers,
-		appQCSend:  utils.NewAtomicSend(utils.None[*types.AppQC]()),
-	}, nil
+	s := &State{
+		key:       key,
+		data:      data,
+		inner:     utils.NewWatch(inner),
+		appQCSend: utils.NewAtomicSend(utils.None[*types.AppQC]()),
+	}
+	if p, ok := pers.Get(); ok {
+		p.inner = &s.inner
+		p.appQCSend = &s.appQCSend
+		s.persisters = utils.Some(p)
+	}
+	return s, nil
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
@@ -527,22 +535,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if pers, ok := s.persisters.Get(); ok {
-			appQCRecv := s.appQCSend.Subscribe()
-			scope.SpawnNamed("appQCPersist", func() error {
-				return appQCRecv.Iter(ctx, func(_ context.Context, v utils.Option[*types.AppQC]) error {
-					appQC, ok := v.Get()
-					if !ok {
-						return nil
-					}
-					if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
-						log.Error().Err(err).Msg("failed to persist AppQC")
-					}
-					return nil
-				})
-			})
-			scope.SpawnNamed("persist", func() error {
-				return s.persistLoop(ctx, pers.blocks, pers.commitQCs)
-			})
+			pers.run(ctx, scope)
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
@@ -589,66 +582,77 @@ type persistBatch struct {
 	commitQCCur   types.RoadIndex // clamped cursor (may have advanced past pruned entries)
 }
 
-func (s *State) persistLoop(ctx context.Context, bp *persist.BlockPersister, cp *persist.CommitQCPersister) error {
-	blockCur := bp.LoadTips()
-	var commitQCCur types.RoadIndex
-	if cp != nil {
-		commitQCCur = cp.LoadNext()
-	}
-	for {
-		batch, err := s.collectPersistBatch(ctx, cp, blockCur, commitQCCur)
-		if err != nil {
-			return err
-		}
-		commitQCCur = batch.commitQCCur
-
-		// Persist blocks + cleanup (no lock held).
-		blockCur, err = bp.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
-		if err != nil {
-			return err
-		}
-
-		// Persist commitQCs + cleanup (no lock held).
-		for _, qc := range batch.commitQCs {
-			if err := cp.PersistCommitQC(qc); err != nil {
-				return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
+func (p *persisters) run(ctx context.Context, s scope.Scope) {
+	appQCRecv := p.appQCSend.Subscribe()
+	s.SpawnNamed("appQCPersist", func() error {
+		return appQCRecv.Iter(ctx, func(_ context.Context, v utils.Option[*types.AppQC]) error {
+			appQC, ok := v.Get()
+			if !ok {
+				return nil
 			}
-			commitQCCur = qc.Index() + 1
-		}
-		if len(batch.commitQCs) > 0 {
-			if err := cp.DeleteBefore(batch.commitQCFirst); err != nil {
-				return fmt.Errorf("commitqc deleteBefore: %w", err)
+			if err := p.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+				log.Error().Err(err).Msg("failed to persist AppQC")
 			}
-		}
+			return nil
+		})
+	})
+	s.SpawnNamed("persist", func() error {
+		blockCur := p.blocks.LoadTips()
+		commitQCCur := p.commitQCs.LoadNext()
+		for {
+			batch, err := p.collectBatch(ctx, blockCur, commitQCCur)
+			if err != nil {
+				return err
+			}
+			commitQCCur = batch.commitQCCur
 
-		// Update nextBlockToPersist under lock.
-		if len(batch.blocks) > 0 {
-			for inner, ctrl := range s.inner.Lock() {
-				for lane, next := range blockCur {
-					inner.nextBlockToPersist[lane] = next
+			// Persist blocks + cleanup (no lock held).
+			blockCur, err = p.blocks.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
+			if err != nil {
+				return err
+			}
+
+			// Persist commitQCs + cleanup (no lock held).
+			for _, qc := range batch.commitQCs {
+				if err := p.commitQCs.PersistCommitQC(qc); err != nil {
+					return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
 				}
-				ctrl.Updated()
+				commitQCCur = qc.Index() + 1
+			}
+			if len(batch.commitQCs) > 0 {
+				if err := p.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
+					return fmt.Errorf("commitqc deleteBefore: %w", err)
+				}
+			}
+
+			// Update nextBlockToPersist under lock.
+			if len(batch.blocks) > 0 {
+				for inner, ctrl := range p.inner.Lock() {
+					for lane, next := range blockCur {
+						inner.nextBlockToPersist[lane] = next
+					}
+					ctrl.Updated()
+				}
 			}
 		}
-	}
+	})
 }
 
-// collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-func (s *State) collectPersistBatch(
+// collectBatch waits for new blocks or commitQCs and collects them under lock.
+func (p *persisters) collectBatch(
 	ctx context.Context,
-	cp *persist.CommitQCPersister,
 	blockCur map[types.LaneID]types.BlockNumber,
 	commitQCCur types.RoadIndex,
 ) (persistBatch, error) {
 	var b persistBatch
-	for inner, ctrl := range s.inner.Lock() {
+	for inner, ctrl := range p.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
 				if blockCur[lane] < q.next {
 					return true
 				}
 			}
-			return cp != nil && commitQCCur < inner.commitQCs.next
+			return commitQCCur < inner.commitQCs.next
 		}); err != nil {
 			return b, err
 		}
@@ -662,12 +666,10 @@ func (s *State) collectPersistBatch(
 			}
 			b.laneFirsts[lane] = q.first
 		}
-		if cp != nil {
-			commitQCCur = max(commitQCCur, inner.commitQCs.first)
-			b.commitQCFirst = inner.commitQCs.first
-			for n := commitQCCur; n < inner.commitQCs.next; n++ {
-				b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
-			}
+		commitQCCur = max(commitQCCur, inner.commitQCs.first)
+		b.commitQCFirst = inner.commitQCs.first
+		for n := commitQCCur; n < inner.commitQCs.next; n++ {
+			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
 		}
 		b.commitQCCur = commitQCCur
 	}
