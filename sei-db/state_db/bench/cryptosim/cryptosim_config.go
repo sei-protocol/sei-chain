@@ -88,6 +88,13 @@ type CryptoSimConfig struct {
 
 	// When setting up the benchmark, print a console update after adding this many accounts to the DB.
 	SetupUpdateIntervalCount int64
+
+	// Run a number of threads equal to the number of cores on the host machine, multiplied by this value.
+	ThreadsPerCore float64
+
+	// Increase or decrease the thread count by this many threads. Total thread count is a function of
+	// ThreadsPerCore and ConstantThreadCount.
+	ConstantThreadCount int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -112,6 +119,8 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
+		ThreadsPerCore:                    1.0,
+		ConstantThreadCount:               0,
 	}
 }
 

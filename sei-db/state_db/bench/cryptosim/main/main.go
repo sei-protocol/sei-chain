@@ -36,7 +36,7 @@ func run() error {
 		return fmt.Errorf("failed to create cryptosim: %w", err)
 	}
 	defer func() {
-		fmt.Printf("Initiating teardown.\n")
+		fmt.Printf("\nInitiating teardown.\n")
 		err := cs.Close()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
