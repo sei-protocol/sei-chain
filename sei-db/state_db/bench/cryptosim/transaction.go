@@ -46,12 +46,20 @@ type transaction struct {
 // Generate all data needed to execute a transaction.
 //
 // This method is not thread safe to call concurrently with other calls to BuildTransaction().
-func BuildTransaction(cryptosim *CryptoSim) (*transaction, error) {
-	srcAccountID, srcAccountAddress, isSrcNew, err := cryptosim.randomAccount()
+func BuildTransaction(
+	cryptosim *CryptoSim,
+	dataGenerator *DataGenerator,
+) (*transaction, error) {
+
+	// The maximum account ID for existing transactions. If random account returns a new account ID,
+	// that ID may be greater than this value.
+	maxAccountID := dataGenerator.NextAccountID() - 1
+
+	srcAccountID, srcAccountAddress, isSrcNew, err := cryptosim.randomAccount(maxAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select source account: %w", err)
 	}
-	dstAccountID, dstAccountAddress, isDstNew, err := cryptosim.randomAccount()
+	dstAccountID, dstAccountAddress, isDstNew, err := cryptosim.randomAccount(maxAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select destination account: %w", err)
 	}
