@@ -16,11 +16,29 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
+// On-disk layout under <home>/flatkv/:
+//
+//	flatkv/
+//	  current -> snapshot-NNNNN              (symlink to active snapshot)
+//	  snapshot-NNNNN/                        (immutable checkpoint)
+//	    account/                             (PebbleDB: addr → AccountValue)
+//	    code/                                (PebbleDB: addr → bytecode)
+//	    storage/                             (PebbleDB: addr||slot → value)
+//	    legacy/                              (PebbleDB: full key → value)
+//	    metadata/                            (PebbleDB: version + LtHash)
+//	  working/                               (mutable clone of active snapshot)
+//	    account/, code/, storage/, legacy/, metadata/
+//	    SNAPSHOT_BASE                        (records source snapshot name)
+//	  changelog/                             (WAL, shared across snapshots)
 const (
+	// snapshotPrefix is the directory name prefix for versioned snapshots.
 	snapshotPrefix = "snapshot-"
+	// snapshotDirLen is the full directory name length: "snapshot-" + 20-digit zero-padded version.
 	snapshotDirLen = len(snapshotPrefix) + 20
 
-	currentLink    = "current"
+	// currentLink is the symlink name pointing to the active snapshot directory.
+	currentLink = "current"
+	// currentTmpLink is a temporary symlink used during atomic swap of currentLink.
 	currentTmpLink = "current-tmp"
 
 	// workingDirName is cloned from the baseline snapshot on each open().
@@ -142,7 +160,11 @@ func traverseSnapshots(dir string, ascending bool, fn func(int64) (bool, error))
 // not a full path.
 func updateCurrentSymlink(root, snapshotDir string) error {
 	tmpPath := filepath.Join(root, currentTmpLink)
-	_ = os.Remove(tmpPath)
+	if _, err := os.Lstat(tmpPath); err == nil {
+		if err := os.Remove(tmpPath); err != nil {
+			return fmt.Errorf("remove stale tmp symlink: %w", err)
+		}
+	}
 	if err := os.Symlink(snapshotDir, tmpPath); err != nil {
 		return fmt.Errorf("create tmp symlink: %w", err)
 	}
