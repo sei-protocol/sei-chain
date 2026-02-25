@@ -100,13 +100,9 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		idx := aq.Proposal().RoadIndex()
 		qc, ok := i.commitQCs.q[idx]
 		if !ok {
-			// The AppQC persist goroutine writes a single file and is
-			// triggered immediately when prune() stores the new AppQC.
-			// The commitQC file cleanup (DeleteBefore) runs much later,
-			// after the persist goroutine batch-writes all pending blocks
-			// and commitQCs. So the AppQC is always on disk before the
-			// matching commitQC file is eligible for deletion. If we get
-			// here, the persisted state is corrupt.
+			// AppQC is persisted after CommitQCs in the same goroutine,
+			// so the matching CommitQC is always on disk before the AppQC.
+			// If we get here, the persisted state is corrupt.
 			return nil, fmt.Errorf("persisted AppQC at road index %d but no matching commitQC on disk", idx)
 		}
 		if _, err := i.prune(aq, qc); err != nil {
