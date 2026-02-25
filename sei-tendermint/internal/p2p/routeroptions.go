@@ -106,18 +106,18 @@ type RouterOptions struct {
 	// MaxPeers is the maximum number of peers to track address information about.
 	// When exceeded, unreachable peers will be deleted.
 	// Defaults to 128.
-	MaxPeers utils.Option[int]
+	MaxPeers utils.Option[uint]
 
 	// MaxConnected is the maximum number of connected peers (inbound and outbound).
 	// Persistent and unconditional connections are not counted towards this limit.
 	// Defaults to 64.
-	MaxConnected utils.Option[int]
+	MaxConnected utils.Option[uint]
 
 	// MaxOutboundConnections is the maximum number of outbound connections.
 	// Note that MaxConnected is still respected and the actual number of outbound connections
 	// is bounded by min(MaxConnected,MaxOutboundConnections)
 	// Defaults to 10.
-	MaxOutboundConnections utils.Option[int]
+	MaxOutboundConnections utils.Option[uint]
 
 	// MaxConcurrentDials limits the number of concurrent outbound connection handshakes.
 	// Defaults to 10.
@@ -125,7 +125,7 @@ type RouterOptions struct {
 
 	// MaxConncurrentAccepts limites the number of concurrent inbound connection handshakes.
 	// Defaults to 10.
-	MaxConcurrentAccepts utils.Option[int]
+	MaxConcurrentAccepts utils.Option[uint]
 
 	// Per-connection config.
 	Connection conn.MConnConfig
@@ -135,14 +135,14 @@ type RouterOptions struct {
 	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int   { return o.MaxConcurrentDials.Or(10) }
-func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) }
-func (o *RouterOptions) maxConns() int   { return o.MaxConnected.Or(64) }
-func (o *RouterOptions) maxOutboundConns() int {
+func (o *RouterOptions) maxDials() int    { return o.MaxConcurrentDials.Or(10) }
+func (o *RouterOptions) maxAccepts() uint { return o.MaxConcurrentAccepts.Or(10) }
+func (o *RouterOptions) maxConns() uint   { return o.MaxConnected.Or(64) }
+func (o *RouterOptions) maxOutboundConns() uint {
 	return min(o.maxConns(), o.MaxOutboundConnections.Or(10))
 }
 
-func (o *RouterOptions) maxPeers() int {
+func (o *RouterOptions) maxPeers() uint {
 	return o.MaxPeers.Or(128)
 }
 

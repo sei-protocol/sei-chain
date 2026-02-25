@@ -31,8 +31,8 @@ func getOpt[K comparable, V any](m map[K]V, k K) utils.Option[V] {
 
 type poolConfig struct {
 	selfID          types.NodeID
-	maxConns        utils.Option[int]
-	maxAddrs        utils.Option[int]
+	maxConns        utils.Option[uint]
+	maxAddrs        utils.Option[uint]
 	maxAddrsPerPeer utils.Option[int]
 }
 
@@ -91,7 +91,7 @@ func (p *pool[C]) AddAddr(addr NodeAddress) bool {
 	// Add new peerAddrs if missing.
 	if !ok {
 		// Prune some peer if maxPeers limit has been reached.
-		if m, ok := p.maxAddrs.Get(); ok && len(p.addrs) == m {
+		if m, ok := p.maxAddrs.Get(); ok && uint(len(p.addrs)) == m {
 			toPrune, ok := p.findFailedPeer()
 			if !ok {
 				return false
@@ -158,7 +158,7 @@ func (p *pool[C]) findFailedPeer() (types.NodeID, bool) {
 
 func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 	// Check the connections limit.
-	if m, ok := p.maxConns.Get(); ok && len(p.dialing)+len(p.conns) >= m {
+	if m, ok := p.maxConns.Get(); ok && uint(len(p.dialing)+len(p.conns)) >= m {
 		return NodeAddress{}, false
 	}
 
@@ -221,7 +221,7 @@ func (p *pool[C]) Connected(conn C) (err error) {
 			p.outbound -= 1
 		}
 	}
-	if m, ok := p.maxConns.Get(); ok && len(p.conns) >= m {
+	if m, ok := p.maxConns.Get(); ok && uint(len(p.conns)) >= m {
 		return errors.New("too many connections")
 	}
 	if newIsOutbound {

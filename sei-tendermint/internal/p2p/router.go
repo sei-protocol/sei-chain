@@ -180,7 +180,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 		r.options.incomingConnectionWindow(),
 	)
 	sem := semaphore.NewWeighted(int64(r.options.maxAccepts()))
-	limiter := rate.NewLimiter(r.options.maxAcceptRate(), r.options.maxAccepts())
+	limiter := rate.NewLimiter(r.options.maxAcceptRate(), utils.Clamp[int](r.options.maxAccepts()))
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for {
 			if err := sem.Acquire(ctx, 1); err != nil {

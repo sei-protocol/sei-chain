@@ -50,8 +50,8 @@ type TestNetworkOptions struct {
 }
 
 type TestNodeOptions struct {
-	MaxPeers     utils.Option[int]
-	MaxConnected utils.Option[int]
+	MaxPeers     utils.Option[uint]
+	MaxConnected utils.Option[uint]
 }
 
 func TestAddress(r *Router) NodeAddress {
