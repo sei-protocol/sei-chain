@@ -95,6 +95,12 @@ func (d *Database) IncrementTransactionCount() {
 	d.transactionsInCurrentBlock++
 }
 
+// Reset the transaction count. Useful for when changing test phases.
+func (d *Database) ResetTransactionCount() {
+	d.transactionCount = 0
+	d.transactionsInCurrentBlock = 0
+}
+
 // Get the total number of transactions executed by the benchmark since it last started.
 func (d *Database) TransactionCount() int64 {
 	return d.transactionCount

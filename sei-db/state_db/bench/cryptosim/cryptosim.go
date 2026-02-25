@@ -109,6 +109,7 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("failed to setup benchmark: %w", err)
 	}
 
+	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
 
 	go c.run()
