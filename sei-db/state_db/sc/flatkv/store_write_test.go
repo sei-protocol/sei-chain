@@ -374,7 +374,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 		defer store.Close()
 
 		// Verify defaults
-		require.True(t, store.config.Fsync)
+		require.False(t, store.config.Fsync)
 		require.Equal(t, 0, store.config.AsyncWriteBuffer)
 	})
 

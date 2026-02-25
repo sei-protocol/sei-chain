@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -234,20 +234,6 @@ func (s *CommitStore) Commit() (int64, error) {
 
 	s.log.Info("Committed version", "version", version)
 	return version, nil
-}
-
-// flushAllDBs flushes all data DBs to ensure data is on disk.
-func (s *CommitStore) flushAllDBs() error {
-	if err := s.accountDB.Flush(); err != nil {
-		return fmt.Errorf("accountDB flush: %w", err)
-	}
-	if err := s.codeDB.Flush(); err != nil {
-		return fmt.Errorf("codeDB flush: %w", err)
-	}
-	if err := s.storageDB.Flush(); err != nil {
-		return fmt.Errorf("storageDB flush: %w", err)
-	}
-	return nil
 }
 
 // clearPendingWrites clears all pending write buffers
