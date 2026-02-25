@@ -119,33 +119,36 @@ func (cr *CannedRandom) Bool() bool {
 	return cr.Int64()%2 == 0
 }
 
-// Generate a random 20 byte address suitable for use simulating an eth-style address.
-// For the same input arguments, a canned random generator with the same seed and size will produce
-// deterministic results addresses.
+// Address generates a deterministic byte sequence suitable for simulating keys.
+// For the same input arguments, a canned random generator with the same seed and buffer size
+// will produce the same output.
 //
-// Addresses have the following shape:
+// The first AddressLen bytes have the following shape (eth-style address):
 //
-//		1 byte addressType
-//		8 bytes of random data
-//		8 bytes containing the ID
-//	    3 bytes of random data (to bring the total to 20 bytes)
+//	1 byte addressType
+//	8 bytes of random data
+//	8 bytes containing the ID
+//	the remainder is filled with random data
 //
-// The ID is not included in the begining so that adjacent IDs will not appear close to each other if addresses
-// are sorted in lexicographic order.
+// The ID is not at the beginning so that adjacent IDs will not appear close to each other
+// if keys are sorted lexicographically. If size > AddressLen, the remainder is filled with
+// additional deterministic random bytes seeded by id.
 func (cr *CannedRandom) Address(
-	// A one-char byte descriptor. Allows for keys for different types of things to have different values
+	// A one-char byte descriptor. Allows keys for different types to have different values
 	// even if they have the same ID.
 	addressType uint8,
 	// A unique ID for the key.
 	id int64,
-
+	// Total size in bytes. Must be at least AddressLen.
+	size int,
 ) []byte {
+	if size < AddressLen {
+		panic(fmt.Sprintf("size must be at least %d, got %d", AddressLen, size))
+	}
 
-	result := make([]byte, 20)
-
-	baseBytes := cr.SeededBytes(20, id)
+	result := make([]byte, size)
+	baseBytes := cr.SeededBytes(AddressLen, id)
 	copy(result, baseBytes)
-
 	result[0] = addressType
 	binary.BigEndian.PutUint64(result[9:], uint64(id))
 

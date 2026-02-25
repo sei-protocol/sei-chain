@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
@@ -12,6 +13,13 @@ const (
 	accountPrefix    = 'a'
 	contractPrefix   = 'c'
 	ethStoragePrefix = 's'
+)
+
+// EVM key sizes (matches sei-db/common/evm).
+const (
+	AddressLen    = 20 // EVM address length
+	SlotLen       = 32 // EVM storage slot length
+	StorageKeyLen = AddressLen + SlotLen
 )
 
 // The test runner for the cryptosim benchmark.
@@ -120,6 +128,7 @@ func (c *CryptoSim) setup() error {
 	return nil
 }
 
+// Prepopulate the database with the minimum number of accounts.
 func (c *CryptoSim) setupAccounts() error {
 	// Ensure that we at least have as many accounts as the hot set + 2. This simplifies logic elsewhere.
 	if c.config.MinimumNumberOfAccounts < c.config.HotAccountSetSize+2 {
@@ -160,6 +169,7 @@ func (c *CryptoSim) setupAccounts() error {
 	}
 	fmt.Printf("Created %s of %s accounts.\n",
 		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
@@ -170,6 +180,7 @@ func (c *CryptoSim) setupAccounts() error {
 	return nil
 }
 
+// Prepopulate the database with the minimum number of ERC20 contracts.
 func (c *CryptoSim) setupErc20Contracts() error {
 
 	// Ensure that we at least have as many ERC20 contracts as the hot set + 1. This simplifies logic elsewhere.
@@ -213,8 +224,10 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	if c.dataGenerator.NextErc20ContractID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
+
 	fmt.Printf("Created %s of %s simulated ERC20 contracts.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
@@ -245,19 +258,19 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
-				continue
+				os.Exit(1) // TODO use more elegant teardown mechanism
 			}
 
 			err = txn.Execute(c.database, c.dataGenerator.FeeCollectionAddress())
 			if err != nil {
 				fmt.Printf("\nfailed to execute transaction: %v\n", err)
-				continue
+				os.Exit(1)
 			}
 
 			err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
-				continue
+				os.Exit(1)
 			}
 
 			c.database.IncrementTransactionCount()

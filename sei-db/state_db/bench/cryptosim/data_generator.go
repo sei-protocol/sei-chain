@@ -64,9 +64,10 @@ func NewDataGenerator(
 
 	fmt.Printf("There are currently %s ERC20 contracts in the database.\n", int64Commas(nextErc20ContractID))
 
+	// Use EVMKeyCode for account data; EVMKeyNonce only accepts 8-byte values.
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
 		evm.EVMKeyCode,
-		rand.Address(accountPrefix, 0),
+		rand.Address(accountPrefix, 0, AddressLen),
 	)
 
 	return &DataGenerator{
@@ -102,8 +103,8 @@ func (d *DataGenerator) CreateNewAccount(
 	accountID := d.nextAccountID
 	d.nextAccountID++
 
-	// Use memiavl code key format (0x07 + addr) so FlatKV persists account data.
-	addr := d.rand.Address(accountPrefix, accountID)
+	// Use EVMKeyCode for account data (balance+padding); EVMKeyNonce only accepts 8-byte values.
+	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 
 	if !write {
@@ -139,8 +140,8 @@ func (d *DataGenerator) CreateNewErc20Contract(
 	erc20ContractID := d.nextErc20ContractID
 	d.nextErc20ContractID++
 
-	erc20Address := d.rand.Address(contractPrefix, erc20ContractID)
-	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, erc20Address)
+	erc20Address := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
+	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, erc20Address)
 
 	if !write {
 		return erc20ContractID, address, nil
@@ -168,7 +169,7 @@ func (d *DataGenerator) RandomAccount(maxAccountID int64) (id int64, address []b
 		firstHotAccountID := 1
 		lastHotAccountID := d.config.HotAccountSetSize
 		accountID := d.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
-		addr := d.rand.Address(accountPrefix, accountID)
+		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
 	} else {
 
@@ -186,18 +187,19 @@ func (d *DataGenerator) RandomAccount(maxAccountID int64) (id int64, address []b
 
 		firstNonHotAccountID := d.config.HotAccountSetSize + 1
 		accountID := d.rand.Int64Range(int64(firstNonHotAccountID), maxAccountID+1)
-		addr := d.rand.Address(accountPrefix, accountID)
+		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
 	}
 }
 
 // Selects a random account slot for a transaction.
+// Uses EVMKeyStorage with addr||slot (AddressLen+SlotLen bytes) for proper storage slot format.
 func (d *DataGenerator) randomAccountSlot(accountID int64) ([]byte, error) {
 	slotNumber := d.rand.Int64Range(0, int64(d.config.Erc20InteractionsPerAccount))
 	slotID := accountID*int64(d.config.Erc20InteractionsPerAccount) + slotNumber
 
-	addr := d.rand.Address(ethStoragePrefix, slotID)
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+	storageKeyBytes := d.rand.Address(ethStoragePrefix, slotID, StorageKeyLen)
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, storageKeyBytes), nil
 }
 
 // Selects a random ERC20 contract for a transaction.
@@ -207,7 +209,7 @@ func (d *DataGenerator) randomErc20Contract() ([]byte, error) {
 
 	if hot {
 		erc20ContractID := d.rand.Int64Range(0, int64(d.config.HotErc20ContractSetSize))
-		addr := d.rand.Address(contractPrefix, erc20ContractID)
+		addr := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
 		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	}
 
@@ -215,8 +217,8 @@ func (d *DataGenerator) randomErc20Contract() ([]byte, error) {
 
 	erc20ContractID := d.rand.Int64Range(
 		int64(d.config.HotErc20ContractSetSize),
-		int64(d.nextAccountID))
-	addr := d.rand.Address(contractPrefix, erc20ContractID)
+		d.nextErc20ContractID)
+	addr := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
 	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 }
 

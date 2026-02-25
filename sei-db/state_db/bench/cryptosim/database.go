@@ -92,6 +92,7 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 // Signal that a transaction has been executed.
 func (d *Database) IncrementTransactionCount() {
 	d.transactionCount++
+	d.transactionsInCurrentBlock++
 }
 
 // Get the total number of transactions executed by the benchmark since it last started.

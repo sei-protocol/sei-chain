@@ -12,13 +12,22 @@ import (
 )
 
 // Get the key for the account ID counter in the database.
+// Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
+// non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
 func AccountIDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, []byte(accountIdCounterKey))
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
 }
 
 // Get the key for the ERC20 contract ID counter in the database.
 func Erc20IDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, []byte(erc20IdCounterKey))
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
+}
+
+// paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.
+func paddedCounterKey(s string) []byte {
+	b := make([]byte, AddressLen)
+	copy(b, s)
+	return b
 }
 
 // Hash64 returns a well-distributed 64-bit hash of x.
