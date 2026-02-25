@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -111,17 +112,22 @@ func (r *Reader) scanExistingFiles() {
 	if err != nil {
 		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
 	}
-	r.closedReceiptFiles = r.validateFiles(receiptFiles)
+	r.closedReceiptFiles = r.validateAndCleanFiles(receiptFiles, "logs")
 
 	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
 	logFiles, err := filepath.Glob(logPattern)
 	if err != nil {
 		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
 	}
-	r.closedLogFiles = r.validateFiles(logFiles)
+	r.closedLogFiles = r.validateAndCleanFiles(logFiles, "receipts")
 }
 
-func (r *Reader) validateFiles(files []string) []string {
+// validateAndCleanFiles checks the last file for readability. If it is corrupt
+// (e.g. missing parquet footer from an unclean shutdown), the file and its
+// counterpart (identified by counterpartPrefix) are deleted from disk so they
+// cannot poison future DuckDB queries. Only the last file needs checking
+// because all previously rotated files had their writers properly closed.
+func (r *Reader) validateAndCleanFiles(files []string, counterpartPrefix string) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -134,6 +140,14 @@ func (r *Reader) validateFiles(files []string) []string {
 	if r.isFileReadable(lastFile) {
 		return files
 	}
+
+	startBlock := ExtractBlockNumber(lastFile)
+	log.Printf("removing corrupt parquet file: %s", lastFile)
+	_ = os.Remove(lastFile)
+
+	counterpart := filepath.Join(r.basePath, fmt.Sprintf("%s_%d.parquet", counterpartPrefix, startBlock))
+	_ = os.Remove(counterpart)
+
 	return files[:len(files)-1]
 }
 

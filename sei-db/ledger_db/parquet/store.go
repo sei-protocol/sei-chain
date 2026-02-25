@@ -125,14 +125,6 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 		}
 	}
 
-	if reader.ClosedReceiptFileCount() == 0 {
-		store.fileStartBlock = 0
-	}
-
-	if err := store.initWriters(); err != nil {
-		return nil, err
-	}
-
 	store.startPruning(cfg.PruneIntervalSeconds)
 
 	return store, nil
@@ -383,6 +375,16 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 }
 
 func (s *Store) applyReceiptLocked(input ReceiptInput) error {
+	// Lazy writer initialization: defer file creation until the first receipt
+	// arrives so the parquet filename reflects the actual starting block number
+	// (e.g. receipts_195360501.parquet) rather than a misleading receipts_0.parquet.
+	if s.receiptWriter == nil {
+		s.fileStartBlock = input.BlockNumber
+		if err := s.initWriters(); err != nil {
+			return err
+		}
+	}
+
 	blockNumber := input.BlockNumber
 	isNewBlock := blockNumber != s.lastSeenBlock
 	if isNewBlock {
