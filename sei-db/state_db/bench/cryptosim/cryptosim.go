@@ -176,7 +176,7 @@ func (c *CryptoSim) setupAccounts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 
-	fmt.Printf("There are now %d accounts in the database.\n", c.dataGenerator.NextAccountID())
+	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
 
 	return nil
 }
@@ -259,7 +259,7 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
-				os.Exit(1) // TODO use more elegant teardown mechanism
+				// os.Exit(1) // TODO use more elegant teardown mechanism
 			}
 
 			err = txn.Execute(c.database, c.dataGenerator.FeeCollectionAddress())
@@ -271,7 +271,7 @@ func (c *CryptoSim) run() {
 			err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
-				os.Exit(1)
+				// os.Exit(1)
 			}
 
 			c.database.IncrementTransactionCount()

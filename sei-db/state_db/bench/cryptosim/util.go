@@ -1,6 +1,7 @@
 package cryptosim
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
+
+// BytesToHex returns a lowercase hex string with 0x prefix, suitable for printing binary keys or addresses.
+func BytesToHex(b []byte) string {
+	return "0x" + hex.EncodeToString(b)
+}
 
 // Get the key for the account ID counter in the database.
 // Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and

@@ -78,11 +78,13 @@ func BuildTransaction(
 
 	var newSrcData []byte
 	if isSrcNew {
-		newSrcData = dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
+		b := dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
+		newSrcData = append([]byte(nil), b...)
 	}
 	var newDstData []byte
 	if isDstNew {
-		newDstData = dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
+		b := dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
+		newDstData = append([]byte(nil), b...)
 	}
 
 	return &transaction{
@@ -98,8 +100,8 @@ func BuildTransaction(
 		newSrcBalance:     dataGenerator.rand.Int64(),
 		newDstBalance:     dataGenerator.rand.Int64(),
 		newFeeBalance:     dataGenerator.rand.Int64(),
-		newSrcAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
-		newDstAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
+		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
+		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
 	}, nil
 }
 
