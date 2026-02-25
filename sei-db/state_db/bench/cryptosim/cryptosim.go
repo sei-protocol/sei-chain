@@ -108,14 +108,14 @@ func NewCryptoSim(
 		return nil, err
 	}
 
-	fmt.Printf("running cryptosim benchmark from data directory: %s\n", dataDir)
+	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
 
 	db, err := wrappers.NewDBImpl(config.Backend, dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	fmt.Printf("initializing random number generator\n")
+	fmt.Printf("Initializing random number generator.\n")
 	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
 
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
@@ -217,7 +217,7 @@ func (c *CryptoSim) setupAccounts() error {
 		}
 
 		if c.nextAccountID%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("created %s of %s accounts\r",
+			fmt.Printf("Created %s of %s accounts.\r",
 				int64Commas(c.nextAccountID), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
 		}
 	}
@@ -282,7 +282,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 
 		if c.nextErc20ContractID%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("created %s of %s simulated ERC20 contracts\r",
+			fmt.Printf("Created %s of %s simulated ERC20 contracts.\r",
 				int64Commas(c.nextErc20ContractID), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 		}
 	}
