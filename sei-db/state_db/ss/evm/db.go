@@ -23,8 +23,7 @@ var defaultWriteOpts = &pebble.WriteOptions{Sync: false}
 // EVMDatabase represents a single PebbleDB instance for a specific EVM data type.
 // Uses pebble.DefaultComparer (lexicographic byte ordering) instead of MVCCComparer.
 type EVMDatabase struct {
-	storeType EVMStoreType
-	storage   *pebble.DB
+	storage *pebble.DB
 
 	// Version tracking (atomic for concurrent access)
 	latestVersion   atomic.Int64
@@ -58,8 +57,7 @@ func OpenDB(dir string, storeType EVMStoreType) (*EVMDatabase, error) {
 	}
 
 	evmDB := &EVMDatabase{
-		storeType: storeType,
-		storage:   db,
+		storage: db,
 	}
 	// latestVersion and earliestVersion are zero-initialized by default
 

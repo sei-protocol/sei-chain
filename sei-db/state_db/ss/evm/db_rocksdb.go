@@ -39,9 +39,8 @@ var (
 // EVMDatabaseRocksDB is a RocksDB-backed versioned KV store for a single EVM data type.
 // Uses user-defined timestamps for MVCC versioning and a column family for state data.
 type EVMDatabaseRocksDB struct {
-	storeType EVMStoreType
-	storage   *grocksdb.DB
-	cfHandle  *grocksdb.ColumnFamilyHandle
+	storage  *grocksdb.DB
+	cfHandle *grocksdb.ColumnFamilyHandle
 
 	tsLow           int64
 	latestVersion   atomic.Int64
@@ -91,10 +90,9 @@ func OpenRocksDB(dir string, storeType EVMStoreType) (*EVMDatabaseRocksDB, error
 	}
 
 	evmDB := &EVMDatabaseRocksDB{
-		storeType: storeType,
-		storage:   db,
-		cfHandle:  cfHandle,
-		tsLow:     tsLow,
+		storage:  db,
+		cfHandle: cfHandle,
+		tsLow:    tsLow,
 	}
 	evmDB.latestVersion.Store(latest)
 	evmDB.earliestVersion.Store(earliest)

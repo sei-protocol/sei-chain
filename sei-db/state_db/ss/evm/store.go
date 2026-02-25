@@ -23,7 +23,6 @@ type dbWrite struct {
 type EVMStateStore struct {
 	databases map[EVMStoreType]EVMDBEngine
 	dir       string
-	backend   string
 	logger    logger.Logger
 
 	// Per-DB async write channels and worker goroutines
@@ -48,7 +47,6 @@ func NewEVMStateStore(dir string, backend string, log logger.Logger) (*EVMStateS
 		databases: make(map[EVMStoreType]EVMDBEngine),
 		asyncChs:  make(map[EVMStoreType]chan dbWrite),
 		dir:       dir,
-		backend:   backend,
 		logger:    log,
 	}
 
