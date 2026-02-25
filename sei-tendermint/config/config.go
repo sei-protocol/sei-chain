@@ -648,12 +648,12 @@ type P2PConfig struct {
 	UPNP bool `mapstructure:"upnp"`
 
 	// MaxConnections limits the number of connected peers (inbound and outbound).
-	MaxConnections uint16 `mapstructure:"max-connections"`
+	MaxConnections uint `mapstructure:"max-connections"`
 
-	// MaxConnections limits the number of outbound peers.
+	// MaxOutboundConnections limits the number of outbound connections to regular (non-persistent) peers.
 	// It should be significantly lower than MaxConnections, unless
 	// the node is supposed to have a small number of connections altogether.
-	MaxOutboundConnections int
+	MaxOutboundConnections uint
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address.
@@ -704,11 +704,14 @@ type P2PConfig struct {
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer
 func DefaultP2PConfig() *P2PConfig {
 	return &P2PConfig{
-		ListenAddress:                 "tcp://127.0.0.1:26656",
-		ExternalAddress:               "",
-		UPNP:                          false,
-		MaxConnections:                100,
-		MaxOutboundConnections:        10,
+		ListenAddress:   "tcp://127.0.0.1:26656",
+		ExternalAddress: "",
+		UPNP:            false,
+		MaxConnections:  100,
+		// TODO(gprusak): decrease to 10, once PEX is improved to:
+		// * exchange both inbound and outbound connections information
+		// * exchange information on handshake as well.
+		MaxOutboundConnections:        100,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
 		MaxPacketMsgPayloadSize:       1000000,

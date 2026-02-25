@@ -222,9 +222,8 @@ func createRouter(
 	}
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
-	options.MaxOutboundConnections = utils.Some(cfg.P2P.MaxOutboundConnections)
+	options.MaxOutboundConnections = utils.Some(int(cfg.P2P.MaxOutboundConnections))
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
-	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
 	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
@@ -253,7 +252,7 @@ func createRouter(
 	default:
 		maxConns = 64
 	}
-
+	options.MaxConcurrentAccepts = utils.Some(maxConns)
 	options.MaxConnected = utils.Some(maxConns)
 	options.MaxPeers = utils.Some(2 * maxConns)
 	options.PrivatePeers = privatePeerIDs
