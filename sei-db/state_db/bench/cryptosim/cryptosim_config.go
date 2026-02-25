@@ -95,6 +95,9 @@ type CryptoSimConfig struct {
 	// Increase or decrease the thread count by this many threads. Total thread count is a function of
 	// ThreadsPerCore and ConstantThreadCount.
 	ConstantThreadCount int
+
+	// The size of the queue for each transaction executor.
+	ExecutorQueueSize int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -121,6 +124,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		SetupUpdateIntervalCount:          100_000,
 		ThreadsPerCore:                    1.0,
 		ConstantThreadCount:               0,
+		ExecutorQueueSize:                 64,
 	}
 }
 

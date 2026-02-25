@@ -29,6 +29,9 @@ type Database struct {
 	// The current batch of changesets waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block".
 	batch *SyncMap[string, *proto.NamedChangeSet]
+
+	// A method that flushes the executors.
+	flushFunc func()
 }
 
 // Creates a new database for the cryptosim benchmark.
@@ -123,6 +126,12 @@ func (d *Database) FinalizeBlock(
 	nextErc20ContractID int64,
 	forceCommit bool,
 ) error {
+
+	// Wait for all transactions in the current block to be executed.
+	if d.flushFunc != nil {
+		d.flushFunc()
+	}
+
 	if d.transactionsInCurrentBlock == 0 {
 		return nil
 	}
@@ -188,4 +197,9 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 	}
 
 	return nil
+}
+
+// Set the function that flushes the executors. This setter is required to break a circular dependency.
+func (d *Database) SetFlushFunc(flushFunc func()) {
+	d.flushFunc = flushFunc
 }

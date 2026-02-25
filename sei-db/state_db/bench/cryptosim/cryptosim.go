@@ -3,7 +3,7 @@ package cryptosim
 import (
 	"context"
 	"fmt"
-	"os"
+	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
@@ -50,6 +50,12 @@ type CryptoSim struct {
 
 	// The database for the benchmark.
 	database *Database
+
+	// The transaction executors for the benchmark. Transactions are distributed round-robin to the executors.
+	executors []*TransactionExecutor
+
+	// The index of the next executor to receive a transaction.
+	nextExecutorIndex int
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -92,6 +98,18 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
 
+	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
+	if threadCount < 1 {
+		threadCount = 1
+	}
+	fmt.Printf("Running benchmark with %d threads.\n", threadCount)
+
+	executors := make([]*TransactionExecutor, threadCount)
+	for i := range threadCount {
+		executors[i] = NewTransactionExecutor(
+			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize)
+	}
+
 	c := &CryptoSim{
 		ctx:                               ctx,
 		cancel:                            cancel,
@@ -102,7 +120,10 @@ func NewCryptoSim(
 		runHaltedChan:                     make(chan struct{}, 1),
 		dataGenerator:                     dataGenerator,
 		database:                          database,
+		executors:                         executors,
 	}
+
+	database.SetFlushFunc(c.flushExecutors)
 
 	err = c.setup()
 	if err != nil {
@@ -262,11 +283,8 @@ func (c *CryptoSim) run() {
 				// os.Exit(1) // TODO use more elegant teardown mechanism
 			}
 
-			err = txn.Execute(c.database, c.dataGenerator.FeeCollectionAddress())
-			if err != nil {
-				fmt.Printf("\nfailed to execute transaction: %v\n", err)
-				os.Exit(1)
-			}
+			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
+			c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
 
 			err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
@@ -326,4 +344,11 @@ func (c *CryptoSim) Close() error {
 	fmt.Printf("Benchmark terminated successfully.\n")
 
 	return nil
+}
+
+// Blocks until all pending transactions sent to the executors have been executed.
+func (c *CryptoSim) flushExecutors() {
+	for _, executor := range c.executors {
+		executor.Flush()
+	}
 }
