@@ -43,8 +43,6 @@ type State struct {
 
 	// persisters groups all disk persisters; None when persistence is disabled.
 	persisters utils.Option[persisters]
-	// appQCSend publishes the latest AppQC for async persistence by Run().
-	appQCSend utils.AtomicSend[utils.Option[*types.AppQC]]
 }
 
 // persisters holds all disk persistence components. Either all are present or none.
@@ -116,7 +114,6 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		data:       data,
 		inner:      utils.NewWatch(inner),
 		persisters: pers,
-		appQCSend:  utils.NewAtomicSend(utils.None[*types.AppQC]()),
 	}, nil
 }
 
@@ -247,7 +244,6 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 			return err
 		}
 		if updated {
-			s.appQCSend.Store(utils.Some(appQC))
 			ctrl.Updated()
 		}
 	}
@@ -278,7 +274,6 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return err
 		}
 		if updated {
-			s.appQCSend.Store(utils.Some(appQC))
 			ctrl.Updated()
 		}
 	}
@@ -528,22 +523,10 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if pers, ok := s.persisters.Get(); ok {
-			appQCRecv := s.appQCSend.Subscribe()
-			scope.SpawnNamed("appQCPersist", func() error {
-				return appQCRecv.Iter(ctx, func(_ context.Context, v utils.Option[*types.AppQC]) error {
-					appQC, ok := v.Get()
-					if !ok {
-						return nil
-					}
-					if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
-						log.Error().Err(err).Msg("failed to persist AppQC")
-					}
-					return nil
-				})
-			})
 			scope.SpawnNamed("persist", func() error {
 				blockCur := pers.blocks.LoadTips()
 				commitQCCur := pers.commitQCs.LoadNext()
+				var lastPersistedAppQC utils.Option[*types.AppQC]
 				for {
 					batch, err := s.collectPersistBatch(ctx, blockCur, commitQCCur)
 					if err != nil {
@@ -566,6 +549,19 @@ func (s *State) Run(ctx context.Context) error {
 						if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
 							return fmt.Errorf("commitqc deleteBefore: %w", err)
 						}
+					}
+
+					// Persist AppQC after CommitQCs to guarantee the matching
+					// CommitQC is already on disk if we crash after this write.
+					// TODO: use a single WAL for AppQC and CommitQCs to make
+					// this atomic rather than relying on write order.
+					if batch.appQC != lastPersistedAppQC {
+						if appQC, ok := batch.appQC.Get(); ok {
+							if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+								return fmt.Errorf("persist AppQC: %w", err)
+							}
+						}
+						lastPersistedAppQC = batch.appQC
 					}
 
 					if len(batch.blocks) > 0 {
@@ -614,6 +610,7 @@ func (s *State) Run(ctx context.Context) error {
 type persistBatch struct {
 	blocks        []*types.Signed[*types.LaneProposal]
 	commitQCs     []*types.CommitQC
+	appQC         utils.Option[*types.AppQC]
 	laneFirsts    map[types.LaneID]types.BlockNumber
 	commitQCFirst types.RoadIndex
 	commitQCCur   types.RoadIndex // clamped cursor (may have advanced past pruned entries)
@@ -663,6 +660,7 @@ func (s *State) collectPersistBatch(
 			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
 		}
 		b.commitQCCur = commitQCCur
+		b.appQC = inner.latestAppQC
 	}
 	return b, nil
 }
