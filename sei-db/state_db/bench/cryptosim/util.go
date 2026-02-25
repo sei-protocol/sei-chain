@@ -7,7 +7,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
+
+// Get the key for the account ID counter in the database.
+func AccountIDCounterKey() []byte {
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, []byte(accountIdCounterKey))
+}
+
+// Get the key for the ERC20 contract ID counter in the database.
+func Erc20IDCounterKey() []byte {
+	return evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, []byte(erc20IdCounterKey))
+}
 
 // Hash64 returns a well-distributed 64-bit hash of x.
 // It implements the SplitMix64 finalizer, a fast non-cryptographic mixing

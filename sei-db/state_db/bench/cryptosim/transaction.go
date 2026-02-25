@@ -47,7 +47,6 @@ type transaction struct {
 //
 // This method is not thread safe to call concurrently with other calls to BuildTransaction().
 func BuildTransaction(
-	cryptosim *CryptoSim,
 	dataGenerator *DataGenerator,
 ) (*transaction, error) {
 
@@ -55,35 +54,35 @@ func BuildTransaction(
 	// that ID may be greater than this value.
 	maxAccountID := dataGenerator.NextAccountID() - 1
 
-	srcAccountID, srcAccountAddress, isSrcNew, err := cryptosim.randomAccount(maxAccountID)
+	srcAccountID, srcAccountAddress, isSrcNew, err := dataGenerator.RandomAccount(maxAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select source account: %w", err)
 	}
-	dstAccountID, dstAccountAddress, isDstNew, err := cryptosim.randomAccount(maxAccountID)
+	dstAccountID, dstAccountAddress, isDstNew, err := dataGenerator.RandomAccount(maxAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select destination account: %w", err)
 	}
 
-	srcAccountSlot, err := cryptosim.randomAccountSlot(srcAccountID)
+	srcAccountSlot, err := dataGenerator.randomAccountSlot(srcAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select source account slot: %w", err)
 	}
-	dstAccountSlot, err := cryptosim.randomAccountSlot(dstAccountID)
+	dstAccountSlot, err := dataGenerator.randomAccountSlot(dstAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select destination account slot: %w", err)
 	}
-	erc20Contract, err := cryptosim.randomErc20Contract()
+	erc20Contract, err := dataGenerator.randomErc20Contract()
 	if err != nil {
 		return nil, fmt.Errorf("failed to select ERC20 contract: %w", err)
 	}
 
 	var newSrcData []byte
 	if isSrcNew {
-		newSrcData = cryptosim.rand.Bytes(cryptosim.config.PaddedAccountSize)
+		newSrcData = dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
 	}
 	var newDstData []byte
 	if isDstNew {
-		newDstData = cryptosim.rand.Bytes(cryptosim.config.PaddedAccountSize)
+		newDstData = dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
 	}
 
 	return &transaction{
@@ -96,11 +95,11 @@ func BuildTransaction(
 		srcAccountSlot:    srcAccountSlot,
 		dstAccountSlot:    dstAccountSlot,
 		erc20Contract:     erc20Contract,
-		newSrcBalance:     cryptosim.rand.Int64(),
-		newDstBalance:     cryptosim.rand.Int64(),
-		newFeeBalance:     cryptosim.rand.Int64(),
-		newSrcAccountSlot: cryptosim.rand.Bytes(cryptosim.config.Erc20StorageSlotSize),
-		newDstAccountSlot: cryptosim.rand.Bytes(cryptosim.config.Erc20StorageSlotSize),
+		newSrcBalance:     dataGenerator.rand.Int64(),
+		newDstBalance:     dataGenerator.rand.Int64(),
+		newFeeBalance:     dataGenerator.rand.Int64(),
+		newSrcAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
+		newDstAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
 	}, nil
 }
 
@@ -108,10 +107,13 @@ func BuildTransaction(
 //
 // This method is thread safe with other calls to Execute(),
 // but must not be called concurrently with CryptoSim.finalizeBlock().
-func (txn *transaction) Execute(cryptosim *CryptoSim) error {
+func (txn *transaction) Execute(
+	database *Database,
+	feeCollectionAddress []byte,
+) error {
 
 	// Read the simulated ERC20 contract.
-	_, found, err := cryptosim.get(txn.erc20Contract)
+	_, found, err := database.Get(txn.erc20Contract)
 	if err != nil {
 		return fmt.Errorf("failed to get ERC20 contract: %w", err)
 	}
@@ -127,7 +129,7 @@ func (txn *transaction) Execute(cryptosim *CryptoSim) error {
 	// - the fee collection account's native balance
 
 	// Read the sender's native balance / nonce / codehash.
-	srcAccountValue, found, err := cryptosim.get(txn.srcAccount)
+	srcAccountValue, found, err := database.Get(txn.srcAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
@@ -146,7 +148,7 @@ func (txn *transaction) Execute(cryptosim *CryptoSim) error {
 	}
 
 	// Read the receiver's native balance.
-	dstAccountValue, found, err := cryptosim.get(txn.dstAccount)
+	dstAccountValue, found, err := database.Get(txn.dstAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account: %w", err)
 	}
@@ -165,20 +167,20 @@ func (txn *transaction) Execute(cryptosim *CryptoSim) error {
 
 	// Read the sender's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-	_, _, err = cryptosim.get(txn.srcAccountSlot)
+	_, _, err = database.Get(txn.srcAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get source account slot: %w", err)
 	}
 
 	// Read the receiver's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-	_, _, err = cryptosim.get(txn.dstAccountSlot)
+	_, _, err = database.Get(txn.dstAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account slot: %w", err)
 	}
 
 	// Read the fee collection account's native balance.
-	feeValue, found, err := cryptosim.get(cryptosim.feeCollectionAddress)
+	feeValue, found, err := database.Get(feeCollectionAddress)
 	if err != nil {
 		return fmt.Errorf("failed to get fee collection account: %w", err)
 	}
@@ -199,31 +201,31 @@ func (txn *transaction) Execute(cryptosim *CryptoSim) error {
 	// - the fee collection account's native balance
 
 	// Write the sender's account data.
-	err = cryptosim.put(txn.srcAccount, srcAccountValue)
+	err = database.Put(txn.srcAccount, srcAccountValue)
 	if err != nil {
 		return fmt.Errorf("failed to put source account: %w", err)
 	}
 
 	// Write the receiver's account data.
-	err = cryptosim.put(txn.dstAccount, dstAccountValue)
+	err = database.Put(txn.dstAccount, dstAccountValue)
 	if err != nil {
 		return fmt.Errorf("failed to put destination account: %w", err)
 	}
 
 	// Write the sender's storage slot for the ERC20 contract.
-	err = cryptosim.put(txn.srcAccountSlot, txn.newSrcAccountSlot)
+	err = database.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to put source account slot: %w", err)
 	}
 
 	// Write the receiver's storage slot for the ERC20 contract.
-	err = cryptosim.put(txn.dstAccountSlot, txn.newDstAccountSlot)
+	err = database.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to put destination account slot: %w", err)
 	}
 
 	// Write the fee collection account's native balance.
-	err = cryptosim.put(cryptosim.feeCollectionAddress, feeValue)
+	err = database.Put(feeCollectionAddress, feeValue)
 	if err != nil {
 		return fmt.Errorf("failed to put fee collection account: %w", err)
 	}
