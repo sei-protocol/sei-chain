@@ -44,7 +44,7 @@ func (i *peerManagerInner[C]) TryStartDial(persistentPeer bool) (NodeAddress, bo
 	}
 	// Regular peers are additionally subject to outbound connections limit.
 	// We should not dial if it would result in too many outbound connections.
-	if uint(len(i.regular.dialing)+i.regular.outbound) >= i.options.maxOutboundConns() {
+	if len(i.regular.dialing)+i.regular.outbound >= i.options.maxOutboundConns() {
 		return NodeAddress{}, false
 	}
 	return i.regular.TryStartDial()

@@ -103,12 +103,12 @@ func (a peerDBRow) Compare(b peerDBRow) int {
 
 type peerDB struct {
 	db              dbm.DB
-	maxRows         uint
+	maxRows         int
 	byNodeID        map[types.NodeID]peerDBRow
 	byLastConnected *btree.BTreeG[peerDBRow]
 }
 
-func newPeerDB(db dbm.DB, maxRows uint) (*peerDB, error) {
+func newPeerDB(db dbm.DB, maxRows int) (*peerDB, error) {
 	byNodeID := map[types.NodeID]peerDBRow{}
 	start, end := keyPeerInfoRange()
 	iter, err := db.Iterator(start, end)
@@ -178,7 +178,7 @@ func (db *peerDB) Insert(addr NodeAddress, lastConnected time.Time) error {
 func (db *peerDB) truncate() error {
 	var toPrune []types.NodeID
 	db.byLastConnected.Ascend(func(r peerDBRow) bool {
-		if uint(len(db.byNodeID)-len(toPrune)) <= db.maxRows {
+		if len(db.byNodeID)-len(toPrune) <= db.maxRows {
 			return false
 		}
 		toPrune = append(toPrune, r.Addr.NodeID)
