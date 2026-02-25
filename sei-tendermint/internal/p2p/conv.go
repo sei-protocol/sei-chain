@@ -50,14 +50,21 @@ var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
 
 type handshakeMsg struct {
 	NodeAuth          NodeChallengeSig
+	SelfAddr       utils.Option[NodeAddress]
 	SeiGigaConnection bool
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Encode: func(m *handshakeMsg) *pb.Handshake {
+		var selfAddr *string
+		if a,ok := m.SelfAddr.Get(); ok {
+			selfAddr = utils.Alloc(a.String())
+		}
+
 		return &pb.Handshake{
 			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
 			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
+			SelfAddr:       selfAddr,
 			SeiGigaConnection: m.SeiGigaConnection,
 		}
 	},
@@ -70,8 +77,15 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 		if err != nil {
 			return nil, fmt.Errorf("NodeAuthSig: %w", err)
 		}
+		var selfAddr utils.Option[NodeAddress]
+		if p.SelfAddr!=nil {
+			addr,err := ParseNodeAddress(*p.SelfAddr)
+			if err!=nil { return nil,fmt.Errorf("SelfAddr: %w",err) }
+			selfAddr = utils.Some(addr)
+		}
 		return &handshakeMsg{
 			NodeAuth:          NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
+			SelfAddr: selfAddr,
 			SeiGigaConnection: p.SeiGigaConnection,
 		}, nil
 	},

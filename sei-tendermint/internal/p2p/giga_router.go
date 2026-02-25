@@ -70,7 +70,7 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 		}
 		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
 		// TODO: handshake needs a timeout.
-		hConn, err := handshake(ctx, tcpConn, r.key, true)
+		hConn, err := handshake(ctx, tcpConn, r.key, utils.None[NodeAddress](), true)
 		if err != nil {
 			return fmt.Errorf("handshake(): %w", err)
 		}

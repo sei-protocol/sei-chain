@@ -217,7 +217,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.options.SelfAddress, r.giga.IsPresent())
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
@@ -234,7 +234,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
 					release()
-					return r.runConn(ctx, hConn.conn, info, utils.None[NodeAddress]())
+					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
 				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
@@ -270,7 +270,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							var info types.NodeInfo
 							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 								var err error
-								hConn, err = handshake(ctx, tcpConn, r.privKey, false)
+								hConn, err = handshake(ctx, tcpConn, r.privKey, r.options.SelfAddress, false)
 								if err != nil {
 									return fmt.Errorf("handshake(): %w", err)
 								}
@@ -287,7 +287,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								r.peerManager.DialFailed(addr)
 								return err
 							}
-							if err := r.runConn(ctx, hConn.conn, info, utils.Some(addr)); err != nil {
+							if err := r.runConn(ctx, hConn, info, utils.Some(addr)); err != nil {
 								return fmt.Errorf("r.runConn(): %w", err)
 							}
 							return nil

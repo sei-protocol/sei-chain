@@ -18,7 +18,7 @@ type handshakedConn struct {
 	msg  *handshakeMsg
 }
 
-func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, seiGigaConn bool) (*handshakedConn, error) {
+func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, selfAddr utils.Option[NodeAddress], seiGigaConn bool) (*handshakedConn, error) {
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*handshakedConn, error) {
 		sc, err := conn.MakeSecretConnection(ctx, c)
 		if err != nil {
@@ -27,6 +27,7 @@ func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, seiGigaConn 
 		s.Spawn(func() error {
 			msg := &handshakeMsg{
 				NodeAuth:          key.SignChallenge(sc.Challenge()),
+				SelfAddr: selfAddr,
 				SeiGigaConnection: seiGigaConn,
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
@@ -47,6 +48,11 @@ func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, seiGigaConn 
 		}
 		if err := msg.NodeAuth.Verify(sc.Challenge()); err != nil {
 			return nil, fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w", err)
+		}
+		if selfAddr,ok := msg.SelfAddr.Get(); ok {
+			if got,want := selfAddr.NodeID,msg.NodeAuth.Key().NodeID(); got!=want {
+				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v",got,want)
+			}
 		}
 		return &handshakedConn{conn: sc, msg: msg}, nil
 	})

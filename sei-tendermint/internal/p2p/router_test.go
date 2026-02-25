@@ -25,7 +25,7 @@ import (
 )
 
 func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
-	hConn, err := handshake(ctx, conn, r.privKey, false)
+	hConn, err := handshake(ctx, conn, r.privKey, utils.None[NodeAddress](), false)
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}
@@ -714,7 +714,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: TestAddress(x).NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, hConn.conn, info, utils.Some(addr))) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, hConn, info, utils.Some(addr))) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}

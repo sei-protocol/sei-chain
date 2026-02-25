@@ -38,6 +38,8 @@ message Handshake {
   // derived from the secret. It authenticates the node.
   NodePublicKey node_auth_key = 1;
   bytes node_auth_sig = 2;
+  // NodeAddress that this peer can be dialed at.
+  optional string self_addr = 4;
 
   bool sei_giga_connection = 3;
 }

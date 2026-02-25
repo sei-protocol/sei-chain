@@ -35,6 +35,7 @@ type peerConnInfo struct {
 	ID       types.NodeID
 	Channels ChannelIDSet
 	DialAddr utils.Option[NodeAddress]
+	SelfAddr utils.Option[NodeAddress]
 }
 
 type peerConn interface {
@@ -482,23 +483,28 @@ func (m *peerManager[C]) State(id types.NodeID) string {
 	return ""
 }
 
-func (m *peerManager[C]) Advertise(maxAddrs int) []NodeAddress {
-	if maxAddrs <= 0 {
-		return nil
-	}
+func (m *peerManager[C]) Advertise() []NodeAddress {
 	var addrs []NodeAddress
-	if selfAddr, ok := m.options.SelfAddress.Get(); ok {
-		addrs = append(addrs, selfAddr)
+	// Advertise your own address.
+	if addr, ok := m.options.SelfAddress.Get(); ok {
+		addrs = append(addrs, addr)
 	}
-	for _, conn := range m.conns.Load().All() {
-		if len(addrs) >= maxAddrs {
-			break
+	var selfAddrs []NodeAddress
+	conns := m.conns.Load()
+	for _, conn := range conns.All() {
+		info := conn.Info()
+		if m.isPrivate[info.ID] {
+			continue
 		}
-		if addr, ok := conn.Info().DialAddr.Get(); ok && !m.isPrivate[addr.NodeID] {
+		if addr, ok := info.DialAddr.Get(); ok {
+			// Prioritize dialed addresses of outbound connections.
 			addrs = append(addrs, addr)
+		} else if addr, ok := info.SelfAddr.Get(); ok {
+			// Fallback to self-declared addresses of inbound connections.
+			selfAddrs = append(selfAddrs,addr)
 		}
 	}
-	return addrs
+	return append(addrs, selfAddrs...)
 }
 
 func (m *peerManager[C]) Peers() []types.NodeID {
