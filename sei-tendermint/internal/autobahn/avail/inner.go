@@ -58,9 +58,10 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 	if len(l.commitQCs) > 0 {
 		i.commitQCs.reset(l.commitQCs[0].Index)
 		for _, lqc := range l.commitQCs {
-			if lqc.Index == i.commitQCs.next {
-				i.commitQCs.pushBack(lqc.QC)
+			if lqc.Index != i.commitQCs.next {
+				return nil, fmt.Errorf("non-consecutive commitQC: got index %d, want %d", lqc.Index, i.commitQCs.next)
 			}
+			i.commitQCs.pushBack(lqc.QC)
 		}
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}

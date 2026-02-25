@@ -449,6 +449,34 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQC(t *testing.T) {
 	require.Contains(t, err.Error(), "no matching commitQC on disk")
 }
 
+func TestNewInnerLoadedCommitQCsNonConsecutive(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+
+	qcs := make([]*types.CommitQC, 3)
+	prev := utils.None[*types.CommitQC]()
+	for i := range qcs {
+		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		prev = utils.Some(qcs[i])
+	}
+
+	// Introduce a gap: indices 0, 1, 3 (missing 2).
+	loadedQCs := []persist.LoadedCommitQC{
+		{Index: 0, QC: qcs[0]},
+		{Index: 1, QC: qcs[1]},
+		{Index: 3, QC: qcs[2]},
+	}
+
+	loaded := &loadedAvailState{
+		appQC:     utils.None[*types.AppQC](),
+		commitQCs: loadedQCs,
+	}
+
+	_, err := newInner(committee, utils.Some(loaded))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "non-consecutive commitQC")
+}
+
 func TestNewInnerLoadedCommitQCsEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := types.GenCommittee(rng, 4)

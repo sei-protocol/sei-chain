@@ -41,14 +41,17 @@ type State struct {
 	data  *data.State
 	inner utils.Watch[*inner]
 
-	// persister writes avail inner state to disk using A/B files; None when persistence is disabled.
-	persister utils.Option[persist.Persister[*apb.AppQC]]
+	// persisters groups all disk persisters; None when persistence is disabled.
+	persisters utils.Option[persisters]
 	// appQCSend publishes the latest AppQC for async persistence by Run().
 	appQCSend utils.AtomicSend[utils.Option[*types.AppQC]]
-	// blockPersist writes/deletes individual block files; None when persistence is disabled.
-	blockPersist utils.Option[*persist.BlockPersister]
-	// commitQCPersist writes/deletes individual CommitQC files; None when persistence is disabled.
-	commitQCPersist utils.Option[*persist.CommitQCPersister]
+}
+
+// persisters holds all disk persistence components. Either all are present or none.
+type persisters struct {
+	appQC     persist.Persister[*apb.AppQC]
+	blocks    *persist.BlockPersister
+	commitQCs *persist.CommitQCPersister
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -91,19 +94,15 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.A
 // stateDir is None when persistence is disabled (testing only).
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
 	var loaded utils.Option[*loadedAvailState]
-	var p utils.Option[persist.Persister[*apb.AppQC]]
-	var bp utils.Option[*persist.BlockPersister]
-	var cp utils.Option[*persist.CommitQCPersister]
+	var pers utils.Option[persisters]
 
 	if dir, ok := stateDir.Get(); ok {
-		l, persister, blockPersist, commitQCPersist, err := loadPersistedState(dir)
+		l, appQC, blocks, commitQCs, err := loadPersistedState(dir)
 		if err != nil {
 			return nil, err
 		}
 		loaded = utils.Some(l)
-		p = utils.Some(persister)
-		bp = utils.Some(blockPersist)
-		cp = utils.Some(commitQCPersist)
+		pers = utils.Some(persisters{appQC: appQC, blocks: blocks, commitQCs: commitQCs})
 	}
 
 	inner, err := newInner(data.Committee(), loaded)
@@ -112,13 +111,11 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}
 
 	return &State{
-		key:             key,
-		data:            data,
-		inner:           utils.NewWatch(inner),
-		persister:       p,
-		appQCSend:       utils.NewAtomicSend(utils.None[*types.AppQC]()),
-		blockPersist:    bp,
-		commitQCPersist: cp,
+		key:        key,
+		data:       data,
+		inner:      utils.NewWatch(inner),
+		persisters: pers,
+		appQCSend:  utils.NewAtomicSend(utils.None[*types.AppQC]()),
 	}, nil
 }
 
@@ -529,7 +526,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		if p, ok := s.persister.Get(); ok {
+		if pers, ok := s.persisters.Get(); ok {
 			appQCRecv := s.appQCSend.Subscribe()
 			scope.SpawnNamed("appQCPersist", func() error {
 				return appQCRecv.Iter(ctx, func(_ context.Context, v utils.Option[*types.AppQC]) error {
@@ -537,17 +534,14 @@ func (s *State) Run(ctx context.Context) error {
 					if !ok {
 						return nil
 					}
-					if err := p.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+					if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
 						log.Error().Err(err).Msg("failed to persist AppQC")
 					}
 					return nil
 				})
 			})
-		}
-		if bp, ok := s.blockPersist.Get(); ok {
-			cp, _ := s.commitQCPersist.Get()
 			scope.SpawnNamed("persist", func() error {
-				return s.persistLoop(ctx, bp, cp)
+				return s.persistLoop(ctx, pers.blocks, pers.commitQCs)
 			})
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.
