@@ -202,7 +202,12 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return nil
 		}
 		inner.commitQCs.pushBack(qc)
-		inner.latestCommitQC.Store(utils.Some(qc))
+		// When persistence is disabled, publish immediately.
+		// When enabled, the persist goroutine publishes after writing to disk,
+		// so consensus won't advance until the CommitQC is durable.
+		if inner.nextBlockToPersist == nil {
+			inner.latestCommitQC.Store(utils.Some(qc))
+		}
 		ctrl.Updated()
 		return nil
 	}
@@ -564,8 +569,15 @@ func (s *State) Run(ctx context.Context) error {
 						lastPersistedAppQC = batch.appQC
 					}
 
-					if len(batch.blocks) > 0 {
-						s.markBlocksPersisted(blockCur)
+					// Publish persisted state under lock. latestCommitQC gates
+					// consensus from advancing to the next view (analogous to
+					// nextBlockToPersist gating RecvBatch).
+					if len(batch.blocks) > 0 || len(batch.commitQCs) > 0 {
+						lastCommitQC := utils.None[*types.CommitQC]()
+						if n := len(batch.commitQCs); n > 0 {
+							lastCommitQC = utils.Some(batch.commitQCs[n-1])
+						}
+						s.markPersisted(blockCur, lastCommitQC)
 					}
 				}
 			})
@@ -616,11 +628,15 @@ type persistBatch struct {
 	commitQCCur   types.RoadIndex // clamped cursor (may have advanced past pruned entries)
 }
 
-// markBlocksPersisted advances the per-lane persistence cursors under lock.
-func (s *State) markBlocksPersisted(tips map[types.LaneID]types.BlockNumber) {
+// markPersisted updates inner state after successful disk writes.
+// Advances block persistence cursors and publishes the latest persisted CommitQC.
+func (s *State) markPersisted(blockTips map[types.LaneID]types.BlockNumber, commitQC utils.Option[*types.CommitQC]) {
 	for inner, ctrl := range s.inner.Lock() {
-		for lane, next := range tips {
+		for lane, next := range blockTips {
 			inner.nextBlockToPersist[lane] = next
+		}
+		if qc, ok := commitQC.Get(); ok {
+			inner.latestCommitQC.Store(utils.Some(qc))
 		}
 		ctrl.Updated()
 	}
