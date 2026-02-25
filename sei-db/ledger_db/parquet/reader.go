@@ -3,6 +3,7 @@ package parquet
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -249,18 +250,19 @@ func (r *Reader) AddTrackedLogFile(startBlock uint64) {
 
 // MaxReceiptBlockNumber returns the maximum block number in the receipt files.
 func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
-	r.mu.RUnlock()
-	if len(closedFiles) == 0 {
+	defer r.mu.RUnlock()
+	if len(r.closedReceiptFiles) == 0 {
 		return 0, false, nil
 	}
 
 	var parquetFiles string
-	if len(closedFiles) == 1 {
-		parquetFiles = quoteSQLString(closedFiles[0])
+	if len(r.closedReceiptFiles) == 1 {
+		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -281,19 +283,20 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 // GetReceiptByTxHash queries for a receipt by transaction hash.
 func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if len(closedFiles) == 0 {
+	if len(r.closedReceiptFiles) == 0 {
 		return nil, nil
 	}
 
 	var parquetFiles string
-	if len(closedFiles) == 1 {
-		parquetFiles = quoteSQLString(closedFiles[0])
+	if len(r.closedReceiptFiles) == 1 {
+		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -308,7 +311,7 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 	row := r.db.QueryRowContext(ctx, query, txHash[:])
 	var rec ReceiptResult
 	if err := row.Scan(&rec.TxHash, &rec.BlockNumber, &rec.ReceiptBytes); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query receipt: %w", err)
@@ -318,16 +321,17 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 // GetLogs queries logs matching the given filter.
 func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedLogFiles
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if len(closedFiles) == 0 {
+	if len(r.closedLogFiles) == 0 {
 		return nil, nil
 	}
 
-	files := make([]string, 0, len(closedFiles))
-	for _, f := range closedFiles {
+	files := make([]string, 0, len(r.closedLogFiles))
+	for _, f := range r.closedLogFiles {
 		startBlock := ExtractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue
