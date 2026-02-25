@@ -3,10 +3,11 @@ package tcp
 import (
 	"context"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"net/netip"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestTestReservePort(t *testing.T) {

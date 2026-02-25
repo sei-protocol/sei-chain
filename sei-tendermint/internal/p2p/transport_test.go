@@ -223,8 +223,7 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 	}
 	nodes := network.NodeIDs()
 	network.Start(t)
-	for i := range 100 {
-		t.Logf("ITER %v", i)
+	for range 100 {
 		from := nodes[rng.Intn(len(nodes))]
 		to := nodes[rng.Intn(len(nodes))]
 		if from == to {
