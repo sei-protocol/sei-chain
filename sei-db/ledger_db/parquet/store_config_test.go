@@ -167,7 +167,6 @@ func TestCorruptLogFileUntracksReceiptCounterpart(t *testing.T) {
 	// Only the block-100 pair should remain tracked.
 	require.Equal(t, 1, store.Reader.ClosedReceiptFileCount())
 }
-
 func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 
