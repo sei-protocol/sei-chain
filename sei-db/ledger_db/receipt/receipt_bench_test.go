@@ -9,7 +9,7 @@ import (
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

@@ -18,8 +18,8 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
-	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"

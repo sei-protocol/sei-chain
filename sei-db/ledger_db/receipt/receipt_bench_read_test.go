@@ -11,7 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"

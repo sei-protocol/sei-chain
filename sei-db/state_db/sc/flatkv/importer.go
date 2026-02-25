@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
+	"github.com/cosmos/iavl"
 )
 
 const importBatchSize = 20000
