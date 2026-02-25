@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/gogo/protobuf/proto"
-	"golang.org/x/exp/constraints"
 )
 
 func ErrorAs[T error](err error) Option[T] {
@@ -15,16 +14,6 @@ func ErrorAs[T error](err error) Option[T] {
 		return Some(target)
 	}
 	return None[T]()
-}
-
-// SafeCast casts between integer types, checking for overflows.
-func SafeCast[To constraints.Integer, From constraints.Integer](v From) (x To, ok bool) {
-	x = To(v)
-	// This can be further optimized by:
-	// * making compiler detect if From -> To conversion is always safe
-	// * making compiler detect if the parity check is necessary
-	ok = From(x) == v && (x < 0) == (v < 0)
-	return
 }
 
 // ProtoClone clones a proto.Message object.
