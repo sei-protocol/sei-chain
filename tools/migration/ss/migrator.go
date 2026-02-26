@@ -31,43 +31,37 @@ func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
 }
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
-	ch := make(chan types.RawSnapshotNode, 1000)
-	errCh := make(chan error, 2)
-
-	// Get the latest key, if any, to resume from
-	latestKey, err := m.stateStore.GetLatestMigratedKey()
-	if err != nil {
-		return fmt.Errorf("failed to get latest key: %w", err)
-	}
-
-	latestModule, err := m.stateStore.GetLatestMigratedModule()
-	if err != nil {
-		return fmt.Errorf("failed to get latest module: %w", err)
-	}
+	rawCh := make(chan types.RawSnapshotNode, 1000)
+	importCh := make(chan types.SnapshotNode, 1000)
+	errCh := make(chan error, 1)
 
 	fmt.Println("Starting migration...")
 
-	// Goroutine to iterate through IAVL and export leaf nodes
 	go func() {
-		defer close(ch)
-		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
+		defer close(rawCh)
+		errCh <- ExportLeafNodesFromKey(m.iavlDB, rawCh, nil, "")
 	}()
 
-	// Import nodes into PebbleDB
 	go func() {
-		errCh <- m.stateStore.RawImport(ch)
-	}()
-
-	// Block until both processes complete
-	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil {
-			return err
+		defer close(importCh)
+		for node := range rawCh {
+			importCh <- types.SnapshotNode{
+				StoreKey: node.StoreKey,
+				Key:      node.Key,
+				Value:    node.Value,
+			}
 		}
+	}()
+
+	if err := m.stateStore.Import(version, importCh); err != nil {
+		return err
 	}
 
-	// Set earliest and latest version in the database
-	err = m.stateStore.SetEarliestVersion(1, true)
-	if err != nil {
+	if err := <-errCh; err != nil {
+		return err
+	}
+
+	if err := m.stateStore.SetEarliestVersion(1, true); err != nil {
 		return err
 	}
 

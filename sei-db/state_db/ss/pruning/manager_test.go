@@ -38,12 +38,6 @@ func (m *mockStateStore) GetEarliestVersion() int64 {
 func (m *mockStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	return nil
 }
-func (m *mockStateStore) GetLatestMigratedKey() ([]byte, error) {
-	return nil, nil
-}
-func (m *mockStateStore) GetLatestMigratedModule() (string, error) {
-	return "", nil
-}
 func (m *mockStateStore) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
 	return nil
 }
@@ -71,9 +65,6 @@ func (m *mockStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int
 	return false, nil
 }
 func (m *mockStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	return nil
-}
-func (m *mockStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 	return nil
 }
 

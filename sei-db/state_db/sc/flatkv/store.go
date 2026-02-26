@@ -51,11 +51,11 @@ type CommitStore struct {
 	homeDir string
 
 	// Five separate PebbleDB instances
-	metadataDB db_engine.DB // Global version + LtHash watermark
-	accountDB  db_engine.DB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     db_engine.DB // addr(20) → bytecode
-	storageDB  db_engine.DB // addr(20)||slot(32) → value(32)
-	legacyDB   db_engine.DB // Legacy data for backward compatibility
+	metadataDB db_engine.KeyValueDB // Global version + LtHash watermark
+	accountDB  db_engine.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
+	codeDB     db_engine.KeyValueDB // addr(20) → bytecode
+	storageDB  db_engine.KeyValueDB // addr(20)||slot(32) → value(32)
+	legacyDB   db_engine.KeyValueDB // Legacy data for backward compatibility
 
 	// Per-DB local metadata (stored inside each DB at 0x00)
 	// Tracks committed version for recovery and consistency checks.
@@ -214,7 +214,7 @@ func (s *CommitStore) open() (retErr error) {
 	toClose = append(toClose, changelog)
 
 	// Load per-DB local metadata (or initialize if not present)
-	dataDBs := map[string]db_engine.DB{
+	dataDBs := map[string]db_engine.KeyValueDB{
 		accountDBDir: accountDB,
 		codeDBDir:    codeDB,
 		storageDBDir: storageDB,

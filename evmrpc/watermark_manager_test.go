@@ -228,12 +228,9 @@ func (f *fakeStateStore) GetLatestVersion() int64                               
 func (f *fakeStateStore) SetLatestVersion(version int64) error                         { return nil }
 func (f *fakeStateStore) GetEarliestVersion() int64                                    { return f.earliest }
 func (f *fakeStateStore) SetEarliestVersion(version int64, _ bool) error               { return nil }
-func (f *fakeStateStore) GetLatestMigratedKey() ([]byte, error)                        { return nil, nil }
-func (f *fakeStateStore) GetLatestMigratedModule() (string, error)                     { return "", nil }
 func (f *fakeStateStore) ApplyChangesetSync(_ int64, _ []*proto.NamedChangeSet) error  { return nil }
 func (f *fakeStateStore) ApplyChangesetAsync(_ int64, _ []*proto.NamedChangeSet) error { return nil }
 func (f *fakeStateStore) Import(_ int64, _ <-chan sstypes.SnapshotNode) error          { return nil }
-func (f *fakeStateStore) RawImport(_ <-chan sstypes.RawSnapshotNode) error             { return nil }
 func (f *fakeStateStore) Prune(_ int64) error                                          { return nil }
 func (f *fakeStateStore) Close() error                                                 { return nil }
 

@@ -52,7 +52,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 }
 
 // setupTestDB creates a temporary PebbleDB for testing
-func setupTestDB(t *testing.T) db_engine.DB {
+func setupTestDB(t *testing.T) db_engine.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := pebbledb.Open(dir, db_engine.OpenOptions{})

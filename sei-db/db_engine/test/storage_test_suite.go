@@ -1316,49 +1316,6 @@ func (s *BaseStorageTestSuite) TestDatabaseImport() {
 	}
 }
 
-func (s *BaseStorageTestSuite) TestDatabaseRawImport() {
-	// RawImport is only useful for PebbleDB backend
-	// NOTE: Will be removed from interface soon
-	if s.Config.Backend != pebbledb {
-		s.T().Skip("RawImport test only runs for pebbledb backend")
-	}
-
-	db, err := s.NewDB(s.T().TempDir(), s.Config)
-	s.Require().NoError(err)
-
-	defer func() { _ = db.Close() }()
-
-	ch := make(chan types.RawSnapshotNode, 10)
-	var wg sync.WaitGroup
-
-	// Write versions in reverse order intentionally
-	for i := 10; i >= 0; i-- {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			ch <- types.RawSnapshotNode{
-				StoreKey: "store1",
-				Key:      []byte(fmt.Sprintf("key%03d", i)),
-				Value:    []byte(fmt.Sprintf("value%03d", i)),
-				Version:  int64(i + 1),
-			}
-		}(i)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	s.Require().NoError(db.RawImport(ch))
-
-	for i := 0; i <= 10; i++ {
-		val, err := db.Get("store1", int64(i+1), []byte(fmt.Sprintf("key%03d", i)))
-		s.Require().NoError(err)
-		s.Require().Equal([]byte(fmt.Sprintf("value%03d", i)), val)
-	}
-}
-
 // TestDatabaseReverseIteratorPrefixIsolation Verifies that ReverseIterator(nil, nil) is clamped to the caller's prefix
 // via prefixEnd()/UpperBound and does **not** spill into the next module.
 func (s *StorageTestSuite) TestDatabaseReverseIteratorPrefixIsolation() {

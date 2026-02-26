@@ -12,7 +12,7 @@ type pebbleIterator struct {
 	it *pebble.Iterator
 }
 
-var _ db_engine.Iterator = (*pebbleIterator)(nil)
+var _ db_engine.KeyValueDBIterator = (*pebbleIterator)(nil)
 
 func (pi *pebbleIterator) First() bool          { return pi.it.First() }
 func (pi *pebbleIterator) Last() bool           { return pi.it.Last() }

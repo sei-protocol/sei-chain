@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/util"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/util"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	_ types.StateStore = (*Database)(nil)
+	_ types.MvccDB = (*Database)(nil)
 
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
@@ -437,14 +437,6 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	return false, nil
 }
 
-func (db *Database) GetLatestMigratedKey() ([]byte, error) {
-	panic("not implemented")
-}
-
-func (db *Database) GetLatestMigratedModule() (string, error) {
-	panic("not implemented")
-}
-
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
 func newTSReadOptions(version int64) *grocksdb.ReadOptions {
 	ts := make([]byte, TimestampSize)
@@ -492,10 +484,6 @@ func cloneAppend(bz []byte, tail []byte) (res []byte) {
 	copy(res[len(bz):], tail)
 	return
 }
-func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
-	panic("implement me")
-}
-
 func (db *Database) Close() error {
 	if db.streamHandler != nil {
 		// Close the pending changes channel to signal the background goroutine to stop

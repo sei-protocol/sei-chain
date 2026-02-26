@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,7 @@ func TestDBGetSetDelete(t *testing.T) {
 	val := []byte("v1")
 
 	_, err = db.Get(key)
-	if err != db_engine.ErrNotFound {
+	if err != errorutils.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
@@ -42,7 +43,7 @@ func TestDBGetSetDelete(t *testing.T) {
 	}
 
 	_, err = db.Get(key)
-	if err != db_engine.ErrNotFound {
+	if err != errorutils.ErrNotFound {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
 }
@@ -243,12 +244,12 @@ func TestErrNotFoundConsistency(t *testing.T) {
 	}
 
 	// Test that error is ErrNotFound
-	if err != db_engine.ErrNotFound {
+	if err != errorutils.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
 	// Test that IsNotFound helper works
-	if !db_engine.IsNotFound(err) {
+	if !errorutils.IsNotFound(err) {
 		t.Fatalf("IsNotFound should return true for ErrNotFound")
 	}
 }

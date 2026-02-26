@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
 // Get returns the value for the given memiavl key.
@@ -204,7 +204,7 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 	// Read from accountDB
 	value, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return AccountValue{}, nil // New account
 		}
 		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
@@ -222,7 +222,7 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 func (s *CommitStore) getAccountValueFromDB(addr Address) (AccountValue, error) {
 	value, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return AccountValue{}, nil
 		}
 		return AccountValue{}, err
@@ -242,7 +242,7 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 	}
 	value, err := s.storageDB.Get(key)
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", key, err)
@@ -262,7 +262,7 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 	}
 	value, err := s.codeDB.Get(key)
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)

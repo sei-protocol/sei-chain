@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	sstest "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/test"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 

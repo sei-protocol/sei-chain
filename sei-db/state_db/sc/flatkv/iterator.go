@@ -11,7 +11,7 @@ import (
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
 // and converts keys between internal and external (memiavl) formats.
 type dbIterator struct {
-	iter   db_engine.Iterator
+	iter   db_engine.KeyValueDBIterator
 	kind   evm.EVMKeyKind // key type for conversion
 	start  []byte         // external format start key
 	end    []byte         // external format end key
@@ -26,7 +26,7 @@ var (
 )
 
 // newDBIterator creates a new dbIterator for the given key kind.
-func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iterator {
+func newDBIterator(db db_engine.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) Iterator {
 	// Convert external bounds to internal bounds
 	var internalStart, internalEnd []byte
 	startMatches := start == nil // nil start means unbounded
@@ -73,7 +73,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 }
 
 // newDBPrefixIterator creates a new dbIterator for prefix scanning.
-func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
+func newDBPrefixIterator(db db_engine.KeyValueDB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
 	internalEnd := PrefixEnd(internalPrefix)
 
 	// Exclude metadata key (0x00)

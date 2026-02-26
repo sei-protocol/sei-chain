@@ -1,6 +1,8 @@
 package db_engine
 
-import "io"
+import (
+	"io"
+)
 
 // WriteOptions controls durability for write operations.
 // Sync=true forces an fsync on commit.
@@ -29,15 +31,15 @@ type OpenOptions struct {
 	Comparer any
 }
 
-// DB is a low-level KV engine contract (business-agnostic).
+// KeyValueDB is a low-level KV engine contract (business-agnostic).
 //
 // Get returns a value copy (safe to use after the call returns).
-type DB interface {
+type KeyValueDB interface {
 	Get(key []byte) (value []byte, err error)
 	Set(key, value []byte, opts WriteOptions) error
 	Delete(key []byte, opts WriteOptions) error
 
-	NewIter(opts *IterOptions) (Iterator, error)
+	NewIter(opts *IterOptions) (KeyValueDBIterator, error)
 	NewBatch() Batch
 
 	Flush() error
@@ -55,12 +57,12 @@ type Batch interface {
 	io.Closer
 }
 
-// Iterator provides ordered iteration over keyspace with seek primitives.
+// KeyValueDBIterator provides ordered iteration over keyspace with seek primitives.
 //
 // Zero-copy contract:
 //   - Key/Value may return views into internal buffers and are only valid until the
 //     next iterator positioning call (Next/Prev/Seek*/First/Last) or Close.
-type Iterator interface {
+type KeyValueDBIterator interface {
 	First() bool
 	Last() bool
 	Valid() bool

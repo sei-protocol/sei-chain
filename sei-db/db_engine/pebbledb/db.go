@@ -9,6 +9,7 @@ import (
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
@@ -17,10 +18,10 @@ type pebbleDB struct {
 	db *pebble.DB
 }
 
-var _ db_engine.DB = (*pebbleDB)(nil)
+var _ db_engine.KeyValueDB = (*pebbleDB)(nil)
 
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
-func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
+func Open(path string, opts db_engine.OpenOptions) (_ db_engine.KeyValueDB, err error) {
 	// Validate options before allocating resources to avoid leaks on validation failure
 	var cmp *pebble.Comparer
 	if opts.Comparer != nil {
@@ -87,7 +88,7 @@ func (p *pebbleDB) Get(key []byte) ([]byte, error) {
 	val, closer, err := p.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, db_engine.ErrNotFound
+			return nil, errorutils.ErrNotFound
 		}
 		return nil, err
 	}
@@ -104,7 +105,7 @@ func (p *pebbleDB) Delete(key []byte, opts db_engine.WriteOptions) error {
 	return p.db.Delete(key, toPebbleWriteOpts(opts))
 }
 
-func (p *pebbleDB) NewIter(opts *db_engine.IterOptions) (db_engine.Iterator, error) {
+func (p *pebbleDB) NewIter(opts *db_engine.IterOptions) (db_engine.KeyValueDBIterator, error) {
 	var iopts *pebble.IterOptions
 	if opts != nil {
 		iopts = &pebble.IterOptions{
