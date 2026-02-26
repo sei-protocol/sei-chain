@@ -148,8 +148,30 @@ func (r *Reader) validateAndCleanFiles(files []string, counterpartPrefix string)
 
 	counterpart := filepath.Join(r.basePath, fmt.Sprintf("%s_%d.parquet", counterpartPrefix, startBlock))
 	_ = os.Remove(counterpart)
+	r.untrackCounterpart(counterpartPrefix, counterpart)
 
 	return files[:len(files)-1]
+}
+
+// untrackCounterpart removes a deleted counterpart from the already-populated
+// tracked slice. Must be called with r.mu held.
+func (r *Reader) untrackCounterpart(prefix, target string) {
+	switch prefix {
+	case "receipts":
+		r.closedReceiptFiles = removeFromSlice(r.closedReceiptFiles, target)
+	case "logs":
+		r.closedLogFiles = removeFromSlice(r.closedLogFiles, target)
+	}
+}
+
+func removeFromSlice(s []string, target string) []string {
+	filtered := s[:0]
+	for _, v := range s {
+		if v != target {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
 }
 
 func (r *Reader) isFileReadable(path string) bool {

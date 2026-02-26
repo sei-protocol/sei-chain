@@ -136,6 +136,38 @@ func TestCorruptLastFileDeletedOnStartup(t *testing.T) {
 	require.Equal(t, 2, store.Reader.ClosedReceiptFileCount())
 }
 
+func TestCorruptLogFileUntracksReceiptCounterpart(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid receipt+log pair at block 100.
+	writeValidParquetFile(t, dir, "receipts_100.parquet")
+	writeValidParquetFile(t, dir, "logs_100.parquet")
+
+	// Valid receipt at block 600 but CORRUPT log at block 600.
+	// This is the bug scenario: receipts are scanned first and receipts_600
+	// is tracked. Then logs are scanned, logs_600 is corrupt, and its
+	// counterpart receipts_600 is deleted from disk. Without the fix the
+	// reader would still track the now-missing receipts_600.
+	writeValidParquetFile(t, dir, "receipts_600.parquet")
+	corruptLog := filepath.Join(dir, "logs_600.parquet")
+	require.NoError(t, os.WriteFile(corruptLog, []byte("not a parquet file"), 0o644))
+
+	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+		DBDirectory: dir,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Both the corrupt log and its valid receipt counterpart should be gone.
+	_, err = os.Stat(filepath.Join(dir, "receipts_600.parquet"))
+	require.True(t, os.IsNotExist(err), "receipt counterpart should have been deleted")
+	_, err = os.Stat(corruptLog)
+	require.True(t, os.IsNotExist(err), "corrupt log file should have been deleted")
+
+	// Only the block-100 pair should remain tracked.
+	require.Equal(t, 1, store.Reader.ClosedReceiptFileCount())
+}
+
 func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 
