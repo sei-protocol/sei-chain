@@ -14,7 +14,6 @@ import (
 type connSet[C peerConn] = im.Map[types.NodeID, C]
 
 type peerManagerInner[C peerConn] struct {
-	selfID       types.NodeID
 	options      *RouterOptions
 	isPersistent map[types.NodeID]bool
 	// sum of regular and persistent connection sets.
