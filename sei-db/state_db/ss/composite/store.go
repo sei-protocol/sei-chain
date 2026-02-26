@@ -24,7 +24,7 @@ var _ types.StateStore = (*CompositeStateStore)(nil)
 // Both are types.StateStore; the composite itself also implements types.StateStore.
 type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MvccDB
-	evmStore       types.StateStore // EVMStateStore wrapping 5 MvccDB sub-DBs (nil if disabled)
+	evmStore       types.StateStore // EVMStateStore wrapping sub MvccDBs (nil if disabled)
 	pruningManager *pruning.Manager
 	config         config.StateStoreConfig
 	logger         logger.Logger
