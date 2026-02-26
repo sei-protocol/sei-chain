@@ -1,6 +1,26 @@
 {
-    "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
-    "DataDir": "data",
-    "MinimumNumberOfAccounts": 100000
+  "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
+  "Backend": "FlatKV",
+  "BlocksPerCommit": 32,
+  "CannedRandomSize": 1073741824,  
+  "ConstantThreadCount": 0,
+  "ConsoleUpdateIntervalSeconds": 1,
+  "ConsoleUpdateIntervalTransactions": 1000000,
+  "DataDir": "data",
+  "Erc20ContractSize": 2048,
+  "Erc20InteractionsPerAccount": 10,
+  "Erc20StorageSlotSize": 32,
+  "ExecutorQueueSize": 64,
+  "HotAccountProbability": 0.1,
+  "HotAccountSetSize": 100,
+  "HotErc20ContractProbability": 0.5,
+  "HotErc20ContractSetSize": 100,
+  "MinimumNumberOfAccounts": 1000000,
+  "MinimumNumberOfErc20Contracts": 10000,
+  "NewAccountProbability": 0.001,
+  "PaddedAccountSize": 69,
+  "Seed": 1337,
+  "SetupUpdateIntervalCount": 100000,
+  "ThreadsPerCore": 2.0,
+  "TransactionsPerBlock": 1024
 }
-

@@ -186,14 +186,14 @@ func (c *CryptoSim) setupAccounts() error {
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("Created %s of %s accounts.\r",
+			fmt.Printf("Created %s of %s accounts.      \r",
 				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
 		}
 	}
 	if c.dataGenerator.NextAccountID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
-	fmt.Printf("Created %s of %s accounts.\n",
+	fmt.Printf("Created %s of %s accounts.      \n",
 		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
 
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
@@ -246,7 +246,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("Created %s of %s simulated ERC20 contracts.\r",
+			fmt.Printf("Created %s of %s simulated ERC20 contracts.      \r",
 				int64Commas(c.dataGenerator.NextErc20ContractID()),
 				int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 		}
@@ -256,7 +256,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		fmt.Printf("\n")
 	}
 
-	fmt.Printf("Created %s of %s simulated ERC20 contracts.\n",
+	fmt.Printf("Created %s of %s simulated ERC20 contracts.      \n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
@@ -335,7 +335,7 @@ func (c *CryptoSim) generateConsoleReport(force bool) {
 	transactionsPerSecond := float64(c.database.TransactionCount()) / totalElapsedTime.Seconds()
 
 	// Generate the report.
-	fmt.Printf("%s txns executed in %s (%s txns/sec), total number of accounts: %s\r",
+	fmt.Printf("%s txns executed in %s (%s txns/sec), total number of accounts: %s      \r",
 		int64Commas(c.database.TransactionCount()),
 		formatDuration(totalElapsedTime, 1),
 		formatNumberFloat64(transactionsPerSecond, 2),

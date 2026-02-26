@@ -106,6 +106,38 @@ type CryptoSimConfig struct {
 	ExecutorQueueSize int
 }
 
+// Returns the default configuration for the cryptosim benchmark.
+func DefaultCryptoSimConfig() *CryptoSimConfig {
+
+	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
+	// That file should conatain every available config set to its default value, as a reference.
+
+	return &CryptoSimConfig{
+		MinimumNumberOfAccounts:           1_000_000,
+		HotAccountProbability:             0.1,
+		NewAccountProbability:             0.001,
+		HotAccountSetSize:                 100,
+		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		MinimumNumberOfErc20Contracts:     10_000,
+		HotErc20ContractProbability:       0.5,
+		HotErc20ContractSetSize:           100,
+		Erc20ContractSize:                 1024 * 2, // 2kb
+		Erc20StorageSlotSize:              32,
+		Erc20InteractionsPerAccount:       10,
+		TransactionsPerBlock:              1024,
+		BlocksPerCommit:                   32,
+		Seed:                              1337,
+		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
+		Backend:                           wrappers.FlatKV,
+		ConsoleUpdateIntervalSeconds:      1,
+		ConsoleUpdateIntervalTransactions: 1_000_000,
+		SetupUpdateIntervalCount:          100_000,
+		ThreadsPerCore:                    2.0,
+		ConstantThreadCount:               0,
+		ExecutorQueueSize:                 64,
+	}
+}
+
 // Validate checks that the configuration is sane and returns an error if not.
 func (c *CryptoSimConfig) Validate() error {
 	if c.DataDir == "" {
@@ -131,12 +163,12 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)
 	}
 	if c.Erc20StorageSlotSize < minErc20StorageSlotSize {
-		return fmt.Errorf("Erc20StorageSlotSize must be at least %d (got %d)", 
-		minErc20StorageSlotSize, c.Erc20StorageSlotSize)
+		return fmt.Errorf("Erc20StorageSlotSize must be at least %d (got %d)",
+			minErc20StorageSlotSize, c.Erc20StorageSlotSize)
 	}
 	if c.Erc20InteractionsPerAccount < minErc20InteractionsPerAcct {
-		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)", 
-		minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
+		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)",
+			minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
 	}
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
@@ -154,34 +186,6 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("SetupUpdateIntervalCount must be at least 1 (got %d)", c.SetupUpdateIntervalCount)
 	}
 	return nil
-}
-
-// Returns the default configuration for the cryptosim benchmark.
-func DefaultCryptoSimConfig() *CryptoSimConfig {
-	return &CryptoSimConfig{
-		MinimumNumberOfAccounts:           1_000_000,
-		HotAccountProbability:             0.1,
-		NewAccountProbability:             0.001,
-		HotAccountSetSize:                 100,
-		PaddedAccountSize:                 69, // Not a joke, this is the actual size
-		MinimumNumberOfErc20Contracts:     10_000,
-		HotErc20ContractProbability:       0.5,
-		HotErc20ContractSetSize:           100,
-		Erc20ContractSize:                 1024 * 2, // 2kb
-		Erc20StorageSlotSize:              32,
-		Erc20InteractionsPerAccount:       10,
-		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   32,
-		Seed:                              1337,
-		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
-		Backend:                           wrappers.FlatKV,
-		ConsoleUpdateIntervalSeconds:      1,
-		ConsoleUpdateIntervalTransactions: 1_000_000,
-		SetupUpdateIntervalCount:          100_000,
-		ThreadsPerCore:                    2.0,
-		ConstantThreadCount:               0,
-		ExecutorQueueSize:                 64,
-	}
 }
 
 // LoadConfigFromFile parses a JSON config file at the given path.

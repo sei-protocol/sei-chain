@@ -26,9 +26,9 @@ type Database struct {
 	// The number of blocks that have been executed since the last commit.
 	uncommittedBlockCount int64
 
-	// The current batch of changesets waiting to be committed. Represents changes we are accumulating
-	// as part of a simulated "block".
-	batch *SyncMap[string, *proto.NamedChangeSet]
+	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
+	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
+	batch *SyncMap[string, []byte]
 
 	// A method that flushes the executors.
 	flushFunc func()
@@ -42,7 +42,7 @@ func NewDatabase(
 	return &Database{
 		config: config,
 		db:     db,
-		batch:  NewSyncMap[string, *proto.NamedChangeSet](),
+		batch:  NewSyncMap[string, []byte](),
 	}
 }
 
@@ -51,21 +51,7 @@ func NewDatabase(
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
 // safe with FinalizeBlock().
 func (d *Database) Put(key []byte, value []byte) error {
-	stringKey := string(key)
-
-	pending, found := d.batch.Get(stringKey)
-	if found {
-		pending.Changeset.Pairs[0].Value = value
-		return nil
-	}
-
-	d.batch.Put(stringKey, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: key, Value: value},
-		}},
-	})
-
+	d.batch.Put(string(key), value)
 	return nil
 }
 
@@ -74,11 +60,8 @@ func (d *Database) Put(key []byte, value []byte) error {
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
 // safe with FinalizeBlock().
 func (d *Database) Get(key []byte) ([]byte, bool, error) {
-	stringKey := string(key)
-
-	pending, found := d.batch.Get(stringKey)
-	if found {
-		return pending.Changeset.Pairs[0].Value, true, nil
+	if value, found := d.batch.Get(string(key)); found {
+		return value, true, nil
 	}
 
 	value, found, err := d.db.Read(key)
@@ -144,8 +127,11 @@ func (d *Database) FinalizeBlock(
 	d.transactionsInCurrentBlock = 0
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
-	for _, cs := range d.batch.Iterator() {
-		changeSets = append(changeSets, cs)
+	for key, value := range d.batch.Iterator() {
+		changeSets = append(changeSets, &proto.NamedChangeSet{
+			Name:      wrappers.EVMStoreName,
+			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{{Key: []byte(key), Value: value}}},
+		})
 	}
 	d.batch.Clear()
 
