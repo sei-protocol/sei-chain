@@ -19,11 +19,8 @@ var evmRPCSpecResults struct{ passed, failed, skipped int }
 func TestNodeReachable(t *testing.T) {
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !waitForNode(client, 3*time.Minute) {
-		if os.Getenv("SEI_EVM_IO_REQUIRE_NODE") != "" {
-			t.Fatalf("EVM RPC node not reachable at %s after 3 minutes (cluster should be up when run via evm_rpc_tests.sh)", url)
-		}
-		t.Skipf("EVM RPC node not reachable at %s after 3 minutes (no cluster; run evm_rpc_tests.sh for smoke test)", url)
+	if !waitForNode(client, 2*time.Minute) {
+		t.Fatalf("EVM RPC node not reachable at %s after 2 minutes", url)
 	}
 	t.Logf("RPC node reachable at %s", url)
 }
@@ -63,10 +60,7 @@ func TestEVMRPCSpec(t *testing.T) {
 	url := rpcURL()
 	client := &RPCClient{URL: url}
 	if !waitForNode(client, 60*time.Second) {
-		if os.Getenv("SEI_EVM_IO_REQUIRE_NODE") != "" {
-			t.Fatalf("EVM RPC node not reachable at %s after 60s (cluster should be up when run via evm_rpc_tests.sh)", url)
-		}
-		t.Skipf("EVM RPC node not reachable at %s after 60s (no cluster; run evm_rpc_tests.sh for full suite)", url)
+		t.Fatalf("EVM RPC node not reachable at %s after 60s", url)
 	}
 
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
