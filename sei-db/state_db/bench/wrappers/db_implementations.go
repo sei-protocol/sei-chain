@@ -22,53 +22,41 @@ const (
 	CompositeCosmos DBType = "CompositeCosmos"
 )
 
-func newMemIAVLCommitStore(
-	dataDir string,
-) (DBWrapper, error) {
-
+func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
 	cfg.SnapshotInterval = 100
-	cs := memiavl.NewCommitStore(dataDir, logger.NewNopLogger(), cfg)
+	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
+	cs := memiavl.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
-
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
 		cs.Close()
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
-
 	return NewMemIAVLWrapper(cs), nil
 }
 
-func newFlatKVCommitStore(
-	dataDir string,
-) (DBWrapper, error) {
-
+func newFlatKVCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := flatkv.DefaultConfig()
 	cfg.Fsync = false
-	cs := flatkv.NewCommitStore(dataDir, logger.NewNopLogger(), cfg)
-
+	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
+	cs := flatkv.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
 	_, err := cs.LoadVersion(0)
 	if err != nil {
 		cs.Close()
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
-
 	return NewFlatKVWrapper(cs), nil
 }
 
-func newCompositeCommitStore(
-	dataDir string,
-	writeMode config.WriteMode,
-) (DBWrapper, error) {
-
+func newCompositeCommitStore(dbDir string, writeMode config.WriteMode) (DBWrapper, error) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(dataDir, logger.NewNopLogger(), cfg)
+	cs := composite.NewCompositeCommitStore(dbDir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)
@@ -82,12 +70,8 @@ func newCompositeCommitStore(
 	return NewCompositeWrapper(loadedStore), nil
 }
 
-// Instantiates a new DBWrapper based on the given DBType.
-func NewDBImpl(
-	dbType DBType,
-	dataDir string,
-) (DBWrapper, error) {
-
+// NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
+func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 	switch dbType {
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
@@ -102,5 +86,4 @@ func NewDBImpl(
 	default:
 		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}
-
 }

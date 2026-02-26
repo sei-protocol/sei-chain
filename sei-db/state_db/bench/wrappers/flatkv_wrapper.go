@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 var _ DBWrapper = (*flatKVWrapper)(nil)
@@ -38,11 +39,20 @@ func (f *flatKVWrapper) Commit() (int64, error) {
 	return version, err
 }
 
+func (f *flatKVWrapper) LoadVersion(version int64) error {
+	_, err := f.base.LoadVersion(version)
+	return err
+}
+
 func (f *flatKVWrapper) Version() int64 {
 	if f.hasPending {
 		return f.base.Version() + 1
 	}
 	return f.base.Version()
+}
+
+func (f *flatKVWrapper) Importer(version int64) (types.Importer, error) {
+	return f.base.Importer(version)
 }
 
 func (f *flatKVWrapper) Close() error {

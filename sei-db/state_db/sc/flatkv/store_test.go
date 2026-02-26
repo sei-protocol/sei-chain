@@ -396,26 +396,6 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 }
 
 // =============================================================================
-// Exporter (Not Implemented - placeholder for state-sync)
-// =============================================================================
-
-func TestStoreExporterNotImplemented(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	// Exporter returns a placeholder that indicates not implemented
-	exporter, err := s.Exporter(0)
-	require.NoError(t, err)
-	require.NotNil(t, exporter)
-	defer exporter.Close()
-
-	// Next() should return not implemented error
-	_, _, err = exporter.Next()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not implemented")
-}
-
-// =============================================================================
 // Lifecycle (WriteSnapshot, Rollback)
 // =============================================================================
 

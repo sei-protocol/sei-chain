@@ -54,6 +54,7 @@ type receiptStore struct {
 	db          *mvcc.Database
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
+	pruneWg     sync.WaitGroup
 	closeOnce   sync.Once
 }
 
@@ -111,13 +112,13 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 			_ = db.Close()
 			return nil, err
 		}
-		stopPruning := make(chan struct{})
-		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), stopPruning)
-		return &receiptStore{
+		rs := &receiptStore{
 			db:          db,
 			storeKey:    storeKey,
-			stopPruning: stopPruning,
-		}, nil
+			stopPruning: make(chan struct{}),
+		}
+		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
+		return rs, nil
 	default:
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
 	}
@@ -236,10 +237,10 @@ func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCr
 func (s *receiptStore) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		// Signal the pruning goroutine to stop
 		if s.stopPruning != nil {
 			close(s.stopPruning)
 		}
+		s.pruneWg.Wait()
 		err = s.db.Close()
 	})
 	return err
@@ -298,12 +299,21 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Dat
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}) {
+func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
+			select {
+			case <-stopCh:
+				log.Info("Receipt store pruning goroutine stopped")
+				return
+			default:
+			}
+
 			pruneStartTime := time.Now()
 			latestVersion := db.GetLatestVersion()
 			pruneVersion := latestVersion - keepRecent

@@ -108,10 +108,6 @@ func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBloc
 	}, nil
 }
 
-func (BaseApplication) LoadLatest(_ context.Context, _ *RequestLoadLatest) (*ResponseLoadLatest, error) {
-	return &ResponseLoadLatest{}, nil
-}
-
 func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
 	return &ResponseGetTxPriorityHint{}, nil
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
@@ -233,18 +233,3 @@ func (it *emptyIterator) Prev() bool               { return false }
 func (it *emptyIterator) Kind() evm.EVMKeyKind     { return evm.EVMKeyUnknown }
 func (it *emptyIterator) Key() []byte              { return nil }
 func (it *emptyIterator) Value() []byte            { return nil }
-
-// notImplementedExporter is a placeholder for the Exporter interface.
-// Actual implementation will be added with state-sync support.
-type notImplementedExporter struct{}
-
-// Compile-time check: notImplementedExporter implements Exporter
-var _ Exporter = (*notImplementedExporter)(nil)
-
-func (e *notImplementedExporter) Next() ([]byte, []byte, error) {
-	return nil, nil, fmt.Errorf("exporter not implemented: will be added with state-sync support")
-}
-
-func (e *notImplementedExporter) Close() error {
-	return nil
-}

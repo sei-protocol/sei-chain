@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -598,7 +599,20 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "false"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
+				})
 			return sdkerrors.QueryResult(err)
+		} else {
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "true"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
+				})
 		}
 		defer rs.releaseHistProofPermit()
 
@@ -611,30 +625,26 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+
 	}
 
 	res := store.Query(req)
 
-	// If underlying query failed (e.g. invalid height/path), return as-is.
-	if res.Code != 0 {
+	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
+	if res.Code != 0 || !needProof {
 		return res
 	}
 
-	if !needProof {
-		return res
-	}
-
-	// Must have proof ops from underlying store query before appending commit proof.
+	emptyProofError := sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	if res.ProofOps == nil {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+		return emptyProofError
 	}
-
+	// Must have proof ops from underlying store query before appending commit proof.
 	if commitInfo != nil {
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-
 	if len(res.ProofOps.Ops) == 0 {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+		return emptyProofError
 	}
 
 	return res

@@ -79,10 +79,6 @@ func (m *mockApplication) Commit(ctx context.Context) (*abci.ResponseCommit, err
 	return &abci.ResponseCommit{}, nil
 }
 
-func (m *mockApplication) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	return &abci.ResponseLoadLatest{}, nil
-}
-
 func (m *mockApplication) ListSnapshots(ctx context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
 	return &abci.ResponseListSnapshots{}, nil
 }

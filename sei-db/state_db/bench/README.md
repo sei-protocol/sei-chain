@@ -21,6 +21,25 @@ to run for a long time while you watch the periodic progress report.
 
 Progress is printed to stdout every few seconds while the benchmark is running.
 
+### With snapshot pre-population
+
+`BenchmarkMemIAVLLongRunningWriteWithInitialState` loads a Cosmos SDK state sync
+snapshot into the database before starting the timed benchmark. This lets you
+measure write throughput on a realistically sized tree instead of an empty one.
+
+Set the `SNAPSHOT_PATH` environment variable to the directory that contains the
+numbered chunk files (`0`, `1`, `2`, …). The typical on-disk layout is
+`<node_home>/data/snapshots/<height>/<format>/`.
+
+```bash
+SNAPSHOT_PATH=/data/snapshots/12345678/1/ \
+  go test ./sei-db/state_db/bench -run ^$ \
+    -bench BenchmarkMemIAVLLongRunningWriteWithInitialState \
+    -benchmem -benchtime=24h -tags=slow_bench
+```
+
+If `SNAPSHOT_PATH` is not set the benchmark is skipped automatically.
+
 ## Define new scenarios
 
 Benchmarks are configured via `TestScenario`:
@@ -32,6 +51,9 @@ Benchmarks are configured via `TestScenario`:
 - `Backend`: database backend (`wrappers.MemIAVL`, `wrappers.FlatKV`,
   `wrappers.CompositeCosmos`, `wrappers.CompositeSplit`, `wrappers.CompositeDual`)
 - `Distribution`: per-block key distribution function
+- `SnapshotPath`: (optional) path to a state sync snapshot chunks directory;
+  when set, the snapshot is imported via the native `Committer.Importer` path
+  before the benchmark begins
 
 Example:
 
