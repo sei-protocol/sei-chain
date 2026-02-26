@@ -15,7 +15,7 @@ func TestStorageTestSuite(t *testing.T) {
 	pebbleConfig.Backend = "pebbledb"
 	s := &sstest.StorageTestSuite{
 		BaseStorageTestSuite: sstest.BaseStorageTestSuite{
-			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
+			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error) {
 				return OpenDB(dir, config)
 			},
 			Config:         pebbleConfig,
@@ -37,7 +37,7 @@ func TestStorageTestSuiteDefaultComparer(t *testing.T) {
 	pebbleConfig.UseDefaultComparer = true
 
 	s := &sstest.BaseStorageTestSuite{
-		NewDB: func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
+		NewDB: func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error) {
 			return OpenDB(dir, config)
 		},
 		Config:         pebbleConfig,

@@ -4,19 +4,18 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 )
 
 type HashScanner struct {
-	db             types.StateStore
+	db             db_engine.StateStore
 	latestVersion  int64
 	blocksInterval int64
 	hashResult     map[string][][]byte
 }
 
-func NewHashScanner(db types.StateStore, blocksInterval int64) *HashScanner {
+func NewHashScanner(db db_engine.StateStore, blocksInterval int64) *HashScanner {
 	latestVersion := db.GetLatestVersion()
 	fmt.Printf("Detected Pebbledb latest version: %d\n", latestVersion)
 	return &HashScanner{

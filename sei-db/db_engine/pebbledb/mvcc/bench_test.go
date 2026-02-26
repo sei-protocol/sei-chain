@@ -10,7 +10,7 @@ import (
 
 func BenchmarkDBBackend(b *testing.B) {
 	s := &sstest.StorageBenchSuite{
-		NewDB: func(dir string) (db_engine.MvccDB, error) {
+		NewDB: func(dir string) (db_engine.StateStore, error) {
 			return OpenDB(dir, config.DefaultStateStoreConfig())
 		},
 		BenchBackendName: "PebbleDB",

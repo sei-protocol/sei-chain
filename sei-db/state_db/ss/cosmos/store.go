@@ -3,20 +3,19 @@ package cosmos
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
-// Compile-time check: CosmosStateStore implements types.StateStore.
-var _ types.StateStore = (*CosmosStateStore)(nil)
+// Compile-time check: CosmosStateStore implements db_engine.StateStore.
+var _ db_engine.StateStore = (*CosmosStateStore)(nil)
 
-// CosmosStateStore wraps a single MvccDB and implements types.StateStore.
+// CosmosStateStore wraps a single StateStore (MVCC DB) and satisfies db_engine.StateStore.
 // It is the SS-layer adapter for the main Cosmos state (all non-EVM modules).
 type CosmosStateStore struct {
-	db db_engine.MvccDB
+	db db_engine.StateStore
 }
 
-// NewCosmosStateStore wraps an existing MvccDB as a StateStore.
-func NewCosmosStateStore(db db_engine.MvccDB) types.StateStore {
+// NewCosmosStateStore wraps an existing StateStore as a CosmosStateStore.
+func NewCosmosStateStore(db db_engine.StateStore) db_engine.StateStore {
 	return &CosmosStateStore{db: db}
 }
 

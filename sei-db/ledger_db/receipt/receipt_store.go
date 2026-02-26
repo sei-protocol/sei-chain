@@ -52,7 +52,7 @@ type ReceiptRecord struct {
 }
 
 type receiptStore struct {
-	db          db_engine.MvccDB
+	db          db_engine.StateStore
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
 	pruneWg     sync.WaitGroup
@@ -247,7 +247,7 @@ func (s *receiptStore) Close() error {
 	return err
 }
 
-func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.MvccDB) error {
+func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.StateStore) error {
 	ssLatestVersion := db.GetLatestVersion()
 	log.Info(fmt.Sprintf("Recovering from changelog %s with latest receipt version %d", changelogPath, ssLatestVersion))
 	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
@@ -300,7 +300,7 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db db_engine.MvccDB, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
+func startReceiptPruning(log dbLogger.Logger, db db_engine.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}

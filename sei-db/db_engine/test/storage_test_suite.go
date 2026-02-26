@@ -23,7 +23,7 @@ const (
 type BaseStorageTestSuite struct {
 	suite.Suite
 
-	NewDB          func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error)
+	NewDB          func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error)
 	EmptyBatchSize int
 	Config         config.StateStoreConfig
 }

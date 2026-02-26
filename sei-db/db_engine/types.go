@@ -64,6 +64,8 @@ type Batch interface {
 // Zero-copy contract:
 //   - Key/Value may return views into internal buffers and are only valid until the
 //     next iterator positioning call (Next/Prev/Seek*/First/Last) or Close.
+//
+// TODO: Merge with DBIterator
 type KeyValueDBIterator interface {
 	First() bool
 	Last() bool
@@ -86,9 +88,10 @@ type KeyValueDBIterator interface {
 // MVCC (versioned) DB layer
 // ---------------------------------------------------------------------------
 
-// MvccDB is the DB engine layer contract for versioned key-value storage.
-// Implemented by pebbledb/mvcc.Database and rocksdb/mvcc.Database.
-type MvccDB interface {
+// StateStore is the unified interface for versioned key-value storage.
+// Implemented by pebbledb/mvcc.Database, rocksdb/mvcc.Database,
+// CosmosStateStore, EVMStateStore, and CompositeStateStore.
+type StateStore interface {
 	Get(storeKey string, version int64, key []byte) ([]byte, error)
 	Has(storeKey string, version int64, key []byte) (bool, error)
 	Iterator(storeKey string, version int64, start, end []byte) (DBIterator, error)

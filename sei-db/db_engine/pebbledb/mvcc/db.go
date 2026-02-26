@@ -46,7 +46,7 @@ const (
 )
 
 var (
-	_ db_engine.MvccDB = (*Database)(nil)
+	_ db_engine.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = pebble.NoSync
 )
@@ -80,7 +80,7 @@ type VersionedChangesets struct {
 	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (db_engine.StateStore, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 

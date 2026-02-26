@@ -10,19 +10,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/backend"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func newCompositeStateStoreWithStores(
-	cosmosStore types.StateStore,
-	evmStore types.StateStore,
+	cosmosStore db_engine.StateStore,
+	evmStore db_engine.StateStore,
 	ssConfig config.StateStoreConfig,
 	log logger.Logger,
 ) *CompositeStateStore {

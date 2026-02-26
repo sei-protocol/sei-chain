@@ -117,7 +117,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"

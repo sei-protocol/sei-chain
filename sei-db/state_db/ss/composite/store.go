@@ -9,23 +9,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 // Compile-time check.
-var _ types.StateStore = (*CompositeStateStore)(nil)
+var _ db_engine.StateStore = (*CompositeStateStore)(nil)
 
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
-// Both are types.StateStore; the composite itself also implements types.StateStore.
+// Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
 type CompositeStateStore struct {
-	cosmosStore    types.StateStore // CosmosStateStore wrapping MvccDB
-	evmStore       types.StateStore // EVMStateStore wrapping sub MvccDBs (nil if disabled)
+	cosmosStore    db_engine.StateStore // CosmosStateStore wrapping MVCC DB
+	evmStore       db_engine.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
 	config         config.StateStoreConfig
 	logger         logger.Logger

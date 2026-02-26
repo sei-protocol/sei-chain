@@ -18,7 +18,7 @@ func TestStorageTestSuite(t *testing.T) {
 	rocksConfig.Backend = "rocksdb"
 	s := &sstest.StorageTestSuite{
 		BaseStorageTestSuite: sstest.BaseStorageTestSuite{
-			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
+			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error) {
 				return OpenDB(dir, config)
 			},
 			Config:         rocksConfig,

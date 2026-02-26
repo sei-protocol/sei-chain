@@ -33,7 +33,6 @@ import (
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -48,7 +47,7 @@ type Store struct {
 	logger         log.Logger
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
-	ssStore        sstypes.StateStore
+	ssStore        db_engine.StateStore
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -235,7 +234,7 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // GetStateStore returns the ssStore instance
-func (rs *Store) GetStateStore() sstypes.StateStore {
+func (rs *Store) GetStateStore() db_engine.StateStore {
 	return rs.ssStore
 }
 

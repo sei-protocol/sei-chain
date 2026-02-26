@@ -15,7 +15,7 @@ import (
 // StorageBenchSuite defines a reusable benchmark suite for all storage backends.
 type StorageBenchSuite struct {
 	BenchBackendName string
-	NewDB            func(dir string) (db_engine.MvccDB, error)
+	NewDB            func(dir string) (db_engine.StateStore, error)
 }
 
 var rng = rand.New(rand.NewSource(567320))

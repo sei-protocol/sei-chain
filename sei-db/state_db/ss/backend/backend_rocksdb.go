@@ -8,6 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/rocksdb/mvcc"
 )
 
-func openRocksDB(dbHome string, cfg config.StateStoreConfig) (db_engine.MvccDB, error) {
+func openRocksDB(dbHome string, cfg config.StateStoreConfig) (db_engine.StateStore, error) {
 	return mvcc.OpenDB(dbHome, cfg)
 }

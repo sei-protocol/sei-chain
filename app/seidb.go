@@ -8,7 +8,7 @@ import (
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cast"
 )

@@ -8,7 +8,7 @@ import (
 )
 
 // RecoverReceiptStore exposes recoverReceiptStore for testing.
-func RecoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.MvccDB) error {
+func RecoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.StateStore) error {
 	return recoverReceiptStore(log, changelogPath, db)
 }
 

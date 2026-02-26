@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	_ db_engine.MvccDB = (*Database)(nil)
+	_ db_engine.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()

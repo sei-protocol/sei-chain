@@ -9,34 +9,33 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
-// Compile-time check: EVMStateStore implements types.StateStore.
-var _ types.StateStore = (*EVMStateStore)(nil)
+// Compile-time check: EVMStateStore implements db_engine.StateStore.
+var _ db_engine.StateStore = (*EVMStateStore)(nil)
 
-// EVMStateStore manages 5 MvccDB instances (one per EVM sub-type)
-// and implements types.StateStore. Each sub-DB is the raw MVCC DB engine
+// EVMStateStore manages 5 StateStore instances (one per EVM sub-type)
+// and implements db_engine.StateStore. Each sub-DB is the raw MVCC DB engine
 // (PebbleDB or RocksDB via build tags).
 //
 // Key parsing (commonevm.ParseEVMKey) and sub-DB routing are encapsulated here,
 // so callers (CompositeStateStore) pass standard StateStore calls with raw EVM keys.
 type EVMStateStore struct {
-	subDBs map[EVMStoreType]db_engine.MvccDB
+	subDBs map[EVMStoreType]db_engine.StateStore
 	dir    string
 	logger logger.Logger
 }
 
-// NewEVMStateStore opens 5 MvccDB instances (one per EVM sub-type) using the
+// NewEVMStateStore opens 5 StateStore instances (one per EVM sub-type) using the
 // backend resolved from ssConfig.Backend (PebbleDB by default, RocksDB with build tag).
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig, log logger.Logger) (*EVMStateStore, error) {
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
 	store := &EVMStateStore{
-		subDBs: make(map[EVMStoreType]db_engine.MvccDB, NumEVMStoreTypes),
+		subDBs: make(map[EVMStoreType]db_engine.StateStore, NumEVMStoreTypes),
 		dir:    dir,
 		logger: log,
 	}
@@ -62,7 +61,7 @@ func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStore
 	return cfg
 }
 
-func (s *EVMStateStore) routeKey(key []byte) (db_engine.MvccDB, string, []byte) {
+func (s *EVMStateStore) routeKey(key []byte) (db_engine.StateStore, string, []byte) {
 	storeType, strippedKey := commonevm.ParseEVMKey(key)
 	if storeType == StoreEmpty {
 		return nil, "", nil
@@ -276,7 +275,7 @@ func (s *EVMStateStore) Prune(version int64) error {
 
 	for _, db := range s.subDBs {
 		wg.Add(1)
-		go func(db db_engine.MvccDB) {
+		go func(db db_engine.StateStore) {
 			defer wg.Done()
 			if err := db.Prune(version); err != nil {
 				errCh <- err
