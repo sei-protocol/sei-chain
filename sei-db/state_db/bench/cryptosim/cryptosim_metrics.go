@@ -9,6 +9,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Phase identifies where the main thread is spending its time.
+type Phase string
+
+const (
+	PhaseExecuting  Phase = "executing"
+	PhaseFinalizing Phase = "finalizing"
+	PhaseCommitting Phase = "committing"
+)
+
 // CryptosimMetrics holds Prometheus metrics for the cryptosim benchmark.
 type CryptosimMetrics struct {
 	reg                        *prometheus.Registry
@@ -20,6 +29,10 @@ type CryptosimMetrics struct {
 	totalErc20Contracts        prometheus.Gauge
 	dbCommitsTotal             prometheus.Counter
 	dbCommitLatency            prometheus.Observer
+	phaseDurationTotal         *prometheus.CounterVec
+	phaseDurationCount         *prometheus.CounterVec
+	lastPhase                  Phase
+	lastPhaseChangeTime        time.Time
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
@@ -61,6 +74,14 @@ func NewCryptosimMetrics(
 		Help:    "Time to commit to the database in seconds",
 		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
 	})
+	phaseDurationTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "cryptosim_phase_duration_seconds_total",
+		Help: "Total seconds spent in each phase (executing, finalizing, committing, etc.)",
+	}, []string{"phase"})
+	phaseDurationCount := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "cryptosim_phase_duration_count_total",
+		Help: "Total number of times each phase was reported",
+	}, []string{"phase"})
 
 	reg.MustRegister(
 		blocksFinalizedTotal,
@@ -70,6 +91,8 @@ func NewCryptosimMetrics(
 		totalErc20Contracts,
 		dbCommitsTotal,
 		dbCommitLatency,
+		phaseDurationTotal,
+		phaseDurationCount,
 	)
 
 	return &CryptosimMetrics{
@@ -82,6 +105,8 @@ func NewCryptosimMetrics(
 		totalErc20Contracts:        totalErc20Contracts,
 		dbCommitsTotal:             dbCommitsTotal,
 		dbCommitLatency:            dbCommitLatency,
+		phaseDurationTotal:         phaseDurationTotal,
+		phaseDurationCount:         phaseDurationCount,
 	}
 }
 
@@ -156,4 +181,21 @@ func (m *CryptosimMetrics) SetTotalNumberOfERC20Contracts(total int64) {
 		return
 	}
 	m.totalErc20Contracts.Set(float64(total))
+}
+
+// SetPhase records a transition of the main thread to a new phase.
+//
+// SetPhase is not safe for concurrent use.
+func (m *CryptosimMetrics) SetPhase(phase Phase) {
+	if m == nil || phase == "" {
+		return
+	}
+	now := time.Now()
+	if m.lastPhase != "" {
+		latency := now.Sub(m.lastPhaseChangeTime)
+		m.phaseDurationTotal.WithLabelValues(string(m.lastPhase)).Add(latency.Seconds())
+		m.phaseDurationCount.WithLabelValues(string(m.lastPhase)).Inc()
+	}
+	m.lastPhase = phase
+	m.lastPhaseChangeTime = now
 }

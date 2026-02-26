@@ -131,6 +131,7 @@ func (d *Database) FinalizeBlock(
 	}
 
 	finalizationStart := time.Now()
+	d.metrics.SetPhase(PhaseFinalizing)
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
 	for key, value := range d.batch.Iterator() {
@@ -173,6 +174,7 @@ func (d *Database) FinalizeBlock(
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++
 	if forceCommit || d.uncommittedBlockCount >= int64(d.config.BlocksPerCommit) {
+		d.metrics.SetPhase(PhaseCommitting)
 		_, err := d.db.Commit()
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
@@ -180,6 +182,8 @@ func (d *Database) FinalizeBlock(
 		d.metrics.ReportDBCommit(time.Since(finalizationFinish))
 		d.uncommittedBlockCount = 0
 	}
+
+	d.metrics.SetPhase(PhaseExecuting)
 
 	return nil
 }
