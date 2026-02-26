@@ -27,7 +27,7 @@ func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, selfAddr uti
 		s.Spawn(func() error {
 			msg := &handshakeMsg{
 				NodeAuth:          key.SignChallenge(sc.Challenge()),
-				SelfAddr: selfAddr,
+				SelfAddr:          selfAddr,
 				SeiGigaConnection: seiGigaConn,
 			}
 			if err := conn.WriteSizedMsg(ctx, sc, handshakeMsgConv.Marshal(msg)); err != nil {
@@ -49,9 +49,9 @@ func handshake(ctx context.Context, c conn.Conn, key NodeSecretKey, selfAddr uti
 		if err := msg.NodeAuth.Verify(sc.Challenge()); err != nil {
 			return nil, fmt.Errorf("handshakeMsg.NodeAuth.Verify(): %w", err)
 		}
-		if selfAddr,ok := msg.SelfAddr.Get(); ok {
-			if got,want := selfAddr.NodeID,msg.NodeAuth.Key().NodeID(); got!=want {
-				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v",got,want)
+		if selfAddr, ok := msg.SelfAddr.Get(); ok {
+			if got, want := selfAddr.NodeID, msg.NodeAuth.Key().NodeID(); got != want {
+				return nil, fmt.Errorf("handshakeMsg.SelfAddr.NodeID = %v, want %v", got, want)
 			}
 		}
 		return &handshakedConn{conn: sc, msg: msg}, nil

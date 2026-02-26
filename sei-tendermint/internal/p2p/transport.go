@@ -36,7 +36,7 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 // Connection implements Connection for Transport.
 type ConnV2 struct {
 	// Address at which this connection was dialed (None for inbound connections).
-	dialAddr     utils.Option[NodeAddress]
+	dialAddr utils.Option[NodeAddress]
 	// Address under which this node can be dialed (declared by peer during handshake).
 	selfAddr     utils.Option[NodeAddress]
 	peerChannels ChannelIDSet

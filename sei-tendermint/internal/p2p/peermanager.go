@@ -351,7 +351,7 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 			addrs = append(addrs, addr)
 		} else if addr, ok := info.SelfAddr.Get(); ok {
 			// Fallback to self-declared addresses of inbound connections.
-			selfAddrs = append(selfAddrs,addr)
+			selfAddrs = append(selfAddrs, addr)
 		}
 	}
 	return append(addrs, selfAddrs...)

@@ -144,7 +144,8 @@ func (r *Router) Addresses(id types.NodeID) []NodeAddress {
 }
 
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
-	return r.peerManager.Advertise(maxAddrs)
+	addrs := r.peerManager.Advertise()
+	return addrs[:min(len(addrs), maxAddrs)]
 }
 
 // OpenChannel opens a new channel for the given message type.
