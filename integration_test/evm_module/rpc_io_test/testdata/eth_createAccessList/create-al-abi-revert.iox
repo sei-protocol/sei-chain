@@ -1,0 +1,9 @@
+// Data-dependent: createAccessList for a call that may revert. Use our contract with input 0x01. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_createAccessList","params":[{"gas":"0x186a0","input":"0x01","to":"${contractAddress}"},"__SEED__"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}

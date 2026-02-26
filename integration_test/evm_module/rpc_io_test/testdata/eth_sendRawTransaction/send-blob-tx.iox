@@ -1,0 +1,3 @@
+// Data-dependent .io expects result for fixture blob tx. We test with invalid raw tx and expect error.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x03"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}

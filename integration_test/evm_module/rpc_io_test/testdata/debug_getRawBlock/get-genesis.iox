@@ -1,0 +1,3 @@
+// Data-dependent: genesis block exists on any chain. Same as .io but kept as .iox so .io is skipped.
+>> {"jsonrpc":"2.0","id":1,"method":"debug_getRawBlock","params":["0x0"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

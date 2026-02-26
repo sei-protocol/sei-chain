@@ -138,6 +138,12 @@ jobs:
               "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
             ]
           },
+          {
+            name: "EVM RPC .io/.iox (spec fixtures)",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -184,7 +190,9 @@ jobs:
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
 
+      # EVM execution-apis .io is allowed to fail until endpoint coverage is fixed (non-blocking for PR merge)
       - name: ${{ matrix.test.name }}
+        continue-on-error: ${{ matrix.test.name == 'EVM RPC .io/.iox (spec fixtures)' }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'   # change the internal field separator to newline

@@ -1,0 +1,6 @@
+// Data-dependent: get latest block full, bind first tx hash, then debug_getRawTransaction(txHash). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind txHash = result.transactions.0.hash
+>> {"jsonrpc":"2.0","id":1,"method":"debug_getRawTransaction","params":["${txHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

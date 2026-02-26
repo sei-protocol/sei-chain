@@ -1,0 +1,3 @@
+// May return result or error depending on blob support. Spec-only: valid response.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_blobBaseFee"}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}
