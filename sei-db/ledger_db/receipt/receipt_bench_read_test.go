@@ -3,6 +3,8 @@ package receipt
 import (
 	"encoding/binary"
 	"fmt"
+	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -23,6 +25,10 @@ const (
 	readBenchNumAddresses     = 50
 	readBenchNumTopic0        = 7  // coprime with numAddresses so all (addr, topic0) combos occur
 	readBenchNumTopic1        = 97 // coprime with both
+
+	// benchWorkerBatchSize matches evmrpcconfig.WorkerBatchSize used by
+	// the production GetLogsByFilters fallback path in evmrpc/filter.go.
+	benchWorkerBatchSize = 100
 )
 
 type rangeConfig struct {
