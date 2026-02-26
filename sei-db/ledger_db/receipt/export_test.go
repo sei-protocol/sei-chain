@@ -3,12 +3,12 @@ package receipt
 import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // RecoverReceiptStore exposes recoverReceiptStore for testing.
-func RecoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Database) error {
+func RecoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.MvccDB) error {
 	return recoverReceiptStore(log, changelogPath, db)
 }
 
