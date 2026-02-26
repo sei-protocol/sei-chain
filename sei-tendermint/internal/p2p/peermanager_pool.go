@@ -70,32 +70,36 @@ type peerConn interface {
 	Close()
 }
 
+var errSelfAddr = errors.New("self address is ignored")
+var errDuplicate = errors.New("duplicate address for the same peer")
+var errTooMany = errors.New("too many addresses in the peer manager")
+
 // Returns true iff the address was actually added.
-func (p *pool[C]) AddAddr(addr NodeAddress) bool {
+func (p *pool[C]) AddAddr(addr NodeAddress) error {
 	// Ignore self.
 	if addr.NodeID == p.selfID {
-		return false
+		return errSelfAddr
 	}
 	if old, ok := p.addrs[addr.NodeID]; ok {
 		// Ignore duplicates.
 		// Ignore if the previous address has not been tried out yet.
 		if old.addr == addr || !old.lastFail.IsPresent() {
-			return false
+			return errDuplicate
 		}
 		old.addr = addr
 		old.lastFail = utils.None[time.Time]()
-		return true
+		return nil
 	}
 	// Prune some peer if maxPeers limit has been reached.
 	if m, ok := p.maxAddrs.Get(); ok && len(p.addrs) == m {
 		toPrune, ok := p.findFailedPeer()
 		if !ok {
-			return false
+			return errTooMany
 		}
 		delete(p.addrs, toPrune)
 	}
 	p.addrs[addr.NodeID] = &peerAddr{addr: addr}
-	return true
+	return nil
 }
 
 func (p *pool[C]) DialFailed(addr NodeAddress) {

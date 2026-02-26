@@ -71,7 +71,7 @@ func NewRouter(
 		return nil, err
 	}
 	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](selfID, options)
+	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
 	peerDB, err := newPeerDB(db, options.maxPeers())
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
@@ -334,7 +334,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 			return err
 		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		r.peerManager.LogState(r.logger)
+		r.peerManager.LogState()
 	}
 }
 

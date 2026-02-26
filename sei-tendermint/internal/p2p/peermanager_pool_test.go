@@ -12,13 +12,13 @@ func TestPool_AddAddr_deduplicate(t *testing.T) {
 	rng := utils.TestRng()
 	selfID := makeNodeID(rng)
 	p := newPool[*fakeConn](poolConfig{selfID: selfID})
-	require.False(t, p.AddAddr(makeAddrFor(rng, selfID)))
+	require.Error(t, p.AddAddr(makeAddrFor(rng, selfID)))
 	require.Nil(t, p.addrs[selfID])
 
 	peer := makeNodeID(rng)
 	addr := makeAddrFor(rng, peer)
-	require.True(t, p.AddAddr(addr))
-	require.False(t, p.AddAddr(addr))
+	require.NoError(t, p.AddAddr(addr))
+	require.Error(t, p.AddAddr(addr))
 	require.Equal(t, addr, p.addrs[peer].addr)
 }
 
@@ -32,7 +32,7 @@ func TestPool_AddAddr_prune_failed_addrs(t *testing.T) {
 	for range 3 {
 		// Insert a new address which should replace the old one.
 		addr := makeAddrFor(rng, peer)
-		require.True(t, p.AddAddr(addr))
+		require.NoError(t, p.AddAddr(addr))
 
 		// Dial and fail multiple times.
 		// Only the newest address is expected, since maxAddrsPerPeer == 1
@@ -55,7 +55,7 @@ func TestPool_AddAddr_prune_failed_peers(t *testing.T) {
 		peer := makeNodeID(rng)
 		// Insert a new peer which should replace the old one.
 		addr := makeAddrFor(rng, peer)
-		require.True(t, p.AddAddr(addr))
+		require.NoError(t, p.AddAddr(addr))
 
 		// Dial and fail multiple times.
 		// Only the newest address is expected, since maxAddrsPerPeer == 1
@@ -76,7 +76,7 @@ func TestPool_TryStartDial_RoundRobin(t *testing.T) {
 		id := makeNodeID(rng)
 		addr := makeAddrFor(rng, id)
 		addrs[addr] = true
-		require.True(t, p.AddAddr(addr))
+		require.NoError(t, p.AddAddr(addr))
 	}
 	// Go through all addresses multiple times.
 	for range 3 {
@@ -125,8 +125,8 @@ func TestPool_Connected_race(t *testing.T) {
 		// They know each others addresses.
 		p1addr := makeAddrFor(rng, p1.selfID)
 		p2addr := makeAddrFor(rng, p2.selfID)
-		require.True(t, p1.AddAddr(p2addr))
-		require.True(t, p2.AddAddr(p1addr))
+		require.NoError(t, p1.AddAddr(p2addr))
+		require.NoError(t, p2.AddAddr(p1addr))
 		// They dial each other.
 		require.Equal(t, utils.Some(p2addr), opt(p1.TryStartDial()))
 		require.Equal(t, utils.Some(p1addr), opt(p2.TryStartDial()))
@@ -157,7 +157,7 @@ func TestPool_Evict(t *testing.T) {
 	// Dial a peer and connect.
 	peer := makeNodeID(rng)
 	addr := makeAddrFor(rng, peer)
-	require.True(t, p.AddAddr(addr))
+	require.NoError(t, p.AddAddr(addr))
 	require.Equal(t, utils.Some(addr), opt(p.TryStartDial()))
 	conn := makeConnTo(addr)
 	require.NoError(t, p.Connected(conn))
