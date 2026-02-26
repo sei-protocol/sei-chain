@@ -104,6 +104,9 @@ type CryptoSimConfig struct {
 
 	// The size of the queue for each transaction executor.
 	ExecutorQueueSize int
+
+	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
+	MetricsAddr string
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -135,6 +138,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
+		MetricsAddr:                       ":9090",
 	}
 }
 

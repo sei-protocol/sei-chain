@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
@@ -32,17 +33,22 @@ type Database struct {
 
 	// A method that flushes the executors.
 	flushFunc func()
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new database for the cryptosim benchmark.
 func NewDatabase(
 	config *CryptoSimConfig,
 	db wrappers.DBWrapper,
+	metrics *CryptosimMetrics,
 ) *Database {
 	return &Database{
-		config: config,
-		db:     db,
-		batch:  NewSyncMap[string, []byte](),
+		config:  config,
+		db:      db,
+		batch:   NewSyncMap[string, []byte](),
+		metrics: metrics,
 	}
 }
 
@@ -124,6 +130,8 @@ func (d *Database) FinalizeBlock(
 		return nil
 	}
 
+	finalizationStart := time.Now()
+
 	d.transactionsInCurrentBlock = 0
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
@@ -160,6 +168,9 @@ func (d *Database) FinalizeBlock(
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
 
+	finalizationFinish := time.Now()
+	d.metrics.ReportBlockFinalized(finalizationFinish.Sub(finalizationStart))
+
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++
 	if forceCommit || d.uncommittedBlockCount >= int64(d.config.BlocksPerCommit) {
@@ -168,6 +179,8 @@ func (d *Database) FinalizeBlock(
 			return fmt.Errorf("failed to commit: %w", err)
 		}
 		d.uncommittedBlockCount = 0
+
+		// commitFinish := time.Now() // TODO
 	}
 
 	return nil

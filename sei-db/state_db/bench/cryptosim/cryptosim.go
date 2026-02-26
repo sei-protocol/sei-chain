@@ -56,6 +56,9 @@ type CryptoSim struct {
 
 	// The index of the next executor to receive a transaction.
 	nextExecutorIndex int
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -67,6 +70,9 @@ func NewCryptoSim(
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	metrics := NewCryptosimMetrics(ctx, config.MetricsAddr)
 
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
@@ -87,9 +93,7 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	ctx, cancel := context.WithCancel(ctx)
-
-	database := NewDatabase(config, db)
+	database := NewDatabase(config, db, metrics)
 
 	dataGenerator, err := NewDataGenerator(config, database, rand)
 	if err != nil {
@@ -121,6 +125,7 @@ func NewCryptoSim(
 		dataGenerator:                     dataGenerator,
 		database:                          database,
 		executors:                         executors,
+		metrics:                           metrics,
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
