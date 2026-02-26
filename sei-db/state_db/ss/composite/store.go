@@ -8,8 +8,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
@@ -33,7 +34,7 @@ type CompositeStateStore struct {
 }
 
 // NewCompositeStateStore creates a new composite state store.
-// Backend (PebbleDB or RocksDB) is resolved at compile time via build-tag-gated files in ss/backend.
+// Backend (PebbleDB or RocksDB) is resolved at compile time via build-tag-gated files in db_engine/backend.
 func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
@@ -120,11 +121,11 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 	return s.cosmosStore.Has(storeKey, version, key)
 }
 
-func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return s.cosmosStore.Iterator(storeKey, version, start, end)
 }
 
-func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)
 }
 
@@ -253,15 +254,15 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
-func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (s *CompositeStateStore) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.Import(version, ch)
 	}
 
 	splitWrite := s.config.WriteMode == config.SplitWrite
 
-	cosmosCh := make(chan types.SnapshotNode, 100)
-	evmCh := make(chan types.SnapshotNode, 100)
+	cosmosCh := make(chan db_engine.SnapshotNode, 100)
+	evmCh := make(chan db_engine.SnapshotNode, 100)
 
 	var wg sync.WaitGroup
 	var cosmosErr, evmErr error

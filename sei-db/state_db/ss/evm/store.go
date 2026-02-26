@@ -8,8 +8,9 @@ import (
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
@@ -24,7 +25,7 @@ var _ types.StateStore = (*EVMStateStore)(nil)
 // Key parsing (commonevm.ParseEVMKey) and sub-DB routing are encapsulated here,
 // so callers (CompositeStateStore) pass standard StateStore calls with raw EVM keys.
 type EVMStateStore struct {
-	subDBs map[EVMStoreType]types.MvccDB
+	subDBs map[EVMStoreType]db_engine.MvccDB
 	dir    string
 	logger logger.Logger
 }
@@ -35,7 +36,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig, log logger.L
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
 	store := &EVMStateStore{
-		subDBs: make(map[EVMStoreType]types.MvccDB, NumEVMStoreTypes),
+		subDBs: make(map[EVMStoreType]db_engine.MvccDB, NumEVMStoreTypes),
 		dir:    dir,
 		logger: log,
 	}
@@ -61,7 +62,7 @@ func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStore
 	return cfg
 }
 
-func (s *EVMStateStore) routeKey(key []byte) (types.MvccDB, string, []byte) {
+func (s *EVMStateStore) routeKey(key []byte) (db_engine.MvccDB, string, []byte) {
 	storeType, strippedKey := commonevm.ParseEVMKey(key)
 	if storeType == StoreEmpty {
 		return nil, "", nil
@@ -86,11 +87,11 @@ func (s *EVMStateStore) Has(_ string, version int64, key []byte) (bool, error) {
 	return db.Has(subStoreKey, version, strippedKey)
 }
 
-func (s *EVMStateStore) Iterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
+func (s *EVMStateStore) Iterator(_ string, _ int64, _, _ []byte) (db_engine.DBIterator, error) {
 	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported; use individual sub-DB or Cosmos_SS")
 }
 
-func (s *EVMStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
+func (s *EVMStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (db_engine.DBIterator, error) {
 	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported; use individual sub-DB or Cosmos_SS")
 }
 
@@ -227,7 +228,7 @@ func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pair
 }
 
 // Import parses incoming snapshot nodes, routes EVM keys to sub-DBs via ApplyChangesetSync.
-func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (s *EVMStateStore) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
 	const flushThreshold = 10000
 	grouped := make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
 	pending := 0
@@ -275,7 +276,7 @@ func (s *EVMStateStore) Prune(version int64) error {
 
 	for _, db := range s.subDBs {
 		wg.Add(1)
-		go func(db types.MvccDB) {
+		go func(db db_engine.MvccDB) {
 			defer wg.Done()
 			if err := db.Prune(version); err != nil {
 				errCh <- err

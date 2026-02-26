@@ -1,6 +1,7 @@
 package cosmos
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
@@ -11,11 +12,11 @@ var _ types.StateStore = (*CosmosStateStore)(nil)
 // CosmosStateStore wraps a single MvccDB and implements types.StateStore.
 // It is the SS-layer adapter for the main Cosmos state (all non-EVM modules).
 type CosmosStateStore struct {
-	db types.MvccDB
+	db db_engine.MvccDB
 }
 
 // NewCosmosStateStore wraps an existing MvccDB as a StateStore.
-func NewCosmosStateStore(db types.MvccDB) types.StateStore {
+func NewCosmosStateStore(db db_engine.MvccDB) types.StateStore {
 	return &CosmosStateStore{db: db}
 }
 
@@ -27,11 +28,11 @@ func (s *CosmosStateStore) Has(storeKey string, version int64, key []byte) (bool
 	return s.db.Has(storeKey, version, key)
 }
 
-func (s *CosmosStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CosmosStateStore) Iterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return s.db.Iterator(storeKey, version, start, end)
 }
 
-func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return s.db.ReverseIterator(storeKey, version, start, end)
 }
 
@@ -67,7 +68,7 @@ func (s *CosmosStateStore) Prune(version int64) error {
 	return s.db.Prune(version)
 }
 
-func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (s *CosmosStateStore) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
 	return s.db.Import(version, ch)
 }
 

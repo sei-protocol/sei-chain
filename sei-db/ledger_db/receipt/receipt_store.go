@@ -15,9 +15,9 @@ import (
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -52,7 +52,7 @@ type ReceiptRecord struct {
 }
 
 type receiptStore struct {
-	db          sstypes.MvccDB
+	db          db_engine.MvccDB
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
 	pruneWg     sync.WaitGroup
@@ -247,7 +247,7 @@ func (s *receiptStore) Close() error {
 	return err
 }
 
-func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db sstypes.MvccDB) error {
+func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db db_engine.MvccDB) error {
 	ssLatestVersion := db.GetLatestVersion()
 	log.Info(fmt.Sprintf("Recovering from changelog %s with latest receipt version %d", changelogPath, ssLatestVersion))
 	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
@@ -300,7 +300,7 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db sstypes.M
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db sstypes.MvccDB, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
+func startReceiptPruning(log dbLogger.Logger, db db_engine.MvccDB, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}

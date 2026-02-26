@@ -3,6 +3,7 @@ package pebbledb
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
@@ -40,13 +41,13 @@ func (s *HashScanner) ScanAllModules() {
 }
 
 func (s *HashScanner) scanAllHeights(module string) [][]byte {
-	dataCh := make(chan types.RawSnapshotNode, 10000)
+	dataCh := make(chan db_engine.RawSnapshotNode, 10000)
 	hashCalculator := hasher.NewXorHashCalculator(s.blocksInterval, int(s.latestVersion/s.blocksInterval+1), dataCh)
 	fmt.Printf("Starting to scan module: %s\n", module)
 	go func() {
 		count := 0
 		_, err := s.db.RawIterate(module, func(key, value []byte, version int64) bool {
-			dataCh <- types.RawSnapshotNode{
+			dataCh <- db_engine.RawSnapshotNode{
 				StoreKey: module,
 				Key:      key,
 				Value:    value,

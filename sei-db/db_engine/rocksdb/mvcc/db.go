@@ -20,8 +20,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	_ types.MvccDB = (*Database)(nil)
+	_ db_engine.MvccDB = (*Database)(nil)
 
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
@@ -314,7 +314,7 @@ func (db *Database) Prune(version int64) error {
 	return db.SetEarliestVersion(tsLow, false)
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errors.ErrKeyEmpty
 	}
@@ -331,7 +331,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errors.ErrKeyEmpty
 	}
@@ -350,7 +350,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (db *Database) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
 	var wg sync.WaitGroup
 
 	worker := func() {

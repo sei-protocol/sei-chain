@@ -2,11 +2,11 @@ package backend
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
 // OpenFunc creates an MvccDB from a data directory and config.
-type OpenFunc func(dbHome string, cfg config.StateStoreConfig) (types.MvccDB, error)
+type OpenFunc func(dbHome string, cfg config.StateStoreConfig) (db_engine.MvccDB, error)
 
 // ResolveBackend returns the OpenFunc for the given backend name.
 // Defaults to PebbleDB. RocksDB is available only when built with -tags=rocksdbBackend.

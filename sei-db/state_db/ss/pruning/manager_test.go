@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,10 +41,10 @@ func (m *mockStateStore) SetEarliestVersion(version int64, ignoreVersion bool) e
 func (m *mockStateStore) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
 	return nil
 }
-func (m *mockStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockStateStore) Iterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return nil, nil
 }
-func (m *mockStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
 	return nil, nil
 }
 func (m *mockStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
@@ -64,7 +64,7 @@ func (m *mockStateStore) Close() error {
 func (m *mockStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
 	return false, nil
 }
-func (m *mockStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (m *mockStateStore) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
 	return nil
 }
 

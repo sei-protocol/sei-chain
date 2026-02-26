@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 )
 
 func TestStorageTestSuite(t *testing.T) {
@@ -15,7 +15,7 @@ func TestStorageTestSuite(t *testing.T) {
 	pebbleConfig.Backend = "pebbledb"
 	s := &sstest.StorageTestSuite{
 		BaseStorageTestSuite: sstest.BaseStorageTestSuite{
-			NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
+			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
 				return OpenDB(dir, config)
 			},
 			Config:         pebbleConfig,
@@ -37,7 +37,7 @@ func TestStorageTestSuiteDefaultComparer(t *testing.T) {
 	pebbleConfig.UseDefaultComparer = true
 
 	s := &sstest.BaseStorageTestSuite{
-		NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
+		NewDB: func(dir string, config config.StateStoreConfig) (db_engine.MvccDB, error) {
 			return OpenDB(dir, config)
 		},
 		Config:         pebbleConfig,

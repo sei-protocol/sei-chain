@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
 var _ HashCalculator = (*XorHashCalculator)(nil)
@@ -14,11 +14,11 @@ var _ HashCalculator = (*XorHashCalculator)(nil)
 type XorHashCalculator struct {
 	NumBlocksPerWorker int64
 	NumOfWorkers       int
-	DataCh             chan types.RawSnapshotNode
+	DataCh             chan db_engine.RawSnapshotNode
 }
 
 // NewXorHashCalculator create a new XorHashCalculator.
-func NewXorHashCalculator(numBlocksPerWorker int64, numWorkers int, data chan types.RawSnapshotNode) XorHashCalculator {
+func NewXorHashCalculator(numBlocksPerWorker int64, numWorkers int, data chan db_engine.RawSnapshotNode) XorHashCalculator {
 	return XorHashCalculator{
 		NumBlocksPerWorker: numBlocksPerWorker,
 		NumOfWorkers:       numWorkers,
@@ -46,13 +46,13 @@ func (x XorHashCalculator) HashTwo(dataA []byte, dataB []byte) []byte {
 
 func (x XorHashCalculator) ComputeHashes() [][]byte {
 	var wg sync.WaitGroup
-	allChannels := make([]chan types.RawSnapshotNode, x.NumOfWorkers)
+	allChannels := make([]chan db_engine.RawSnapshotNode, x.NumOfWorkers)
 	allHashes := make([][]byte, x.NumOfWorkers)
 	// First calculate each sub hash in a separate goroutine
 	for i := 0; i < x.NumOfWorkers; i++ {
 		wg.Add(1)
-		subsetChan := make(chan types.RawSnapshotNode, 1000)
-		go func(index int, data chan types.RawSnapshotNode) {
+		subsetChan := make(chan db_engine.RawSnapshotNode, 1000)
+		go func(index int, data chan db_engine.RawSnapshotNode) {
 			defer wg.Done()
 			var hashResult []byte
 			for item := range subsetChan {
@@ -89,7 +89,7 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 	return allHashes
 }
 
-func Serialize(node types.RawSnapshotNode) []byte {
+func Serialize(node db_engine.RawSnapshotNode) []byte {
 	keySize := len(node.Key)
 	valueSize := len(node.Value)
 	versionSize := 8

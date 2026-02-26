@@ -3,14 +3,14 @@ package sstest
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Fills the db with multiple keys each with different versions
 // TODO: Return just changeset so it can be altered after return
-func FillData(db types.StateStore, numKeys int, versions int) error {
+func FillData(db db_engine.MvccDB, numKeys int, versions int) error {
 	if numKeys <= 0 || versions <= 0 {
 		panic("numKeys and versions must be greater than 0")
 	}
@@ -41,7 +41,7 @@ func FillData(db types.StateStore, numKeys int, versions int) error {
 }
 
 // Helper for creating the changeset and applying it to db
-func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, val [][]byte) error {
+func DBApplyChangeset(db db_engine.MvccDB, version int64, storeKey string, key, val [][]byte) error {
 	if len(key) != len(val) {
 		panic("length of keys must match length of vals")
 	}
@@ -61,7 +61,7 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 }
 
 // Helper for creating the changeset and applying it to db
-func DBApplyDeleteChangeset(db types.StateStore, version int64, storeKey string, key [][]byte) error {
+func DBApplyDeleteChangeset(db db_engine.MvccDB, version int64, storeKey string, key [][]byte) error {
 	cs := &iavl.ChangeSet{}
 	cs.Pairs = []*iavl.KVPair{}
 	for j := 0; j < len(key); j++ {

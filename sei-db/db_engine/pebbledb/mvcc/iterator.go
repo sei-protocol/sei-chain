@@ -11,10 +11,10 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
-var _ types.DBIterator = (*iterator)(nil)
+var _ db_engine.DBIterator = (*iterator)(nil)
 
 // iterator implements the Iterator interface. It wraps a PebbleDB iterator
 // with added MVCC key handling logic. The iterator will iterate over the key space
