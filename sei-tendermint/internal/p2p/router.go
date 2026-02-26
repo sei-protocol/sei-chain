@@ -265,7 +265,6 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								return fmt.Errorf("r.dial(): %w", err)
 							}
 							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-
 							var hConn *handshakedConn
 							var info types.NodeInfo
 							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {

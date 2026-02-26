@@ -179,7 +179,6 @@ func (m *peerManager[C]) Subscribe() *peerUpdatesRecv[C] {
 
 func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	inner := &peerManagerInner[C]{
-		selfID:       selfID,
 		options:      options,
 		isPersistent: map[types.NodeID]bool{},
 		conns:        utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
