@@ -7,11 +7,54 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// PhaseTimerFactory constructs shared Prometheus metrics and builds independent
+// PhaseTimer instances. Use Build() to create a timer for each thread.
+type PhaseTimerFactory struct {
+	phaseDurationTotal *prometheus.CounterVec
+	phaseLatency       *prometheus.HistogramVec
+}
+
+// NewPhaseTimerFactory creates a factory that registers metrics with the given
+// name prefix (e.g., "main_thread" produces main_thread_phase_duration_seconds_total).
+func NewPhaseTimerFactory(reg *prometheus.Registry, name string) *PhaseTimerFactory {
+	phaseDurationTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: fmt.Sprintf("%s_phase_duration_seconds_total", name),
+		Help: "Total seconds spent in each phase",
+	}, []string{"phase"})
+	phaseLatency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    fmt.Sprintf("%s_phase_latency_seconds", name),
+		Help:    "Latency per phase (seconds); use for p99, p95, etc.",
+		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
+	}, []string{"phase"})
+	reg.MustRegister(phaseDurationTotal, phaseLatency)
+	return &PhaseTimerFactory{
+		phaseDurationTotal: phaseDurationTotal,
+		phaseLatency:       phaseLatency,
+	}
+}
+
+// NewPhaseTimer creates a factory and builds a single PhaseTimer. Convenient when
+// only one timer is needed (e.g., for a single-threaded main loop).
+func NewPhaseTimer(reg *prometheus.Registry, name string) *PhaseTimer {
+	return NewPhaseTimerFactory(reg, name).Build()
+}
+
+// Build returns a new PhaseTimer that records to this factory's metrics.
+// Each timer has independent phase state; safe for use by different threads.
+func (f *PhaseTimerFactory) Build() *PhaseTimer {
+	return &PhaseTimer{
+		phaseDurationTotal:  f.phaseDurationTotal,
+		phaseLatency:        f.phaseLatency,
+		lastPhase:           "",
+		lastPhaseChangeTime: time.Time{},
+	}
+}
+
 // PhaseTimer records time spent in phases (e.g., "executing", "finalizing").
 // Call SetPhase when transitioning to a new phase; latency is calculated from the
-// previous transition. Not safe for concurrent use.
+// previous transition. Not safe for concurrent use on a single instance.
 //
-// Grafana queries (substitute PREFIX with the name passed to NewPhaseTimer):
+// Grafana queries (substitute PREFIX with the name passed to NewPhaseTimer or NewPhaseTimerFactory):
 //
 // Rate, for pie chart or stacked timeseries (seconds per second):
 //
@@ -33,25 +76,6 @@ type PhaseTimer struct {
 	phaseLatency        *prometheus.HistogramVec
 	lastPhase           string
 	lastPhaseChangeTime time.Time
-}
-
-// NewPhaseTimer creates a PhaseTimer that registers metrics with the given name
-// prefix (e.g., "cryptosim" produces cryptosim_phase_duration_seconds_total).
-func NewPhaseTimer(reg *prometheus.Registry, name string) *PhaseTimer {
-	phaseDurationTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: fmt.Sprintf("%s_phase_duration_seconds_total", name),
-		Help: "Total seconds spent in each phase",
-	}, []string{"phase"})
-	phaseLatency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    fmt.Sprintf("%s_phase_latency_seconds", name),
-		Help:    "Latency per phase (seconds); use for p99, p95, etc.",
-		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
-	}, []string{"phase"})
-	reg.MustRegister(phaseDurationTotal, phaseLatency)
-	return &PhaseTimer{
-		phaseDurationTotal: phaseDurationTotal,
-		phaseLatency:       phaseLatency,
-	}
 }
 
 // SetPhase records a transition to a new phase.

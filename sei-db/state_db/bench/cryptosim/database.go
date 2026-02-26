@@ -3,7 +3,6 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
@@ -130,7 +129,6 @@ func (d *Database) FinalizeBlock(
 		return nil
 	}
 
-	finalizationStart := time.Now()
 	d.metrics.SetMainThreadPhase("finalizing")
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
@@ -167,8 +165,7 @@ func (d *Database) FinalizeBlock(
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
 
-	finalizationFinish := time.Now()
-	d.metrics.ReportBlockFinalized(finalizationFinish.Sub(finalizationStart), d.transactionsInCurrentBlock)
+	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
 
 	// Periodically commit the changes to the database.
@@ -179,7 +176,7 @@ func (d *Database) FinalizeBlock(
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
-		d.metrics.ReportDBCommit(time.Since(finalizationFinish))
+		d.metrics.ReportDBCommit()
 		d.uncommittedBlockCount = 0
 	}
 

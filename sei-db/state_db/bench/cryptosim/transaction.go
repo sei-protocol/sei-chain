@@ -3,7 +3,6 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
-	"time"
 )
 
 // The data needed to execute a transaction.
@@ -116,7 +115,10 @@ func BuildTransaction(
 func (txn *transaction) Execute(
 	database *Database,
 	feeCollectionAddress []byte,
+	phaseTimer *PhaseTimer,
 ) error {
+
+	phaseTimer.SetPhase("read_erc20")
 
 	// Read the simulated ERC20 contract.
 	_, found, err := database.Get(txn.erc20Contract)
@@ -133,6 +135,8 @@ func (txn *transaction) Execute(
 	// - the sender's storage slot for the ERC20 contract
 	// - the receiver's storage slot for the ERC20 contract
 	// - the fee collection account's native balance
+
+	phaseTimer.SetPhase("read_src_account")
 
 	// Read the sender's native balance / nonce / codehash.
 	srcAccountValue, found, err := database.Get(txn.srcAccount)
@@ -153,6 +157,8 @@ func (txn *transaction) Execute(
 		}
 	}
 
+	phaseTimer.SetPhase("read_dst_account")
+
 	// Read the receiver's native balance.
 	dstAccountValue, found, err := database.Get(txn.dstAccount)
 	if err != nil {
@@ -171,6 +177,8 @@ func (txn *transaction) Execute(
 		}
 	}
 
+	phaseTimer.SetPhase("read_src_account_slot")
+
 	// Read the sender's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
 	_, _, err = database.Get(txn.srcAccountSlot)
@@ -178,12 +186,16 @@ func (txn *transaction) Execute(
 		return fmt.Errorf("failed to get source account slot: %w", err)
 	}
 
+	phaseTimer.SetPhase("read_dst_account_slot")
+
 	// Read the receiver's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
 	_, _, err = database.Get(txn.dstAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account slot: %w", err)
 	}
+
+	phaseTimer.SetPhase("read_fee_collection_account")
 
 	// Read the fee collection account's native balance.
 	feeValue, found, err := database.Get(feeCollectionAddress)
@@ -193,6 +205,8 @@ func (txn *transaction) Execute(
 	if !found {
 		return fmt.Errorf("fee collection account not found")
 	}
+
+	phaseTimer.SetPhase("update_balances")
 
 	// Apply the random values from the transaction to the account and slot data.
 	const minAccountBytes = 8 // balance at offset 0
@@ -242,13 +256,12 @@ func (txn *transaction) Execute(
 		return fmt.Errorf("failed to put fee collection account: %w", err)
 	}
 
+	phaseTimer.Reset()
+
 	return nil
 }
 
-// Returns the current time if captureMetrics is true, otherwise returns a zero time.
-func (txn *transaction) now() time.Time { // TODO
-	if txn.captureMetrics {
-		return time.Now()
-	}
-	return time.Time{}
+// Returns true if metrics should be captured for this transaction.
+func (txn *transaction) ShouldCaptureMetrics() bool {
+	return txn.captureMetrics
 }

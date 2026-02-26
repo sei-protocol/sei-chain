@@ -14,13 +14,12 @@ type CryptosimMetrics struct {
 	reg                        *prometheus.Registry
 	ctx                        context.Context
 	blocksFinalizedTotal       prometheus.Counter
-	blockFinalizationLatency   prometheus.Observer
 	transactionsProcessedTotal prometheus.Counter
 	totalAccounts              prometheus.Gauge
 	totalErc20Contracts        prometheus.Gauge
-	dbCommitsTotal             prometheus.Counter
-	dbCommitLatency            prometheus.Observer
-	mainThreadPhase            *PhaseTimer
+	dbCommitsTotal               prometheus.Counter
+	mainThreadPhase              *PhaseTimer
+	transactionPhaseTimerFactory *PhaseTimerFactory
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
@@ -35,11 +34,6 @@ func NewCryptosimMetrics(
 	blocksFinalizedTotal := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cryptosim_blocks_finalized_total",
 		Help: "Total number of blocks finalized",
-	})
-	blockFinalizationLatency := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "cryptosim_block_finalization_latency_seconds",
-		Help:    "Time to finalize a block in seconds",
-		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
 	})
 	transactionsProcessedTotal := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cryptosim_transactions_processed_total",
@@ -57,34 +51,27 @@ func NewCryptosimMetrics(
 		Name: "cryptosim_db_commits_total",
 		Help: "Total number of database commits",
 	})
-	dbCommitLatency := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "cryptosim_db_commit_latency_seconds",
-		Help:    "Time to commit to the database in seconds",
-		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
-	})
 	mainThreadPhase := NewPhaseTimer(reg, "main_thread")
+	transactionPhaseTimerFactory := NewPhaseTimerFactory(reg, "transaction")
 
 	reg.MustRegister(
 		blocksFinalizedTotal,
-		blockFinalizationLatency,
 		transactionsProcessedTotal,
 		totalAccounts,
 		totalErc20Contracts,
 		dbCommitsTotal,
-		dbCommitLatency,
 	)
 
 	return &CryptosimMetrics{
 		reg:                        reg,
 		ctx:                        ctx,
 		blocksFinalizedTotal:       blocksFinalizedTotal,
-		blockFinalizationLatency:   blockFinalizationLatency,
 		transactionsProcessedTotal: transactionsProcessedTotal,
 		totalAccounts:              totalAccounts,
 		totalErc20Contracts:        totalErc20Contracts,
-		dbCommitsTotal:             dbCommitsTotal,
-		dbCommitLatency:            dbCommitLatency,
-		mainThreadPhase:            mainThreadPhase,
+		dbCommitsTotal:               dbCommitsTotal,
+		mainThreadPhase:              mainThreadPhase,
+		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
 }
 
@@ -117,22 +104,20 @@ func startMetricsServer(ctx context.Context, reg *prometheus.Registry, addr stri
 
 // ReportBlockFinalized records that a block was finalized, the number of
 // transactions in that block, and the finalization latency.
-func (m *CryptosimMetrics) ReportBlockFinalized(latency time.Duration, transactionCount int64) {
+func (m *CryptosimMetrics) ReportBlockFinalized(transactionCount int64) {
 	if m == nil {
 		return
 	}
 	m.blocksFinalizedTotal.Inc()
 	m.transactionsProcessedTotal.Add(float64(transactionCount))
-	m.blockFinalizationLatency.Observe(latency.Seconds())
 }
 
 // ReportDBCommit records that a database commit completed and the latency.
-func (m *CryptosimMetrics) ReportDBCommit(latency time.Duration) {
+func (m *CryptosimMetrics) ReportDBCommit() {
 	if m == nil {
 		return
 	}
 	m.dbCommitsTotal.Inc()
-	m.dbCommitLatency.Observe(latency.Seconds())
 }
 
 // SetTotalNumberOfAccounts sets the total number of accounts (e.g., when loading
@@ -161,7 +146,17 @@ func (m *CryptosimMetrics) SetTotalNumberOfERC20Contracts(total int64) {
 	m.totalErc20Contracts.Set(float64(total))
 }
 
-// SetPhase records a transition of the main thread to a new phase.
+// GetTransactionPhaseTimerInstance returns a new PhaseTimer from the transaction
+// phase timer factory. Each call returns an independent timer; use one per
+// transaction executor or thread.
+func (m *CryptosimMetrics) GetTransactionPhaseTimerInstance() *PhaseTimer {
+	if m == nil || m.transactionPhaseTimerFactory == nil {
+		return nil
+	}
+	return m.transactionPhaseTimerFactory.Build()
+}
+
+// SetMainThreadPhase records a transition of the main thread to a new phase.
 func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
 	if m == nil {
 		return

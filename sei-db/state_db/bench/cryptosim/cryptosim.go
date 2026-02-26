@@ -114,7 +114,7 @@ func NewCryptoSim(
 	executors := make([]*TransactionExecutor, threadCount)
 	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
-			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize)
+			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
 
 	c := &CryptoSim{
