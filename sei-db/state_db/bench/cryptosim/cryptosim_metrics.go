@@ -11,10 +11,15 @@ import (
 
 // CryptosimMetrics holds Prometheus metrics for the cryptosim benchmark.
 type CryptosimMetrics struct {
-	blocksFinalizedTotal     prometheus.Counter
-	blockFinalizationLatency prometheus.Observer
-	dbCommitsTotal           prometheus.Counter
-	dbCommitLatency          prometheus.Observer
+	reg                        *prometheus.Registry
+	ctx                        context.Context
+	blocksFinalizedTotal       prometheus.Counter
+	blockFinalizationLatency   prometheus.Observer
+	transactionsProcessedTotal prometheus.Counter
+	totalAccounts              prometheus.Gauge
+	totalErc20Contracts        prometheus.Gauge
+	dbCommitsTotal             prometheus.Counter
+	dbCommitLatency            prometheus.Observer
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
@@ -35,6 +40,18 @@ func NewCryptosimMetrics(
 		Help:    "Time to finalize a block in seconds",
 		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
 	})
+	transactionsProcessedTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_transactions_processed_total",
+		Help: "Total number of transactions processed",
+	})
+	totalAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_accounts_total",
+		Help: "Total number of accounts",
+	})
+	totalErc20Contracts := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_erc20_contracts_total",
+		Help: "Total number of ERC20 contracts",
+	})
 	dbCommitsTotal := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cryptosim_db_commits_total",
 		Help: "Total number of database commits",
@@ -45,18 +62,37 @@ func NewCryptosimMetrics(
 		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
 	})
 
-	reg.MustRegister(blocksFinalizedTotal, blockFinalizationLatency, dbCommitsTotal, dbCommitLatency)
-
-	if metricsAddr != "" {
-		startMetricsServer(ctx, reg, metricsAddr)
-	}
+	reg.MustRegister(
+		blocksFinalizedTotal,
+		blockFinalizationLatency,
+		transactionsProcessedTotal,
+		totalAccounts,
+		totalErc20Contracts,
+		dbCommitsTotal,
+		dbCommitLatency,
+	)
 
 	return &CryptosimMetrics{
-		blocksFinalizedTotal:     blocksFinalizedTotal,
-		blockFinalizationLatency: blockFinalizationLatency,
-		dbCommitsTotal:           dbCommitsTotal,
-		dbCommitLatency:          dbCommitLatency,
+		reg:                        reg,
+		ctx:                        ctx,
+		blocksFinalizedTotal:       blocksFinalizedTotal,
+		blockFinalizationLatency:   blockFinalizationLatency,
+		transactionsProcessedTotal: transactionsProcessedTotal,
+		totalAccounts:              totalAccounts,
+		totalErc20Contracts:        totalErc20Contracts,
+		dbCommitsTotal:             dbCommitsTotal,
+		dbCommitLatency:            dbCommitLatency,
 	}
+}
+
+// StartServer starts the metrics HTTP server. Call this after loading initial
+// state and setting gauges (e.g., SetTotalNumberOfAccounts) to avoid spurious
+// rate spikes on restart. If addr is empty, no server is started.
+func (m *CryptosimMetrics) StartServer(addr string) {
+	if m == nil || addr == "" {
+		return
+	}
+	startMetricsServer(m.ctx, m.reg, addr)
 }
 
 // startMetricsServer starts an HTTP server serving /metrics from reg. When ctx is
@@ -76,12 +112,14 @@ func startMetricsServer(ctx context.Context, reg *prometheus.Registry, addr stri
 	}()
 }
 
-// ReportBlockFinalized records that a block was finalized and the latency.
-func (m *CryptosimMetrics) ReportBlockFinalized(latency time.Duration) {
+// ReportBlockFinalized records that a block was finalized, the number of
+// transactions in that block, and the finalization latency.
+func (m *CryptosimMetrics) ReportBlockFinalized(latency time.Duration, transactionCount int64) {
 	if m == nil {
 		return
 	}
 	m.blocksFinalizedTotal.Inc()
+	m.transactionsProcessedTotal.Add(float64(transactionCount))
 	m.blockFinalizationLatency.Observe(latency.Seconds())
 }
 
@@ -92,4 +130,30 @@ func (m *CryptosimMetrics) ReportDBCommit(latency time.Duration) {
 	}
 	m.dbCommitsTotal.Inc()
 	m.dbCommitLatency.Observe(latency.Seconds())
+}
+
+// SetTotalNumberOfAccounts sets the total number of accounts (e.g., when loading
+// from existing data).
+func (m *CryptosimMetrics) SetTotalNumberOfAccounts(total int64) {
+	if m == nil {
+		return
+	}
+	m.totalAccounts.Set(float64(total))
+}
+
+// IncrementTotalNumberOfAccounts records that a new account was created.
+func (m *CryptosimMetrics) IncrementTotalNumberOfAccounts() {
+	if m == nil {
+		return
+	}
+	m.totalAccounts.Inc()
+}
+
+// SetTotalNumberOfERC20Contracts sets the total number of ERC20 contracts (e.g.,
+// when loading from existing data).
+func (m *CryptosimMetrics) SetTotalNumberOfERC20Contracts(total int64) {
+	if m == nil {
+		return
+	}
+	m.totalErc20Contracts.Set(float64(total))
 }

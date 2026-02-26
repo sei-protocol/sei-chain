@@ -73,6 +73,8 @@ func NewCryptoSim(
 
 	ctx, cancel := context.WithCancel(ctx)
 	metrics := NewCryptosimMetrics(ctx, config.MetricsAddr)
+	// Server start deferred until after DataGenerator loads DB state and sets gauges,
+	// avoiding rate() spikes when restarting with a preserved DB.
 
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
@@ -95,12 +97,13 @@ func NewCryptoSim(
 
 	database := NewDatabase(config, db, metrics)
 
-	dataGenerator, err := NewDataGenerator(config, database, rand)
+	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
 		cancel()
 		db.Close()
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
+	metrics.StartServer(config.MetricsAddr)
 
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
@@ -187,6 +190,7 @@ func (c *CryptoSim) setupAccounts() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 		if finalized {
+			c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
 			c.dataGenerator.ReportFinalizeBlock()
 		}
 
@@ -205,6 +209,7 @@ func (c *CryptoSim) setupAccounts() error {
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
+	c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
 	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
@@ -248,6 +253,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 		if finalized {
 			c.dataGenerator.ReportFinalizeBlock()
+			c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -269,6 +275,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 	c.dataGenerator.ReportFinalizeBlock()
+	c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()))

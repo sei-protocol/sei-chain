@@ -132,8 +132,6 @@ func (d *Database) FinalizeBlock(
 
 	finalizationStart := time.Now()
 
-	d.transactionsInCurrentBlock = 0
-
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
 	for key, value := range d.batch.Iterator() {
 		changeSets = append(changeSets, &proto.NamedChangeSet{
@@ -169,7 +167,8 @@ func (d *Database) FinalizeBlock(
 	}
 
 	finalizationFinish := time.Now()
-	d.metrics.ReportBlockFinalized(finalizationFinish.Sub(finalizationStart))
+	d.metrics.ReportBlockFinalized(finalizationFinish.Sub(finalizationStart), d.transactionsInCurrentBlock)
+	d.transactionsInCurrentBlock = 0
 
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++
