@@ -110,14 +110,19 @@ func (d *Database) TransactionCount() int64 {
 }
 
 // Commit the current batch if it has reached the configured number of transactions.
+// Returns true if the batch was finalized, false if not.
 func (d *Database) MaybeFinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
-) error {
+) (bool, error) {
 	if d.transactionsInCurrentBlock >= int64(d.config.TransactionsPerBlock) {
-		return d.FinalizeBlock(nextAccountID, nextErc20ContractID, false)
+		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, false)
+		if err != nil {
+			return false, fmt.Errorf("failed to finalize block: %w", err)
+		}
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // Push the current block out to the database.

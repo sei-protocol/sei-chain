@@ -50,15 +50,11 @@ func BuildTransaction(
 	dataGenerator *DataGenerator,
 ) (*transaction, error) {
 
-	// The maximum account ID for existing transactions. If random account returns a new account ID,
-	// that ID may be greater than this value.
-	maxAccountID := dataGenerator.NextAccountID() - 1
-
-	srcAccountID, srcAccountAddress, isSrcNew, err := dataGenerator.RandomAccount(maxAccountID)
+	srcAccountID, srcAccountAddress, isSrcNew, err := dataGenerator.RandomAccount()
 	if err != nil {
 		return nil, fmt.Errorf("failed to select source account: %w", err)
 	}
-	dstAccountID, dstAccountAddress, isDstNew, err := dataGenerator.RandomAccount(maxAccountID)
+	dstAccountID, dstAccountAddress, isDstNew, err := dataGenerator.RandomAccount()
 	if err != nil {
 		return nil, fmt.Errorf("failed to select destination account: %w", err)
 	}

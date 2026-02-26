@@ -131,10 +131,12 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)
 	}
 	if c.Erc20StorageSlotSize < minErc20StorageSlotSize {
-		return fmt.Errorf("Erc20StorageSlotSize must be at least %d (got %d)", minErc20StorageSlotSize, c.Erc20StorageSlotSize)
+		return fmt.Errorf("Erc20StorageSlotSize must be at least %d (got %d)", 
+		minErc20StorageSlotSize, c.Erc20StorageSlotSize)
 	}
 	if c.Erc20InteractionsPerAccount < minErc20InteractionsPerAcct {
-		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)", minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
+		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)", 
+		minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
 	}
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
@@ -158,7 +160,7 @@ func (c *CryptoSimConfig) Validate() error {
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 	return &CryptoSimConfig{
 		MinimumNumberOfAccounts:           1_000_000,
-		HotAccountProbability:             0.5,
+		HotAccountProbability:             0.1,
 		NewAccountProbability:             0.001,
 		HotAccountSetSize:                 100,
 		PaddedAccountSize:                 69, // Not a joke, this is the actual size
@@ -176,7 +178,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
-		ThreadsPerCore:                    1.0,
+		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
 	}

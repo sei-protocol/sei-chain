@@ -33,6 +33,13 @@ type DataGenerator struct {
 
 	// The database for the benchmark.
 	database *Database
+
+	// The highest account ID that has been read in the current block.
+	// Since there are multiple threads of execution, it's possible that one executor may create a new account,
+	// and another may attempt to read/write it before the account is actually created. To avoid this, we will only
+	// choose read/write targets from acccounts that were created before the current block. This field tracks the
+	// highest account ID that was created before the current block.
+	highestSafeAccountIDInBlock int64
 }
 
 // Creates a new data generator.
@@ -71,12 +78,13 @@ func NewDataGenerator(
 	)
 
 	return &DataGenerator{
-		config:               config,
-		nextAccountID:        nextAccountID,
-		nextErc20ContractID:  nextErc20ContractID,
-		rand:                 rand,
-		feeCollectionAddress: feeCollectionAddress,
-		database:             database,
+		config:                      config,
+		nextAccountID:               nextAccountID,
+		nextErc20ContractID:         nextErc20ContractID,
+		rand:                        rand,
+		feeCollectionAddress:        feeCollectionAddress,
+		database:                    database,
+		highestSafeAccountIDInBlock: nextAccountID - 1,
 	}, nil
 }
 
@@ -161,7 +169,7 @@ func (d *DataGenerator) CreateNewErc20Contract(
 
 // Select a random account for a transaction. If an existing account is selected then its ID is guaranteed to be
 // less or equal to maxAccountID. If a new account is created, it may have an ID greater than maxAccountID.
-func (d *DataGenerator) RandomAccount(maxAccountID int64) (id int64, address []byte, isNew bool, err error) {
+func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, err error) {
 
 	hot := d.rand.Float64() < d.config.HotAccountProbability
 
@@ -186,7 +194,7 @@ func (d *DataGenerator) RandomAccount(maxAccountID int64) (id int64, address []b
 		// select an existing account at random
 
 		firstNonHotAccountID := d.config.HotAccountSetSize + 1
-		accountID := d.rand.Int64Range(int64(firstNonHotAccountID), maxAccountID+1)
+		accountID := d.rand.Int64Range(int64(firstNonHotAccountID), d.highestSafeAccountIDInBlock+1)
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
 	}
@@ -241,4 +249,9 @@ func (d *DataGenerator) Close() {
 // Get the address of the fee collection account.
 func (d *DataGenerator) FeeCollectionAddress() []byte {
 	return d.feeCollectionAddress
+}
+
+// This method should be called after a block is finalized.
+func (d *DataGenerator) ReportFinalizeBlock() {
+	d.highestSafeAccountIDInBlock = d.nextAccountID - 1
 }

@@ -176,9 +176,13 @@ func (c *CryptoSim) setupAccounts() error {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
 		c.database.IncrementTransactionCount()
-		err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+		finalized, err := c.database.MaybeFinalizeBlock(
+			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
+		}
+		if finalized {
+			c.dataGenerator.ReportFinalizeBlock()
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -196,6 +200,7 @@ func (c *CryptoSim) setupAccounts() error {
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
+	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
 
@@ -231,9 +236,13 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		if err != nil {
 			return fmt.Errorf("failed to create new ERC20 contract: %w", err)
 		}
-		err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+		finalized, err := c.database.MaybeFinalizeBlock(
+			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
+		}
+		if finalized {
+			c.dataGenerator.ReportFinalizeBlock()
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -254,8 +263,10 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
+	c.dataGenerator.ReportFinalizeBlock()
 
-	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n", int64Commas(c.dataGenerator.NextErc20ContractID()))
+	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
+		int64Commas(c.dataGenerator.NextErc20ContractID()))
 
 	return nil
 }
@@ -285,9 +296,13 @@ func (c *CryptoSim) run() {
 			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
 			c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
 
-			err = c.database.MaybeFinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+			finalized, err := c.database.MaybeFinalizeBlock(
+				c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
+			}
+			if finalized {
+				c.dataGenerator.ReportFinalizeBlock()
 			}
 
 			c.database.IncrementTransactionCount()
@@ -320,9 +335,9 @@ func (c *CryptoSim) generateConsoleReport(force bool) {
 	transactionsPerSecond := float64(c.database.TransactionCount()) / totalElapsedTime.Seconds()
 
 	// Generate the report.
-	fmt.Printf("%s txns executed in %v (%s txns/sec), total number of accounts: %s\r",
+	fmt.Printf("%s txns executed in %s (%s txns/sec), total number of accounts: %s\r",
 		int64Commas(c.database.TransactionCount()),
-		totalElapsedTime,
+		formatDuration(totalElapsedTime, 1),
 		formatNumberFloat64(transactionsPerSecond, 2),
 		int64Commas(c.dataGenerator.NextAccountID()))
 }

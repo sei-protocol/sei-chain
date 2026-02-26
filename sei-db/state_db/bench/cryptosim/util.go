@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
@@ -158,4 +159,33 @@ func formatNumberFloat64(f float64, decimals int) string {
 		b.WriteString(parts[1])
 	}
 	return b.String()
+}
+
+// formatDuration formats d using the most appropriate unit (days, hours, minutes, seconds, ms, µs, ns).
+func formatDuration(d time.Duration, decimals int) string {
+	if decimals < 0 {
+		decimals = 0
+	}
+	format := fmt.Sprintf("%%.%df%%s", decimals)
+	ns := d.Nanoseconds()
+	abs := int64(ns)
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs >= int64(24*time.Hour):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Hour)/24, "d")
+	case abs >= int64(time.Hour):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Hour), "h")
+	case abs >= int64(time.Minute):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Minute), "m")
+	case abs >= int64(time.Second):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Second), "s")
+	case abs >= int64(time.Millisecond):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Millisecond), "ms")
+	case abs >= int64(time.Microsecond):
+		return fmt.Sprintf(format, float64(ns)/float64(time.Microsecond), "µs")
+	default:
+		return fmt.Sprintf(format, float64(ns), "ns")
+	}
 }
