@@ -31,7 +31,7 @@
       },
       "id": 17,
       "panels": [],
-      "title": "Key Metrics",
+      "title": "Overview",
       "type": "row"
     },
     {
@@ -51,7 +51,8 @@
               "viz": false
             }
           },
-          "mappings": []
+          "mappings": [],
+          "unit": "s"
         },
         "overrides": []
       },
@@ -87,7 +88,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(cryptosim_phase_duration_seconds_total[$__rate_interval])",
+          "expr": "rate(main_thread_phase_duration_seconds_total[$__rate_interval])",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"
@@ -182,7 +183,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(cryptosim_phase_duration_seconds_total[$__rate_interval])",
+          "expr": "rate(main_thread_phase_duration_seconds_total[$__rate_interval])",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"
@@ -190,19 +191,6 @@
       ],
       "title": "Time Spent",
       "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 17
-      },
-      "id": 13,
-      "panels": [],
-      "title": "Transactions",
-      "type": "row"
     },
     {
       "datasource": {
@@ -270,7 +258,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 17
       },
       "id": 16,
       "options": {
@@ -305,110 +293,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 25
       },
-      "id": 12,
+      "id": 13,
       "panels": [],
-      "title": "Commit",
+      "title": "Execution",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "showValues": false,
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 27
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "expr": "rate(cryptosim_db_commits_total[$__rate_interval])",
-          "legendFormat": "Blocks / Second",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Commits / Second",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -475,10 +365,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 27
+        "x": 0,
+        "y": 26
       },
-      "id": 4,
+      "id": 19,
       "options": {
         "legend": {
           "calcs": [],
@@ -496,7 +386,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(cryptosim_db_commit_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
           "legendFormat": "p99",
           "range": true,
           "refId": "A"
@@ -507,7 +397,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, rate(cryptosim_db_commit_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "p95",
           "range": true,
@@ -519,7 +409,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, rate(cryptosim_db_commit_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "p50",
           "range": true,
@@ -531,14 +421,14 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "rate(cryptosim_db_commit_latency_seconds_sum[$__rate_interval]) / rate(cryptosim_db_commit_latency_seconds_count[$__rate_interval])",
+          "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"executing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"executing\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "average",
           "range": true,
           "refId": "D"
         }
       ],
-      "title": "DB Commit Time",
+      "title": "Block Execution Time",
       "type": "timeseries"
     },
     {
@@ -547,7 +437,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 34
       },
       "id": 8,
       "panels": [],
@@ -619,7 +509,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 35
       },
       "id": 1,
       "options": {
@@ -718,9 +608,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 36
+        "y": 35
       },
-      "id": 2,
+      "id": 18,
       "options": {
         "legend": {
           "calcs": [],
@@ -738,7 +628,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, rate(cryptosim_block_finalization_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
           "legendFormat": "p99",
           "range": true,
           "refId": "A"
@@ -749,7 +639,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, rate(cryptosim_block_finalization_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "p95",
           "range": true,
@@ -761,7 +651,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, rate(cryptosim_block_finalization_latency_seconds_bucket[$__rate_interval]))",
+          "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "p50",
           "range": true,
@@ -773,7 +663,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "rate(cryptosim_block_finalization_latency_seconds_sum[$__rate_interval]) / rate(cryptosim_block_finalization_latency_seconds_count[$__rate_interval])",
+          "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"finalizing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"finalizing\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "average",
           "range": true,
@@ -789,7 +679,249 @@
         "h": 1,
         "w": 24,
         "x": 0,
+        "y": 43
+      },
+      "id": 12,
+      "panels": [],
+      "title": "Commit",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
         "y": 44
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "rate(cryptosim_db_commits_total[$__rate_interval])",
+          "legendFormat": "Blocks / Second",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Commits / Second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "p95",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "p50",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"committing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"committing\"}[$__rate_interval])",
+          "instant": false,
+          "legendFormat": "average",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "DB Commit Time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
       },
       "id": 9,
       "panels": [],
@@ -862,7 +994,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 53
       },
       "id": 6,
       "options": {
@@ -956,7 +1088,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 53
       },
       "id": 7,
       "options": {
@@ -1051,7 +1183,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 53
+        "y": 61
       },
       "id": 10,
       "options": {
@@ -1145,7 +1277,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 53
+        "y": 61
       },
       "id": 11,
       "options": {
@@ -1190,6 +1322,6 @@
   "timezone": "browser",
   "title": "CryptoSim",
   "uid": "adnqfm4",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }

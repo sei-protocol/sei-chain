@@ -24,5 +24,6 @@
   "Seed": 1337,
   "SetupUpdateIntervalCount": 100000,
   "ThreadsPerCore": 2.0,
-  "TransactionsPerBlock": 1024
+  "TransactionsPerBlock": 1024,
+  "TransactionMetricsSampleRate": 0.001
 }

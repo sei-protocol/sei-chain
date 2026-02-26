@@ -107,6 +107,9 @@ type CryptoSimConfig struct {
 
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
+
+	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
+	TransactionMetricsSampleRate float64
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -139,6 +142,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
 		MetricsAddr:                       ":9090",
+		TransactionMetricsSampleRate:      0.001,
 	}
 }
 
@@ -188,6 +192,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.SetupUpdateIntervalCount < 1 {
 		return fmt.Errorf("SetupUpdateIntervalCount must be at least 1 (got %d)", c.SetupUpdateIntervalCount)
+	}
+	if c.TransactionMetricsSampleRate < 0 || c.TransactionMetricsSampleRate > 1 {
+		return fmt.Errorf("TransactionMetricsSampleRate must be in [0, 1] (got %f)", c.TransactionMetricsSampleRate)
 	}
 	return nil
 }

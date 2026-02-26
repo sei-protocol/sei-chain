@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 )
 
 // The data needed to execute a transaction.
@@ -41,6 +42,10 @@ type transaction struct {
 	newSrcAccountSlot []byte
 	// Pre-generated random value for the destination account's ERC20 storage slot.
 	newDstAccountSlot []byte
+
+	// If true, capture detailed (and potentially expensive) metrics about this transaction.
+	// We may only sample a small percentage of transactions with this flag set to true.
+	captureMetrics bool
 }
 
 // Generate all data needed to execute a transaction.
@@ -83,6 +88,8 @@ func BuildTransaction(
 		newDstData = append([]byte(nil), b...)
 	}
 
+	captureMetrics := dataGenerator.rand.Float64() < dataGenerator.config.TransactionMetricsSampleRate
+
 	return &transaction{
 		srcAccount:        srcAccountAddress,
 		isSrcNew:          isSrcNew,
@@ -98,6 +105,7 @@ func BuildTransaction(
 		newFeeBalance:     dataGenerator.rand.Int64(),
 		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
 		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
+		captureMetrics:    captureMetrics,
 	}, nil
 }
 
@@ -188,7 +196,9 @@ func (txn *transaction) Execute(
 
 	// Apply the random values from the transaction to the account and slot data.
 	const minAccountBytes = 8 // balance at offset 0
-	if len(srcAccountValue) < minAccountBytes || len(dstAccountValue) < minAccountBytes || len(feeValue) < minAccountBytes {
+	if len(srcAccountValue) < minAccountBytes ||
+		len(dstAccountValue) < minAccountBytes ||
+		len(feeValue) < minAccountBytes {
 		return fmt.Errorf("account value too short for balance update (need %d bytes)", minAccountBytes)
 	}
 	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance))
@@ -233,4 +243,12 @@ func (txn *transaction) Execute(
 	}
 
 	return nil
+}
+
+// Returns the current time if captureMetrics is true, otherwise returns a zero time.
+func (txn *transaction) now() time.Time { // TODO
+	if txn.captureMetrics {
+		return time.Now()
+	}
+	return time.Time{}
 }

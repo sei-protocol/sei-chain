@@ -290,7 +290,7 @@ func (c *CryptoSim) run() {
 		c.runHaltedChan <- struct{}{}
 	}()
 
-	c.metrics.SetPhase(PhaseExecuting)
+	c.metrics.SetMainThreadPhase("executing")
 
 	for {
 		select {
