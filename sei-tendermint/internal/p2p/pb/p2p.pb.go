@@ -347,8 +347,12 @@ type Handshake struct {
 	NodeAuthKey *NodePublicKey `protobuf:"bytes,1,opt,name=node_auth_key,json=nodeAuthKey,proto3" json:"node_auth_key,omitempty"`
 	NodeAuthSig []byte         `protobuf:"bytes,2,opt,name=node_auth_sig,json=nodeAuthSig,proto3" json:"node_auth_sig,omitempty"`
 	// NodeAddress that this peer can be dialed at.
-	SelfAddr          *string `protobuf:"bytes,4,opt,name=self_addr,json=selfAddr,proto3,oneof" json:"self_addr,omitempty"`
-	SeiGigaConnection bool    `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
+	SelfAddr *string `protobuf:"bytes,4,opt,name=self_addr,json=selfAddr,proto3,oneof" json:"self_addr,omitempty"`
+	// Initial peer exchange.
+	// It allows to receive peer addresses from a node which doesn't accept any new inbound connections
+	// (it is at full capacity).
+	PexAddrs          []string `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
+	SeiGigaConnection bool     `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -404,6 +408,13 @@ func (x *Handshake) GetSelfAddr() string {
 	return ""
 }
 
+func (x *Handshake) GetPexAddrs() []string {
+	if x != nil {
+		return x.PexAddrs
+	}
+	return nil
+}
+
 func (x *Handshake) GetSeiGigaConnection() bool {
 	if x != nil {
 		return x.SeiGigaConnection
@@ -436,11 +447,12 @@ const file_p2p_p2p_proto_rawDesc = "" +
 	"\rNodePublicKey\x12\x18\n" +
 	"\aed25519\x18\x01 \x01(\fR\aed25519J\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tsecp256k1R\asr25519\"/\n" +
 	"\aPreface\x12$\n" +
-	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xc7\x01\n" +
+	"\x0ests_public_key\x18\x01 \x01(\fR\fstsPublicKey\"\xe4\x01\n" +
 	"\tHandshake\x126\n" +
 	"\rnode_auth_key\x18\x01 \x01(\v2\x12.p2p.NodePublicKeyR\vnodeAuthKey\x12\"\n" +
 	"\rnode_auth_sig\x18\x02 \x01(\fR\vnodeAuthSig\x12 \n" +
-	"\tself_addr\x18\x04 \x01(\tH\x00R\bselfAddr\x88\x01\x01\x12.\n" +
+	"\tself_addr\x18\x04 \x01(\tH\x00R\bselfAddr\x88\x01\x01\x12\x1b\n" +
+	"\tpex_addrs\x18\x05 \x03(\tR\bpexAddrs\x12.\n" +
 	"\x13sei_giga_connection\x18\x03 \x01(\bR\x11seiGigaConnectionB\f\n" +
 	"\n" +
 	"_self_addrBBZ@github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pbb\x06proto3"

@@ -48,23 +48,33 @@ var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
 	},
 }
 
-type handshakeMsg struct {
-	NodeAuth          NodeChallengeSig
+type handshakeSpec struct {
 	SelfAddr          utils.Option[NodeAddress]
+	PexAddrs          []NodeAddress
 	SeiGigaConnection bool
+}
+
+type handshakeMsg struct {
+	NodeAuth NodeChallengeSig
+	handshakeSpec
 }
 
 var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 	Encode: func(m *handshakeMsg) *pb.Handshake {
 		var selfAddr *string
-		if a, ok := m.SelfAddr.Get(); ok {
-			selfAddr = utils.Alloc(a.String())
+		if addr, ok := m.SelfAddr.Get(); ok {
+			selfAddr = utils.Alloc(addr.String())
+		}
+		pexAddrs := make([]string, len(m.PexAddrs))
+		for i, addr := range m.PexAddrs {
+			pexAddrs[i] = addr.String()
 		}
 
 		return &pb.Handshake{
 			NodeAuthKey:       nodePublicKeyConv.Encode(m.NodeAuth.Key()),
 			NodeAuthSig:       m.NodeAuth.sig.Bytes(),
 			SelfAddr:          selfAddr,
+			PexAddrs:          pexAddrs,
 			SeiGigaConnection: m.SeiGigaConnection,
 		}
 	},
@@ -85,10 +95,21 @@ var handshakeMsgConv = protoutils.Conv[*handshakeMsg, *pb.Handshake]{
 			}
 			selfAddr = utils.Some(addr)
 		}
+		pexAddrs := make([]NodeAddress, len(p.PexAddrs))
+		for i, addrString := range p.PexAddrs {
+			addr, err := ParseNodeAddress(addrString)
+			if err != nil {
+				return nil, fmt.Errorf("PexAddrs[%v]: %w", i, err)
+			}
+			pexAddrs[i] = addr
+		}
 		return &handshakeMsg{
-			NodeAuth:          NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
-			SelfAddr:          selfAddr,
-			SeiGigaConnection: p.SeiGigaConnection,
+			NodeAuth: NodeChallengeSig{key: nodeAuthKey, sig: nodeAuthSig},
+			handshakeSpec: handshakeSpec{
+				SelfAddr:          selfAddr,
+				PexAddrs:          pexAddrs,
+				SeiGigaConnection: p.SeiGigaConnection,
+			},
 		}, nil
 	},
 }

@@ -25,7 +25,7 @@ import (
 )
 
 func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
-	hConn, err := handshake(ctx, conn, r.privKey, utils.None[NodeAddress](), false)
+	hConn, err := handshake(ctx, conn, r.privKey, handshakeSpec{SeiGigaConnection: false})
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}

@@ -40,6 +40,10 @@ message Handshake {
   bytes node_auth_sig = 2;
   // NodeAddress that this peer can be dialed at.
   optional string self_addr = 4;
+  // Initial peer exchange.
+  // It allows to receive peer addresses from a node which doesn't accept any new inbound connections
+  // (it is at full capacity).
+  repeated string pex_addrs = 5;
 
   bool sei_giga_connection = 3;
 }

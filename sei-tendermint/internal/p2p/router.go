@@ -20,6 +20,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// the maximum amount of addresses that can be included in a PEX batch.
+const MaxPexAddrs = 100
+
 type errBadNetwork struct{ error }
 
 type PeerManager = peerManager[*ConnV2]
@@ -218,7 +221,16 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.options.SelfAddress, r.giga.IsPresent())
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, handshakeSpec{
+						SelfAddr: r.options.SelfAddress,
+						// Listener has to send pex data, so that dialer can learn about more peers in
+						// case listener does not have capacity for new connections.
+						// Dialer also could potentially send pex data, but there is no benefit from doing so:
+						// - if listener is full, then it won't use the new data. Listener also will not broadcast unverified data to anyone.
+						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
+						PexAddrs:          r.Advertise(MaxPexAddrs),
+						SeiGigaConnection: r.giga.IsPresent(),
+					})
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
@@ -271,9 +283,15 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							var info types.NodeInfo
 							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 								var err error
-								hConn, err = handshake(ctx, tcpConn, r.privKey, r.options.SelfAddress, false)
+								hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
+									SelfAddr:          r.options.SelfAddress,
+									SeiGigaConnection: false,
+								})
 								if err != nil {
 									return fmt.Errorf("handshake(): %w", err)
+								}
+								if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
+									return fmt.Errorf("r.AddAddrs(): %w", err)
 								}
 								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
 									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
