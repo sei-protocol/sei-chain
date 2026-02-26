@@ -11,86 +11,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var evmRPCSpecResults struct{ passed, failed, skipped int }
 
-func rpcURL() string {
-	if u := os.Getenv("SEI_EVM_RPC_URL"); u != "" {
-		return u
-	}
-	return "http://127.0.0.1:8545"
-}
-
-func nodeReachable(c *RPCClient) bool {
-	body, status, err := c.Call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
-	if err != nil || status != http.StatusOK {
-		return false
-	}
-	var m map[string]interface{}
-	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
-}
-
-func logActualResponse(t *testing.T, body []byte) {
-	t.Helper()
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return
-	}
-	if e, ok := m["error"]; ok {
-		var errObj struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		}
-		_ = json.Unmarshal(e, &errObj)
-		t.Logf("actual response: error code=%d message=%q (hint: -32601/not implemented, -32602/invalid params)", errObj.Code, errObj.Message)
-		return
-	}
-	if r, ok := m["result"]; ok {
-		s := string(r)
-		if len(s) > 120 {
-			s = s[:120] + "..."
-		}
-		t.Logf("actual response: result=%s", s)
-	}
-}
-
-func logDebugResponse(t *testing.T, body []byte, pairIdx int) {
-	t.Helper()
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
-		return
-	}
-	if e, ok := m["error"]; ok {
-		t.Logf("[DEBUG] pair %d: response error: %s", pairIdx, e)
-		return
-	}
-	r, ok := m["result"]
-	if !ok {
-		return
-	}
-	var res interface{}
-	if json.Unmarshal(r, &res) != nil {
-		return
-	}
-	resM, ok := res.(map[string]interface{})
-	if !ok {
-		return
-	}
-	if txs, ok := resM["transactions"]; ok {
-		n := -1
-		if arr, ok := txs.([]interface{}); ok {
-			n = len(arr)
-		}
-		t.Logf("[DEBUG] pair %d: result.transactions len=%d", pairIdx, n)
-	}
-}
-
 func TestNodeReachable(t *testing.T) {
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !nodeReachable(client) {
-		t.Fatalf("EVM RPC node not reachable at %s (is the cluster up?)", url)
+	if !waitForNode(client, 3*time.Minute) {
+		if os.Getenv("SEI_EVM_IO_REQUIRE_NODE") != "" {
+			t.Fatalf("EVM RPC node not reachable at %s after 3 minutes (cluster should be up when run via evm_rpc_tests.sh)", url)
+		}
+		t.Skipf("EVM RPC node not reachable at %s after 3 minutes (no cluster; run evm_rpc_tests.sh for smoke test)", url)
 	}
 	t.Logf("RPC node reachable at %s", url)
 }
@@ -129,8 +62,11 @@ func TestEVMRPCSpec(t *testing.T) {
 
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !nodeReachable(client) {
-		t.Fatalf("EVM RPC node not reachable at %s (start cluster first)", url)
+	if !waitForNode(client, 60*time.Second) {
+		if os.Getenv("SEI_EVM_IO_REQUIRE_NODE") != "" {
+			t.Fatalf("EVM RPC node not reachable at %s after 60s (cluster should be up when run via evm_rpc_tests.sh)", url)
+		}
+		t.Skipf("EVM RPC node not reachable at %s after 60s (no cluster; run evm_rpc_tests.sh for full suite)", url)
 	}
 
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
@@ -267,4 +203,88 @@ func TestEVMRPCSpecSummary(t *testing.T) {
 	t.Logf("  Skipped: %d", s)
 	t.Logf("  Pass rate: %.1f%%", rate)
 	t.Logf("=======================================================")
+}
+
+func rpcURL() string {
+	if u := os.Getenv("SEI_EVM_RPC_URL"); u != "" {
+		return u
+	}
+	return "http://127.0.0.1:8545"
+}
+
+func nodeReachable(c *RPCClient) bool {
+	body, status, err := c.Call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
+	if err != nil || status != http.StatusOK {
+		return false
+	}
+	var m map[string]interface{}
+	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
+}
+
+// waitForNode retries nodeReachable until timeout. Returns true if the node became reachable.
+func waitForNode(c *RPCClient, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	tick := 2 * time.Second
+	for time.Now().Before(deadline) {
+		if nodeReachable(c) {
+			return true
+		}
+		time.Sleep(tick)
+	}
+	return false
+}
+
+func logActualResponse(t *testing.T, body []byte) {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return
+	}
+	if e, ok := m["error"]; ok {
+		var errObj struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(e, &errObj)
+		t.Logf("actual response: error code=%d message=%q (hint: -32601/not implemented, -32602/invalid params)", errObj.Code, errObj.Message)
+		return
+	}
+	if r, ok := m["result"]; ok {
+		s := string(r)
+		if len(s) > 120 {
+			s = s[:120] + "..."
+		}
+		t.Logf("actual response: result=%s", s)
+	}
+}
+
+func logDebugResponse(t *testing.T, body []byte, pairIdx int) {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return
+	}
+	if e, ok := m["error"]; ok {
+		t.Logf("[DEBUG] pair %d: response error: %s", pairIdx, e)
+		return
+	}
+	r, ok := m["result"]
+	if !ok {
+		return
+	}
+	var res interface{}
+	if json.Unmarshal(r, &res) != nil {
+		return
+	}
+	resM, ok := res.(map[string]interface{})
+	if !ok {
+		return
+	}
+	if txs, ok := resM["transactions"]; ok {
+		n := -1
+		if arr, ok := txs.([]interface{}); ok {
+			n = len(arr)
+		}
+		t.Logf("[DEBUG] pair %d: result.transactions len=%d", pairIdx, n)
+	}
 }
