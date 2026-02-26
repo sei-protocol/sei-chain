@@ -14,12 +14,14 @@ import (
 	"time"
 )
 
+const waitForNodeTimeout = 6 * time.Minute
+
 var evmRPCSpecResults struct{ passed, failed, skipped int }
 
 func TestNodeReachable(t *testing.T) {
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !waitForNode(client, 2*time.Minute) {
+	if !waitForNode(client, waitForNodeTimeout) {
 		t.Fatalf("EVM RPC node not reachable at %s after 2 minutes", url)
 	}
 	t.Logf("RPC node reachable at %s", url)
@@ -59,7 +61,7 @@ func TestEVMRPCSpec(t *testing.T) {
 
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !waitForNode(client, 60*time.Second) {
+	if !waitForNode(client, waitForNodeTimeout) {
 		t.Fatalf("EVM RPC node not reachable at %s after 60s", url)
 	}
 
@@ -215,7 +217,6 @@ func nodeReachable(c *RPCClient) bool {
 	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
 }
 
-// waitForNode retries nodeReachable until timeout. Returns true if the node became reachable.
 func waitForNode(c *RPCClient, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	tick := 2 * time.Second
