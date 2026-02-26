@@ -184,10 +184,9 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 
 		persistent: newPool[C](poolConfig{selfID: selfID}),
 		regular: newPool[C](poolConfig{
-			selfID:          selfID,
-			maxConns:        utils.Some(options.maxConns()),
-			maxAddrs:        utils.Some(options.maxPeers()),
-			maxAddrsPerPeer: utils.Some(maxAddrsPerPeer),
+			selfID:   selfID,
+			maxConns: utils.Some(options.maxConns()),
+			maxAddrs: utils.Some(options.maxPeers()),
 		}),
 	}
 	isBlockSyncPeer := map[types.NodeID]bool{}
@@ -369,13 +368,9 @@ func (m *peerManager[C]) Peers() []types.NodeID {
 func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
 	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
-		peerAddrs := inner.regular.addrs
-		if inner.isPersistent[id] {
-			peerAddrs = inner.persistent.addrs
-		}
-		if pa, ok := peerAddrs[id]; ok {
-			for addr := range pa.addrs {
-				addrs = append(addrs, addr)
+		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
+			if pa, ok := pool.addrs[id]; ok {
+				addrs = append(addrs, pa.addr)
 			}
 		}
 	}

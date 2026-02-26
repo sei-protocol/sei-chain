@@ -143,22 +143,20 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 	for range 6 {
 		ids = append(ids, makeNodeID(rng))
 	}
-	addrs := map[types.NodeID][]NodeAddress{}
+	addrs := map[types.NodeID]NodeAddress{}
 	for _, id := range ids {
-		for range rng.Intn(3) + 2 {
-			addrs[id] = append(addrs[id], makeAddrFor(rng, id))
-		}
+		addrs[id] = makeAddrFor(rng, id)
 	}
 
 	t.Log("Collect all persistent peers' addrs.")
 	var persistentAddrs []NodeAddress
 	for _, id := range ids[:2] {
-		persistentAddrs = append(persistentAddrs, addrs[id]...)
+		persistentAddrs = append(persistentAddrs, addrs[id])
 	}
 	t.Log("Collect some other peers' addrs.")
 	var bootstrapAddrs []NodeAddress
 	for _, id := range ids[2:] {
-		bootstrapAddrs = append(bootstrapAddrs, addrs[id][:2]...)
+		bootstrapAddrs = append(bootstrapAddrs, addrs[id])
 	}
 	unconditionalPeer := makeNodeID(rng)
 
@@ -180,71 +178,58 @@ func TestPeerManager_AddAddrs(t *testing.T) {
 
 	t.Log("Check that all expected addrs are present.")
 	for _, id := range ids[:2] {
-		require.ElementsMatch(t, addrs[id], m.Addresses(id))
+		require.Equal(t, utils.Slice(addrs[id]), m.Addresses(id))
 	}
 	for _, id := range ids[2:] {
-		require.ElementsMatch(t, addrs[id][:2], m.Addresses(id))
+		require.Equal(t, utils.Slice(addrs[id]), m.Addresses(id))
 	}
-	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
+	require.NoError(t, utils.TestDiff(nil, m.Addresses(unconditionalPeer)))
 
 	t.Log("Add all addresses at once.")
 	var allAddrs []NodeAddress
 	for _, id := range ids {
-		allAddrs = append(allAddrs, addrs[id]...)
+		allAddrs = append(allAddrs, addrs[id])
 	}
 	require.NoError(t, m.AddAddrs(allAddrs))
 
 	t.Log("Check that all expected addrs are present.")
 	for _, id := range ids {
-		require.ElementsMatch(t, addrs[id], m.Addresses(id))
+		require.Equal(t, utils.Slice(addrs[id]), m.Addresses(id))
 	}
-	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
+	require.Equal(t, nil, m.Addresses(unconditionalPeer))
 
 	t.Log("Check that adding new persistent peer address is ignored.")
 	require.NoError(t, m.AddAddrs(utils.Slice(makeAddrFor(rng, ids[0]))))
-	require.ElementsMatch(t, addrs[ids[0]], m.Addresses(ids[0]))
+	require.Equal(t, utils.Slice(addrs[ids[0]]), m.Addresses(ids[0]))
 	require.NoError(t, m.AddAddrs(utils.Slice(makeAddrFor(rng, unconditionalPeer))))
-	require.ElementsMatch(t, []NodeAddress{}, m.Addresses(unconditionalPeer))
-
-	t.Log("Check that maxAddrsPerPeer limit is respected")
-	idWithManyAddrs := ids[2]
-	for range maxAddrsPerPeer {
-		addrs[idWithManyAddrs] = append(addrs[idWithManyAddrs], makeAddrFor(rng, idWithManyAddrs))
-	}
-	require.NoError(t, m.AddAddrs(addrs[idWithManyAddrs]))
-	// WARNING: here we implicitly assume that addresses are added in order.
-	require.ElementsMatch(t, addrs[idWithManyAddrs][:maxAddrsPerPeer], m.Addresses(idWithManyAddrs))
+	require.Equal(t, nil, m.Addresses(unconditionalPeer))
 
 	t.Log("Check that options.MaxPeers limit is respected")
 	var newAddrs []NodeAddress
 	for range maxPeers {
 		addr := makeAddr(rng)
 		ids = append(ids, addr.NodeID)
-		addrs[addr.NodeID] = utils.Slice(addr)
+		addrs[addr.NodeID] = addr
 		newAddrs = append(newAddrs, addr)
 	}
 	require.NoError(t, m.AddAddrs(newAddrs))
 	expectedIDs := maxPeers + 2 // There are 2 persistent peers.
 	for _, id := range ids[:expectedIDs] {
-		expectedAddrs := min(len(addrs[id]), maxAddrsPerPeer)
-		require.ElementsMatch(t, addrs[id][:expectedAddrs], m.Addresses(id))
+		require.Equal(t, utils.Slice(addrs[id]), m.Addresses(id))
 	}
 	for _, id := range ids[expectedIDs:] {
-		require.ElementsMatch(t, nil, m.Addresses(id))
+		require.Equal(t, nil, m.Addresses(id))
 	}
 
 	t.Log("Check that failed addresses are replaceable")
-	m.DialFailed(addrs[idWithManyAddrs][1]) // we fail 1 arbitrary adderess
-	newAddrs = addrs[idWithManyAddrs][maxAddrsPerPeer:]
+	idToFail := ids[2]
+	m.DialFailed(addrs[idToFail]) // we fail 1 arbitrary address
+	newAddrs = utils.Slice(makeAddrFor(rng, idToFail))
 	require.NoError(t, m.AddAddrs(newAddrs)) // we try to add some addrs
-	want := append([]NodeAddress(nil), addrs[idWithManyAddrs][:maxAddrsPerPeer]...)
-	want[1] = newAddrs[0] // the first one newly added should replace the failed one.
-	require.ElementsMatch(t, want, m.Addresses(idWithManyAddrs))
+	require.ElementsMatch(t, newAddrs, m.Addresses(idToFail))
 
 	t.Log("Check that failed peers are replaceable")
-	for _, addr := range addrs[ids[4]] {
-		m.DialFailed(addr)
-	}
+	m.DialFailed(addrs[ids[4]])
 	newPeer := makeAddr(rng)
 	require.NoError(t, m.AddAddrs(utils.Slice(newPeer)))
 	require.ElementsMatch(t, nil, m.Addresses(ids[4]))
@@ -330,11 +315,9 @@ func TestPeerManager_DialRoundRobin(t *testing.T) {
 	for _, addrs := range utils.Slice(&persistentAddrs, &bootstrapAddrs) {
 		for range 10 {
 			id := makeNodeID(rng)
-			for range rng.Intn(5) + 1 {
-				addr := makeAddrFor(rng, id)
-				addrsMap[addr] = true
-				*addrs = append(*addrs, addr)
-			}
+			addr := makeAddrFor(rng, id)
+			addrsMap[addr] = true
+			*addrs = append(*addrs, addr)
 		}
 	}
 	m := makePeerManager(makeNodeID(rng), &RouterOptions{

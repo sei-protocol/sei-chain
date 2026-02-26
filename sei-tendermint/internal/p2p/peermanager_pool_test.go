@@ -19,15 +19,14 @@ func TestPool_AddAddr_deduplicate(t *testing.T) {
 	addr := makeAddrFor(rng, peer)
 	require.True(t, p.AddAddr(addr))
 	require.False(t, p.AddAddr(addr))
-	require.Len(t, p.addrs[peer].addrs, 1)
+	require.Equal(t, addr, p.addrs[peer].addr)
 }
 
 func TestPool_AddAddr_prune_failed_addrs(t *testing.T) {
 	rng := utils.TestRng()
 	selfID := makeNodeID(rng)
 	p := newPool[*fakeConn](poolConfig{
-		selfID:          selfID,
-		maxAddrsPerPeer: utils.Some(1),
+		selfID: selfID,
 	})
 	peer := makeNodeID(rng)
 	for range 3 {
@@ -75,11 +74,9 @@ func TestPool_TryStartDial_RoundRobin(t *testing.T) {
 	addrs := map[NodeAddress]bool{}
 	for range 10 {
 		id := makeNodeID(rng)
-		for range rng.Intn(5) + 1 {
-			addr := makeAddrFor(rng, id)
-			addrs[addr] = true
-			p.AddAddr(addr)
-		}
+		addr := makeAddrFor(rng, id)
+		addrs[addr] = true
+		require.True(t, p.AddAddr(addr))
 	}
 	// Go through all addresses multiple times.
 	for range 3 {
