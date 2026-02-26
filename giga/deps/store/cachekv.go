@@ -194,11 +194,92 @@ func (store *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 }
 
 func (store *Store) Iterator(start, end []byte) types.Iterator {
-	panic("unexpected iterator call on cachekv store")
+	// Get all keys in range (merges parent + cache)
+	keyStrs := store.GetAllKeyStrsInRange(start, end)
+	sort.Strings(keyStrs)
+
+	// Build key-value pairs
+	items := make([]kv, 0, len(keyStrs))
+	for _, k := range keyStrs {
+		v := store.Get([]byte(k))
+		if v != nil { // Skip deleted keys
+			items = append(items, kv{key: []byte(k), value: v})
+		}
+	}
+
+	return newMemIterator(items, true)
 }
 
 // ReverseIterator implements types.KVStore.
-// Stub: delegates to parent store reverse iterator (minimal implementation to satisfy interface)
 func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
-	panic("unexpected reverse iterator call on cachekv store")
+	// Get all keys in range (merges parent + cache)
+	keyStrs := store.GetAllKeyStrsInRange(start, end)
+	sort.Strings(keyStrs)
+
+	// Build key-value pairs in reverse order
+	items := make([]kv, 0, len(keyStrs))
+	for i := len(keyStrs) - 1; i >= 0; i-- {
+		k := keyStrs[i]
+		v := store.Get([]byte(k))
+		if v != nil { // Skip deleted keys
+			items = append(items, kv{key: []byte(k), value: v})
+		}
+	}
+
+	return newMemIterator(items, false)
+}
+
+// kv represents a key-value pair for iteration
+type kv struct {
+	key   []byte
+	value []byte
+}
+
+// memIterator iterates over an in-memory slice of key-value pairs
+type memIterator struct {
+	items     []kv
+	index     int
+	ascending bool
+}
+
+func newMemIterator(items []kv, ascending bool) *memIterator {
+	return &memIterator{
+		items:     items,
+		index:     0,
+		ascending: ascending,
+	}
+}
+
+func (mi *memIterator) Domain() (start []byte, end []byte) {
+	return nil, nil
+}
+
+func (mi *memIterator) Valid() bool {
+	return mi.index < len(mi.items)
+}
+
+func (mi *memIterator) Next() {
+	mi.index++
+}
+
+func (mi *memIterator) Key() []byte {
+	if !mi.Valid() {
+		panic("iterator is invalid")
+	}
+	return mi.items[mi.index].key
+}
+
+func (mi *memIterator) Value() []byte {
+	if !mi.Valid() {
+		panic("iterator is invalid")
+	}
+	return mi.items[mi.index].value
+}
+
+func (mi *memIterator) Close() error {
+	return nil
+}
+
+func (mi *memIterator) Error() error {
+	return nil
 }
