@@ -316,60 +316,46 @@ func RecoverCompositeStateStore(
 	changelogPath string,
 	compositeStore *CompositeStateStore,
 ) error {
-	cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
-
-	if compositeStore.evmStore == nil {
-		return ReplayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
-			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+	if compositeStore.cosmosStore != nil {
+		cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
+		logger.Info("Recovering Cosmos state store",
+			"cosmosVersion", cosmosVersion,
+			"changelogPath", changelogPath,
+		)
+		if err := ReplayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+			changesets := entry.Changesets
+			if compositeStore.config.WriteMode == config.SplitWrite {
+				changesets = stripEVMFromChangesets(changesets)
 			}
-			return compositeStore.SetLatestVersion(entry.Version)
-		})
-	}
-
-	evmVersion := compositeStore.evmStore.GetLatestVersion()
-	evmWriteActive := compositeStore.config.WriteMode != config.CosmosOnlyWrite
-
-	startVersion := cosmosVersion
-	if evmWriteActive && evmVersion < cosmosVersion {
-		startVersion = evmVersion
-	}
-
-	logger.Info("Recovering CompositeStateStore",
-		"cosmosVersion", cosmosVersion,
-		"evmVersion", evmVersion,
-		"startVersion", startVersion,
-		"writeMode", compositeStore.config.WriteMode,
-		"changelogPath", changelogPath,
-	)
-
-	return ReplayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
-		needsCosmos := entry.Version > cosmosVersion
-		needsEVM := evmWriteActive && entry.Version > evmVersion
-
-		if needsCosmos {
-			if err := compositeStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
-				return fmt.Errorf("failed to apply changeset at version %d: %w", entry.Version, err)
+			if err := compositeStore.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {
+				return fmt.Errorf("failed to apply cosmos changeset at version %d: %w", entry.Version, err)
 			}
-			return compositeStore.SetLatestVersion(entry.Version)
+			return compositeStore.cosmosStore.SetLatestVersion(entry.Version)
+		}); err != nil {
+			return fmt.Errorf("failed to recover cosmos state store: %w", err)
 		}
+	}
 
-		if needsEVM {
+	if compositeStore.evmStore != nil {
+		evmVersion := compositeStore.evmStore.GetLatestVersion()
+		logger.Info("Recovering EVM state store",
+			"evmVersion", evmVersion,
+			"changelogPath", changelogPath,
+		)
+		if err := ReplayWAL(logger, changelogPath, evmVersion, -1, func(entry proto.ChangelogEntry) error {
 			evmChangesets := filterEVMChangesets(entry.Changesets)
 			if len(evmChangesets) > 0 {
 				if err := compositeStore.evmStore.ApplyChangesetSync(entry.Version, evmChangesets); err != nil {
-					logger.Error("Failed to apply EVM changeset during catch-up, continuing",
-						"version", entry.Version, "error", err)
+					return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
 				}
 			}
-			if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
-				logger.Error("Failed to set EVM version during catch-up, continuing",
-					"version", entry.Version, "error", err)
-			}
+			return compositeStore.evmStore.SetLatestVersion(entry.Version)
+		}); err != nil {
+			return fmt.Errorf("failed to recover EVM state store: %w", err)
 		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 type WALEntryHandler func(entry proto.ChangelogEntry) error
