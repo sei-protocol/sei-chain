@@ -208,13 +208,23 @@ func (d *DataGenerator) randomErc20Contract() ([]byte, error) {
 	hot := d.rand.Float64() < d.config.HotErc20ContractProbability
 
 	if hot {
-		erc20ContractID := d.rand.Int64Range(0, int64(d.config.HotErc20ContractSetSize))
+		hotMax := int64(d.config.HotErc20ContractSetSize)
+		if d.nextErc20ContractID < hotMax {
+			hotMax = d.nextErc20ContractID
+		}
+		if hotMax <= 0 {
+			return nil, fmt.Errorf("no ERC20 contracts available for hot selection")
+		}
+		erc20ContractID := d.rand.Int64Range(0, hotMax)
 		addr := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
 		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
 	}
 
 	// Otherwise, select a cold ERC20 contract at random.
-
+	if d.nextErc20ContractID <= int64(d.config.HotErc20ContractSetSize) {
+		return nil, fmt.Errorf("no cold ERC20 contracts available (have %d, hot set size %d)",
+			d.nextErc20ContractID, d.config.HotErc20ContractSetSize)
+	}
 	erc20ContractID := d.rand.Int64Range(
 		int64(d.config.HotErc20ContractSetSize),
 		d.nextErc20ContractID)

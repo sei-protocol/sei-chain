@@ -7,7 +7,7 @@ import (
 
 // The data needed to execute a transaction.
 type transaction struct {
-	// The simualted ERC20 contract that will be interacted with. This value is read.
+	// The simulated ERC20 contract that will be interacted with. This value is read.
 	erc20Contract []byte
 
 	// The source account that will be interacted with. This value is read and written.
@@ -191,6 +191,10 @@ func (txn *transaction) Execute(
 	}
 
 	// Apply the random values from the transaction to the account and slot data.
+	const minAccountBytes = 8 // balance at offset 0
+	if len(srcAccountValue) < minAccountBytes || len(dstAccountValue) < minAccountBytes || len(feeValue) < minAccountBytes {
+		return fmt.Errorf("account value too short for balance update (need %d bytes)", minAccountBytes)
+	}
 	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance))
 	binary.BigEndian.PutUint64(dstAccountValue[:8], uint64(txn.newDstBalance))
 	binary.BigEndian.PutUint64(feeValue[:8], uint64(txn.newFeeBalance))

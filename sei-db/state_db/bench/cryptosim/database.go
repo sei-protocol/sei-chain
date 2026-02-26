@@ -49,7 +49,7 @@ func NewDatabase(
 // Insert a key-value pair into the database/cache.
 //
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
-// safe with finalizeBlock().
+// safe with FinalizeBlock().
 func (d *Database) Put(key []byte, value []byte) error {
 	stringKey := string(key)
 
@@ -71,8 +71,8 @@ func (d *Database) Put(key []byte, value []byte) error {
 
 // Retrieve a value from the database/cache.
 //
-// This method is safe to call concurrently with other calls to put() and get(). Is not thread
-// safe with finalizeBlock().
+// This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
+// safe with FinalizeBlock().
 func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	stringKey := string(key)
 
@@ -154,11 +154,6 @@ func (d *Database) FinalizeBlock(
 		}},
 	})
 
-	err := d.db.ApplyChangeSets(changeSets)
-	if err != nil {
-		return fmt.Errorf("failed to apply change sets: %w", err)
-	}
-
 	// Persist the ERC20 contract ID counter in every batch.
 	erc20ContractIDValue := make([]byte, 8)
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
@@ -168,6 +163,11 @@ func (d *Database) FinalizeBlock(
 			{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue},
 		}},
 	})
+
+	err := d.db.ApplyChangeSets(changeSets)
+	if err != nil {
+		return fmt.Errorf("failed to apply change sets: %w", err)
+	}
 
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++

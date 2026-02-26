@@ -64,8 +64,8 @@ func NewCryptoSim(
 	config *CryptoSimConfig,
 ) (*CryptoSim, error) {
 
-	if config.DataDir == "" {
-		return nil, fmt.Errorf("data directory is required")
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
@@ -105,7 +105,7 @@ func NewCryptoSim(
 	fmt.Printf("Running benchmark with %d threads.\n", threadCount)
 
 	executors := make([]*TransactionExecutor, threadCount)
-	for i := range threadCount {
+	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
 			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize)
 	}
@@ -255,7 +255,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 
-	fmt.Printf("There are now %d simulated ERC20 contracts in the database.\n", c.dataGenerator.NextErc20ContractID())
+	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n", int64Commas(c.dataGenerator.NextErc20ContractID()))
 
 	return nil
 }

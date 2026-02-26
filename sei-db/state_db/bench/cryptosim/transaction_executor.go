@@ -1,6 +1,9 @@
 package cryptosim
 
-import "context"
+import (
+	"context"
+	"log"
+)
 
 type TransactionExecutor struct {
 	ctx context.Context
@@ -72,7 +75,9 @@ func (e *TransactionExecutor) mainLoop() {
 		case request := <-e.workChan:
 			switch request := request.(type) {
 			case *transaction:
-				request.Execute(e.database, e.feeCollectionAddress)
+				if err := request.Execute(e.database, e.feeCollectionAddress); err != nil {
+					log.Printf("transaction execution error: %v", err)
+				}
 			case flushRequest:
 				request.doneChan <- struct{}{}
 			}

@@ -8,6 +8,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
+const (
+	minPaddedAccountSize        = 8
+	minErc20StorageSlotSize     = 32
+	minErc20InteractionsPerAcct = 1
+)
+
 // Defines the configuration for the cryptosim benchmark.
 type CryptoSimConfig struct {
 
@@ -51,7 +57,7 @@ type CryptoSimConfig struct {
 	// The size of a simulated ERC20 storage slot, in bytes.
 	Erc20StorageSlotSize int
 
-	// The number of of ERC20 tokens that each account will interact with.
+	// The number of ERC20 tokens that each account will interact with.
 	// Each account will have an eth storage slot for tracking the balance of each ERC20 token it owns.
 	// It is not legal to modify this value after the benchmark has started.
 	Erc20InteractionsPerAccount int
@@ -100,6 +106,54 @@ type CryptoSimConfig struct {
 	ExecutorQueueSize int
 }
 
+// Validate checks that the configuration is sane and returns an error if not.
+func (c *CryptoSimConfig) Validate() error {
+	if c.DataDir == "" {
+		return fmt.Errorf("DataDir is required")
+	}
+	if c.PaddedAccountSize < minPaddedAccountSize {
+		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)
+	}
+	if c.MinimumNumberOfAccounts < c.HotAccountSetSize+2 {
+		return fmt.Errorf("MinimumNumberOfAccounts must be at least HotAccountSetSize+2 (%d)", c.HotAccountSetSize+2)
+	}
+	if c.MinimumNumberOfErc20Contracts < c.HotErc20ContractSetSize+1 {
+		return fmt.Errorf("MinimumNumberOfErc20Contracts must be at least HotErc20ContractSetSize+1 (%d)",
+			c.HotErc20ContractSetSize+1)
+	}
+	if c.HotAccountProbability < 0 || c.HotAccountProbability > 1 {
+		return fmt.Errorf("HotAccountProbability must be in [0, 1] (got %f)", c.HotAccountProbability)
+	}
+	if c.NewAccountProbability < 0 || c.NewAccountProbability > 1 {
+		return fmt.Errorf("NewAccountProbability must be in [0, 1] (got %f)", c.NewAccountProbability)
+	}
+	if c.HotErc20ContractProbability < 0 || c.HotErc20ContractProbability > 1 {
+		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)
+	}
+	if c.Erc20StorageSlotSize < minErc20StorageSlotSize {
+		return fmt.Errorf("Erc20StorageSlotSize must be at least %d (got %d)", minErc20StorageSlotSize, c.Erc20StorageSlotSize)
+	}
+	if c.Erc20InteractionsPerAccount < minErc20InteractionsPerAcct {
+		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)", minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
+	}
+	if c.TransactionsPerBlock < 1 {
+		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
+	}
+	if c.BlocksPerCommit < 1 {
+		return fmt.Errorf("BlocksPerCommit must be at least 1 (got %d)", c.BlocksPerCommit)
+	}
+	if c.CannedRandomSize < 8 {
+		return fmt.Errorf("CannedRandomSize must be at least 8 (got %d)", c.CannedRandomSize)
+	}
+	if c.ExecutorQueueSize < 1 {
+		return fmt.Errorf("ExecutorQueueSize must be at least 1 (got %d)", c.ExecutorQueueSize)
+	}
+	if c.SetupUpdateIntervalCount < 1 {
+		return fmt.Errorf("SetupUpdateIntervalCount must be at least 1 (got %d)", c.SetupUpdateIntervalCount)
+	}
+	return nil
+}
+
 // Returns the default configuration for the cryptosim benchmark.
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 	return &CryptoSimConfig{
@@ -143,6 +197,9 @@ func LoadConfigFromFile(path string) (*CryptoSimConfig, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 	return cfg, nil
 }
