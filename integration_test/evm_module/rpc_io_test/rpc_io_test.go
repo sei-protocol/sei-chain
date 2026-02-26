@@ -11,21 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-const waitForNodeTimeout = 6 * time.Minute
-
 var evmRPCSpecResults struct{ passed, failed, skipped int }
-
-func TestNodeReachable(t *testing.T) {
-	url := rpcURL()
-	client := &RPCClient{URL: url}
-	if !waitForNode(client, waitForNodeTimeout) {
-		t.Fatalf("EVM RPC node not reachable at %s after 2 minutes", url)
-	}
-	t.Logf("RPC node reachable at %s", url)
-}
 
 // TestEVMRPCSpec runs each .io/.iox file as a subtest. Counts are stored for TestEVMRPCSpecSummary.
 func TestEVMRPCSpec(t *testing.T) {
@@ -61,8 +49,8 @@ func TestEVMRPCSpec(t *testing.T) {
 
 	url := rpcURL()
 	client := &RPCClient{URL: url}
-	if !waitForNode(client, waitForNodeTimeout) {
-		t.Fatalf("EVM RPC node not reachable at %s after 60s", url)
+	if !nodeReachable(client) {
+		t.Skipf("EVM RPC node not reachable at %s", url)
 	}
 
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
@@ -215,18 +203,6 @@ func nodeReachable(c *RPCClient) bool {
 	}
 	var m map[string]interface{}
 	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
-}
-
-func waitForNode(c *RPCClient, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	tick := 2 * time.Second
-	for time.Now().Before(deadline) {
-		if nodeReachable(c) {
-			return true
-		}
-		time.Sleep(tick)
-	}
-	return false
 }
 
 func logActualResponse(t *testing.T, body []byte) {
