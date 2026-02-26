@@ -16,7 +16,7 @@ func TestNewStateStore(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "pebbledb")
 	ssConfig := config.StateStoreConfig{
-		Backend:          "pebbledb",
+		Backend:          config.PebbleDBBackend,
 		AsyncWriteBuffer: 100,
 		KeepRecent:       500,
 	}

@@ -12,7 +12,7 @@ type OpenFunc func(dbHome string, cfg config.StateStoreConfig) (types.MvccDB, er
 // Defaults to PebbleDB. RocksDB is available only when built with -tags=rocksdbBackend.
 func ResolveBackend(backendName string) OpenFunc {
 	switch backendName {
-	case "rocksdb":
+	case config.RocksDBBackend:
 		return openRocksDB
 	default:
 		return openPebbleDB
