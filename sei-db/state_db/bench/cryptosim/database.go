@@ -178,9 +178,8 @@ func (d *Database) FinalizeBlock(
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
+		d.metrics.ReportDBCommit(time.Since(finalizationFinish))
 		d.uncommittedBlockCount = 0
-
-		// commitFinish := time.Now() // TODO
 	}
 
 	return nil

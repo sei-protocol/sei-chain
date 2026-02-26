@@ -11,8 +11,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROMETHEUS_DIR="${SCRIPT_DIR}/prometheus-config"
-PROMETHEUS_CONFIG="${PROMETHEUS_DIR}/prometheus.yml"
+PROMETHEUS_CONFIG="${SCRIPT_DIR}/prometheus.yaml"
 CONTAINER_NAME="cryptosim-prometheus"
 PROMETHEUS_UI_PORT=9091
 CRYPTOSIM_METRICS_PORT=9090

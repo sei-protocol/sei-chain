@@ -13,6 +13,8 @@ import (
 type CryptosimMetrics struct {
 	blocksFinalizedTotal     prometheus.Counter
 	blockFinalizationLatency prometheus.Observer
+	dbCommitsTotal           prometheus.Counter
+	dbCommitLatency          prometheus.Observer
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
@@ -33,8 +35,17 @@ func NewCryptosimMetrics(
 		Help:    "Time to finalize a block in seconds",
 		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
 	})
+	dbCommitsTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_db_commits_total",
+		Help: "Total number of database commits",
+	})
+	dbCommitLatency := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "cryptosim_db_commit_latency_seconds",
+		Help:    "Time to commit to the database in seconds",
+		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
+	})
 
-	reg.MustRegister(blocksFinalizedTotal, blockFinalizationLatency)
+	reg.MustRegister(blocksFinalizedTotal, blockFinalizationLatency, dbCommitsTotal, dbCommitLatency)
 
 	if metricsAddr != "" {
 		startMetricsServer(ctx, reg, metricsAddr)
@@ -43,6 +54,8 @@ func NewCryptosimMetrics(
 	return &CryptosimMetrics{
 		blocksFinalizedTotal:     blocksFinalizedTotal,
 		blockFinalizationLatency: blockFinalizationLatency,
+		dbCommitsTotal:           dbCommitsTotal,
+		dbCommitLatency:          dbCommitLatency,
 	}
 }
 
@@ -70,4 +83,13 @@ func (m *CryptosimMetrics) ReportBlockFinalized(latency time.Duration) {
 	}
 	m.blocksFinalizedTotal.Inc()
 	m.blockFinalizationLatency.Observe(latency.Seconds())
+}
+
+// ReportDBCommit records that a database commit completed and the latency.
+func (m *CryptosimMetrics) ReportDBCommit(latency time.Duration) {
+	if m == nil {
+		return
+	}
+	m.dbCommitsTotal.Inc()
+	m.dbCommitLatency.Observe(latency.Seconds())
 }

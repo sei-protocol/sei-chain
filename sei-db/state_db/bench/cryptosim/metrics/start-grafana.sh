@@ -11,9 +11,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GRAFANA_DIR="${SCRIPT_DIR}/grafana-config"
-DATASOURCES_DIR="${GRAFANA_DIR}/provisioning/datasources"
-DATASOURCE_CONFIG="${DATASOURCES_DIR}/prometheus.yaml"
+DATASOURCE_CONFIG="${SCRIPT_DIR}/grafana.yaml"
 CONTAINER_NAME="cryptosim-grafana"
 GRAFANA_PORT=3000
 PROMETHEUS_UI_PORT=9091
@@ -67,7 +65,7 @@ docker run -d \
 	--name "$CONTAINER_NAME" \
 	${ADD_HOST_FLAG:+"$ADD_HOST_FLAG"} \
 	-p "${GRAFANA_PORT}:3000" \
-	-v "${GRAFANA_DIR}/provisioning:/etc/grafana/provisioning:ro" \
+	-v "${DATASOURCE_CONFIG}:/etc/grafana/provisioning/datasources/grafana.yaml:ro" \
 	-e "GF_SECURITY_ADMIN_USER=admin" \
 	-e "GF_SECURITY_ADMIN_PASSWORD=admin" \
 	-e "GF_USERS_ALLOW_SIGN_UP=false" \
