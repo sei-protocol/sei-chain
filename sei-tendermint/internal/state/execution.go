@@ -891,6 +891,44 @@ func ExecCommitBlock(
 	return finalizeBlockResponse.AppHash, nil
 }
 
+// ExecCommitBlockFull is like ExecCommitBlock but also returns per-tx results.
+// It is used by shadow replay to compare execution outcomes between engine versions.
+func ExecCommitBlockFull(
+	ctx context.Context,
+	appConn abciclient.Client,
+	block *types.Block,
+	logger log.Logger,
+	store Store,
+	initialHeight int64,
+) (appHash []byte, txResults []*abci.ExecTxResult, err error) {
+	resp, err := appConn.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+		Hash:                  block.Hash(),
+		Height:                block.Height,
+		Time:                  block.Time,
+		Txs:                   block.Txs.ToSliceOfBytes(),
+		DecidedLastCommit:     buildLastCommitInfo(block, store, initialHeight),
+		ByzantineValidators:   block.Evidence.ToABCI(),
+		AppHash:               block.AppHash,
+		ValidatorsHash:        block.ValidatorsHash,
+		ConsensusHash:         block.ConsensusHash,
+		DataHash:              block.DataHash,
+		EvidenceHash:          block.EvidenceHash,
+		LastBlockHash:         block.LastBlockID.Hash,
+		LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
+		LastBlockPartSetHash:  block.LastBlockID.Hash,
+		LastCommitHash:        block.LastCommitHash,
+		LastResultsHash:       block.LastResultsHash,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("FinalizeBlock at height %d: %w", block.Height, err)
+	}
+	if _, err = appConn.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("Commit at height %d: %w", block.Height, err)
+	}
+	logger.Info("shadow-executed block", "height", block.Height)
+	return resp.AppHash, resp.TxResults, nil
+}
+
 func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) {
 	base := blockExec.blockStore.Base()
 	if retainHeight <= base {
