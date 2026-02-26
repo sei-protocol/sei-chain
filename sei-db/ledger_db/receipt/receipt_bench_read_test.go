@@ -334,9 +334,9 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 }
 
 // pebbleFilterLogs mirrors the production evmrpc fallback path for pebble:
-// iterate each block in [fromBlock, toBlock], use the block-level bloom to skip
-// non-matching blocks, use per-tx bloom to skip non-matching receipts, then
-// exact-match filter the remaining logs.
+// blocks are split into batches of benchWorkerBatchSize and processed in
+// parallel (bounded by NumCPU), matching the worker-pool structure in
+// evmrpc/filter.go GetLogsByFilters.
 func pebbleFilterLogs(
 	store ReceiptStore,
 	ctx sdk.Context,
@@ -350,41 +350,120 @@ func pebbleFilterLogs(
 		filterIdxs = ethbloom.EncodeFilters(crit.Addresses, crit.Topics)
 	}
 
+	var batches [][2]uint64
+	for lo := fromBlock; lo <= toBlock; lo += benchWorkerBatchSize {
+		hi := lo + benchWorkerBatchSize - 1
+		if hi > toBlock {
+			hi = toBlock
+		}
+		batches = append(batches, [2]uint64{lo, hi})
+	}
+
+	results := make([][]*ethtypes.Log, len(batches))
+	var batchErr atomic.Value
+	sem := make(chan struct{}, runtime.NumCPU())
+	var wg sync.WaitGroup
+
+	for i, b := range batches {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, lo, hi uint64) {
+			defer func() { <-sem; wg.Done() }()
+			if batchErr.Load() != nil {
+				return
+			}
+			logs, err := processBlockBatch(store, ctx, lo, hi, txIndex, hasFilters, filterIdxs, crit)
+			if err != nil {
+				batchErr.Store(err)
+				return
+			}
+			results[idx] = logs
+		}(i, b[0], b[1])
+	}
+	wg.Wait()
+
+	if e := batchErr.Load(); e != nil {
+		return nil, e.(error)
+	}
+
+	var all []*ethtypes.Log
+	for _, r := range results {
+		all = append(all, r...)
+	}
+	return all, nil
+}
+
+// collectLogsForBlock processes a single block: bloom-skip the block, then for
+// each transaction fetch the receipt, bloom-skip non-matching txs, and exact-match
+// the remaining logs.  Mirrors production collectLogs in evmrpc/filter.go.
+func collectLogsForBlock(
+	store ReceiptStore,
+	ctx sdk.Context,
+	block uint64,
+	txIndex *readBenchIndex,
+	hasFilters bool,
+	filterIdxs [][]ethbloom.BloomIndexes,
+	crit filters.FilterCriteria,
+) ([]*ethtypes.Log, error) {
+	if hasFilters {
+		blockBloom := txIndex.blockBlooms[block]
+		if blockBloom != (ethtypes.Bloom{}) && !ethbloom.MatchFilters(blockBloom, filterIdxs) {
+			return nil, nil
+		}
+	}
+
+	hashes := txIndex.blockTxHashes[block]
 	var result []*ethtypes.Log
-	for block := fromBlock; block <= toBlock; block++ {
-		if hasFilters {
-			blockBloom := txIndex.blockBlooms[block]
-			if blockBloom != (ethtypes.Bloom{}) && !ethbloom.MatchFilters(blockBloom, filterIdxs) {
+	var logStartIndex uint
+	for _, txHash := range hashes {
+		receipt, err := store.GetReceipt(ctx, txHash)
+		if err != nil {
+			return nil, fmt.Errorf("block %d tx %s: %w", block, txHash.Hex(), err)
+		}
+
+		if hasFilters && len(receipt.LogsBloom) > 0 {
+			txBloom := ethtypes.Bloom(receipt.LogsBloom)
+			if !ethbloom.MatchFilters(txBloom, filterIdxs) {
+				logStartIndex += uint(len(receipt.Logs))
 				continue
 			}
 		}
 
-		hashes := txIndex.blockTxHashes[block]
-		var logStartIndex uint
-		for _, txHash := range hashes {
-			receipt, err := store.GetReceipt(ctx, txHash)
-			if err != nil {
-				return nil, fmt.Errorf("block %d tx %s: %w", block, txHash.Hex(), err)
-			}
-
-			if hasFilters && len(receipt.LogsBloom) > 0 {
-				txBloom := ethtypes.Bloom(receipt.LogsBloom)
-				if !ethbloom.MatchFilters(txBloom, filterIdxs) {
-					logStartIndex += uint(len(receipt.Logs))
-					continue
-				}
-			}
-
-			txLogs := getLogsForTx(receipt, logStartIndex)
-			logStartIndex += uint(len(txLogs))
-			for _, lg := range txLogs {
-				if ethbloom.MatchesCriteria(lg, crit) {
-					result = append(result, lg)
-				}
+		txLogs := getLogsForTx(receipt, logStartIndex)
+		logStartIndex += uint(len(txLogs))
+		for _, lg := range txLogs {
+			if ethbloom.MatchesCriteria(lg, crit) {
+				result = append(result, lg)
 			}
 		}
 	}
 	return result, nil
+}
+
+// processBlockBatch processes a contiguous sub-range [fromBlock, toBlock] of
+// blocks, collecting and locally sorting the results.  Mirrors production's
+// processBatch which calls GetLogsForBlockPooled per block then sorts.
+func processBlockBatch(
+	store ReceiptStore, ctx sdk.Context,
+	fromBlock, toBlock uint64, txIndex *readBenchIndex,
+	hasFilters bool, filterIdxs [][]ethbloom.BloomIndexes,
+	crit filters.FilterCriteria,
+) ([]*ethtypes.Log, error) {
+	var batch []*ethtypes.Log
+	for block := fromBlock; block <= toBlock; block++ {
+		logs, err := collectLogsForBlock(store, ctx, block, txIndex, hasFilters, filterIdxs, crit)
+		if err != nil {
+			return nil, err
+		}
+		batch = append(batch, logs...)
+	}
+	sort.Slice(batch, func(i, j int) bool {
+		if batch[i].BlockNumber != batch[j].BlockNumber {
+			return batch[i].BlockNumber < batch[j].BlockNumber
+		}
+		return batch[i].Index < batch[j].Index
+	})
+	return batch, nil
 }
 
 // readBenchIndex tracks block-to-txHash mappings and block-level bloom filters
