@@ -6,17 +6,18 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // CryptosimMetrics holds Prometheus metrics for the cryptosim benchmark.
 type CryptosimMetrics struct {
-	reg                        *prometheus.Registry
-	ctx                        context.Context
-	blocksFinalizedTotal       prometheus.Counter
-	transactionsProcessedTotal prometheus.Counter
-	totalAccounts              prometheus.Gauge
-	totalErc20Contracts        prometheus.Gauge
+	reg                          *prometheus.Registry
+	ctx                          context.Context
+	blocksFinalizedTotal         prometheus.Counter
+	transactionsProcessedTotal   prometheus.Counter
+	totalAccounts                prometheus.Gauge
+	totalErc20Contracts          prometheus.Gauge
 	dbCommitsTotal               prometheus.Counter
 	mainThreadPhase              *PhaseTimer
 	transactionPhaseTimerFactory *PhaseTimerFactory
@@ -30,6 +31,12 @@ func NewCryptosimMetrics(
 	metricsAddr string,
 ) *CryptosimMetrics {
 	reg := prometheus.NewRegistry()
+
+	// Register automatic process and Go runtime metrics (CPU, memory, goroutines, etc.)
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
 
 	blocksFinalizedTotal := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "cryptosim_blocks_finalized_total",
@@ -63,12 +70,12 @@ func NewCryptosimMetrics(
 	)
 
 	return &CryptosimMetrics{
-		reg:                        reg,
-		ctx:                        ctx,
-		blocksFinalizedTotal:       blocksFinalizedTotal,
-		transactionsProcessedTotal: transactionsProcessedTotal,
-		totalAccounts:              totalAccounts,
-		totalErc20Contracts:        totalErc20Contracts,
+		reg:                          reg,
+		ctx:                          ctx,
+		blocksFinalizedTotal:         blocksFinalizedTotal,
+		transactionsProcessedTotal:   transactionsProcessedTotal,
+		totalAccounts:                totalAccounts,
+		totalErc20Contracts:          totalErc20Contracts,
 		dbCommitsTotal:               dbCommitsTotal,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
