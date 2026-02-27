@@ -76,10 +76,13 @@ type CommitStore struct {
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
 
-	// Pending writes, keyed by internal DB key (address or addr||slot).
+	// Pending writes buffer
+	// accountWrites: key = address string (20 bytes), value = AccountValue
+	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
 	accountWrites map[string]*pendingAccountWrite
 	codeWrites    map[string]*pendingKVWrite
 	storageWrites map[string]*pendingKVWrite
+	legacyWrites  map[string]*pendingKVWrite
 
 	changelog         wal.ChangelogWAL
 	pendingChangeSets []*proto.NamedChangeSet
@@ -107,6 +110,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
 		storageWrites:     make(map[string]*pendingKVWrite),
+		legacyWrites:      make(map[string]*pendingKVWrite),
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
@@ -344,16 +348,14 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}
 	toClose = append(toClose, s.changelog)
 
-	for _, name := range []string{accountDBDir, codeDBDir, storageDBDir} {
-		var db db_engine.DB
-		switch name {
-		case accountDBDir:
-			db = s.accountDB
-		case codeDBDir:
-			db = s.codeDB
-		case storageDBDir:
-			db = s.storageDB
-		}
+	// Load per-DB local metadata (or initialize if not present)
+	dataDBs := map[string]db_engine.DB{
+		accountDBDir: s.accountDB,
+		codeDBDir:    s.codeDB,
+		storageDBDir: s.storageDB,
+		legacyDBDir:  s.legacyDB,
+	}
+	for name, db := range dataDBs {
 		meta, err := loadLocalMeta(db)
 		if err != nil {
 			return fmt.Errorf("failed to load %s local meta: %w", name, err)

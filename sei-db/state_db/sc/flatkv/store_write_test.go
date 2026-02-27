@@ -143,6 +143,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
 	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 
 	// Commit version 2 with storage write only
 	addr := Address{0x99}
@@ -156,6 +157,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	require.Equal(t, int64(2), s.localMeta[storageDBDir].CommittedVersion)
 	require.Equal(t, int64(2), s.localMeta[accountDBDir].CommittedVersion)
 	require.Equal(t, int64(2), s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, int64(2), s.localMeta[legacyDBDir].CommittedVersion)
 }
 
 func TestStoreWriteAccountAndCode(t *testing.T) {
@@ -360,6 +362,157 @@ func TestAccountValueStorage(t *testing.T) {
 	codeHashValue, found := s.Get(codeHashKey)
 	require.True(t, found, "CodeHash should be found")
 	require.Equal(t, expectedCodeHash[:], codeHashValue, "CodeHash should match")
+}
+
+// =============================================================================
+// Legacy DB Write Tests
+// =============================================================================
+
+func TestStoreWriteLegacyKeys(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xAA}
+
+	// CodeSize key (0x09 || addr) goes to legacy
+	codeSizeKey := append([]byte{0x09}, addr[:]...)
+	codeSizeValue := []byte{0x00, 0x10}
+
+	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	// Should be in legacyWrites pending buffer
+	require.Len(t, s.legacyWrites, 1)
+
+	commitAndCheck(t, s)
+
+	// Verify legacyDB LocalMeta is updated
+	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+
+	// Verify data persisted in legacyDB (full key preserved)
+	stored, err := s.legacyDB.Get(codeSizeKey)
+	require.NoError(t, err)
+	require.Equal(t, codeSizeValue, stored)
+}
+
+func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x12, 0x34}
+	slot := Slot{0x56, 0x78}
+
+	pairs := []*iavl.KVPair{
+		// Storage (optimized)
+		{
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+			Value: []byte{0x11, 0x22},
+		},
+		// Nonce (optimized)
+		{
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Value: []byte{0, 0, 0, 0, 0, 0, 0, 42},
+		},
+		// Code (optimized)
+		{
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+			Value: []byte{0x60, 0x60, 0x60},
+		},
+		// CodeSize → legacy (0x09 || addr)
+		{
+			Key:   append([]byte{0x09}, addr[:]...),
+			Value: []byte{0x00, 0x03},
+		},
+	}
+
+	cs := &proto.NamedChangeSet{
+		Name:      "test",
+		Changeset: iavl.ChangeSet{Pairs: pairs},
+	}
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	// All four DBs should have LocalMeta at version 1
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+
+	// Verify legacy data persisted
+	codeSizeKey := append([]byte{0x09}, addr[:]...)
+	stored, err := s.legacyDB.Get(codeSizeKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x00, 0x03}, stored)
+}
+
+func TestStoreWriteDeleteLegacyKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xCC}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
+	// Write
+	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x10}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	// Verify exists
+	got, found := s.Get(legacyKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0x00, 0x10}, got)
+
+	// Delete
+	cs2 := makeChangeSet(legacyKey, nil, true)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	// Should not be found
+	_, found = s.Get(legacyKey)
+	require.False(t, found)
+}
+
+func TestStoreLegacyKeyIncludedInLtHash(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	// Get initial hash
+	hash1 := s.RootHash()
+
+	// Write a legacy key
+	addr := Address{0xDD}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+	cs := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	// LtHash should change after applying legacy key changeset
+	hash2 := s.RootHash()
+	require.NotEqual(t, hash1, hash2, "LtHash should change when legacy key is written")
+
+	commitAndCheck(t, s)
+
+	// After commit, hash should be stable
+	hash3 := s.RootHash()
+	require.Equal(t, hash2, hash3)
+}
+
+func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	// Commit with no writes — all DBs including legacy should advance LocalMeta
+	emptyCS := &proto.NamedChangeSet{
+		Name:      "empty",
+		Changeset: iavl.ChangeSet{Pairs: nil},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	commitAndCheck(t, s)
+
+	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 }
 
 // =============================================================================

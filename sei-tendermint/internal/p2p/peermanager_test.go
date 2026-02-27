@@ -495,22 +495,28 @@ func TestPeerManager_MaxOutboundConnectionsForDialing(t *testing.T) {
 				return fmt.Errorf("dialing + outbound = %v, want <= %v", got, maxOutbound)
 			}
 			s.Spawn(func() error {
-				defer dialsAndConns.Add(-1)
 				if i%2 == 0 {
 					if err := utils.Sleep(ctx, 10*time.Millisecond); err != nil {
 						return err
 					}
+					// Keep accounting in sync with slot release: decrement before
+					// unblocking StartDial to avoid transient overcount in this test.
+					dialsAndConns.Add(-1)
 					m.DialFailed(addr)
 					return nil
 				}
 				conn := makeConnTo(addr)
 				if err := m.Connected(conn); err != nil {
+					dialsAndConns.Add(-1)
 					return err
 				}
-				defer m.Disconnected(conn)
 				if err := utils.Sleep(ctx, 20*time.Millisecond); err != nil {
+					dialsAndConns.Add(-1)
+					m.Disconnected(conn)
 					return err
 				}
+				dialsAndConns.Add(-1)
+				m.Disconnected(conn)
 				return nil
 			})
 		}
