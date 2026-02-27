@@ -169,7 +169,7 @@ func TestEVMStateStore(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
+	store, err := NewEVMStateStore(dir, "pebbledb", logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -221,7 +221,7 @@ func TestEVMStateStoreParallel(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
+	store, err := NewEVMStateStore(dir, "pebbledb", logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -487,7 +487,7 @@ func TestCodeSizeGoesToLegacyDB(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	store, err := NewEVMStateStore(dir, logger.NewNopLogger())
+	store, err := NewEVMStateStore(dir, "pebbledb", logger.NewNopLogger())
 	require.NoError(t, err)
 	defer store.Close()
 

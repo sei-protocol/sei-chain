@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
@@ -24,8 +23,8 @@ import (
 // Always created by NewStateStore; when WriteMode==CosmosOnlyWrite && ReadMode==CosmosOnlyRead,
 // evmStore is nil and the composite store behaves identically to a plain state store.
 type CompositeStateStore struct {
-	cosmosStore    types.StateStore   // Main MVCC PebbleDB for all modules
-	evmStore       *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
+	cosmosStore    types.StateStore   // Main MVCC store for all modules (PebbleDB or RocksDB)
+	evmStore       *evm.EVMStateStore // Separate EVM DBs (nil if disabled)
 	pruningManager *pruning.Manager   // Pruning lifecycle manager (nil if pruning disabled)
 	config         config.StateStoreConfig
 	logger         logger.Logger
@@ -33,22 +32,20 @@ type CompositeStateStore struct {
 	closeErr       error
 }
 
-// NewCompositeStateStore creates a new composite state store that manages both Cosmos_SS and EVM_SS.
-// It initializes both stores internally and starts pruning on the composite store.
+// NewCompositeStateStore wraps a pre-created Cosmos store with optional EVM stores.
+// The cosmosStore is created by the caller (ss.NewStateStore) using the backend registry,
+// so both PebbleDB and RocksDB are supported without a direct import here.
 // EVM stores are opened when ssConfig.EVMEnabled() returns true (derived from WriteMode/ReadMode).
+// The same backend (ssConfig.Backend) is used for EVM sub-databases.
 func NewCompositeStateStore(
+	cosmosStore types.StateStore,
 	ssConfig config.StateStoreConfig,
 	homeDir string,
 	log logger.Logger,
 ) (*CompositeStateStore, error) {
-	// Initialize Cosmos store (without pruning - we start pruning on composite)
 	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
 		dbHome = ssConfig.DBDirectory
-	}
-	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cosmos store: %w", err)
 	}
 
 	cs := &CompositeStateStore{
@@ -64,13 +61,14 @@ func NewCompositeStateStore(
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
 		}
 
-		evmStore, err := evm.NewEVMStateStore(evmDir, log)
+		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig.Backend, log)
 		if err != nil {
 			_ = cosmosStore.Close()
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
+		log.Info("EVM state store enabled", "dir", evmDir, "backend", ssConfig.Backend,
+			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 
 	// Recover from WAL if needed (handles EVM_SS being behind Cosmos_SS)

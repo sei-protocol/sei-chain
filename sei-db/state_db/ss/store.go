@@ -30,10 +30,22 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 }
 
 // NewStateStore creates a CompositeStateStore which handles both Cosmos and EVM data.
+// The Cosmos backend (pebbledb or rocksdb) is selected via ssConfig.Backend using the
+// registered backend initializers. The same backend is used for EVM sub-databases.
 // When WriteMode/ReadMode are both cosmos_only (the default), the EVM stores are not
 // opened and the composite store behaves identically to a plain state store.
 func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
-	return composite.NewCompositeStateStore(ssConfig, homeDir, logger)
+	initializer, ok := backends[BackendType(ssConfig.Backend)]
+	if !ok {
+		return nil, fmt.Errorf("unsupported backend: %s", ssConfig.Backend)
+	}
+
+	cosmosStore, err := initializer(homeDir, ssConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cosmos store: %w", err)
+	}
+
+	return composite.NewCompositeStateStore(cosmosStore, ssConfig, homeDir, logger)
 }
 
 // RecoverStateStore replays WAL entries that the state store hasn't applied yet.

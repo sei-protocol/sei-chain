@@ -18,10 +18,10 @@ type dbWrite struct {
 	pairs   []*iavl.KVPair
 }
 
-// EVMStateStore manages multiple EVMDatabase instances, one per EVM data type.
+// EVMStateStore manages multiple EVMDBEngine instances, one per EVM data type.
 // Each database has an optional background goroutine for async writes.
 type EVMStateStore struct {
-	databases map[EVMStoreType]*EVMDatabase
+	databases map[EVMStoreType]EVMDBEngine
 	dir       string
 	logger    logger.Logger
 
@@ -30,50 +30,57 @@ type EVMStateStore struct {
 	asyncWg  sync.WaitGroup
 }
 
-// NewEVMStateStore creates a new EVM state store with all sub-databases.
+// NewEVMStateStore creates a new EVM state store with all sub-databases
+// using the specified backend ("pebbledb" or "rocksdb").
 // Each database gets a background worker goroutine for async writes.
-func NewEVMStateStore(dir string, log logger.Logger) (*EVMStateStore, error) {
+func NewEVMStateStore(dir string, backend string, log logger.Logger) (*EVMStateStore, error) {
+	if backend == "" {
+		backend = "pebbledb"
+	}
+
+	opener, ok := GetEVMBackend(backend)
+	if !ok {
+		return nil, fmt.Errorf("unsupported EVM backend: %s", backend)
+	}
+
 	store := &EVMStateStore{
-		databases: make(map[EVMStoreType]*EVMDatabase),
+		databases: make(map[EVMStoreType]EVMDBEngine),
 		asyncChs:  make(map[EVMStoreType]chan dbWrite),
 		dir:       dir,
 		logger:    log,
 	}
 
-	// Open a database for each EVM store type
 	for _, storeType := range AllEVMStoreTypes() {
-		db, err := OpenDB(dir, storeType)
+		db, err := opener(dir, storeType)
 		if err != nil {
-			// Close any already opened DBs
 			_ = store.Close()
 			return nil, fmt.Errorf("failed to open EVM DB for %s: %w", StoreTypeName(storeType), err)
 		}
 		store.databases[storeType] = db
 
-		// Start per-DB background worker
 		ch := make(chan dbWrite, asyncBufferSize)
 		store.asyncChs[storeType] = ch
 		store.asyncWg.Add(1)
-		go store.asyncWorker(db, ch)
+		go store.asyncWorker(storeType, db, ch)
 	}
 
 	return store, nil
 }
 
 // asyncWorker processes writes from a per-DB channel until it's closed.
-func (s *EVMStateStore) asyncWorker(db *EVMDatabase, ch <-chan dbWrite) {
+func (s *EVMStateStore) asyncWorker(storeType EVMStoreType, db EVMDBEngine, ch <-chan dbWrite) {
 	defer s.asyncWg.Done()
 	for w := range ch {
 		if err := db.ApplyBatch(w.pairs, w.version); err != nil {
-			s.logger.Error("async EVM write failed", "storeType", StoreTypeName(db.storeType), "version", w.version, "error", err)
+			s.logger.Error("async EVM write failed", "storeType", StoreTypeName(storeType), "version", w.version, "error", err)
 			continue
 		}
 		_ = db.SetLatestVersion(w.version)
 	}
 }
 
-// GetDB returns the database for a specific store type
-func (s *EVMStateStore) GetDB(storeType EVMStoreType) *EVMDatabase {
+// GetDB returns the database engine for a specific store type.
+func (s *EVMStateStore) GetDB(storeType EVMStoreType) EVMDBEngine {
 	return s.databases[storeType]
 }
 
@@ -142,7 +149,7 @@ func (s *EVMStateStore) ApplyChangesetParallel(version int64, changes map[EVMSto
 		}
 
 		wg.Add(1)
-		go func(db *EVMDatabase, pairs []*iavl.KVPair) {
+		go func(db EVMDBEngine, pairs []*iavl.KVPair) {
 			defer wg.Done()
 			if err := db.ApplyBatch(pairs, version); err != nil {
 				errCh <- err
@@ -239,7 +246,7 @@ func (s *EVMStateStore) Prune(version int64) error {
 
 	for _, db := range s.databases {
 		wg.Add(1)
-		go func(db *EVMDatabase) {
+		go func(db EVMDBEngine) {
 			defer wg.Done()
 			if err := db.Prune(version); err != nil {
 				errCh <- err
