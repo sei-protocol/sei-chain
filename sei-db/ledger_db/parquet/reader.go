@@ -108,19 +108,17 @@ func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptPattern := filepath.Join(r.basePath, "receipts_*.parquet")
-	receiptFiles, err := filepath.Glob(receiptPattern)
-	if err != nil {
-		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
-	}
-	r.closedReceiptFiles = r.validateAndCleanFiles(receiptFiles, "logs")
+	r.closedReceiptFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("receipts"), "logs")
+	r.closedLogFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("logs"), "receipts")
+}
 
-	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
-	logFiles, err := filepath.Glob(logPattern)
+func (r *Reader) getAllParquetFilesByPrefix(prefix string) []string {
+	pattern := filepath.Join(r.basePath, prefix+"_*.parquet")
+	files, err := filepath.Glob(pattern)
 	if err != nil {
-		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
+		log.Printf("failed to glob %s parquet files with pattern %q: %v", prefix, pattern, err)
 	}
-	r.closedLogFiles = r.validateAndCleanFiles(logFiles, "receipts")
+	return files
 }
 
 // validateAndCleanFiles checks the last file for readability. If it is corrupt
