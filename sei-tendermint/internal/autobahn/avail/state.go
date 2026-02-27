@@ -7,7 +7,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -38,15 +40,96 @@ type State struct {
 	key   types.SecretKey
 	data  *data.State
 	inner utils.Watch[*inner]
+
+	// persisters groups all disk persistence components.
+	// Always initialized: real when stateDir is set, no-op otherwise.
+	persisters persisters
+}
+
+// persisters holds all disk persistence components. Either all are present
+// (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
+// state access goes through State methods.
+type persisters struct {
+	appQC     persist.Persister[*apb.AppQC]
+	blocks    *persist.BlockPersister
+	commitQCs *persist.CommitQCPersister
+}
+
+func newNoOpPersisters() persisters {
+	return persisters{
+		appQC:     persist.NewNoOpPersister[*apb.AppQC](),
+		blocks:    persist.NewNoOpBlockPersister(),
+		commitQCs: persist.NewNoOpCommitQCPersister(),
+	}
+}
+
+// innerFile is the A/B file prefix for avail inner state persistence.
+const innerFile = "avail_inner"
+
+// loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
+func loadPersistedState(dir string) (*loadedAvailState, persisters, error) {
+	appQCPersister, persistedProto, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
+	if err != nil {
+		return nil, persisters{}, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+	}
+
+	var appQC utils.Option[*types.AppQC]
+	if pb, ok := persistedProto.Get(); ok {
+		qc, err := types.AppQCConv.Decode(pb)
+		if err != nil {
+			return nil, persisters{}, fmt.Errorf("decode persisted AppQC: %w", err)
+		}
+		log.Info().
+			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
+			Uint64("globalNumber", uint64(qc.Proposal().GlobalNumber())).
+			Msg("loaded persisted AppQC")
+		appQC = utils.Some(qc)
+	}
+
+	bp, blocks, err := persist.NewBlockPersister(dir)
+	if err != nil {
+		return nil, persisters{}, fmt.Errorf("NewBlockPersister: %w", err)
+	}
+
+	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
+	if err != nil {
+		return nil, persisters{}, fmt.Errorf("NewCommitQCPersister: %w", err)
+	}
+
+	loaded := &loadedAvailState{appQC: appQC, commitQCs: commitQCs, blocks: blocks}
+	pers := persisters{appQC: appQCPersister, blocks: bp, commitQCs: cp}
+	return loaded, pers, nil
 }
 
 // NewState constructs a new availability state.
-func NewState(key types.SecretKey, data *data.State) *State {
-	return &State{
-		key:   key,
-		data:  data,
-		inner: utils.NewWatch(newInner(data.Committee())),
+// stateDir is None when persistence is disabled (testing only); a no-op
+// persist goroutine still runs to bump cursors without disk I/O.
+func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
+	var loaded utils.Option[*loadedAvailState]
+	var pers persisters
+
+	if dir, ok := stateDir.Get(); ok {
+		l, p, err := loadPersistedState(dir)
+		if err != nil {
+			return nil, err
+		}
+		loaded = utils.Some(l)
+		pers = p
+	} else {
+		pers = newNoOpPersisters()
 	}
+
+	inner, err := newInner(data.Committee(), loaded)
+	if err != nil {
+		return nil, err
+	}
+
+	return &State{
+		key:        key,
+		data:       data,
+		inner:      utils.NewWatch(inner),
+		persisters: pers,
+	}, nil
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
@@ -134,7 +217,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return nil
 		}
 		inner.commitQCs.pushBack(qc)
-		inner.latestCommitQC.Store(utils.Some(qc))
+		// The persist goroutine publishes latestCommitQC after writing to disk
+		// (or immediately for no-op persisters), so consensus won't advance
+		// until the CommitQC is durable.
 		ctrl.Updated()
 		return nil
 	}
@@ -431,6 +516,7 @@ func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*type
 // TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
 func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
+	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -443,18 +529,19 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if q.first < q.next {
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		p := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
-		q.q[q.next] = p
-		q.next += 1
+		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
+		q.pushBack(result)
 		ctrl.Updated()
-		return p, nil
 	}
-	panic("unreachable")
+	return result, nil
 }
 
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		scope.SpawnNamed("persist", func() error {
+			return s.runPersist(ctx, s.persisters)
+		})
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()
@@ -489,4 +576,130 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// runPersist is the main loop for the persist goroutine.
+// Write order: blocks → new CommitQCs → AppQC → delete old CommitQCs.
+// AppQC is written before deleting old CommitQCs so that a crash never
+// leaves the on-disk AppQC pointing at a deleted CommitQC.
+//
+// Blocks are persisted one at a time with inner.nextBlockToPersist
+// updated after each write, so vote latency equals single-block write
+// time regardless of batch size.
+func (s *State) runPersist(ctx context.Context, pers persisters) error {
+	var lastPersistedAppQC utils.Option[*types.AppQC]
+	for {
+		batch, err := s.collectPersistBatch(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, proposal := range batch.blocks {
+			h := proposal.Msg().Block().Header()
+			if err := pers.blocks.PersistBlock(proposal); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
+			}
+			s.markBlockPersisted(h.Lane(), h.BlockNumber()+1)
+		}
+		if err := pers.blocks.DeleteBefore(batch.laneFirsts); err != nil {
+			return fmt.Errorf("block deleteBefore: %w", err)
+		}
+
+		commitQCCur := batch.commitQCCur
+		for _, qc := range batch.commitQCs {
+			if err := pers.commitQCs.PersistCommitQC(qc); err != nil {
+				return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
+			}
+			commitQCCur = qc.Index() + 1
+		}
+
+		// Persist AppQC after new CommitQCs (so the matching
+		// CommitQC is on disk) but before deleting old ones (so a
+		// crash never leaves the on-disk AppQC pointing at a
+		// deleted CommitQC).
+		// TODO: use a single WAL for AppQC and CommitQCs to make
+		// this atomic rather than relying on write order.
+		if batch.appQC != lastPersistedAppQC {
+			if appQC, ok := batch.appQC.Get(); ok {
+				if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+					return fmt.Errorf("persist AppQC: %w", err)
+				}
+			}
+			lastPersistedAppQC = batch.appQC
+		}
+
+		if len(batch.commitQCs) > 0 {
+			if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
+				return fmt.Errorf("commitqc deleteBefore: %w", err)
+			}
+			s.markCommitQCsPersisted(commitQCCur, utils.Some(batch.commitQCs[len(batch.commitQCs)-1]))
+		}
+	}
+}
+
+// persistBatch holds the data collected under lock for one persist iteration.
+type persistBatch struct {
+	blocks        []*types.Signed[*types.LaneProposal]
+	commitQCs     []*types.CommitQC
+	appQC         utils.Option[*types.AppQC]
+	laneFirsts    map[types.LaneID]types.BlockNumber
+	commitQCFirst types.RoadIndex
+	commitQCCur   types.RoadIndex // snapshot of nextCommitQCToPersist (clamped)
+}
+
+// markBlockPersisted advances the per-lane block persistence cursor.
+// Called after each individual block write so that RecvBatch (and therefore
+// voting) unblocks with single-block latency regardless of batch size.
+func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
+	for inner, ctrl := range s.inner.Lock() {
+		inner.nextBlockToPersist[lane] = next
+		ctrl.Updated()
+	}
+}
+
+// markCommitQCsPersisted advances the CommitQC persistence cursor and
+// publishes the latest persisted CommitQC (gating consensus from advancing).
+func (s *State) markCommitQCsPersisted(commitQCCur types.RoadIndex, commitQC utils.Option[*types.CommitQC]) {
+	for inner, ctrl := range s.inner.Lock() {
+		inner.nextCommitQCToPersist = commitQCCur
+		if qc, ok := commitQC.Get(); ok {
+			inner.latestCommitQC.Store(utils.Some(qc))
+		}
+		ctrl.Updated()
+	}
+}
+
+// collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
+func (s *State) collectPersistBatch(ctx context.Context) (persistBatch, error) {
+	var b persistBatch
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			for lane, q := range inner.blocks {
+				if inner.nextBlockToPersist[lane] < q.next {
+					return true
+				}
+			}
+			return inner.nextCommitQCToPersist < inner.commitQCs.next
+		}); err != nil {
+			return b, err
+		}
+		b.laneFirsts = make(map[types.LaneID]types.BlockNumber, len(inner.blocks))
+		for lane, q := range inner.blocks {
+			// Clamp cursor: prune may have deleted entries below q.first
+			// between iterations while the lock was not held.
+			start := max(inner.nextBlockToPersist[lane], q.first)
+			for n := start; n < q.next; n++ {
+				b.blocks = append(b.blocks, q.q[n])
+			}
+			b.laneFirsts[lane] = q.first
+		}
+		commitQCCur := max(inner.nextCommitQCToPersist, inner.commitQCs.first)
+		b.commitQCFirst = inner.commitQCs.first
+		for n := commitQCCur; n < inner.commitQCs.next; n++ {
+			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
+		}
+		b.commitQCCur = commitQCCur
+		b.appQC = inner.latestAppQC
+	}
+	return b, nil
 }

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -44,7 +44,7 @@ type State struct {
 	innerRecv utils.AtomicRecv[inner]
 
 	// persister writes inner's persistedInner to disk when PersistentStateDir is set; None when disabled.
-	persister utils.Option[Persister]
+	persister utils.Option[persist.Persister[*pb.PersistedInner]]
 
 	timeoutVotes utils.Mutex[*timeoutVotes]
 	prepareVotes utils.Mutex[*prepareVotes]
@@ -79,27 +79,42 @@ func (s *State) SubscribeTimeoutQC() utils.AtomicRecv[utils.Option[*types.Timeou
 func NewState(cfg *Config, data *data.State) (*State, error) {
 	// Create persister first so newInner can receive the loaded data
 	// instead of reading the files directly.
-	var pers utils.Option[Persister]
-	var persistedData utils.Option[[]byte]
+	var pers utils.Option[persist.Persister[*pb.PersistedInner]]
+	var persistedData utils.Option[*pb.PersistedInner]
 	if dir, ok := cfg.PersistentStateDir.Get(); ok {
-		p, d, err := newPersister(dir, innerFile)
+		p, d, err := persist.NewPersister[*pb.PersistedInner](dir, innerFile)
 		if err != nil {
-			return nil, fmt.Errorf("newPersister: %w", err)
+			return nil, fmt.Errorf("NewPersister: %w", err)
 		}
-		pers = utils.Some[Persister](p)
+		pers = utils.Some(p)
 		persistedData = d
 	}
+	return newState(cfg, data, pers, persistedData)
+}
 
+// newState is the internal constructor exposed for tests that need to inject
+// a custom persister (e.g. a failing mock). Production code should use NewState.
+func newState(
+	cfg *Config,
+	data *data.State,
+	pers utils.Option[persist.Persister[*pb.PersistedInner]],
+	persistedData utils.Option[*pb.PersistedInner],
+) (*State, error) {
 	initialInner, err := newInner(persistedData, data.Committee())
 	if err != nil {
 		return nil, fmt.Errorf("newInner: %w", err)
+	}
+
+	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
+	if err != nil {
+		return nil, fmt.Errorf("avail.NewState: %w", err)
 	}
 
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
-		avail:     avail.NewState(cfg.Key, data),
+		avail:     availState,
 		inner:     utils.NewMutex(innerSend),
 		innerRecv: innerSend.Subscribe(),
 		persister: pers,
@@ -253,12 +268,7 @@ func (s *State) runOutputs(ctx context.Context) error {
 		}
 		// Persist to disk before broadcasting votes to the network.
 		if p, ok := s.persister.Get(); ok {
-			pb := innerProtoConv.Encode(&i.persistedInner)
-			data, err := proto.Marshal(pb)
-			if err != nil {
-				return fmt.Errorf("marshal persisted inner: %w", err)
-			}
-			if err := p.Persist(data); err != nil {
+			if err := p.Persist(innerProtoConv.Encode(&i.persistedInner)); err != nil {
 				return fmt.Errorf("persist inner: %w", err)
 			}
 		}
