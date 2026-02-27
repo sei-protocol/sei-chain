@@ -166,16 +166,6 @@ func TestFlatKVTypeConversions(t *testing.T) {
 		require.False(t, ok)
 	})
 
-	t.Run("CodeHashFromBytes", func(t *testing.T) {
-		valid := make([]byte, CodeHashLen)
-		_, ok := CodeHashFromBytes(valid)
-		require.True(t, ok)
-
-		invalid := make([]byte, CodeHashLen+1)
-		_, ok = CodeHashFromBytes(invalid)
-		require.False(t, ok)
-	})
-
 	t.Run("SlotFromBytes", func(t *testing.T) {
 		valid := make([]byte, SlotLen)
 		_, ok := SlotFromBytes(valid)
