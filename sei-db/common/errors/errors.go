@@ -10,7 +10,13 @@ var (
 	ErrRecordNotFound = errors.New("record not found")
 	ErrStartAfterEnd  = errors.New("start key after end key")
 	ErrorExportDone   = errors.New("export is complete")
+	ErrNotFound       = errors.New("not found")
 )
+
+// IsNotFound returns true if the error represents a "not found" condition.
+func IsNotFound(err error) bool {
+	return errors.Is(err, ErrNotFound)
+}
 
 // Join returns an error that wraps the given errors.
 // Any nil error values are discarded.

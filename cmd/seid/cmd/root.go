@@ -43,7 +43,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/tools"
-	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
@@ -310,19 +309,6 @@ func newApp(
 		baseapp.SetSnapshotDirectory(cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))),
 		baseapp.SetOccEnabled(cast.ToBool(appOpts.Get(baseapp.FlagOccEnabled))),
 	)
-
-	// Start migration if --migrate flag is set
-	if cast.ToBool(appOpts.Get("migrate-iavl")) {
-		go func() {
-			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
-			stateStore := app.GetStateStore()
-			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
-			migrator := ss.NewMigrator(db, stateStore)
-			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
-				panic(err)
-			}
-		}()
-	}
 
 	return app
 }

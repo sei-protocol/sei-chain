@@ -5,19 +5,18 @@ import (
 	"fmt"
 	"math"
 
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // loadLocalMeta loads the local metadata from a DB, or returns default if not present.
-func loadLocalMeta(db db_engine.DB) (*LocalMeta, error) {
+func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 	val, err := db.Get(DBLocalMetaKey)
-	// Check for real errors first to avoid masking I/O issues
-	if err != nil && !db_engine.IsNotFound(err) {
+	if err != nil && !errorutils.IsNotFound(err) {
 		return nil, fmt.Errorf("could not get DBLocalMetaKey: %w", err)
 	}
-	// Only return default for truly missing keys
-	if db_engine.IsNotFound(err) || val == nil {
+	if errorutils.IsNotFound(err) || val == nil {
 		return &LocalMeta{CommittedVersion: 0}, nil
 	}
 	return UnmarshalLocalMeta(val)
@@ -27,7 +26,7 @@ func loadLocalMeta(db db_engine.DB) (*LocalMeta, error) {
 // Returns 0 if not found (fresh start).
 func (s *CommitStore) loadGlobalVersion() (int64, error) {
 	data, err := s.metadataDB.Get([]byte(MetaGlobalVersion))
-	if db_engine.IsNotFound(err) {
+	if errorutils.IsNotFound(err) {
 		return 0, nil
 	}
 	if err != nil {
@@ -47,7 +46,7 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 // Returns nil if not found (fresh start).
 func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 	data, err := s.metadataDB.Get([]byte(MetaGlobalLtHash))
-	if db_engine.IsNotFound(err) {
+	if errorutils.IsNotFound(err) {
 		return nil, nil
 	}
 	if err != nil {
@@ -76,5 +75,7 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 		return fmt.Errorf("failed to set global lthash: %w", err)
 	}
 
-	return batch.Commit(db_engine.WriteOptions{Sync: s.config.Fsync})
+	// Atomic commit with fsync
+	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
+
 }

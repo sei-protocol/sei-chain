@@ -16,7 +16,7 @@ func TestNewStateStore(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "pebbledb")
 	ssConfig := config.StateStoreConfig{
-		Backend:          string(PebbleDBBackend),
+		Backend:          config.PebbleDBBackend,
 		AsyncWriteBuffer: 100,
 		KeepRecent:       500,
 	}
@@ -40,19 +40,15 @@ func TestNewStateStore(t *testing.T) {
 		err := stateStore.ApplyChangesetAsync(int64(i), changesets)
 		require.NoError(t, err)
 	}
-	// Closing the state store without waiting for data to be fully flushed
 	err = stateStore.Close()
 	require.NoError(t, err)
 
-	// Reopen a new state store
 	stateStore, err = NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
 	require.NoError(t, err)
 
-	// Make sure key and values can be found
 	for i := 1; i < 50; i++ {
 		value, err := stateStore.Get("storeA", int64(i), []byte(fmt.Sprintf("key%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprintf("value%d", i), string(value))
 	}
-
 }
