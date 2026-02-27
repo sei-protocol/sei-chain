@@ -27,8 +27,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	var legacyPairs []lthash.KVPairWithLastValue
 	// Account pairs are collected at the end after all account changes are processed
 
-	// Track which accounts were modified (for LtHash computation)
-	modifiedAccounts := make(map[string]bool)
+	// Pre-capture account values so LtHash delta uses the correct baseline
+	// across multiple ApplyChangeSets calls before Commit.
+	oldAccountValues := make(map[string]AccountValue)
 
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
@@ -82,12 +83,15 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 				addrStr := string(addr[:])
 
-				// Track this account as modified for LtHash
-				modifiedAccounts[addrStr] = true
-				// Get or create pending account write
+				if _, seen := oldAccountValues[addrStr]; !seen {
+					oldVal, err := s.getAccountValue(addr)
+					if err != nil {
+						return fmt.Errorf("failed to capture old account value: %w", err)
+					}
+					oldAccountValues[addrStr] = oldVal
+				}
 				paw := s.accountWrites[addrStr]
 				if paw == nil {
-					// Load existing value from DB
 					existingValue, err := s.getAccountValue(addr)
 					if err != nil {
 						return fmt.Errorf("failed to load existing account value: %w", err)
@@ -177,22 +181,15 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
-	// Build account LtHash pairs based on full AccountValue changes
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(modifiedAccounts))
-	for addrStr := range modifiedAccounts {
+	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountValues))
+	for addrStr, oldAV := range oldAccountValues {
 		addr, ok := AddressFromBytes([]byte(addrStr))
 		if !ok {
-			return fmt.Errorf("invalid address in modifiedAccounts: %x", addrStr)
+			return fmt.Errorf("invalid address in oldAccountValues: %x", addrStr)
 		}
 
-		// Get old AccountValue from DB (committed state)
-		oldAV, err := s.getAccountValueFromDB(addr)
-		if err != nil {
-			return fmt.Errorf("failed to get old account value for addr %x: %w", addr, err)
-		}
 		oldValue := oldAV.Encode()
 
-		// Get new AccountValue (from pending writes or DB)
 		var newValue []byte
 		var isDelete bool
 		if paw, ok := s.accountWrites[addrStr]; ok {
@@ -257,8 +254,37 @@ func (s *CommitStore) Commit() (int64, error) {
 	// Step 5: Clear pending buffers
 	s.clearPendingWrites()
 
+	// Periodic snapshot so WAL stays bounded and restarts are fast.
+	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
+		if err := s.WriteSnapshot(""); err != nil {
+			s.log.Error("auto snapshot failed", "version", version, "err", err)
+		}
+	}
+
+	// Best-effort WAL truncation, throttled to amortize ReadDir cost.
+	if version%1000 == 0 {
+		s.tryTruncateWAL()
+	}
+
 	s.log.Info("Committed version", "version", version)
 	return version, nil
+}
+
+// flushAllDBs flushes all data DBs to ensure data is on disk.
+func (s *CommitStore) flushAllDBs() error {
+	if err := s.accountDB.Flush(); err != nil {
+		return fmt.Errorf("accountDB flush: %w", err)
+	}
+	if err := s.codeDB.Flush(); err != nil {
+		return fmt.Errorf("codeDB flush: %w", err)
+	}
+	if err := s.storageDB.Flush(); err != nil {
+		return fmt.Errorf("storageDB flush: %w", err)
+	}
+	if err := s.legacyDB.Flush(); err != nil {
+		return fmt.Errorf("legacyDB flush: %w", err)
+	}
+	return nil
 }
 
 // clearPendingWrites clears all pending write buffers

@@ -9,12 +9,7 @@ import (
 
 // Options configures a FlatKV store.
 type Options struct {
-	// Dir is the base directory containing
-	// account/,
-	// code/,
-	// storage/,
-	// changelog/,
-	// __metadata.
+	// Dir is the base directory containing snapshot dirs, working/, and changelog/.
 	Dir string
 }
 
@@ -26,7 +21,8 @@ type Options struct {
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
 	// LoadVersion opens the database at the specified version.
-	// Note: FlatKV only stores latest state, so targetVersion is for verification only.
+	// targetVersion == 0 opens the latest; targetVersion > 0 seeks the best
+	// snapshot <= target and replays WAL to reach it exactly.
 	LoadVersion(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
@@ -44,11 +40,16 @@ type Store interface {
 
 	// Iterator returns an iterator over [start, end) in memiavl key order.
 	// Pass nil for unbounded.
+	//
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	Iterator(start, end []byte) Iterator
 
 	// IteratorByPrefix iterates all keys with the given prefix (more efficient than Iterator).
 	// Currently only supports: StateKeyPrefix||addr (storage iteration).
-	// Account/code iteration will be added with state-sync support.
+	//
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	IteratorByPrefix(prefix []byte) Iterator
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
@@ -62,7 +63,8 @@ type Store interface {
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
-	// Rollback restores state to targetVersion. Not implemented.
+	// Rollback restores state to targetVersion by rewinding to the best
+	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
 	Rollback(targetVersion int64) error
 
 	// Exporter creates an exporter for the given version (0 = current).
@@ -78,8 +80,9 @@ type Store interface {
 // Follows PebbleDB semantics: not positioned on creation.
 //
 // Keys are returned in internal format (without memiavl prefix).
-// Concrete implementations (e.g. dbIterator) expose Kind() for callers
-// that need to distinguish key types.
+//
+// EXPERIMENTAL: not used in production. Interface may change when
+// Exporter/state-sync is implemented.
 type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool

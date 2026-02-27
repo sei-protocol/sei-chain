@@ -48,3 +48,9 @@ func (m *memIAVLWrapper) Importer(version int64) (types.Importer, error) {
 func (m *memIAVLWrapper) Close() error {
 	return m.base.Close()
 }
+
+func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	store := m.base.GetChildStoreByName(EVMStoreName)
+	data = store.Get(key)
+	return data, data != nil, nil
+}

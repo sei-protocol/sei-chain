@@ -124,6 +124,15 @@ func (p *pebbleDB) Flush() error {
 	return p.db.Flush()
 }
 
+func (p *pebbleDB) Checkpoint(destDir string) error {
+	if p.db == nil {
+		return errors.New("pebbleDB: checkpoint on closed database")
+	}
+	return p.db.Checkpoint(destDir, pebble.WithFlushedWAL())
+}
+
+var _ db_engine.Checkpointable = (*pebbleDB)(nil)
+
 func (p *pebbleDB) Close() error {
 	// Make Close idempotent: Pebble panics if Close is called twice.
 	if p.db == nil {

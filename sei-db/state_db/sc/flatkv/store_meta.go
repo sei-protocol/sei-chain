@@ -76,5 +76,6 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	}
 
 	// Atomic commit with fsync
-	return batch.Commit(types.WriteOptions{Sync: true})
+	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
+
 }

@@ -10,6 +10,9 @@ import (
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
 // and converts keys between internal and external (memiavl) formats.
+//
+// EXPERIMENTAL: not used in production; only storage keys supported.
+// Interface may change when Exporter/state-sync is implemented.
 type dbIterator struct {
 	iter   types.KeyValueDBIterator
 	kind   evm.EVMKeyKind // key type for conversion
@@ -181,10 +184,6 @@ func (it *dbIterator) Prev() bool {
 	return it.iter.Prev()
 }
 
-func (it *dbIterator) Kind() evm.EVMKeyKind {
-	return it.kind
-}
-
 func (it *dbIterator) Key() []byte {
 	if !it.Valid() {
 		return nil
@@ -206,12 +205,8 @@ func (s *CommitStore) newStorageIterator(start, end []byte) Iterator {
 	return newDBIterator(s.storageDB, evm.EVMKeyStorage, start, end)
 }
 
-func (s *CommitStore) newStoragePrefixIterator(internalPrefix, internalEnd []byte, memiavlPrefix []byte) Iterator {
+func (s *CommitStore) newStoragePrefixIterator(internalPrefix []byte, memiavlPrefix []byte) Iterator {
 	return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
-}
-
-func (s *CommitStore) newCodeIterator(start, end []byte) Iterator {
-	return newDBIterator(s.codeDB, evm.EVMKeyCode, start, end)
 }
 
 // emptyIterator is used when no data matches the query.
@@ -230,6 +225,5 @@ func (it *emptyIterator) SeekGE(key []byte) bool   { return false }
 func (it *emptyIterator) SeekLT(key []byte) bool   { return false }
 func (it *emptyIterator) Next() bool               { return false }
 func (it *emptyIterator) Prev() bool               { return false }
-func (it *emptyIterator) Kind() evm.EVMKeyKind     { return evm.EVMKeyUnknown }
 func (it *emptyIterator) Key() []byte              { return nil }
 func (it *emptyIterator) Value() []byte            { return nil }
