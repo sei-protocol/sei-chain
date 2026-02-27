@@ -191,9 +191,9 @@ func (txn *transaction) Execute(
 	if len(srcAccountValue) < minAccountBytes || len(dstAccountValue) < minAccountBytes || len(feeValue) < minAccountBytes {
 		return fmt.Errorf("account value too short for balance update (need %d bytes)", minAccountBytes)
 	}
-	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance))
-	binary.BigEndian.PutUint64(dstAccountValue[:8], uint64(txn.newDstBalance))
-	binary.BigEndian.PutUint64(feeValue[:8], uint64(txn.newFeeBalance))
+	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance)) //nolint:gosec
+	binary.BigEndian.PutUint64(dstAccountValue[:8], uint64(txn.newDstBalance)) //nolint:gosec
+	binary.BigEndian.PutUint64(feeValue[:8], uint64(txn.newFeeBalance))        //nolint:gosec
 
 	// Write the following:
 	// - the sender's native balance / nonce / codehash

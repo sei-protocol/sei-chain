@@ -51,11 +51,12 @@ func paddedCounterKey(s string) []byte {
 //   - Public domain reference implementation:
 //     http://xorshift.di.unimi.it/splitmix64.c
 func Hash64(x int64) int64 {
-	z := uint64(x)
+	z := uint64(x) //nolint:gosec // G115 - hash function, int64->uint64 conversion intentional
 	z += 0x9e3779b97f4a7c15
 	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
 	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
 	z = z ^ (z >> 31)
+	//nolint:gosec // G115 - hash function converts uint64 to int64, overflow intentional
 	return int64(z)
 }
 
@@ -86,7 +87,7 @@ func resolveAndCreateDataDir(dataDir string) (string, error) {
 		}
 	}
 	if dataDir != "" {
-		if err := os.MkdirAll(dataDir, 0755); err != nil {
+		if err := os.MkdirAll(dataDir, 0o750); err != nil {
 			return "", fmt.Errorf("failed to create data directory: %w", err)
 		}
 	}
@@ -168,7 +169,7 @@ func formatDuration(d time.Duration, decimals int) string {
 	}
 	format := fmt.Sprintf("%%.%df%%s", decimals)
 	ns := d.Nanoseconds()
-	abs := int64(ns)
+	abs := ns
 	if abs < 0 {
 		abs = -abs
 	}

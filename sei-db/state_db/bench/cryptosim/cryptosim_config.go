@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"time"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
@@ -107,7 +107,7 @@ type CryptoSimConfig struct {
 	ExecutorQueueSize int
 
 	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
-	MaxRuntimeSeconds time.Duration
+	MaxRuntimeSeconds int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -210,11 +210,16 @@ func (c *CryptoSimConfig) Validate() error {
 // unrecognized configuration keys.
 func LoadConfigFromFile(path string) (*CryptoSimConfig, error) {
 	cfg := DefaultCryptoSimConfig()
-	f, err := os.Open(path)
+	//nolint:gosec // G304 - path comes from config file, filepath.Clean used to mitigate traversal
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("open config file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Printf("failed to close config file: %v\n", err)
+		}
+	}()
 
 	dec := json.NewDecoder(f)
 	dec.DisallowUnknownFields()

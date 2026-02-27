@@ -49,7 +49,9 @@ func NewCannedRandom(
 	rng := rand.New(source)
 
 	buffer := make([]byte, bufferSize)
-	rng.Read(buffer)
+	if _, err := rng.Read(buffer); err != nil {
+		panic(fmt.Sprintf("failed to read random bytes: %v", err))
+	}
 
 	return &CannedRandom{
 		buffer: buffer,
@@ -89,6 +91,7 @@ func (cr *CannedRandom) Int64() int64 {
 		buf[i] = cr.buffer[(cr.index+i)%bufLen]
 	}
 	base := binary.BigEndian.Uint64(buf[:])
+	//nolint:gosec // G115 - benchmark uses deterministic non-crypto randomness, overflow acceptable
 	result := Hash64(int64(base) + cr.index)
 
 	// Add 8 to the index to skip the 8 bytes we just read.
@@ -105,12 +108,14 @@ func (cr *CannedRandom) Int64Range(min int64, max int64) int64 {
 	if max < min {
 		panic(fmt.Sprintf("max must be >= min, got min=%d max=%d", min, max))
 	}
+	//nolint:gosec // G115 - benchmark uses deterministic non-crypto randomness, overflow acceptable
 	return min + int64(uint64(cr.Int64())%uint64(max-min))
 }
 
 // Float64 returns a random float64 in the range [0.0, 1.0].
 // It uses Int64() internally and converts the result to the proper range.
 func (cr *CannedRandom) Float64() float64 {
+	//nolint:gosec // G115 - benchmark uses deterministic non-crypto randomness, overflow acceptable
 	return float64(uint64(cr.Int64())) / float64(math.MaxUint64)
 }
 
@@ -150,6 +155,7 @@ func (cr *CannedRandom) Address(
 	baseBytes := cr.SeededBytes(AddressLen, id)
 	copy(result, baseBytes)
 	result[0] = addressType
+	//nolint:gosec // G115 - id is from benchmark data, overflow acceptable for address generation
 	binary.BigEndian.PutUint64(result[9:], uint64(id))
 
 	return result
