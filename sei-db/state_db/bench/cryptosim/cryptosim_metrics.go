@@ -281,7 +281,7 @@ func measureDataDirAvailableBytes(dataDir string) int64 {
 	if err := unix.Statfs(dataDir, &stat); err != nil {
 		return 0
 	}
-	result := stat.Bavail * uint64(stat.Bsize)
+	result := stat.Bavail * uint64(stat.Bsize) //nolint:gosec
 	if result > math.MaxInt64 {
 		return math.MaxInt64
 	}
