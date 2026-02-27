@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -557,4 +558,345 @@ func TestStoreFsyncConfig(t *testing.T) {
 		// Version should be updated
 		require.Equal(t, int64(1), store.Version())
 	})
+}
+
+// =============================================================================
+// Auto-snapshot triggered by SnapshotInterval
+// =============================================================================
+
+func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		SnapshotInterval:   5,
+		SnapshotKeepRecent: 2,
+	}
+	s := NewCommitStore(dir, nil, cfg)
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	for i := 0; i < 5; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	flatkvDir := s.flatkvDir()
+	var snapshots []int64
+	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
+		snapshots = append(snapshots, v)
+		return false, nil
+	})
+	require.Contains(t, snapshots, int64(5), "auto-snapshot should fire at version 5")
+}
+
+func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		SnapshotInterval:   10,
+		SnapshotKeepRecent: 2,
+	}
+	s := NewCommitStore(dir, nil, cfg)
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	flatkvDir := s.flatkvDir()
+	var countBefore int
+	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+		countBefore++
+		return false, nil
+	})
+
+	for i := 0; i < 5; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	var countAfter int
+	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+		countAfter++
+		return false, nil
+	})
+	require.Equal(t, countBefore, countAfter, "no new auto-snapshot before interval")
+}
+
+func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{SnapshotInterval: 0}
+	s := NewCommitStore(dir, nil, cfg)
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	flatkvDir := s.flatkvDir()
+	var countBefore int
+	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+		countBefore++
+		return false, nil
+	})
+
+	for i := 0; i < 10; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	var countAfter int
+	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
+		countAfter++
+		return false, nil
+	})
+	require.Equal(t, countBefore, countAfter, "no new auto-snapshot when interval=0")
+}
+
+// =============================================================================
+// Multiple ApplyChangeSets before Commit
+// =============================================================================
+
+func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xAA}
+	slot1 := Slot{0x01}
+	slot2 := Slot{0x02}
+
+	key1 := memiavlStorageKey(addr, slot1)
+	key2 := memiavlStorageKey(addr, slot2)
+
+	cs1 := makeChangeSet(key1, []byte{0x11}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+	cs2 := makeChangeSet(key2, []byte{0x22}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+	commitAndCheck(t, s)
+
+	v1, ok := s.Get(key1)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x11}, v1)
+
+	v2, ok := s.Get(key2)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x22}, v2)
+}
+
+func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xBB}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	codeHash := CodeHash{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+
+	cs1 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 42}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	cs2 := makeChangeSet(codeHashKey, codeHash[:], false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	nonceVal, ok := s.Get(nonceKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceVal, "nonce should be preserved after codehash update")
+
+	chVal, ok := s.Get(codeHashKey)
+	require.True(t, ok)
+	require.Equal(t, codeHash[:], chVal)
+}
+
+// =============================================================================
+// LtHash determinism
+// =============================================================================
+
+func TestLtHashDeterministicAcrossReopen(t *testing.T) {
+	writeAndGetHash := func() []byte {
+		dir := t.TempDir()
+		s := NewCommitStore(dir, nil, DefaultConfig())
+		_, err := s.LoadVersion(0)
+		require.NoError(t, err)
+
+		commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+		commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+		commitStorageEntry(t, s, Address{0x03}, Slot{0x03}, []byte{0xCC})
+
+		hash := s.RootHash()
+		require.NoError(t, s.Close())
+		return hash
+	}
+
+	h1 := writeAndGetHash()
+	h2 := writeAndGetHash()
+	require.Equal(t, h1, h2, "same writes must produce same LtHash")
+}
+
+func TestLtHashUpdatedByDelete(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xDD}
+	slot := Slot{0xEE}
+	key := memiavlStorageKey(addr, slot)
+
+	cs1 := makeChangeSet(key, []byte{0xFF}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+	hashAfterWrite := s.RootHash()
+
+	cs2 := makeChangeSet(key, nil, true)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+	hashAfterDelete := s.RootHash()
+
+	require.NotEqual(t, hashAfterWrite, hashAfterDelete, "delete should change LtHash")
+}
+
+func TestLtHashAccountFieldMerge(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xCC}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	codeHash := CodeHash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20}
+
+	cs := &proto.NamedChangeSet{
+		Name: "test",
+		Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{
+				{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 10}},
+				{Key: codeHashKey, Value: codeHash[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
+
+	paw := s.accountWrites[string(addr[:])]
+	require.NotNil(t, paw)
+	require.Equal(t, uint64(10), paw.value.Nonce)
+	require.Equal(t, codeHash, paw.value.CodeHash)
+}
+
+// =============================================================================
+// Overwrite same key in single block
+// =============================================================================
+
+func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xEE}
+	slot := Slot{0xFF}
+	key := memiavlStorageKey(addr, slot)
+
+	pairs := []*iavl.KVPair{
+		{Key: key, Value: []byte{0x01}},
+		{Key: key, Value: []byte{0x02}},
+	}
+	cs := &proto.NamedChangeSet{
+		Name:      "test",
+		Changeset: iavl.ChangeSet{Pairs: pairs},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	v, ok := s.Get(key)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x02}, v, "last write should win")
+}
+
+// =============================================================================
+// Empty commit advances version
+// =============================================================================
+
+func TestEmptyCommitAdvancesVersion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	hashBefore := s.RootHash()
+
+	require.NoError(t, s.ApplyChangeSets(nil))
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v)
+
+	hashAfter := s.RootHash()
+	require.Equal(t, hashBefore, hashAfter, "empty commit should not change LtHash")
+}
+
+// =============================================================================
+// Fsync enabled
+// =============================================================================
+
+func TestStoreFsyncEnabled(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Fsync: true}
+	s := NewCommitStore(dir, nil, cfg)
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.True(t, s.config.Fsync)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	require.Equal(t, int64(1), s.Version())
+
+	v, ok := s.Get(memiavlStorageKey(Address{0x01}, Slot{0x01}))
+	require.True(t, ok)
+	require.Equal(t, []byte{0x01}, v)
+}
+
+// =============================================================================
+// lastSnapshotTime is set after WriteSnapshot
+// =============================================================================
+
+func TestLastSnapshotTimeUpdated(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.True(t, s.lastSnapshotTime.IsZero())
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	require.NoError(t, s.WriteSnapshot(""))
+
+	require.False(t, s.lastSnapshotTime.IsZero())
+	require.True(t, time.Since(s.lastSnapshotTime) < time.Second)
+}
+
+// =============================================================================
+// WAL records all changesets
+// =============================================================================
+
+func TestWALRecordsChangesets(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, Address{0x03}, Slot{0x03}, []byte{0xCC})
+
+	first, _ := s.changelog.FirstOffset()
+	last, _ := s.changelog.LastOffset()
+	require.Greater(t, last, uint64(0))
+
+	var versions []int64
+	err = s.changelog.Replay(first, last, func(_ uint64, entry proto.ChangelogEntry) error {
+		versions = append(versions, entry.Version)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 2, 3}, versions)
+
+	require.NoError(t, s.Close())
 }
