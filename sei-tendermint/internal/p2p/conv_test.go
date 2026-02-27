@@ -14,10 +14,12 @@ func TestHandshakeMsgConv(t *testing.T) {
 		utils.OrPanic1(rng.Read(challenge[:]))
 		key := makeKey(rng)
 		msg := &handshakeMsg{
-			NodeAuth:          key.SignChallenge(challenge),
-			SelfAddr:          utils.Some(makeAddrFor(rng, key.Public().NodeID())),
-			PexAddrs:          utils.GenSlice(rng, makeAddr),
-			SeiGigaConnection: utils.GenBool(rng),
+			NodeAuth: key.SignChallenge(challenge),
+			handshakeSpec: handshakeSpec{
+				SelfAddr:          utils.Some(makeAddrFor(rng, key.Public().NodeID())),
+				PexAddrs:          utils.GenSlice(rng, makeAddr),
+				SeiGigaConnection: utils.GenBool(rng),
+			},
 		}
 		require.NoError(t, handshakeMsgConv.Test(msg))
 	}
