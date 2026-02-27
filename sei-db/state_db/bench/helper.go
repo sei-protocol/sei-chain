@@ -395,8 +395,8 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 		func() {
 			dbDir := b.TempDir()
 			b.StopTimer()
-			cs := wrappers.NewDBImpl(b, dbDir, scenario.Backend)
-			require.NotNil(b, cs)
+			cs, err := wrappers.NewDBImpl(scenario.Backend, dbDir)
+			require.NoError(b, err)
 
 			// Load snapshot if available
 			if scenario.SnapshotPath != "" {
@@ -435,8 +435,8 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 					progress.Add(len(changeset.Changeset.Pairs))
 				}
 			}
-			err := cs.Close() // close to make sure all data got flushed
-			require.NoError(b, err)
+			closeErr := cs.Close() // close to make sure all data got flushed
+			require.NoError(b, closeErr)
 
 			b.StopTimer()
 			if progress != nil {
