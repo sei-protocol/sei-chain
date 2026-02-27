@@ -182,6 +182,8 @@ jobs:
           # Hard-fail on main (full path); soft on PRs (partial data).
           fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
           disable_search: 'true'
-          name: sei-chain-coverage
+          # PR fast-path coverage is intentionally partial.
+          # Upload under a separate flag to avoid apples-to-oranges project comparisons.
+          name: ${{ github.event_name == 'pull_request' && 'sei-chain-pr-coverage' || 'sei-chain-coverage' }}
           files: ./coverage.out
-          flags: sei-chain
+          flags: ${{ github.event_name == 'pull_request' && 'sei-chain-pr' || 'sei-chain' }}
