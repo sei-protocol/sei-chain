@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // mockStateStore is a minimal StateStore implementation for testing
@@ -38,12 +39,6 @@ func (m *mockStateStore) GetEarliestVersion() int64 {
 func (m *mockStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	return nil
 }
-func (m *mockStateStore) GetLatestMigratedKey() ([]byte, error) {
-	return nil, nil
-}
-func (m *mockStateStore) GetLatestMigratedModule() (string, error) {
-	return "", nil
-}
 func (m *mockStateStore) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
 	return nil
 }
@@ -71,9 +66,6 @@ func (m *mockStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int
 	return false, nil
 }
 func (m *mockStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	return nil
-}
-func (m *mockStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 	return nil
 }
 
