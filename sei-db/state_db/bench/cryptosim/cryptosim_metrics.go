@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"context"
 	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -193,7 +194,11 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 		// OSX does not support process I/O stats.
 		return
 	}
-	proc, err := process.NewProcess(int32(os.Getpid()))
+	pid := os.Getpid()
+	if pid < 0 || pid > math.MaxInt32 {
+		return
+	}
+	proc, err := process.NewProcess(int32(pid))
 	if err != nil {
 		return
 	}
@@ -276,7 +281,11 @@ func measureDataDirAvailableBytes(dataDir string) int64 {
 	if err := unix.Statfs(dataDir, &stat); err != nil {
 		return 0
 	}
-	return int64(stat.Bavail) * int64(stat.Bsize)
+	result := stat.Bavail * uint64(stat.Bsize)
+	if result > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(result)
 }
 
 // measureDataDirSize walks the directory tree and sums file sizes.
@@ -305,7 +314,11 @@ func measureDataDirSize(dataDir string) int64 {
 func startMetricsServer(ctx context.Context, reg *prometheus.Registry, addr string) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() {
 		_ = srv.ListenAndServe()
 	}()
