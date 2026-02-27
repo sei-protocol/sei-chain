@@ -29,9 +29,17 @@ type LoadedCommitQC struct {
 // Each CommitQC is stored as <roadindex>.pb.
 // The caller is responsible for driving persistence (typically a goroutine that
 // watches in-memory state and calls PersistCommitQC / DeleteBefore).
+// When noop is true, all disk I/O is skipped but cursor tracking still works.
 type CommitQCPersister struct {
-	dir  string // full path to the commitqcs/ subdirectory
+	dir  string // full path to the commitqcs/ subdirectory; empty when noop
+	noop bool
 	next types.RoadIndex
+}
+
+// NewNoOpCommitQCPersister returns a CommitQCPersister that skips all disk I/O
+// but still tracks the next index. Used when persistence is disabled.
+func NewNoOpCommitQCPersister() *CommitQCPersister {
+	return &CommitQCPersister{noop: true}
 }
 
 // NewCommitQCPersister creates the commitqcs/ subdirectory if it doesn't exist
@@ -77,10 +85,12 @@ func parseCommitQCFilename(name string) (types.RoadIndex, error) {
 // PersistCommitQC writes a CommitQC to its own file.
 func (cp *CommitQCPersister) PersistCommitQC(qc *types.CommitQC) error {
 	idx := qc.Index()
-	data := types.CommitQCConv.Marshal(qc)
-	path := filepath.Join(cp.dir, commitQCFilename(idx))
-	if err := writeAndSync(path, data); err != nil {
-		return fmt.Errorf("persist commitqc %d: %w", idx, err)
+	if !cp.noop {
+		data := types.CommitQCConv.Marshal(qc)
+		path := filepath.Join(cp.dir, commitQCFilename(idx))
+		if err := writeAndSync(path, data); err != nil {
+			return fmt.Errorf("persist commitqc %d: %w", idx, err)
+		}
 	}
 	if idx >= cp.next {
 		cp.next = idx + 1
@@ -92,7 +102,7 @@ func (cp *CommitQCPersister) PersistCommitQC(qc *types.CommitQC) error {
 // Returns an error if the directory cannot be read; individual file removal
 // failures are logged but do not cause an error.
 func (cp *CommitQCPersister) DeleteBefore(idx types.RoadIndex) error {
-	if idx == 0 {
+	if cp.noop || idx == 0 {
 		return nil
 	}
 	entries, err := os.ReadDir(cp.dir)

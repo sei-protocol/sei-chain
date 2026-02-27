@@ -75,7 +75,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 	require.NoError(t, err)
 
 	require.False(t, i.latestAppQC.IsPresent())
-	require.Nil(t, i.nextBlockToPersist)
+	require.NotNil(t, i.nextBlockToPersist)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
 	require.Equal(t, types.GlobalBlockNumber(0), i.appVotes.first)

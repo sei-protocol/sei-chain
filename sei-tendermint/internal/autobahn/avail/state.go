@@ -41,16 +41,26 @@ type State struct {
 	data  *data.State
 	inner utils.Watch[*inner]
 
-	// persisters groups all disk persisters; None when persistence is disabled.
-	persisters utils.Option[persisters]
+	// persisters groups all disk persistence components.
+	// Always initialized: real when stateDir is set, no-op otherwise.
+	persisters persisters
 }
 
-// persisters holds all disk persistence components. Either all are present or none.
-// It is a pure I/O struct — all inner state access goes through State methods.
+// persisters holds all disk persistence components. Either all are present
+// (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
+// state access goes through State methods.
 type persisters struct {
 	appQC     persist.Persister[*apb.AppQC]
 	blocks    *persist.BlockPersister
 	commitQCs *persist.CommitQCPersister
+}
+
+func newNoOpPersisters() persisters {
+	return persisters{
+		appQC:     persist.NewNoOpPersister[*apb.AppQC](),
+		blocks:    persist.NewNoOpBlockPersister(),
+		commitQCs: persist.NewNoOpCommitQCPersister(),
+	}
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -90,10 +100,11 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.A
 }
 
 // NewState constructs a new availability state.
-// stateDir is None when persistence is disabled (testing only).
+// stateDir is None when persistence is disabled (testing only); a no-op
+// persist goroutine still runs to bump cursors without disk I/O.
 func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
 	var loaded utils.Option[*loadedAvailState]
-	var pers utils.Option[persisters]
+	var pers persisters
 
 	if dir, ok := stateDir.Get(); ok {
 		l, appQC, blocks, commitQCs, err := loadPersistedState(dir)
@@ -101,7 +112,9 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 			return nil, err
 		}
 		loaded = utils.Some(l)
-		pers = utils.Some(persisters{appQC: appQC, blocks: blocks, commitQCs: commitQCs})
+		pers = persisters{appQC: appQC, blocks: blocks, commitQCs: commitQCs}
+	} else {
+		pers = newNoOpPersisters()
 	}
 
 	inner, err := newInner(data.Committee(), loaded)
@@ -202,12 +215,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return nil
 		}
 		inner.commitQCs.pushBack(qc)
-		// When persistence is disabled, publish immediately.
-		// When enabled, the persist goroutine publishes after writing to disk,
-		// so consensus won't advance until the CommitQC is durable.
-		if inner.nextBlockToPersist == nil {
-			inner.latestCommitQC.Store(utils.Some(qc))
-		}
+		// The persist goroutine publishes latestCommitQC after writing to disk
+		// (or immediately for no-op persisters), so consensus won't advance
+		// until the CommitQC is durable.
 		ctrl.Updated()
 		return nil
 	}
@@ -527,11 +537,9 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 // Run runs the background tasks of the state.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		if pers, ok := s.persisters.Get(); ok {
-			scope.SpawnNamed("persist", func() error {
-				return s.runPersist(ctx, pers)
-			})
-		}
+		scope.SpawnNamed("persist", func() error {
+			return s.runPersist(ctx, s.persisters)
+		})
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			c := s.data.Committee()

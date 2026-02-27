@@ -17,8 +17,8 @@ type inner struct {
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
-	// nil when persistence is disabled (testing); RecvBatch then uses q.next.
-	// nextBlockToPersist itself is not persisted to disk: on restart it is
+	// Always initialized (even when persistence is disabled — the no-op persist
+	// goroutine bumps it immediately). Not persisted to disk: on restart it is
 	// reconstructed from the blocks already on disk (see newInner).
 	nextBlockToPersist map[types.LaneID]types.BlockNumber
 }
@@ -41,12 +41,13 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 	}
 
 	i := &inner{
-		latestAppQC:    utils.None[*types.AppQC](),
-		latestCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		appVotes:       newQueue[types.GlobalBlockNumber, appVotes](),
-		commitQCs:      newQueue[types.RoadIndex, *types.CommitQC](),
-		blocks:         blocks,
-		votes:          votes,
+		latestAppQC:        utils.None[*types.AppQC](),
+		latestCommitQC:     utils.NewAtomicSend(utils.None[*types.CommitQC]()),
+		appVotes:           newQueue[types.GlobalBlockNumber, appVotes](),
+		commitQCs:          newQueue[types.RoadIndex, *types.CommitQC](),
+		blocks:             blocks,
+		votes:              votes,
+		nextBlockToPersist: make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 	}
 
 	l, ok := loaded.Get()
@@ -65,13 +66,6 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		}
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
-
-	// nextBlockToPersist gates RecvBatch: only blocks below this cursor are
-	// eligible for voting. Lanes without loaded blocks start at 0, which
-	// is safe — an empty queue has nothing to vote on. New blocks must
-	// arrive in order via PushBlock, get persisted, and the callback will
-	// advance nextBlockToPersist accordingly.
-	i.nextBlockToPersist = make(map[types.LaneID]types.BlockNumber, c.Lanes().Len())
 
 	// Restore persisted blocks into their lane queues.
 	for lane, bs := range l.blocks {

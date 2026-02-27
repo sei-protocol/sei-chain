@@ -40,12 +40,23 @@ type LoadedBlock struct {
 // Each block is stored as <lane_hex>_<blocknum>.pb.
 // The caller is responsible for driving persistence (typically a goroutine that
 // watches in-memory block state and calls PersistBlock / DeleteBefore / StoreTips).
+// When noop is true, all disk I/O is skipped but cursor/tips tracking still works.
 type BlockPersister struct {
-	dir string // full path to the blocks/ subdirectory
+	dir  string // full path to the blocks/ subdirectory; empty when noop
+	noop bool
 	// tips publishes the highest persisted block number + 1 (exclusive upper
 	// bound) per lane as an immutable map snapshot. Updated via StoreTips
 	// after each successful persist.
 	tips utils.AtomicSend[map[types.LaneID]types.BlockNumber]
+}
+
+// NewNoOpBlockPersister returns a BlockPersister that skips all disk I/O
+// but still tracks tips. Used when persistence is disabled.
+func NewNoOpBlockPersister() *BlockPersister {
+	return &BlockPersister{
+		noop: true,
+		tips: utils.NewAtomicSend(map[types.LaneID]types.BlockNumber{}),
+	}
 }
 
 // NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
@@ -102,6 +113,9 @@ func parseBlockFilename(name string) (types.LaneID, types.BlockNumber, error) {
 
 // PersistBlock writes a signed lane proposal to its own file.
 func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposal]) error {
+	if bp.noop {
+		return nil
+	}
 	h := proposal.Msg().Block().Header()
 	pb := types.SignedMsgConv[*types.LaneProposal]().Encode(proposal)
 	data, err := proto.Marshal(pb)
@@ -119,7 +133,7 @@ func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposa
 // Returns an error if the directory cannot be read; individual file removal
 // failures are logged but do not cause an error.
 func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
-	if len(laneFirsts) == 0 {
+	if bp.noop || len(laneFirsts) == 0 {
 		return nil
 	}
 	entries, err := os.ReadDir(bp.dir)

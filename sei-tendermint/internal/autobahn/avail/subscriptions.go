@@ -48,10 +48,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 	for inner, ctrl := range r.state.inner.Lock() {
 		for {
 			for lane, bq := range inner.blocks {
-				upperBound := bq.next
-				if inner.nextBlockToPersist != nil {
-					upperBound = min(upperBound, inner.nextBlockToPersist[lane])
-				}
+				upperBound := min(bq.next, inner.nextBlockToPersist[lane])
 				for i := max(bq.first, r.next[lane]); i < upperBound; i++ {
 					batch = append(batch, bq.q[i].Msg().Block().Header())
 				}

@@ -73,6 +73,15 @@ type Persister[T protoutils.Message] interface {
 	Persist(T) error
 }
 
+type noopPersister[T protoutils.Message] struct{}
+
+func (noopPersister[T]) Persist(T) error { return nil }
+
+// NewNoOpPersister returns a Persister that silently discards all writes.
+func NewNoOpPersister[T protoutils.Message]() Persister[T] {
+	return noopPersister[T]{}
+}
+
 // abPersister writes data to A/B files with automatic seq management.
 // Uses PersistedWrapper protobuf for crash-safe persistence.
 // Only created when config has a state dir; dir is always a valid path.
