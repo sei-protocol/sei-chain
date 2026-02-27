@@ -31,7 +31,9 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cs.Initialize([]string{EVMStoreName})
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
-		cs.Close()
+		if closeErr := cs.Close(); closeErr != nil {
+			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
+		}
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
 	return NewMemIAVLWrapper(cs), nil
@@ -44,7 +46,9 @@ func newFlatKVCommitStore(dbDir string) (DBWrapper, error) {
 	cs := flatkv.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
 	_, err := cs.LoadVersion(0)
 	if err != nil {
-		cs.Close()
+		if closeErr := cs.Close(); closeErr != nil {
+			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
+		}
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
 	return NewFlatKVWrapper(cs), nil
@@ -61,7 +65,9 @@ func newCompositeCommitStore(dbDir string, writeMode config.WriteMode) (DBWrappe
 
 	loaded, err := cs.LoadVersion(0, false)
 	if err != nil {
-		cs.Close()
+		if closeErr := cs.Close(); closeErr != nil {
+			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
+		}
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
 

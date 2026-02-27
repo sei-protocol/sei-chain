@@ -100,7 +100,9 @@ func NewCryptoSim(
 	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
 		cancel()
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
+		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
 	metrics.StartServer(config.MetricsAddr)
@@ -288,7 +290,7 @@ func (c *CryptoSim) run() {
 
 	defer c.teardown()
 
-	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds * time.Second))
+	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds) * time.Second)
 
 	c.metrics.SetMainThreadPhase("executing")
 

@@ -142,6 +142,7 @@ func (d *Database) FinalizeBlock(
 
 	// Persist the account ID counter in every batch.
 	nonceValue := make([]byte, 8)
+	//nolint:gosec // G115 - nextAccountID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(nonceValue, uint64(nextAccountID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
@@ -152,6 +153,7 @@ func (d *Database) FinalizeBlock(
 
 	// Persist the ERC20 contract ID counter in every batch.
 	erc20ContractIDValue := make([]byte, 8)
+	//nolint:gosec // G115 - nextErc20ContractID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,

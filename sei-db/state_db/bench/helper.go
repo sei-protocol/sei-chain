@@ -397,10 +397,6 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 			b.StopTimer()
 			cs, err := wrappers.NewDBImpl(scenario.Backend, dbDir)
 			require.NoError(b, err)
-			defer func() {
-				err := cs.Close()
-				require.NoError(b, err)
-			}()
 
 			// Load snapshot if available
 			if scenario.SnapshotPath != "" {

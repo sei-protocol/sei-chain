@@ -59,6 +59,7 @@ func NewDataGenerator(
 	}
 	var nextAccountID int64
 	if found {
+		//nolint:gosec // G115 - persisted counter value, overflow acceptable
 		nextAccountID = int64(binary.BigEndian.Uint64(nextAccountIDBinary))
 	}
 
@@ -71,6 +72,7 @@ func NewDataGenerator(
 	}
 	var nextErc20ContractID int64
 	if found {
+		//nolint:gosec // G115 - persisted counter value, overflow acceptable
 		nextErc20ContractID = int64(binary.BigEndian.Uint64(nextErc20ContractIDBinary))
 	}
 
@@ -130,6 +132,7 @@ func (d *DataGenerator) CreateNewAccount(
 
 	accountData := make([]byte, accountSize)
 
+	//nolint:gosec // G115 - balance is benchmark simulation value, overflow acceptable
 	binary.BigEndian.PutUint64(accountData[:8], uint64(balance))
 
 	// The remaining bytes are random data for padding.

@@ -47,9 +47,6 @@ func (c *compositeWrapper) Close() error {
 
 func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	store := c.base.GetChildStoreByName(EVMStoreName)
-	if store == nil {
-		return nil, false, nil
-	}
 	data = store.Get(key)
 	return data, data != nil, nil
 }
