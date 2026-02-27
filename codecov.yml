@@ -4,12 +4,17 @@ coverage:
   status:
     project:
       default:
+        informational: true # PR fast-path uploads are partial; avoid scary global regressions.
         target: auto
         threshold: 3% # allow this much decrease on project
       sei-chain:
         target: 40%
         flags:
           - sei-chain
+      sei-chain-pr:
+        informational: true
+        flags:
+          - sei-chain-pr
     patch:
       default:
         informational: true   # Show patch coverage, but do not fail CI for it.
@@ -52,3 +57,5 @@ ignore:
 flags:
   sei-chain:
     carryforward: true
+  sei-chain-pr:
+    carryforward: false
