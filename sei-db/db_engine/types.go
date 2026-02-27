@@ -55,6 +55,21 @@ type Batch interface {
 	io.Closer
 }
 
+// Checkpointable is an optional capability for DB engines that support
+// efficient point-in-time snapshots via filesystem hardlinks.
+//
+// Concurrency: Checkpoint is safe to call concurrently with reads and writes
+// on the same DB instance. The resulting snapshot reflects a consistent
+// point-in-time view; concurrent writes may or may not be included.
+//
+// Durability: When Checkpoint returns nil, the destination directory is a
+// complete, crash-safe copy of the database state. It survives host OS
+// crashes because it consists of hardlinks to already-fsynced SST files
+// plus a flushed manifest.
+type Checkpointable interface {
+	Checkpoint(destDir string) error
+}
+
 // Iterator provides ordered iteration over keyspace with seek primitives.
 //
 // Zero-copy contract:

@@ -76,6 +76,5 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 		return fmt.Errorf("failed to set global lthash: %w", err)
 	}
 
-	// Atomic commit with fsync
-	return batch.Commit(db_engine.WriteOptions{Sync: true})
+	return batch.Commit(db_engine.WriteOptions{Sync: s.config.Fsync})
 }
