@@ -13,13 +13,12 @@ type defaultLogger struct {
 }
 
 // NewDefaultLogger returns a default logger that can be used within Tendermint
-// and that fulfills the Logger interface. The underlying logging provider is a
-// zerolog logger that supports typical log levels along with JSON and plain/text
-// log formats.
+// and that fulfills the Logger interface. The underlying logging provider is
+// log/slog, which supports typical log levels (debug, info, warn, error) along
+// with JSON and plain/text log formats.
 //
-// Since zerolog supports typed structured logging and it is difficult to reflect
-// that in a generic interface, all logging methods accept a series of key/value
-// pair tuples, where the key must be a string.
+// All logging methods accept a series of key/value pair tuples, where the key
+// must be a string.
 func NewDefaultLogger(format, level string) (Logger, error) {
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {

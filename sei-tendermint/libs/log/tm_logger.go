@@ -24,8 +24,7 @@ var bufPool = sync.Pool{
 }
 
 // NewTMLogger returns a logger that encodes msg and keyvals to the Writer
-// using go-kit's log as an underlying logger and our custom formatter. Note
-// that underlying logger could be swapped with something else.
+// using log/slog with a custom TMFmtHandler for Tendermint's log format.
 func NewTMLogger(w io.Writer) Logger {
 	return &defaultLogger{
 		logger: slog.New(NewTMFmtHandler(w, nil)),

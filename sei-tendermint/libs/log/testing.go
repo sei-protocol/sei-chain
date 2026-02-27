@@ -1,11 +1,8 @@
 package log
 
 import (
-	"io"
 	"log/slog"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 // NewTestingLogger converts a testing.T into a logging interface to
@@ -22,28 +19,17 @@ import (
 // made in goroutines that are running after (which, by the rules of
 // testing.TB will panic.)
 func NewTestingLogger(t testing.TB) Logger {
-	level := LogLevelError
+	level := slog.LevelError
 	if testing.Verbose() {
-		level = LogLevelDebug
+		level = slog.LevelDebug
 	}
-	logger, err := NewTestingLoggerWithLevel(&testingWriter{t}, level)
-	require.NoError(t, err)
-	return logger
-}
-
-// NewTestingLoggerWithLevel creates a testing logger instance at a
-// specific level that wraps the behavior of testing.T.Log().
-func NewTestingLoggerWithLevel(out io.Writer, level string) (Logger, error) {
-	var lvl slog.Level
-	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		return nil, err
-	}
+	out := &testingWriter{t}
 	return &defaultLogger{
 		logger: slog.New(
 			slog.NewTextHandler(
 				out,
-				&slog.HandlerOptions{Level: lvl})),
-	}, nil
+				&slog.HandlerOptions{Level: level})),
+	}
 }
 
 type testingWriter struct {
