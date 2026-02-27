@@ -69,10 +69,11 @@ type CommitStore struct {
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites: key = internal DB key string, value = raw bytes
+	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
 	accountWrites map[string]*pendingAccountWrite
 	codeWrites    map[string]*pendingKVWrite
 	storageWrites map[string]*pendingKVWrite
+	legacyWrites  map[string]*pendingKVWrite
 
 	// Changelog WAL for atomic writes and replay
 	changelog wal.ChangelogWAL
@@ -100,6 +101,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
 		storageWrites:     make(map[string]*pendingKVWrite),
+		legacyWrites:      make(map[string]*pendingKVWrite),
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
@@ -218,6 +220,7 @@ func (s *CommitStore) open() (retErr error) {
 		accountDBDir: accountDB,
 		codeDBDir:    codeDB,
 		storageDBDir: storageDB,
+		legacyDBDir:  legacyDB,
 	}
 	for name, db := range dataDBs {
 		meta, err := loadLocalMeta(db)

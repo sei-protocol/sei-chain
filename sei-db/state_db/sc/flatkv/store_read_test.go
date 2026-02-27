@@ -117,6 +117,66 @@ func TestStoreHas(t *testing.T) {
 }
 
 // =============================================================================
+// Legacy Key Get Tests
+// =============================================================================
+
+func TestStoreGetLegacyPendingWrites(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xEE}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
+	// Not found initially
+	_, found := s.Get(legacyKey)
+	require.False(t, found)
+
+	// Apply changeset
+	cs := makeChangeSet(legacyKey, []byte{0x00, 0x40}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	// Should be readable from pending writes
+	got, found := s.Get(legacyKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0x00, 0x40}, got)
+
+	// Commit and still readable
+	commitAndCheck(t, s)
+	got, found = s.Get(legacyKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0x00, 0x40}, got)
+}
+
+func TestStoreGetLegacyPendingDelete(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xFF}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
+	// Write and commit
+	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x80}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	_, found := s.Get(legacyKey)
+	require.True(t, found)
+
+	// Apply delete (pending)
+	cs2 := makeChangeSet(legacyKey, nil, true)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+	// Should not be found (pending delete)
+	_, found = s.Get(legacyKey)
+	require.False(t, found)
+
+	// Commit delete
+	commitAndCheck(t, s)
+	_, found = s.Get(legacyKey)
+	require.False(t, found)
+}
+
+// =============================================================================
 // Delete
 // =============================================================================
 
