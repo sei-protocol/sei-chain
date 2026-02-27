@@ -3,7 +3,6 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
@@ -230,15 +229,9 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.clearPendingWrites()
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
-	// SnapshotMinTimeInterval prevents dense snapshots during catch-up.
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
-		if s.lastSnapshotTime.IsZero() || time.Since(s.lastSnapshotTime) >= s.config.SnapshotMinTimeDuration() {
-			if err := s.WriteSnapshot(""); err != nil {
-				s.log.Error("auto snapshot failed", "version", version, "err", err)
-			}
-		} else {
-			s.log.Debug("auto snapshot skipped (min time interval)", "version", version,
-				"elapsed", time.Since(s.lastSnapshotTime), "minInterval", s.config.SnapshotMinTimeDuration())
+		if err := s.WriteSnapshot(""); err != nil {
+			s.log.Error("auto snapshot failed", "version", version, "err", err)
 		}
 	}
 

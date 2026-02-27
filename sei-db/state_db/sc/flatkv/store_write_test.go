@@ -414,9 +414,8 @@ func TestStoreFsyncConfig(t *testing.T) {
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
-		SnapshotInterval:        5,
-		SnapshotKeepRecent:      2,
-		SnapshotMinTimeInterval: 0,
+		SnapshotInterval:   5,
+		SnapshotKeepRecent: 2,
 	}
 	s := NewCommitStore(dir, nil, cfg)
 	_, err := s.LoadVersion(0)
@@ -439,9 +438,8 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
-		SnapshotInterval:        10,
-		SnapshotKeepRecent:      2,
-		SnapshotMinTimeInterval: 0,
+		SnapshotInterval:   10,
+		SnapshotKeepRecent: 2,
 	}
 	s := NewCommitStore(dir, nil, cfg)
 	_, err := s.LoadVersion(0)
@@ -492,40 +490,6 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 		return false, nil
 	})
 	require.Equal(t, countBefore, countAfter, "no new auto-snapshot when interval=0")
-}
-
-func TestAutoSnapshotThrottledByMinTimeInterval(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{
-		SnapshotInterval:        2,
-		SnapshotKeepRecent:      10,
-		SnapshotMinTimeInterval: 3600,
-	}
-	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0)
-	require.NoError(t, err)
-	defer s.Close()
-
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0x02})
-
-	flatkvDir := s.flatkvDir()
-	var snaps1 []int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
-		snaps1 = append(snaps1, v)
-		return false, nil
-	})
-	require.Contains(t, snaps1, int64(2), "first auto-snapshot should fire (lastSnapshotTime is zero)")
-
-	commitStorageEntry(t, s, Address{0x03}, Slot{0x03}, []byte{0x03})
-	commitStorageEntry(t, s, Address{0x04}, Slot{0x04}, []byte{0x04})
-
-	var snaps2 []int64
-	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
-		snaps2 = append(snaps2, v)
-		return false, nil
-	})
-	require.NotContains(t, snaps2, int64(4), "second auto-snapshot should be throttled by MinTimeInterval")
 }
 
 // =============================================================================
