@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -113,6 +114,44 @@ func TestParseIOFile_RefPairOnly(t *testing.T) {
 	if len(pairs[0].Expected) != 0 {
 		t.Fatalf("expected empty Expected when using directive, got %d bytes", len(pairs[0].Expected))
 	}
+}
+
+func TestParseIOFile_InvalidDirectives(t *testing.T) {
+	t.Run("invalid ref_pair", func(t *testing.T) {
+		content := `>> {"method":"eth_getBlockByHash","params":["0xabc",false]}
+<< @ ref_pair x
+`
+		_, err := parseIOFile(content)
+		if err == nil {
+			t.Fatal("expected error for invalid ref_pair")
+		}
+		if !strings.Contains(err.Error(), "ref_pair") {
+			t.Errorf("error should mention ref_pair: %v", err)
+		}
+	})
+	t.Run("invalid bind no equals", func(t *testing.T) {
+		content := `>> {"method":"eth_getBlockByNumber","params":["latest",false]}
+<< {"result":{}}
+@ bind blockHash
+`
+		_, err := parseIOFile(content)
+		if err == nil {
+			t.Fatal("expected error for bind without =")
+		}
+		if !strings.Contains(err.Error(), "bind") {
+			t.Errorf("error should mention bind: %v", err)
+		}
+	})
+	t.Run("invalid bind empty var", func(t *testing.T) {
+		content := `>> {"method":"eth_getBlockByNumber","params":["latest",false]}
+<< {"result":{}}
+@ bind  = result.hash
+`
+		_, err := parseIOFile(content)
+		if err == nil {
+			t.Fatal("expected error for bind with empty var")
+		}
+	})
 }
 
 func TestGetJSONPath(t *testing.T) {

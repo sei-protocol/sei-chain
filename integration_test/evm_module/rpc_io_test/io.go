@@ -74,6 +74,8 @@ func parseIOFile(content string) ([]ioxPair, error) {
 					pairs = append(pairs, ioxPair{Request: curReq, RefPair: n})
 					lastIdx = len(pairs) - 1
 					inBinding = true
+				} else {
+					return nil, fmt.Errorf("invalid directive: expected ref_pair N (N>=1), got %q", trimmed)
 				}
 				curReq = nil
 				continue
@@ -88,13 +90,17 @@ func parseIOFile(content string) ([]ioxPair, error) {
 
 		if inBinding && lastIdx >= 0 && strings.HasPrefix(trimmed, directivePrefix) {
 			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, directivePrefix))
-			if after, ok := strings.CutPrefix(rest, "bind "); ok && strings.Contains(after, "=") {
+			if after, ok := strings.CutPrefix(rest, "bind "); ok {
 				idx := strings.Index(after, "=")
+				if idx <= 0 {
+					return nil, fmt.Errorf("invalid bind directive: expected varName = path, got %q", trimmed)
+				}
 				varName := strings.TrimSpace(after[:idx])
 				path := strings.TrimSpace(after[idx+1:])
-				if varName != "" && path != "" {
-					pairs[lastIdx].AfterBindings = append(pairs[lastIdx].AfterBindings, binding{Var: varName, Path: path})
+				if varName == "" || path == "" {
+					return nil, fmt.Errorf("invalid bind directive: var and path must be non-empty, got %q", trimmed)
 				}
+				pairs[lastIdx].AfterBindings = append(pairs[lastIdx].AfterBindings, binding{Var: varName, Path: path})
 			}
 		}
 	}
