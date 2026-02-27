@@ -42,4 +42,5 @@ if [[ -n "$DEPLOY_TX" ]]; then
   fi
 fi
 
+export SEI_EVM_IO_RUN_INTEGRATION=1
 go test ./integration_test/evm_module/rpc_io_test/ -v -count=1

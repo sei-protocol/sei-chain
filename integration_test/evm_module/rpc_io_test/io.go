@@ -257,9 +257,6 @@ func specOnly(t *testing.T, actual, expected []byte) bool {
 }
 
 func ioTestsDir() (string, error) {
-	if d := os.Getenv("SEI_IO_TESTS_DIR"); d != "" {
-		return filepath.Abs(d)
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err

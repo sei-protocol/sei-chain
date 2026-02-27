@@ -1,6 +1,6 @@
 // Package rpc_io_test runs ethereum/execution-apis .io/.iox tests against a local Sei EVM RPC.
-// Env: SEI_EVM_RPC_URL (default http://127.0.0.1:8545), SEI_IO_TESTS_DIR (default testdata/).
-// Debug: SEI_EVM_IO_DEBUG_FILES="file1.iox,file2.io" to run only those files.
+// Env: SEI_EVM_IO_RUN_INTEGRATION=1 to run (set by integration script/CI). If unset, tests skip.
+// SEI_EVM_RPC_URL (default http://127.0.0.1:8545). Debug: SEI_EVM_IO_DEBUG_FILES="file1.iox,file2.io".
 package rpc_io_test
 
 import (
@@ -15,6 +15,10 @@ import (
 var evmRPCSpecResults struct{ passed, failed, skipped int }
 
 func TestEVMRPCSpec(t *testing.T) {
+	if os.Getenv("SEI_EVM_IO_RUN_INTEGRATION") != "1" {
+		t.Skip("EVM RPC integration tests skipped (set SEI_EVM_IO_RUN_INTEGRATION=1 to run)")
+	}
+
 	abs, err := ioTestsDir()
 	if err != nil {
 		t.Fatalf("resolve io tests dir: %v", err)
@@ -48,7 +52,7 @@ func TestEVMRPCSpec(t *testing.T) {
 	url := rpcURL()
 	client := &rpcClient{URL: url}
 	if !nodeReachable(client) {
-		t.Skipf("EVM RPC node not reachable at %s", url)
+		t.Fatalf("EVM RPC node not reachable at %s (integration mode requires a running node)", url)
 	}
 
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
