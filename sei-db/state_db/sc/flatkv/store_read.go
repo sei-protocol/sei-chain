@@ -296,7 +296,7 @@ func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
 	}
 	value, err := s.legacyDB.Get(key)
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
