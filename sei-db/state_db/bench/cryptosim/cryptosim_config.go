@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
@@ -105,6 +106,9 @@ type CryptoSimConfig struct {
 	// The size of the queue for each transaction executor.
 	ExecutorQueueSize int
 
+	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
+	MaxRuntimeSeconds time.Duration
+
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
 
@@ -116,7 +120,7 @@ type CryptoSimConfig struct {
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
-	// That file should conatain every available config set to its default value, as a reference.
+	// That file should contain every available config set to its default value, as a reference.
 
 	return &CryptoSimConfig{
 		MinimumNumberOfAccounts:           1_000_000,
@@ -141,9 +145,19 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
+		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
 	}
+}
+
+// StringifiedConfig returns the config as human-readable, multi-line JSON.
+func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // Validate checks that the configuration is sane and returns an error if not.
@@ -193,9 +207,13 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.SetupUpdateIntervalCount < 1 {
 		return fmt.Errorf("SetupUpdateIntervalCount must be at least 1 (got %d)", c.SetupUpdateIntervalCount)
 	}
+	if c.MaxRuntimeSeconds < 0 {
+		return fmt.Errorf("MaxRuntimeSeconds must be at least 0 (got %d)", c.MaxRuntimeSeconds)
+	}
 	if c.TransactionMetricsSampleRate < 0 || c.TransactionMetricsSampleRate > 1 {
 		return fmt.Errorf("TransactionMetricsSampleRate must be in [0, 1] (got %f)", c.TransactionMetricsSampleRate)
 	}
+
 	return nil
 }
 

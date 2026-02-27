@@ -28,6 +28,12 @@ func run() error {
 		return err
 	}
 
+	configString, err := config.StringifiedConfig()
+	if err != nil {
+		return fmt.Errorf("failed to stringify config: %w", err)
+	}
+	fmt.Printf("%s\n", configString)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -36,14 +42,13 @@ func run() error {
 		return fmt.Errorf("failed to create cryptosim: %w", err)
 	}
 	defer func() {
-		fmt.Printf("\nInitiating teardown.\n")
 		err := cs.Close()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
 		}
 	}()
 
-	<-ctx.Done()
+	cs.BlockUntilHalted()
 
 	return nil
 }

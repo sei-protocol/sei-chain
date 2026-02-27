@@ -146,7 +146,6 @@ func (d *DataGenerator) CreateNewAccount(
 
 // Creates a new ERC20 contract and optionally writes it to the database. Returns the address of the new ERC20 contract.
 func (d *DataGenerator) CreateNewErc20Contract(
-	cryptosim *CryptoSim,
 	// The number of bytes to allocate for the ERC20 contract data.
 	erc20ContractSize int,
 	// If true, the ERC20 contract will be immediately written to the database.
