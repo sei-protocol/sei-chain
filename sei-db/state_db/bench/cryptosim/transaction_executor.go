@@ -38,6 +38,7 @@ func NewTransactionExecutor(
 ) *TransactionExecutor {
 	e := &TransactionExecutor{
 		ctx:                  ctx,
+		cancel:               cancel,
 		database:             database,
 		feeCollectionAddress: feeCollectionAddress,
 		workChan:             make(chan any, queueSize),

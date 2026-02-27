@@ -4,12 +4,15 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shirou/gopsutil/v3/process"
 	"golang.org/x/sys/unix"
 )
 
@@ -24,6 +27,11 @@ type CryptosimMetrics struct {
 	dbCommitsTotal               prometheus.Counter
 	dataDirSizeBytes             prometheus.Gauge
 	dataDirAvailableBytes        prometheus.Gauge
+	processReadBytesTotal        prometheus.Counter
+	processWriteBytesTotal       prometheus.Counter
+	processReadCountTotal        prometheus.Counter
+	processWriteCountTotal       prometheus.Counter
+	uptimeSeconds                prometheus.Gauge
 	mainThreadPhase              *PhaseTimer
 	transactionPhaseTimerFactory *PhaseTimerFactory
 }
@@ -31,7 +39,7 @@ type CryptosimMetrics struct {
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
 // registry is created internally. When ctx is cancelled, the metrics HTTP server
 // (if started) is shut down gracefully. Data directory size sampling is started
-// automatically when DataDirSizeIntervalSeconds > 0.
+// automatically when BackgroundMetricsScrapeInterval > 0.
 func NewCryptosimMetrics(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -72,6 +80,28 @@ func NewCryptosimMetrics(
 		Name: "cryptosim_data_dir_available_bytes",
 		Help: "Available disk space in bytes on the filesystem containing the data directory",
 	})
+	processReadBytesTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_process_read_bytes_total",
+		Help: "Bytes read from storage by benchmark. Use rate() for throughput. " +
+			"Linux only (ErrNotImplemented on darwin).",
+	})
+	processWriteBytesTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_process_write_bytes_total",
+		Help: "Bytes written to storage by benchmark. Use rate() for throughput. " +
+			"Linux only (ErrNotImplemented on darwin).",
+	})
+	processReadCountTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_process_read_count_total",
+		Help: "Read I/O ops by benchmark. Use rate() for read IOPS. Linux only (ErrNotImplemented on darwin).",
+	})
+	processWriteCountTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "cryptosim_process_write_count_total",
+		Help: "Write I/O ops by benchmark. Use rate() for write IOPS. Linux only (ErrNotImplemented on darwin).",
+	})
+	uptimeSeconds := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_uptime_seconds",
+		Help: "Seconds since benchmark started. Resets to 0 on restart.",
+	})
 	mainThreadPhase := NewPhaseTimer(reg, "main_thread")
 	transactionPhaseTimerFactory := NewPhaseTimerFactory(reg, "transaction")
 
@@ -83,6 +113,11 @@ func NewCryptosimMetrics(
 		dbCommitsTotal,
 		dataDirSizeBytes,
 		dataDirAvailableBytes,
+		processReadBytesTotal,
+		processWriteBytesTotal,
+		processReadCountTotal,
+		processWriteCountTotal,
+		uptimeSeconds,
 	)
 
 	m := &CryptosimMetrics{
@@ -95,13 +130,19 @@ func NewCryptosimMetrics(
 		dbCommitsTotal:               dbCommitsTotal,
 		dataDirSizeBytes:             dataDirSizeBytes,
 		dataDirAvailableBytes:        dataDirAvailableBytes,
+		processReadBytesTotal:        processReadBytesTotal,
+		processWriteBytesTotal:       processWriteBytesTotal,
+		processReadCountTotal:        processReadCountTotal,
+		processWriteCountTotal:       processWriteCountTotal,
+		uptimeSeconds:                uptimeSeconds,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
-	if config != nil && config.DataDirSizeIntervalSeconds > 0 && config.DataDir != "" {
+	if config != nil && config.BackgroundMetricsScrapeInterval > 0 && config.DataDir != "" {
 		if dataDir, err := resolveAndCreateDataDir(config.DataDir); err == nil {
-			m.startDataDirSizeSampling(dataDir, config.DataDirSizeIntervalSeconds)
+			m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
 		}
+		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)
 	}
 	return m
 }
@@ -113,7 +154,92 @@ func (m *CryptosimMetrics) StartServer(addr string) {
 	if m == nil || addr == "" {
 		return
 	}
+	m.startUptimeSampling(time.Now())
 	startMetricsServer(m.ctx, m.reg, addr)
+}
+
+// startUptimeSampling updates the uptime gauge every second from startTime.
+func (m *CryptosimMetrics) startUptimeSampling(startTime time.Time) {
+	if m == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				m.uptimeSeconds.Set(time.Since(startTime).Seconds())
+			}
+		}
+	}()
+}
+
+// startProcessIOSampling starts a goroutine that periodically samples process
+// I/O counters (read/write bytes and operation counts) via gopsutil and adds
+// deltas to Prometheus counters. Use rate() on these counters for throughput
+// and IOPS. Runs when BackgroundMetricsScrapeInterval > 0.
+//
+// Skipped on darwin: gopsutil does not implement process.IOCounters on macOS;
+// the kernel does not expose per-process disk I/O via public APIs. These metrics
+// will remain at zero on darwin.
+func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
+	if m == nil || intervalSeconds <= 0 {
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		// OSX does not support process I/O stats.
+		return
+	}
+	proc, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	var prevReadBytes, prevWriteBytes, prevReadCount, prevWriteCount uint64
+	var initialized bool
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		sample := func() {
+			io, err := proc.IOCounters()
+			if err != nil || io == nil {
+				return
+			}
+			curRead := io.ReadBytes
+			curWrite := io.WriteBytes
+			curReadCount := io.ReadCount
+			curWriteCount := io.WriteCount
+			if initialized {
+				if curRead >= prevReadBytes {
+					m.processReadBytesTotal.Add(float64(curRead - prevReadBytes))
+				}
+				if curWrite >= prevWriteBytes {
+					m.processWriteBytesTotal.Add(float64(curWrite - prevWriteBytes))
+				}
+				if curReadCount >= prevReadCount {
+					m.processReadCountTotal.Add(float64(curReadCount - prevReadCount))
+				}
+				if curWriteCount >= prevWriteCount {
+					m.processWriteCountTotal.Add(float64(curWriteCount - prevWriteCount))
+				}
+			}
+			prevReadBytes, prevWriteBytes = curRead, curWrite
+			prevReadCount, prevWriteCount = curReadCount, curWriteCount
+			initialized = true
+		}
+		sample()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				sample()
+			}
+		}
+	}()
 }
 
 // startDataDirSizeSampling starts a goroutine that periodically measures the

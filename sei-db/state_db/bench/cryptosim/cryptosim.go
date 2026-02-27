@@ -105,8 +105,6 @@ func NewCryptoSim(
 		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
-	metrics.StartServer(config.MetricsAddr)
-
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1
@@ -142,6 +140,7 @@ func NewCryptoSim(
 
 	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
+	c.metrics.StartServer(config.MetricsAddr)
 
 	go c.run()
 	return c, nil
