@@ -8,6 +8,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func makeIPAddr(id types.NodeID, host string) NodeAddress {
+	return NodeAddress{NodeID: id, Hostname: host, Port: defaultPort}
+}
+
 func TestPool_AddAddr_deduplicate(t *testing.T) {
 	rng := utils.TestRng()
 	selfID := makeNodeID(rng)
@@ -20,6 +24,82 @@ func TestPool_AddAddr_deduplicate(t *testing.T) {
 	require.NoError(t, p.AddAddr(addr))
 	require.Error(t, p.AddAddr(addr))
 	require.Equal(t, addr, p.addrs[peer].addr)
+}
+
+func TestPool_AddAddr_publicReplacesPrivateOnly(t *testing.T) {
+	rng := utils.TestRng()
+	selfID := makeNodeID(rng)
+	peer := makeNodeID(rng)
+	p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(10)})
+	privateAddr := makeIPAddr(peer, "192.168.0.10")
+	publicAddr := makeIPAddr(peer, "93.184.216.34")
+
+	require.NoError(t, p.AddAddr(privateAddr))
+	require.NoError(t, p.AddAddr(publicAddr))
+	require.Equal(t, publicAddr, p.addrs[peer].addr)
+	require.ErrorIs(t, p.AddAddr(privateAddr), errDuplicate)
+	require.Equal(t, publicAddr, p.addrs[peer].addr)
+}
+
+func TestPool_AddAddr_pruneFailedAllowsAnyAddr(t *testing.T) {
+	for name, host := range map[string]string{
+		"private": "10.0.0.2",
+		"public":  "93.184.216.35",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			selfID := makeNodeID(rng)
+			p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(1)})
+
+			// Add an address and fail to dial it.
+			failedPeer := makeNodeID(rng)
+			failedAddr := makeIPAddr(failedPeer, "10.0.0.1")
+			require.NoError(t, p.AddAddr(failedAddr))
+			dialAddr, ok := p.TryStartDial()
+			require.True(t, ok)
+			require.Equal(t, failedAddr, dialAddr)
+			p.DialFailed(dialAddr)
+
+			// Add another address which should replace it.
+			newPeer := makeNodeID(rng)
+			newAddr := makeIPAddr(newPeer, host)
+			require.NoError(t, p.AddAddr(newAddr))
+			require.Equal(t, newAddr, p.addrs[newPeer].addr)
+			_, stillPresent := p.addrs[failedPeer]
+			require.False(t, stillPresent)
+		})
+	}
+}
+
+func TestPool_AddAddr_prunePrivateOnlyForPublicInsert(t *testing.T) {
+	rng := utils.TestRng()
+	selfID := makeNodeID(rng)
+	p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(2)})
+
+	// Fill the pool with private and public addresses.
+	peerA := makeNodeID(rng)
+	peerB := makeNodeID(rng)
+	addrA := makeIPAddr(peerA, "93.184.216.1")
+	addrB := makeIPAddr(peerB, "10.0.0.4")
+	require.NoError(t, p.AddAddr(addrA))
+	require.NoError(t, p.AddAddr(addrB))
+
+	// Adding a private address should fail.
+	peerC := makeNodeID(rng)
+	privateNew := makeIPAddr(peerC, "10.0.0.5")
+	require.ErrorIs(t, p.AddAddr(privateNew), errTooMany)
+	require.Equal(t, addrA, p.addrs[peerA].addr)
+	require.Equal(t, addrB, p.addrs[peerB].addr)
+
+	// Adding a public address should prune the private one.
+	peerD := makeNodeID(rng)
+	publicNew := makeIPAddr(peerD, "93.184.216.36")
+	require.NoError(t, p.AddAddr(publicNew))
+	require.Equal(t, publicNew, p.addrs[peerD].addr)
+	_, okPublic := p.addrs[peerA]
+	_, okPrivate := p.addrs[peerB]
+	require.True(t, okPublic)
+	require.False(t, okPrivate)
 }
 
 func TestPool_AddAddr_prune_failed_addrs(t *testing.T) {
