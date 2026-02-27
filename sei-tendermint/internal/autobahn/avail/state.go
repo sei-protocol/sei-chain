@@ -580,22 +580,30 @@ func (s *State) Run(ctx context.Context) error {
 // Write order: blocks → new CommitQCs → AppQC → delete old CommitQCs.
 // AppQC is written before deleting old CommitQCs so that a crash never
 // leaves the on-disk AppQC pointing at a deleted CommitQC.
+//
+// Blocks are persisted one at a time with inner.nextBlockToPersist
+// updated after each write, so vote latency equals single-block write
+// time regardless of batch size.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
-	blockCur := pers.blocks.LoadTips()
-	commitQCCur := pers.commitQCs.LoadNext()
 	var lastPersistedAppQC utils.Option[*types.AppQC]
 	for {
-		batch, err := s.collectPersistBatch(ctx, blockCur, commitQCCur)
-		if err != nil {
-			return err
-		}
-		commitQCCur = batch.commitQCCur
-
-		blockCur, err = pers.blocks.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
+		batch, err := s.collectPersistBatch(ctx)
 		if err != nil {
 			return err
 		}
 
+		for _, proposal := range batch.blocks {
+			h := proposal.Msg().Block().Header()
+			if err := pers.blocks.PersistBlock(proposal); err != nil {
+				return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
+			}
+			s.markBlockPersisted(h.Lane(), h.BlockNumber()+1)
+		}
+		if err := pers.blocks.DeleteBefore(batch.laneFirsts); err != nil {
+			return fmt.Errorf("block deleteBefore: %w", err)
+		}
+
+		commitQCCur := batch.commitQCCur
 		for _, qc := range batch.commitQCs {
 			if err := pers.commitQCs.PersistCommitQC(qc); err != nil {
 				return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
@@ -622,17 +630,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
 				return fmt.Errorf("commitqc deleteBefore: %w", err)
 			}
-		}
-
-		// Publish persisted state under lock. latestCommitQC gates
-		// consensus from advancing to the next view (analogous to
-		// nextBlockToPersist gating RecvBatch).
-		if len(batch.blocks) > 0 || len(batch.commitQCs) > 0 {
-			lastCommitQC := utils.None[*types.CommitQC]()
-			if n := len(batch.commitQCs); n > 0 {
-				lastCommitQC = utils.Some(batch.commitQCs[n-1])
-			}
-			s.markPersisted(blockCur, lastCommitQC)
+			s.markCommitQCsPersisted(commitQCCur, utils.Some(batch.commitQCs[len(batch.commitQCs)-1]))
 		}
 	}
 }
@@ -644,16 +642,24 @@ type persistBatch struct {
 	appQC         utils.Option[*types.AppQC]
 	laneFirsts    map[types.LaneID]types.BlockNumber
 	commitQCFirst types.RoadIndex
-	commitQCCur   types.RoadIndex // clamped cursor (may have advanced past pruned entries)
+	commitQCCur   types.RoadIndex // snapshot of nextCommitQCToPersist (clamped)
 }
 
-// markPersisted updates inner state after successful disk writes.
-// Advances block persistence cursors and publishes the latest persisted CommitQC.
-func (s *State) markPersisted(blockTips map[types.LaneID]types.BlockNumber, commitQC utils.Option[*types.CommitQC]) {
+// markBlockPersisted advances the per-lane block persistence cursor.
+// Called after each individual block write so that RecvBatch (and therefore
+// voting) unblocks with single-block latency regardless of batch size.
+func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
-		for lane, next := range blockTips {
-			inner.nextBlockToPersist[lane] = next
-		}
+		inner.nextBlockToPersist[lane] = next
+		ctrl.Updated()
+	}
+}
+
+// markCommitQCsPersisted advances the CommitQC persistence cursor and
+// publishes the latest persisted CommitQC (gating consensus from advancing).
+func (s *State) markCommitQCsPersisted(commitQCCur types.RoadIndex, commitQC utils.Option[*types.CommitQC]) {
+	for inner, ctrl := range s.inner.Lock() {
+		inner.nextCommitQCToPersist = commitQCCur
 		if qc, ok := commitQC.Get(); ok {
 			inner.latestCommitQC.Store(utils.Some(qc))
 		}
@@ -662,20 +668,16 @@ func (s *State) markPersisted(blockTips map[types.LaneID]types.BlockNumber, comm
 }
 
 // collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-func (s *State) collectPersistBatch(
-	ctx context.Context,
-	blockCur map[types.LaneID]types.BlockNumber,
-	commitQCCur types.RoadIndex,
-) (persistBatch, error) {
+func (s *State) collectPersistBatch(ctx context.Context) (persistBatch, error) {
 	var b persistBatch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
-				if blockCur[lane] < q.next {
+				if inner.nextBlockToPersist[lane] < q.next {
 					return true
 				}
 			}
-			return commitQCCur < inner.commitQCs.next
+			return inner.nextCommitQCToPersist < inner.commitQCs.next
 		}); err != nil {
 			return b, err
 		}
@@ -683,13 +685,13 @@ func (s *State) collectPersistBatch(
 		for lane, q := range inner.blocks {
 			// Clamp cursor: prune may have deleted entries below q.first
 			// between iterations while the lock was not held.
-			blockCur[lane] = max(blockCur[lane], q.first)
-			for n := blockCur[lane]; n < q.next; n++ {
+			start := max(inner.nextBlockToPersist[lane], q.first)
+			for n := start; n < q.next; n++ {
 				b.blocks = append(b.blocks, q.q[n])
 			}
 			b.laneFirsts[lane] = q.first
 		}
-		commitQCCur = max(commitQCCur, inner.commitQCs.first)
+		commitQCCur := max(inner.nextCommitQCToPersist, inner.commitQCs.first)
 		b.commitQCFirst = inner.commitQCs.first
 		for n := commitQCCur; n < inner.commitQCs.next; n++ {
 			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])

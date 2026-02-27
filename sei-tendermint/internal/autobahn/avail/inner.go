@@ -21,6 +21,10 @@ type inner struct {
 	// goroutine bumps it immediately). Not persisted to disk: on restart it is
 	// reconstructed from the blocks already on disk (see newInner).
 	nextBlockToPersist map[types.LaneID]types.BlockNumber
+	// nextCommitQCToPersist tracks how far CommitQC persistence has progressed.
+	// Same lifecycle as nextBlockToPersist: always initialized, bumped by the
+	// persist goroutine (real or no-op), reconstructed from disk on restart.
+	nextCommitQCToPersist types.RoadIndex
 }
 
 // loadedAvailState holds data loaded from disk on restart.
@@ -65,6 +69,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 			i.commitQCs.pushBack(lqc.QC)
 		}
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
+		i.nextCommitQCToPersist = i.commitQCs.next
 	}
 
 	// Restore persisted blocks into their lane queues.
