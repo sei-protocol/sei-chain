@@ -35,7 +35,10 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type ConnV2 struct {
-	dialAddr     utils.Option[NodeAddress]
+	// Address at which this connection was dialed (None for inbound connections).
+	dialAddr utils.Option[NodeAddress]
+	// Address under which this node can be dialed (declared by peer during handshake).
+	selfAddr     utils.Option[NodeAddress]
 	peerChannels ChannelIDSet
 	peerInfo     types.NodeInfo
 	sendQueue    *Queue[sendMsg]
@@ -47,6 +50,7 @@ func (c *ConnV2) Info() peerConnInfo {
 		ID:       c.peerInfo.NodeID,
 		Channels: c.peerChannels,
 		DialAddr: c.dialAddr,
+		SelfAddr: c.selfAddr,
 	}
 }
 
@@ -105,15 +109,16 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 	}
 }
 
-func (r *Router) runConn(ctx context.Context, sc *conn.SecretConnection, peerInfo types.NodeInfo, dialAddr utils.Option[NodeAddress]) error {
+func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo types.NodeInfo, dialAddr utils.Option[NodeAddress]) error {
 	conn := &ConnV2{
 		dialAddr:     dialAddr,
+		selfAddr:     hConn.msg.SelfAddr,
 		peerInfo:     peerInfo,
 		sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 		peerChannels: toChannelIDs(peerInfo.Channels),
 		mconn: conn.NewMConnection(
-			r.logger.With("peer", Endpoint{sc.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
-			sc,
+			r.logger.With("peer", Endpoint{hConn.conn.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
+			hConn.conn,
 			r.getChannelDescs(),
 			r.options.Connection,
 		),

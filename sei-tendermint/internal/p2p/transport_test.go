@@ -49,7 +49,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 	maxAccepts := 2
 	opts.MaxConcurrentAccepts = utils.Some(maxAccepts)
 
-	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, rng, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
@@ -88,7 +88,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 			})
 		}
 		return nil
-	}))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

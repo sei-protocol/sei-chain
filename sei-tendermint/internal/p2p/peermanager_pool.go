@@ -73,6 +73,7 @@ type peerConnInfo struct {
 	ID       types.NodeID
 	Channels ChannelIDSet
 	DialAddr utils.Option[NodeAddress]
+	SelfAddr utils.Option[NodeAddress]
 }
 
 type peerConn interface {
