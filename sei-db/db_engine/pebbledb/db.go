@@ -131,7 +131,7 @@ func (p *pebbleDB) Checkpoint(destDir string) error {
 	return p.db.Checkpoint(destDir, pebble.WithFlushedWAL())
 }
 
-var _ db_engine.Checkpointable = (*pebbleDB)(nil)
+var _ types.Checkpointable = (*pebbleDB)(nil)
 
 func (p *pebbleDB) Close() error {
 	// Make Close idempotent: Pebble panics if Close is called twice.
