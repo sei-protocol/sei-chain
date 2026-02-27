@@ -6,10 +6,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // StorageBenchSuite defines a reusable benchmark suite for all storage backends.

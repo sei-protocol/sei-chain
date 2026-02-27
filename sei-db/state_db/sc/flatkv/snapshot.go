@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -379,7 +379,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	// be at the flat location or might have been moved in a prior attempt.
 	var version int64
 	metaPath := filepath.Join(flatkvDir, metadataDir)
-	if tmpMeta, err := pebbledb.Open(metaPath, db_engine.OpenOptions{}); err == nil {
+	if tmpMeta, err := pebbledb.Open(metaPath, types.OpenOptions{}); err == nil {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()
 		if verErr == nil && len(verData) == 8 {
@@ -449,7 +449,7 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 	// Deterministic order (slice, not map) for reproducibility.
 	type namedDB struct {
 		name string
-		db   db_engine.DB
+		db   types.KeyValueDB
 	}
 	dbs := []namedDB{
 		{accountDBDir, s.accountDB},
@@ -459,7 +459,7 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		{metadataDir, s.metadataDB},
 	}
 	for _, ndb := range dbs {
-		cp, ok := ndb.db.(db_engine.Checkpointable)
+		cp, ok := ndb.db.(types.Checkpointable)
 		if !ok {
 			return fmt.Errorf("db %s does not support Checkpoint", ndb.name)
 		}

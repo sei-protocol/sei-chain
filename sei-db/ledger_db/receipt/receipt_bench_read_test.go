@@ -14,6 +14,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -302,7 +303,7 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 		if !ok {
 			b.Fatalf("expected receiptStore backend, got %T", cached.backend)
 		}
-		rs.db.WaitForPendingWrites()
+		rs.db.(*mvcc.Database).WaitForPendingWrites()
 	case receiptBackendParquet:
 		pqs, ok := cached.backend.(*parquetReceiptStore)
 		if !ok {
