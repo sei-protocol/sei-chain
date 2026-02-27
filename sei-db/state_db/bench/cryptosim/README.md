@@ -54,10 +54,22 @@ The following features might be useful to add to this benchmark:
 
 # Setting Up Prometheus / Grafana
 
-TODO
+To set up local prometheus/grafana instances, run the following. You must have docker installed.
 
-Other TODOs:
+```
+./metrics/start-prometheus.sh
+./metrics/start-grafana.sh
+```
 
-- system metrics (e.g. memory, cpu, thread count, IO info if it's available)
-- disk utilization
-- disk utilizaiton per account (good for detecting disk leaks)
+Then, navigate to http://localhost:3000/ in a web browser to reach the grafana UI. Username and password are "admin".
+
+There is a pre-built dashboard containing visualizations for benchmark metrics in `metrics/dashboard.json` that 
+you can import into grafana.
+
+
+You can stop these services by killing their containers, or by running the following:
+
+```
+./metrics/stop-prometheus.sh
+./metrics/stop-grafana.sh
+```
