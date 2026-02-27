@@ -61,11 +61,6 @@ func ChannelDescriptor() p2p.ChannelDescriptor[*pb.PexMessage] {
 // The peer exchange or PEX reactor supports the peer manager by sending
 // requests to other peers for addresses that can be given to the peer manager
 // and at the same time advertises addresses to peers that need more.
-//
-// The reactor is able to tweak the intensity of it's search by decreasing or
-// increasing the interval between each request. It tracks connected peers via
-// a linked list, sending a request to the node at the front of the list and
-// adding it to the back of the list once a response is received.
 type Reactor struct {
 	service.BaseService
 	sendInterval time.Duration

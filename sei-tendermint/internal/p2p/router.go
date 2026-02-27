@@ -221,6 +221,10 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
+					var pexAddrs []NodeAddress
+					if r.options.PexOnHandshake {
+						pexAddrs = r.Advertise(MaxPexAddrs)
+					}
 					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, handshakeSpec{
 						SelfAddr: r.options.SelfAddress,
 						// Listener has to send pex data, so that dialer can learn about more peers in
@@ -228,7 +232,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						// Dialer also could potentially send pex data, but there is no benefit from doing so:
 						// - if listener is full, then it won't use the new data. Listener also will not broadcast unverified data to anyone.
 						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
-						PexAddrs:          r.Advertise(MaxPexAddrs),
+						PexAddrs:          pexAddrs,
 						SeiGigaConnection: r.giga.IsPresent(),
 					})
 					if err != nil {
@@ -290,8 +294,10 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								if err != nil {
 									return fmt.Errorf("handshake(): %w", err)
 								}
-								if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
-									return fmt.Errorf("r.AddAddrs(): %w", err)
+								if r.options.PexOnHandshake {
+									if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
+										return fmt.Errorf("r.AddAddrs(): %w", err)
+									}
 								}
 								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
 									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
