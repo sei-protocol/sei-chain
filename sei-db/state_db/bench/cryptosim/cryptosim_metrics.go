@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/sys/unix"
 )
 
 // CryptosimMetrics holds Prometheus metrics for the cryptosim benchmark.
@@ -22,6 +23,7 @@ type CryptosimMetrics struct {
 	totalErc20Contracts          prometheus.Gauge
 	dbCommitsTotal               prometheus.Counter
 	dataDirSizeBytes             prometheus.Gauge
+	dataDirAvailableBytes        prometheus.Gauge
 	mainThreadPhase              *PhaseTimer
 	transactionPhaseTimerFactory *PhaseTimerFactory
 }
@@ -66,6 +68,10 @@ func NewCryptosimMetrics(
 		Name: "cryptosim_data_dir_size_bytes",
 		Help: "Approximate size in bytes of the benchmark data directory",
 	})
+	dataDirAvailableBytes := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_data_dir_available_bytes",
+		Help: "Available disk space in bytes on the filesystem containing the data directory",
+	})
 	mainThreadPhase := NewPhaseTimer(reg, "main_thread")
 	transactionPhaseTimerFactory := NewPhaseTimerFactory(reg, "transaction")
 
@@ -76,6 +82,7 @@ func NewCryptosimMetrics(
 		totalErc20Contracts,
 		dbCommitsTotal,
 		dataDirSizeBytes,
+		dataDirAvailableBytes,
 	)
 
 	m := &CryptosimMetrics{
@@ -87,6 +94,7 @@ func NewCryptosimMetrics(
 		totalErc20Contracts:          totalErc20Contracts,
 		dbCommitsTotal:               dbCommitsTotal,
 		dataDirSizeBytes:             dataDirSizeBytes,
+		dataDirAvailableBytes:        dataDirAvailableBytes,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
@@ -109,8 +117,8 @@ func (m *CryptosimMetrics) StartServer(addr string) {
 }
 
 // startDataDirSizeSampling starts a goroutine that periodically measures the
-// size of dataDir and exports it to cryptosim_data_dir_size_bytes. The first
-// measurement runs immediately so the gauge is never left at 0 for Prometheus scrapes.
+// size and available disk space of dataDir and exports them. The first
+// measurement runs immediately so the gauges are never left at 0 for Prometheus scrapes.
 func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeconds int) {
 	if m == nil || intervalSeconds <= 0 || dataDir == "" {
 		return
@@ -119,17 +127,30 @@ func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeco
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		// Measure immediately, then on each tick.
-		m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
+		sample := func() {
+			m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
+			m.dataDirAvailableBytes.Set(float64(measureDataDirAvailableBytes(dataDir)))
+		}
+		sample()
 		for {
 			select {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
-				m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
+				sample()
 			}
 		}
 	}()
+}
+
+// measureDataDirAvailableBytes returns the available disk space in bytes for the
+// filesystem containing dataDir. Returns 0 on error or unsupported platforms.
+func measureDataDirAvailableBytes(dataDir string) int64 {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(dataDir, &stat); err != nil {
+		return 0
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize)
 }
 
 // measureDataDirSize walks the directory tree and sums file sizes.
