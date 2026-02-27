@@ -529,57 +529,7 @@ func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		if pers, ok := s.persisters.Get(); ok {
 			scope.SpawnNamed("persist", func() error {
-				blockCur := pers.blocks.LoadTips()
-				commitQCCur := pers.commitQCs.LoadNext()
-				var lastPersistedAppQC utils.Option[*types.AppQC]
-				for {
-					batch, err := s.collectPersistBatch(ctx, blockCur, commitQCCur)
-					if err != nil {
-						return err
-					}
-					commitQCCur = batch.commitQCCur
-
-					blockCur, err = pers.blocks.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
-					if err != nil {
-						return err
-					}
-
-					for _, qc := range batch.commitQCs {
-						if err := pers.commitQCs.PersistCommitQC(qc); err != nil {
-							return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
-						}
-						commitQCCur = qc.Index() + 1
-					}
-					if len(batch.commitQCs) > 0 {
-						if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
-							return fmt.Errorf("commitqc deleteBefore: %w", err)
-						}
-					}
-
-					// Persist AppQC after CommitQCs to guarantee the matching
-					// CommitQC is already on disk if we crash after this write.
-					// TODO: use a single WAL for AppQC and CommitQCs to make
-					// this atomic rather than relying on write order.
-					if batch.appQC != lastPersistedAppQC {
-						if appQC, ok := batch.appQC.Get(); ok {
-							if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
-								return fmt.Errorf("persist AppQC: %w", err)
-							}
-						}
-						lastPersistedAppQC = batch.appQC
-					}
-
-					// Publish persisted state under lock. latestCommitQC gates
-					// consensus from advancing to the next view (analogous to
-					// nextBlockToPersist gating RecvBatch).
-					if len(batch.blocks) > 0 || len(batch.commitQCs) > 0 {
-						lastCommitQC := utils.None[*types.CommitQC]()
-						if n := len(batch.commitQCs); n > 0 {
-							lastCommitQC = utils.Some(batch.commitQCs[n-1])
-						}
-						s.markPersisted(blockCur, lastCommitQC)
-					}
-				}
+				return s.runPersist(ctx, pers)
 			})
 		}
 		// Task inserting FullCommitQCs and local blocks to data state.
@@ -616,6 +566,67 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// runPersist is the main loop for the persist goroutine.
+// Write order: blocks → new CommitQCs → AppQC → delete old CommitQCs.
+// AppQC is written before deleting old CommitQCs so that a crash never
+// leaves the on-disk AppQC pointing at a deleted CommitQC.
+func (s *State) runPersist(ctx context.Context, pers persisters) error {
+	blockCur := pers.blocks.LoadTips()
+	commitQCCur := pers.commitQCs.LoadNext()
+	var lastPersistedAppQC utils.Option[*types.AppQC]
+	for {
+		batch, err := s.collectPersistBatch(ctx, blockCur, commitQCCur)
+		if err != nil {
+			return err
+		}
+		commitQCCur = batch.commitQCCur
+
+		blockCur, err = pers.blocks.PersistBatch(blockCur, batch.blocks, batch.laneFirsts)
+		if err != nil {
+			return err
+		}
+
+		for _, qc := range batch.commitQCs {
+			if err := pers.commitQCs.PersistCommitQC(qc); err != nil {
+				return fmt.Errorf("persist commitqc %d: %w", qc.Index(), err)
+			}
+			commitQCCur = qc.Index() + 1
+		}
+
+		// Persist AppQC after new CommitQCs (so the matching
+		// CommitQC is on disk) but before deleting old ones (so a
+		// crash never leaves the on-disk AppQC pointing at a
+		// deleted CommitQC).
+		// TODO: use a single WAL for AppQC and CommitQCs to make
+		// this atomic rather than relying on write order.
+		if batch.appQC != lastPersistedAppQC {
+			if appQC, ok := batch.appQC.Get(); ok {
+				if err := pers.appQC.Persist(types.AppQCConv.Encode(appQC)); err != nil {
+					return fmt.Errorf("persist AppQC: %w", err)
+				}
+			}
+			lastPersistedAppQC = batch.appQC
+		}
+
+		if len(batch.commitQCs) > 0 {
+			if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
+				return fmt.Errorf("commitqc deleteBefore: %w", err)
+			}
+		}
+
+		// Publish persisted state under lock. latestCommitQC gates
+		// consensus from advancing to the next view (analogous to
+		// nextBlockToPersist gating RecvBatch).
+		if len(batch.blocks) > 0 || len(batch.commitQCs) > 0 {
+			lastCommitQC := utils.None[*types.CommitQC]()
+			if n := len(batch.commitQCs); n > 0 {
+				lastCommitQC = utils.Some(batch.commitQCs[n-1])
+			}
+			s.markPersisted(blockCur, lastCommitQC)
+		}
+	}
 }
 
 // persistBatch holds the data collected under lock for one persist iteration.
