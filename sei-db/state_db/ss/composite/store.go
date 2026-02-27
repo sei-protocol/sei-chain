@@ -315,6 +315,7 @@ func RecoverCompositeStateStore(
 	changelogPath string,
 	compositeStore *CompositeStateStore,
 ) error {
+	// TODO: Remove this piece once cosmos is fully deprecated
 	if compositeStore.cosmosStore != nil {
 		cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
 		logger.Info("Recovering Cosmos state store",
@@ -335,8 +336,12 @@ func RecoverCompositeStateStore(
 		}
 	}
 
+	// TODO: consider combine the replay together to avoid double read WAL
 	if compositeStore.evmStore != nil {
 		evmVersion := compositeStore.evmStore.GetLatestVersion()
+		if evmVersion <= 0 {
+			return nil
+		}
 		logger.Info("Recovering EVM state store",
 			"evmVersion", evmVersion,
 			"changelogPath", changelogPath,
