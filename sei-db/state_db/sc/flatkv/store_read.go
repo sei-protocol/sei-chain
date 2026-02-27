@@ -100,6 +100,20 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 		return value, true
 
+	case evm.EVMKeyLegacy:
+		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
+			if pw.isDelete {
+				return nil, false
+			}
+			return pw.value, true
+		}
+
+		value, err := s.legacyDB.Get(keyBytes)
+		if err != nil {
+			return nil, false
+		}
+		return value, true
+
 	default:
 		return nil, false
 	}
@@ -266,6 +280,26 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)
+	}
+	return value, nil
+}
+
+// getLegacyValue returns the legacy value from pending writes or DB.
+// Returns (nil, nil) if not found.
+// Returns (nil, error) if I/O error occurs.
+func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
+	if pw, ok := s.legacyWrites[string(key)]; ok {
+		if pw.isDelete {
+			return nil, nil
+		}
+		return pw.value, nil
+	}
+	value, err := s.legacyDB.Get(key)
+	if err != nil {
+		if db_engine.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
 	}
 	return value, nil
 }
