@@ -33,6 +33,16 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 	return votes
 }
 
+func leaderKey(committee *types.Committee, keys []types.SecretKey, view types.View) types.SecretKey {
+	leader := committee.Leader(view)
+	for _, k := range keys {
+		if k.Public() == leader {
+			return k
+		}
+	}
+	panic("leader not in keys")
+}
+
 func makeCommitQC(
 	rng utils.Rng,
 	committee *types.Committee,
@@ -41,17 +51,15 @@ func makeCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	fullProposal, err := types.NewProposal(
-		keys[0],
+	vs := types.ViewSpec{CommitQC: prev}
+	fullProposal := utils.OrPanic1(types.NewProposal(
+		leaderKey(committee, keys, vs.View()),
 		committee,
-		types.ViewSpec{CommitQC: prev},
+		vs,
 		time.Now(),
 		laneQCs,
 		appQC,
-	)
-	if err != nil {
-		panic(err)
-	}
+	))
 	vote := types.NewCommitVote(fullProposal.Proposal().Msg())
 	var votes []*types.Signed[*types.CommitVote]
 	for _, k := range keys {
@@ -197,17 +205,15 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		fullProposal, err := types.NewProposal(
-			keys[0],
+		vs := types.ViewSpec{CommitQC: prev}
+		fullProposal := utils.OrPanic1(types.NewProposal(
+			leaderKey(committee, keys, vs.View()),
 			committee,
-			types.ViewSpec{CommitQC: prev},
+			vs,
 			time.Now(),
 			laneQCs,
 			utils.None[*types.AppQC](),
-		)
-		if err != nil {
-			panic(err)
-		}
+		))
 		vote := types.NewCommitVote(fullProposal.Proposal().Msg())
 		var votes []*types.Signed[*types.CommitVote]
 		for _, k := range keys {
@@ -241,4 +247,48 @@ func TestStateMismatchedQCs(t *testing.T) {
 		require.Error(err)
 		require.Contains(err.Error(), "mismatched QCs")
 	})
+}
+
+func TestPushBlockRejectsBadParentHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	ds := data.NewState(&data.Config{
+		Committee: committee,
+	}, utils.None[data.BlockStore]())
+	state := NewState(keys[0], ds)
+
+	// Produce a valid first block on our lane.
+	_, err := state.ProduceBlock(ctx, types.GenPayload(rng))
+	require.NoError(t, err)
+
+	// Create a second block with a fake parentHash.
+	lane := keys[0].Public()
+	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
+
+	// Producer equivocation is logged but not returned as an error.
+	require.NoError(t, state.PushBlock(ctx, fakeProp))
+	// Queue did not advance — the bad block was dropped.
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+}
+
+func TestPushBlockRejectsWrongSigner(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+
+	ds := data.NewState(&data.Config{
+		Committee: committee,
+	}, utils.None[data.BlockStore]())
+	state := NewState(keys[0], ds)
+
+	// Create a block on keys[0]'s lane but sign it with keys[1].
+	lane := keys[0].Public()
+	block := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	prop := types.Sign(keys[1], types.NewLaneProposal(block))
+
+	err := state.PushBlock(ctx, prop)
+	require.Error(t, err)
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -16,6 +16,7 @@ import (
 // - storageDB: key=addr||slot, value=storage_value
 // - accountDB: key=addr, value=AccountValue (balance(32)||nonce(8)||codehash(32)
 // - codeDB: key=addr, value=bytecode
+// - legacyDB: key=full original key (with prefix), value=raw value
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	// Save original changesets for changelog
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
@@ -23,6 +24,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	// Collect LtHash pairs per DB (using internal key format)
 	var storagePairs []lthash.KVPairWithLastValue
 	var codePairs []lthash.KVPairWithLastValue
+	var legacyPairs []lthash.KVPairWithLastValue
 	// Account pairs are collected at the end after all account changes are processed
 
 	// Track which accounts were modified (for LtHash computation)
@@ -146,9 +148,31 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					Delete:    pair.Delete,
 				})
 
-			default:
-				// EVMKeyLegacy (including CodeSize) and other unhandled kinds
-				// are silently ignored — FlatKV only stores optimized key types.
+			case evm.EVMKeyLegacy:
+				oldValue, err := s.getLegacyValue(keyBytes)
+				if err != nil {
+					return fmt.Errorf("failed to get legacy value: %w", err)
+				}
+
+				keyStr := string(keyBytes)
+				if pair.Delete {
+					s.legacyWrites[keyStr] = &pendingKVWrite{
+						key:      keyBytes,
+						isDelete: true,
+					}
+				} else {
+					s.legacyWrites[keyStr] = &pendingKVWrite{
+						key:   keyBytes,
+						value: pair.Value,
+					}
+				}
+
+				legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
+					Key:       keyBytes,
+					Value:     pair.Value,
+					LastValue: oldValue,
+					Delete:    pair.Delete,
+				})
 			}
 		}
 	}
@@ -190,6 +214,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	// Combine all pairs and update working LtHash
 	allPairs := append(storagePairs, accountPairs...)
 	allPairs = append(allPairs, codePairs...)
+	allPairs = append(allPairs, legacyPairs...)
 
 	if len(allPairs) > 0 {
 		newLtHash, _ := lthash.ComputeLtHash(s.workingLtHash, allPairs)
@@ -224,37 +249,16 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
 
-	// Step 4: Flush data DBs if not using fsync (ensures data is on disk before metaDB update)
-	if !s.config.Fsync {
-		if err := s.flushAllDBs(); err != nil {
-			return 0, fmt.Errorf("flush: %w", err)
-		}
-	}
-
-	// Step 5: Persist global metadata to metadata DB (always every block)
+	// Step 4: Persist global metadata to metadata DB (always every block)
 	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
 
-	// Step 6: Clear pending buffers
+	// Step 5: Clear pending buffers
 	s.clearPendingWrites()
 
 	s.log.Info("Committed version", "version", version)
 	return version, nil
-}
-
-// flushAllDBs flushes all data DBs to ensure data is on disk.
-func (s *CommitStore) flushAllDBs() error {
-	if err := s.accountDB.Flush(); err != nil {
-		return fmt.Errorf("accountDB flush: %w", err)
-	}
-	if err := s.codeDB.Flush(); err != nil {
-		return fmt.Errorf("codeDB flush: %w", err)
-	}
-	if err := s.storageDB.Flush(); err != nil {
-		return fmt.Errorf("storageDB flush: %w", err)
-	}
-	return nil
 }
 
 // clearPendingWrites clears all pending write buffers
@@ -262,6 +266,7 @@ func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*pendingAccountWrite)
 	s.codeWrites = make(map[string]*pendingKVWrite)
 	s.storageWrites = make(map[string]*pendingKVWrite)
+	s.legacyWrites = make(map[string]*pendingKVWrite)
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
 }
 
@@ -372,6 +377,37 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 		// Update in-memory local meta after successful commit
 		s.localMeta[storageDBDir] = newLocalMeta
+	}
+
+	// Commit to legacyDB
+	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
+		batch := s.legacyDB.NewBatch()
+		defer func() { _ = batch.Close() }()
+
+		for _, pw := range s.legacyWrites {
+			if pw.isDelete {
+				if err := batch.Delete(pw.key); err != nil {
+					return fmt.Errorf("legacyDB delete: %w", err)
+				}
+			} else {
+				if err := batch.Set(pw.key, pw.value); err != nil {
+					return fmt.Errorf("legacyDB set: %w", err)
+				}
+			}
+		}
+
+		newLocalMeta := &LocalMeta{
+			CommittedVersion: version,
+		}
+		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
+			return fmt.Errorf("legacyDB local meta set: %w", err)
+		}
+
+		if err := batch.Commit(syncOpt); err != nil {
+			return fmt.Errorf("legacyDB commit: %w", err)
+		}
+
+		s.localMeta[legacyDBDir] = newLocalMeta
 	}
 
 	return nil

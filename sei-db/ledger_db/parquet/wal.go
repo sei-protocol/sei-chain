@@ -1,6 +1,7 @@
 package parquet
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -109,6 +110,7 @@ func NewWAL(logger dbLogger.Logger, dir string) (dbwal.GenericWAL[WALEntry], err
 		return nil, err
 	}
 	return dbwal.NewWAL(
+		context.Background(),
 		encodeWALEntry,
 		decodeWALEntry,
 		logger,

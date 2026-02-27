@@ -125,14 +125,6 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 		}
 	}
 
-	if reader.ClosedReceiptFileCount() == 0 {
-		store.fileStartBlock = 0
-	}
-
-	if err := store.initWriters(); err != nil {
-		return nil, err
-	}
-
 	store.startPruning(cfg.PruneIntervalSeconds)
 
 	return store, nil
@@ -170,6 +162,14 @@ func (s *Store) SetEarliestVersion(version int64) {
 // CacheRotateInterval returns the interval at which the cache should rotate.
 func (s *Store) CacheRotateInterval() uint64 {
 	return s.config.MaxBlocksPerFile
+}
+
+// SetBlockFlushInterval overrides the number of blocks buffered before
+// flushing to a parquet file. Intended for testing.
+func (s *Store) SetBlockFlushInterval(interval uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.BlockFlushInterval = interval
 }
 
 // GetReceiptByTxHash retrieves a receipt by transaction hash.
@@ -383,6 +383,16 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 }
 
 func (s *Store) applyReceiptLocked(input ReceiptInput) error {
+	// Lazy writer initialization: defer file creation until the first receipt
+	// arrives so the parquet filename reflects the actual starting block number
+	// (e.g. receipts_195360501.parquet) rather than a misleading receipts_0.parquet.
+	if s.receiptWriter == nil {
+		s.fileStartBlock = input.BlockNumber
+		if err := s.initWriters(); err != nil {
+			return err
+		}
+	}
+
 	blockNumber := input.BlockNumber
 	isNewBlock := blockNumber != s.lastSeenBlock
 	if isNewBlock {
@@ -480,6 +490,14 @@ func (s *Store) initWriters() error {
 	s.logWriter = logWriter
 
 	return nil
+}
+
+// Flush acquires the write lock and flushes all buffered data to disk.
+// Mostly used for testing and benchmarking.
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushLocked()
 }
 
 func (s *Store) flushLocked() error {

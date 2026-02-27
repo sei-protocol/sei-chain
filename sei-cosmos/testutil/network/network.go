@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -44,8 +45,12 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
-// package-wide network lock to only allow one test network at a time
-var lock = new(sync.Mutex)
+// package-wide lock (in-process) + file lock (cross-process) so that
+// multiple go test binaries don't race on port preallocation.
+var (
+	lock     = new(sync.Mutex)
+	lockPath = filepath.Join(os.TempDir(), "sei-cosmos-test-network.lock")
+)
 
 // AppConstructor defines a function which accepts a network configuration and
 // creates an ABCI Application to provide to Tendermint.
@@ -68,7 +73,7 @@ type Config struct {
 	TxConfig         client.TxConfig
 	AccountRetriever client.AccountRetriever
 	AppConstructor   AppConstructor             // the ABCI application constructor
-	GenesisState     map[string]json.RawMessage // custom gensis state to provide
+	GenesisState     map[string]json.RawMessage // custom genesis state to provide
 	TimeoutCommit    time.Duration              // the consensus commitment timeout
 	ChainID          string                     // the network chain-id
 	NumValidators    int                        // the total number of validators to create and bond
@@ -82,7 +87,9 @@ type Config struct {
 	EnableLogging    bool                       // enable Tendermint logging to STDOUT
 	CleanupDir       bool                       // remove base temporary directory during cleanup
 	SigningAlgo      string                     // signing algorithm for keys
-	KeyringOptions   []keyring.Option
+	EnableGRPCWeb    bool                       // enable gRPC-Web server (off by default)
+
+	KeyringOptions []keyring.Option
 }
 
 // DefaultConfig returns a sane default configuration suitable for nearly all
@@ -109,6 +116,7 @@ func DefaultConfig(t *testing.T) Config {
 		PruningStrategy:   storetypes.PruningOptionNothing,
 		CleanupDir:        true,
 		SigningAlgo:       string(hd.Secp256k1Type),
+		EnableGRPCWeb:     false,
 		KeyringOptions:    []keyring.Option{},
 	}
 }
@@ -129,7 +137,8 @@ type (
 		BaseDir    string
 		Validators []*Validator
 
-		Config Config
+		Config   Config
+		fileLock *flock.Flock
 	}
 
 	// Validator defines an in-process Tendermint validator node. Through this object,
@@ -165,6 +174,17 @@ func New(t *testing.T, cfg Config) *Network {
 	t.Log("acquiring test network lock")
 	lock.Lock()
 
+	fl := flock.New(lockPath)
+	acquired := false
+	defer func() {
+		if !acquired {
+			_ = fl.Unlock()
+			lock.Unlock()
+		}
+	}()
+	require.NoError(t, fl.Lock())
+	t.Logf("acquired inter-process test network lock: %s", lockPath)
+
 	baseDir := filepath.Join(t.TempDir(), cfg.ChainID)
 	require.NoError(t, os.MkdirAll(baseDir, 0750))
 	t.Logf("created temporary directory: %s", baseDir)
@@ -174,6 +194,7 @@ func New(t *testing.T, cfg Config) *Network {
 		BaseDir:    baseDir,
 		Validators: make([]*Validator, cfg.NumValidators),
 		Config:     cfg,
+		fileLock:   fl,
 	}
 
 	t.Log("preparing test network...")
@@ -234,10 +255,12 @@ func New(t *testing.T, cfg Config) *Network {
 			appCfg.GRPC.Address = fmt.Sprintf("127.0.0.1:%s", grpcPort)
 			appCfg.GRPC.Enable = true
 
-			_, grpcWebPort, err := server.FreeTCPAddr()
-			require.NoError(t, err)
-			appCfg.GRPCWeb.Address = fmt.Sprintf("127.0.0.1:%s", grpcWebPort)
-			appCfg.GRPCWeb.Enable = true
+			if cfg.EnableGRPCWeb {
+				_, grpcWebPort, err := server.FreeTCPAddr()
+				require.NoError(t, err)
+				appCfg.GRPCWeb.Address = fmt.Sprintf("127.0.0.1:%s", grpcWebPort)
+				appCfg.GRPCWeb.Enable = true
+			}
 		}
 
 		logger := log.NewNopLogger()
@@ -389,6 +412,7 @@ func New(t *testing.T, cfg Config) *Network {
 	// defer in a test would not be called.
 	server.TrapSignal(network.Cleanup)
 
+	acquired = true
 	return network
 }
 
@@ -453,10 +477,6 @@ func (n *Network) WaitForNextBlock() error {
 	}
 
 	_, err = n.WaitForHeight(lastBlock + 1)
-	if err != nil {
-		return err
-	}
-
 	return err
 }
 
@@ -470,11 +490,17 @@ func (n *Network) Cleanup() {
 		n.T.Log("released test network lock")
 	}()
 
+	if n.fileLock != nil {
+		_ = n.fileLock.Unlock()
+	}
+
 	n.T.Log("cleaning up test network...")
 
 	for _, v := range n.Validators {
+		// Always cancel the context to avoid leaks, regardless of node state.
+		v.cancelFn()
+
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			v.cancelFn()
 			v.tmNode.Wait()
 		}
 

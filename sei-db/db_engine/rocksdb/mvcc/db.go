@@ -34,6 +34,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -112,9 +113,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
-
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -404,16 +405,16 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		return false, err
 	}
 
-	var startTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(startTs[:], uint64(0))
+	startTs := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(startTs, uint64(0))
 
-	var endTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(endTs[:], uint64(latestVersion))
+	endTs := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(endTs, uint64(latestVersion))
 
 	// Set timestamp lower and upper bound to iterate over all keys in db
 	readOpts := grocksdb.NewDefaultReadOptions()
-	readOpts.SetIterStartTimestamp(startTs[:])
-	readOpts.SetTimestamp(endTs[:])
+	readOpts.SetIterStartTimestamp(startTs)
+	readOpts.SetTimestamp(endTs)
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
 	rocksItr := NewRocksDBIterator(itr, readOpts, prefix, start, end, latestVersion, 1, false)
@@ -445,11 +446,11 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
 func newTSReadOptions(version int64) *grocksdb.ReadOptions {
-	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	ts := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(ts, uint64(version))
 
 	readOpts := grocksdb.NewDefaultReadOptions()
-	readOpts.SetTimestamp(ts[:])
+	readOpts.SetTimestamp(ts)
 
 	return readOpts
 }

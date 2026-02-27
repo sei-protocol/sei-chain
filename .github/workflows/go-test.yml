@@ -1,4 +1,4 @@
-name: Go
+name: Go Test
 on:
   workflow_call:
   pull_request:
@@ -11,24 +11,25 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
+env:
+  GO_VERSION: '1.25.6'
+  GO_TEST_TIMEOUT: 30m
+
 jobs:
-  tests:
-    name: Test sei-chain
+  test:
+    name: Race Detection
     runs-on: uci-default
     env:
-      GO_TEST_TIMEOUT: 30m
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
       - uses: actions/checkout@v5
         with:
-          # Set depth so that sei-ival change detection step relative to main works correctly.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Depth 0 for PRs so sei-iavl change detection against main works.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25.6'
-          # Disable cache since runners use ephemeral state by design. Otherwise, post-setup
-          # jobs will take unnecessary time to form cache and upload.
+          go-version: ${{ env.GO_VERSION }}
           cache: false
 
       - name: Login to Docker Hub
@@ -60,3 +61,127 @@ jobs:
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             ${{ steps.test-packages.outputs.packages || './...' }}
+
+  coverage:
+    name: Coverage
+    runs-on: uci-default
+    env:
+      GOFLAGS: -tags=ledger,test_ledger_mock
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Depth 0 for PRs so merge-base diff against the base branch works.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Determine coverage packages (PR)
+        id: cov-pkgs
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Use explicit SHAs — works regardless of checkout depth.
+          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+
+          # Keep only existing .go files (filters out deletions).
+          CHANGED_GO=$(printf "%s\n" "$CHANGED" \
+            | grep -E '\.go$' \
+            | while read -r f; do [ -f "$f" ] && echo "$f"; done \
+            || true)
+
+          if [[ -z "$CHANGED_GO" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Resolve changed directories to Go packages.
+          DIRECT_PKGS=$(printf "%s\n" "$CHANGED_GO" \
+            | xargs -r -n1 dirname \
+            | sort -u \
+            | while read -r d; do go list "./$d" 2>/dev/null || true; done \
+            | sort -u)
+
+          if [[ -z "$DIRECT_PKGS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find one level of reverse dependencies (packages that import
+          # the changed packages) so their tests exercise our changes too.
+          ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
+
+          REV_DEPS=$(awk '
+            NR == FNR { if (NF) targets[$1] = 1; next }
+            {
+              pkg = $1
+              for (i = 2; i <= NF; i++) {
+                if ($i in targets) { print pkg; break }
+              }
+            }
+          ' <(printf "%s\n" "$DIRECT_PKGS") <(printf "%s\n" "$ALL_IMPORTS") | sort -u)
+
+          # Merge direct + reverse-dep packages, deduplicate.
+          TEST_PKGS=$(printf "%s\n%s\n" "$DIRECT_PKGS" "$REV_DEPS" \
+            | awk 'NF && !seen[$0]++ { printf "%s ", $0 }')
+          TEST_PKGS="${TEST_PKGS% }"
+
+          # coverpkg stays as the direct changed packages — we want coverage
+          # measured on the code that actually changed, but tested via a wider
+          # set of packages (including reverse deps).
+          COV_PKGS=$(printf "%s\n" "$DIRECT_PKGS" \
+            | awk 'NF { printf "%s%s", sep, $0; sep = "," }')
+
+          echo "test_packages=$TEST_PKGS" >> "$GITHUB_OUTPUT"
+          echo "coverpkg=$COV_PKGS" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Go test with coverage (PR fast path)
+        if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            -coverpkg=${{ steps.cov-pkgs.outputs.coverpkg }} \
+            ${{ steps.cov-pkgs.outputs.test_packages }}
+
+      - name: Go test with coverage (full path)
+        if: github.event_name != 'pull_request'
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            -coverpkg=./... \
+            ./...
+
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # Hard-fail on main (full path); soft on PRs (partial data).
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
+          disable_search: 'true'
+          name: sei-chain-coverage
+          files: ./coverage.out
+          flags: sei-chain

@@ -36,7 +36,6 @@ const (
 // RouterOptions specifies options for a PeerManager.
 type RouterOptions struct {
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
-	// If Hostname and Port are unset, Advertise() will include no self-announcement
 	SelfAddress utils.Option[NodeAddress]
 
 	// Whether sei giga connections should be established.
@@ -114,6 +113,12 @@ type RouterOptions struct {
 	// Defaults to 64.
 	MaxConnected utils.Option[int]
 
+	// MaxOutboundConnections is the maximum number of outbound connections.
+	// Note that MaxConnected is still respected and the actual number of outbound connections
+	// is bounded by min(MaxConnected,MaxOutboundConnections)
+	// Defaults to 10.
+	MaxOutboundConnections utils.Option[int]
+
 	// MaxConcurrentDials limits the number of concurrent outbound connection handshakes.
 	// Defaults to 10.
 	MaxConcurrentDials utils.Option[int]
@@ -124,22 +129,25 @@ type RouterOptions struct {
 
 	// Per-connection config.
 	Connection conn.MConnConfig
+
+	// Frequency of dumping connected peers list to the db.
+	// Defaults to 10s.
+	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int {
-	return o.MaxConcurrentDials.Or(10)
-}
-
-func (o *RouterOptions) maxAccepts() int {
-	return o.MaxConcurrentAccepts.Or(10)
-}
-
-func (o *RouterOptions) maxConns() int {
-	return o.MaxConnected.Or(64)
+func (o *RouterOptions) maxDials() int   { return o.MaxConcurrentDials.Or(10) }
+func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) }
+func (o *RouterOptions) maxConns() int   { return o.MaxConnected.Or(64) }
+func (o *RouterOptions) maxOutboundConns() int {
+	return min(o.maxConns(), o.MaxOutboundConnections.Or(10))
 }
 
 func (o *RouterOptions) maxPeers() int {
 	return o.MaxPeers.Or(128)
+}
+
+func (o *RouterOptions) peerStoreInterval() time.Duration {
+	return o.PeerStoreInterval.Or(10 * time.Second)
 }
 
 // Validate validates the options.

@@ -169,6 +169,18 @@ func (m *Proposal) GlobalRange() GlobalRange {
 	return g
 }
 
+// Verify checks that every present lane range belongs to the committee
+// and is internally valid. Lanes may be omitted — omitted lanes are
+// treated as implicit empty ranges by FullProposal.Verify.
+func (m *Proposal) Verify(c *Committee) error {
+	for _, r := range m.laneRanges {
+		if err := r.Verify(c); err != nil {
+			return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
+		}
+	}
+	return nil
+}
+
 // LaneRange returns the range of blocks of the given lane.
 func (m *Proposal) LaneRange(lane LaneID) *LaneRange {
 	if r, ok := m.laneRanges[lane]; ok {
@@ -215,6 +227,9 @@ func NewProposal(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) (*FullProposal, error) {
+	if got, want := key.Public(), committee.Leader(viewSpec.View()); got != want {
+		return nil, fmt.Errorf("key %q is not the leader %q for view %v", got, want, viewSpec.View())
+	}
 	if p, ok := NewReproposal(key, viewSpec); ok {
 		return p, nil
 	}
@@ -280,6 +295,10 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
+		// Verify the proposer's signature.
+		if err := m.proposal.VerifySig(c); err != nil {
+			return fmt.Errorf("proposal signature: %w", err)
+		}
 		// Do we have the required timeoutQC?
 		if got, want := NextViewOpt(vs.TimeoutQC), NextViewOpt(m.timeoutQC); got != want {
 			return errors.New("inconsistent timeoutQC")
@@ -304,12 +323,14 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				return nil
 			}
 		}
-		// Verify the proposal lane ranges.
+		// Verify the proposal's lane structure against the committee.
+		proposal := m.proposal.Msg()
+		if err := proposal.Verify(c); err != nil {
+			return fmt.Errorf("proposal: %w", err)
+		}
+		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for _, lane := range c.Lanes().All() {
-			r := m.proposal.Msg().LaneRange(lane)
-			if err := r.Verify(c); err != nil {
-				return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
-			}
+			r := proposal.LaneRange(lane)
 			// Verify that range matches previous commitQC.
 			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
@@ -322,6 +343,9 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				}
 				if got, want := qc.Header().BlockNumber(), r.Next()-1; got != want {
 					return fmt.Errorf("qc[%v].BlockNumber() = %v, want %v", r.Lane(), got, want)
+				}
+				if got, want := qc.Header().Hash(), r.LastHash(); got != want {
+					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
 				}
 				s.Spawn(func() error {
 					if err := qc.Verify(c); err != nil {

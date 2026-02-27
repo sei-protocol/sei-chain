@@ -68,7 +68,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 					if err != nil {
 						return fmt.Errorf("tcp.dial(): %w", err)
 					}
-					s.SpawnBg(func() error { return ignore(tcpConn.Run(ctx)) })
+					s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 					// Begin handshake (but not finish)
 					var input [1]byte
 					if err := tcpConn.Read(ctx, input[:]); err != nil {
@@ -127,7 +127,7 @@ func TestRouter_Listen(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %v", err)
 				}
-				s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+				s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 				if _, _, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
 					return fmt.Errorf("handshake(): %v", err)
 				}
@@ -157,7 +157,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("tcp.dial(): %v", err)
 		}
-		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		_, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
 			return fmt.Errorf("handshake(): %v", err)
@@ -191,7 +191,7 @@ func TestHandshake_Context(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("tcp.dial(): %v", err)
 			}
-			s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+			s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 			s.SpawnBg(func() error {
 				if _, _, err := b.handshakeV2(ctx, tcpConn, utils.Some(addr)); err == nil {
 					return fmt.Errorf("handshake(): expected error, got %w", err)
@@ -205,7 +205,7 @@ func TestHandshake_Context(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
 		}
-		s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		return nil
 	})
 	if err != nil {
@@ -223,8 +223,7 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 	}
 	nodes := network.NodeIDs()
 	network.Start(t)
-	for i := range 100 {
-		t.Logf("ITER %v", i)
+	for range 100 {
 		from := nodes[rng.Intn(len(nodes))]
 		to := nodes[rng.Intn(len(nodes))]
 		if from == to {

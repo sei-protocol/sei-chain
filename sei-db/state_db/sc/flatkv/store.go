@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -68,10 +69,11 @@ type CommitStore struct {
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites: key = internal DB key string, value = raw bytes
+	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
 	accountWrites map[string]*pendingAccountWrite
 	codeWrites    map[string]*pendingKVWrite
 	storageWrites map[string]*pendingKVWrite
+	legacyWrites  map[string]*pendingKVWrite
 
 	// Changelog WAL for atomic writes and replay
 	changelog wal.ChangelogWAL
@@ -99,6 +101,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
 		storageWrites:     make(map[string]*pendingKVWrite),
+		legacyWrites:      make(map[string]*pendingKVWrite),
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
@@ -217,6 +220,7 @@ func (s *CommitStore) open() (retErr error) {
 		accountDBDir: accountDB,
 		codeDBDir:    codeDB,
 		storageDBDir: storageDB,
+		legacyDBDir:  legacyDB,
 	}
 	for name, db := range dataDBs {
 		meta, err := loadLocalMeta(db)
@@ -269,4 +273,8 @@ func (s *CommitStore) Version() int64 {
 func (s *CommitStore) RootHash() []byte {
 	checksum := s.workingLtHash.Checksum()
 	return checksum[:]
+}
+
+func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	return NewKVImporter(s, version), nil
 }

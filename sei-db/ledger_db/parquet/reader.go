@@ -3,8 +3,10 @@ package parquet
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -106,22 +108,25 @@ func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptPattern := filepath.Join(r.basePath, "receipts_*.parquet")
-	receiptFiles, err := filepath.Glob(receiptPattern)
-	if err != nil {
-		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
-	}
-	r.closedReceiptFiles = r.validateFiles(receiptFiles)
-
-	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
-	logFiles, err := filepath.Glob(logPattern)
-	if err != nil {
-		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
-	}
-	r.closedLogFiles = r.validateFiles(logFiles)
+	r.closedReceiptFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("receipts"), "logs")
+	r.closedLogFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("logs"), "receipts")
 }
 
-func (r *Reader) validateFiles(files []string) []string {
+func (r *Reader) getAllParquetFilesByPrefix(prefix string) []string {
+	pattern := filepath.Join(r.basePath, prefix+"_*.parquet")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Printf("failed to glob %s parquet files with pattern %q: %v", prefix, pattern, err)
+	}
+	return files
+}
+
+// validateAndCleanFiles checks the last file for readability. If it is corrupt
+// (e.g. missing parquet footer from an unclean shutdown), the file and its
+// counterpart (identified by counterpartPrefix) are deleted from disk so they
+// cannot poison future DuckDB queries. Only the last file needs checking
+// because all previously rotated files had their writers properly closed.
+func (r *Reader) validateAndCleanFiles(files []string, counterpartPrefix string) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -134,7 +139,37 @@ func (r *Reader) validateFiles(files []string) []string {
 	if r.isFileReadable(lastFile) {
 		return files
 	}
+
+	startBlock := ExtractBlockNumber(lastFile)
+	log.Printf("removing corrupt parquet file: %s", lastFile)
+	_ = os.Remove(lastFile)
+
+	counterpart := filepath.Join(r.basePath, fmt.Sprintf("%s_%d.parquet", counterpartPrefix, startBlock))
+	_ = os.Remove(counterpart)
+	r.untrackCounterpart(counterpartPrefix, counterpart)
+
 	return files[:len(files)-1]
+}
+
+// untrackCounterpart removes a deleted counterpart from the already-populated
+// tracked slice. Must be called with r.mu held.
+func (r *Reader) untrackCounterpart(prefix, target string) {
+	switch prefix {
+	case "receipts":
+		r.closedReceiptFiles = removeFromSlice(r.closedReceiptFiles, target)
+	case "logs":
+		r.closedLogFiles = removeFromSlice(r.closedLogFiles, target)
+	}
+}
+
+func removeFromSlice(s []string, target string) []string {
+	filtered := s[:0]
+	for _, v := range s {
+		if v != target {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
 }
 
 func (r *Reader) isFileReadable(path string) bool {
@@ -249,18 +284,19 @@ func (r *Reader) AddTrackedLogFile(startBlock uint64) {
 
 // MaxReceiptBlockNumber returns the maximum block number in the receipt files.
 func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
-	r.mu.RUnlock()
-	if len(closedFiles) == 0 {
+	defer r.mu.RUnlock()
+	if len(r.closedReceiptFiles) == 0 {
 		return 0, false, nil
 	}
 
 	var parquetFiles string
-	if len(closedFiles) == 1 {
-		parquetFiles = quoteSQLString(closedFiles[0])
+	if len(r.closedReceiptFiles) == 1 {
+		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -281,19 +317,20 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 // GetReceiptByTxHash queries for a receipt by transaction hash.
 func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if len(closedFiles) == 0 {
+	if len(r.closedReceiptFiles) == 0 {
 		return nil, nil
 	}
 
 	var parquetFiles string
-	if len(closedFiles) == 1 {
-		parquetFiles = quoteSQLString(closedFiles[0])
+	if len(r.closedReceiptFiles) == 1 {
+		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -308,7 +345,7 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 	row := r.db.QueryRowContext(ctx, query, txHash[:])
 	var rec ReceiptResult
 	if err := row.Scan(&rec.TxHash, &rec.BlockNumber, &rec.ReceiptBytes); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query receipt: %w", err)
@@ -318,16 +355,17 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 // GetLogs queries logs matching the given filter.
 func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
+	// Keep the read lock for the full query so pruning cannot remove tracked
+	// files while DuckDB is still reading from them.
 	r.mu.RLock()
-	closedFiles := r.closedLogFiles
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if len(closedFiles) == 0 {
+	if len(r.closedLogFiles) == 0 {
 		return nil, nil
 	}
 
-	files := make([]string, 0, len(closedFiles))
-	for _, f := range closedFiles {
+	files := make([]string, 0, len(r.closedLogFiles))
+	for _, f := range r.closedLogFiles {
 		startBlock := ExtractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue
