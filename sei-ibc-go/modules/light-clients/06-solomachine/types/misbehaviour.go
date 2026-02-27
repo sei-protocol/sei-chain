@@ -3,7 +3,7 @@ package types
 import (
 	"bytes"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

@@ -3,20 +3,20 @@ package simulation
 import (
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
-	"github.com/cosmos/cosmos-sdk/x/feegrant/keeper"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
 )
 
 // Simulation operation weights constants
 const (
-	OpWeightMsgGrantAllowance  = "op_weight_msg_grant_fee_allowance"
-	OpWeightMsgRevokeAllowance = "op_weight_msg_grant_revoke_allowance"
+	OpWeightMsgGrantAllowance  = "op_weight_msg_grant_fee_allowance"    //nolint:gosec
+	OpWeightMsgRevokeAllowance = "op_weight_msg_grant_revoke_allowance" //nolint:gosec
 )
 
 var (
@@ -115,7 +115,7 @@ func SimulateMsgRevokeAllowance(ak feegrant.AccountKeeper, bk feegrant.BankKeepe
 		hasGrant := false
 		var granterAddr sdk.AccAddress
 		var granteeAddr sdk.AccAddress
-		k.IterateAllFeeAllowances(ctx, func(grant feegrant.Grant) bool {
+		err := k.IterateAllFeeAllowances(ctx, func(grant feegrant.Grant) bool {
 			granter := sdk.MustAccAddressFromBech32(grant.Granter)
 			grantee := sdk.MustAccAddressFromBech32(grant.Grantee)
 			granterAddr = granter
@@ -123,6 +123,9 @@ func SimulateMsgRevokeAllowance(ak feegrant.AccountKeeper, bk feegrant.BankKeepe
 			hasGrant = true
 			return true
 		})
+		if err != nil {
+			return simtypes.OperationMsg{}, nil, err
+		}
 
 		if !hasGrant {
 			return simtypes.NoOpMsg(feegrant.ModuleName, TypeMsgRevokeAllowance, "no grants"), nil, nil

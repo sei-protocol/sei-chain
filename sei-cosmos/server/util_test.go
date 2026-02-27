@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
 
 var cancelledInPreRun = errors.New("Cancelled in prerun")

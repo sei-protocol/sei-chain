@@ -7,7 +7,7 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 
-	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
+	sdkmaps "github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps"
 )
 
 var (

@@ -5,7 +5,7 @@ import "cosmos/bank/v1beta1/bank.proto";
 import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/bank/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types";
 
 // GenesisState defines the bank module's genesis state.
 message GenesisState {
@@ -18,7 +18,7 @@ message GenesisState {
   // supply represents the total supply. If it is left empty, then supply will be calculated based on the provided
   // balances. Otherwise, it will be used to validate that the sum of the balances equals this amount.
   repeated cosmos.base.v1beta1.Coin supply = 3 [
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins",
     (gogoproto.nullable) = false
   ];
 
@@ -43,7 +43,7 @@ message Balance {
 
   // coins defines the different coins this balance holds.
   repeated cosmos.base.v1beta1.Coin coins = 2 [
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins",
     (gogoproto.nullable) = false
   ];
 }
@@ -57,7 +57,7 @@ message WeiBalance {
 
   // wei balance amount.
   string amount = 2 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
 }

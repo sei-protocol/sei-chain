@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -133,7 +132,7 @@ func startNode(ctx context.Context, cfg *Config) error {
 		tmcfg,
 		nodeLogger,
 		func() {},
-		abciclient.NewLocalClient(nodeLogger, app),
+		app,
 		nil,
 		[]trace.TracerProviderOption{},
 		nil,

@@ -2,18 +2,19 @@ package pruning
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -76,9 +77,14 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 				return fmt.Errorf("the database has no valid heights to prune, the latest height: %v", latestHeight)
 			}
 
+			if pruningOptions.KeepRecent > uint64(math.MaxInt64) {
+				return fmt.Errorf("KeepRecent %d exceeds max int64", pruningOptions.KeepRecent)
+			}
+			keepRecent := int64(pruningOptions.KeepRecent) //nolint:gosec // bounds checked above
+
 			var pruningHeights []int64
 			for height := int64(1); height < latestHeight; height++ {
-				if height < latestHeight-int64(pruningOptions.KeepRecent) {
+				if height < latestHeight-keepRecent {
 					pruningHeights = append(pruningHeights, height)
 				}
 			}
@@ -93,9 +99,6 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 			)
 
 			rootMultiStore.PruneStores(false, pruningHeights)
-			if err != nil {
-				return err
-			}
 			fmt.Printf("successfully pruned the application root multi stores\n")
 			return nil
 		},

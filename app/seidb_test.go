@@ -64,3 +64,24 @@ func TestNewDefaultConfig(t *testing.T) {
 	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 }
+
+type mapAppOpts map[string]interface{}
+
+func (m mapAppOpts) Get(s string) interface{} {
+	return m[s]
+}
+
+func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSCEnable: true,
+
+		FlagSCHistoricalProofMaxInFlight: 7,
+		FlagSCHistoricalProofRateLimit:   12.5,
+		FlagSCHistoricalProofBurst:       3,
+	}
+
+	scConfig := parseSCConfigs(appOpts)
+	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
+	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
+	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}

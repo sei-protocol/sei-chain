@@ -7,11 +7,11 @@ import (
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/rpc"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 )
 
 type IntegrationTestSuite struct {
@@ -52,7 +52,7 @@ func (s *IntegrationTestSuite) TestLatestBlocks() {
 	s.Require().NoError(err)
 
 	var result ctypes.ResultBlock
-	err = legacy.Cdc.UnmarshalJSON(res, &result)
+	err = legacy.Cdc.UnmarshalAsJSON(res, &result)
 	s.Require().NoError(err)
 }
 

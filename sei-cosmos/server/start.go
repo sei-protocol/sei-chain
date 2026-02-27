@@ -7,17 +7,28 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
-	//nolint:gosec,G108
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/pprof"
+	"sync"
 	"time"
 
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta"
+	crgserver "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -26,19 +37,6 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
-
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	"github.com/cosmos/cosmos-sdk/server/rosetta"
-	crgserver "github.com/cosmos/cosmos-sdk/server/rosetta/lib/server"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 const (
@@ -134,7 +132,9 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			// Bind flags to the Context's Viper so the app construction can set
 			// options accordingly.
-			serverCtx.Viper.BindPFlags(cmd.Flags())
+			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
 
 			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
 			return err
@@ -145,7 +145,13 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
 				go func() {
 					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-					err := http.ListenAndServe(":6060", nil)
+					// TODO: Should this be bound to all interfaces?
+					server := &http.Server{
+						Addr:              "localhost:6060",
+						ReadHeaderTimeout: 10 * time.Second,
+						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
+					}
+					err := server.ListenAndServe()
 					if err != nil {
 						serverCtx.Logger.Error("Error from profiling server", "error", err)
 					}
@@ -277,7 +283,7 @@ func startInProcess(
 	defer cancel()
 	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
+		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
 			return fmt.Errorf("failed to create cpuProfile file %w", err)
 		}
@@ -289,7 +295,7 @@ func startInProcess(
 		cpuProfileCleanup = func() {
 			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
-			f.Close()
+			_ = f.Close()
 		}
 	}
 
@@ -355,7 +361,7 @@ func startInProcess(
 			ctx.Config,
 			ctx.Logger,
 			restartEvent,
-			abciclient.NewLocalClient(ctx.Logger, app),
+			app,
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
@@ -489,7 +495,7 @@ func startInProcess(
 		if grpcSrv != nil {
 			grpcSrv.Stop()
 			if grpcWebSrv != nil {
-				grpcWebSrv.Close()
+				_ = grpcWebSrv.Close()
 			}
 		}
 

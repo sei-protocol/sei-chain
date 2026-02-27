@@ -45,6 +45,7 @@ const (
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -79,6 +80,7 @@ type Database struct {
 type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
+	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
 }
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
@@ -171,8 +173,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -212,6 +215,15 @@ func (db *Database) Close() error {
 	err := db.storage.Close()
 	db.storage = nil
 	return err
+}
+
+// PebbleMetrics returns the underlying Pebble DB metrics for observability (e.g. compaction/flush counts).
+// Returns nil if the database is closed.
+func (db *Database) PebbleMetrics() *pebble.Metrics {
+	if db.storage == nil {
+		return nil
+	}
+	return db.storage.Metrics()
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -455,11 +467,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			int64(len(db.pendingChanges)),
 		)
 	}()
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
-		Version:    version,
-		Changesets: changesets,
-	}
 	// Write to WAL
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
@@ -472,18 +479,33 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-
+	// Add to pending changes first
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
 	return nil
 }
 
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
+		if nextChange.Done != nil {
+			close(nextChange.Done)
+			continue
+		}
 		version := nextChange.Version
 		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 			panic(err)
 		}
 	}
+}
+
+// WaitForPendingWrites waits for all pending writes to be processed
+func (db *Database) WaitForPendingWrites() {
+	done := make(chan struct{})
+	db.pendingChanges <- VersionedChangesets{Done: done}
+	<-done
 }
 
 // Prune attempts to prune all versions up to and including the current version
@@ -494,6 +516,11 @@ func (db *Database) writeAsyncInBackground() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return errors.New("pebbledb: database is closed")
+	}
+
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.pruneLatency.Record(

@@ -20,18 +20,15 @@ func TestPruneMismatchedIndices(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(index types.RoadIndex, prev utils.Option[*types.CommitQC]) *types.CommitQC {
-		fullProposal, err := types.NewProposal(
-			keys[0],
+		vs := types.ViewSpec{CommitQC: prev}
+		fullProposal := utils.OrPanic1(types.NewProposal(
+			leaderKey(committee, keys, vs.View()),
 			committee,
-			types.ViewSpec{CommitQC: prev},
+			vs,
 			time.Now(),
 			nil,
 			utils.None[*types.AppQC](),
-		)
-		if err != nil {
-			panic(err)
-		}
-
+		))
 		vote := types.NewCommitVote(fullProposal.Proposal().Msg())
 		var votes []*types.Signed[*types.CommitVote]
 		for _, k := range keys {

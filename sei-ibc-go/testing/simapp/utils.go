@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/kv"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 

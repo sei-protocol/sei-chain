@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Response constants

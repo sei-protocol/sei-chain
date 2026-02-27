@@ -8,7 +8,6 @@ import (
 	"math"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
@@ -34,7 +33,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	appClient abciclient.Client
+	app abci.Application
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -55,7 +54,7 @@ type BlockExecutor struct {
 func NewBlockExecutor(
 	stateStore Store,
 	logger log.Logger,
-	appClient abciclient.Client,
+	app abci.Application,
 	pool mempool.Mempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
@@ -65,7 +64,7 @@ func NewBlockExecutor(
 	return &BlockExecutor{
 		eventBus:   eventBus,
 		store:      stateStore,
-		appClient:  appClient,
+		app:        app,
 		mempool:    pool,
 		evpool:     evpool,
 		logger:     logger,
@@ -112,7 +111,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
-	rpp, err := blockExec.appClient.PrepareProposal(
+	rpp, err := blockExec.app.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
@@ -172,7 +171,7 @@ func (blockExec *BlockExecutor) ProcessProposal(
 	state State,
 ) (bool, error) {
 	txs := block.Txs.ToSliceOfBytes()
-	resp, err := blockExec.appClient.ProcessProposal(ctx, &abci.RequestProcessProposal{
+	resp, err := blockExec.app.ProcessProposal(ctx, &abci.RequestProcessProposal{
 		Hash:                  block.Header.Hash(),
 		Height:                block.Height,
 		Time:                  block.Time,
@@ -268,7 +267,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	}
 	txs := block.Txs.ToSliceOfBytes()
 	finalizeBlockStartTime := time.Now()
-	fBlockRes, err := blockExec.appClient.FinalizeBlock(
+	fBlockRes, err := blockExec.app.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
 			Hash:                  block.Hash(),
@@ -364,17 +363,13 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		)
 		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
 		for i, txRes := range fBlockRes.TxResults {
-			dataLen := 0
-			if txRes.Data != nil {
-				dataLen = len(txRes.Data)
-			}
 			blockExec.logger.Debug("TxResult for LastResultsHash",
 				"height", block.Height,
 				"txIndex", i,
 				"code", txRes.Code,
 				"gasWanted", txRes.GasWanted,
 				"gasUsed", txRes.GasUsed,
-				"dataLen", dataLen,
+				"dataLen", len(txRes.Data),
 			)
 		}
 	}
@@ -485,19 +480,9 @@ func (blockExec *BlockExecutor) Commit(
 	blockExec.mempool.Lock()
 	defer blockExec.mempool.Unlock()
 
-	// while mempool is Locked, flush to ensure all async requests have completed
-	// in the ABCI app before Commit.
-	start := time.Now()
-	err := blockExec.mempool.FlushAppConn(ctx)
-	if err != nil {
-		blockExec.logger.Error("client error during mempool.FlushAppConn", "err", err)
-		return 0, err
-	}
-	blockExec.metrics.FlushAppConnectionTime.Observe(float64(time.Since(start)))
-
 	// Commit block, get hash back
-	start = time.Now()
-	res, err := blockExec.appClient.Commit(ctx)
+	start := time.Now()
+	res, err := blockExec.app.Commit(ctx)
 	if err != nil {
 		blockExec.logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return 0, err
@@ -823,7 +808,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abciclient.Client,
+	appConn abci.Application,
 	block *types.Block,
 	logger log.Logger,
 	store Store,

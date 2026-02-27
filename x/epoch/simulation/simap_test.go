@@ -3,8 +3,8 @@ package simulation_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	epochsimulation "github.com/sei-protocol/sei-chain/x/epoch/simulation"
 
 	"github.com/stretchr/testify/require"

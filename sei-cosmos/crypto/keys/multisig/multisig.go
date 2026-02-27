@@ -5,10 +5,10 @@ import (
 
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	multisigtypes "github.com/cosmos/cosmos-sdk/crypto/types/multisig"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	multisigtypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
 var _ multisigtypes.PubKey = &LegacyAminoPubKey{}
@@ -29,7 +29,7 @@ func NewLegacyAminoPubKey(threshold int, pubKeys []cryptotypes.PubKey) *LegacyAm
 	if err != nil {
 		panic(err)
 	}
-	return &LegacyAminoPubKey{Threshold: uint32(threshold), PubKeys: anyPubKeys}
+	return &LegacyAminoPubKey{Threshold: uint32(threshold), PubKeys: anyPubKeys} //nolint:gosec // threshold is validated positive above and practically small
 }
 
 // Address implements cryptotypes.PubKey Address method

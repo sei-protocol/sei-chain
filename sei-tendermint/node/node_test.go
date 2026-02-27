@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -23,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -40,23 +38,38 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func newLocalNodeService(ctx context.Context, cfg *config.Config, logger log.Logger) (service.Service, error) {
+	return New(
+		ctx,
+		cfg,
+		logger,
+		func() {},
+		kvstore.NewApplication(),
+		nil,
+		nil,
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+	)
+}
+
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-
-	defer os.RemoveAll(cfg.RootDir)
 
 	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	// create & start node
-	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
 	require.True(t, ok)
 	t.Cleanup(func() {
+		if n.IsRunning() {
+			n.Stop()
+		}
 		n.Wait()
+		require.False(t, n.IsRunning(), "node must shut down")
 	})
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
 
@@ -73,17 +86,12 @@ func TestNodeStartStop(t *testing.T) {
 	require.NoError(t, err)
 	_, err = blocksSub.Next(tctx)
 	require.NoError(t, err, "waiting for event")
-
-	t.Cleanup(func() {
-		n.Wait()
-		require.False(t, n.IsRunning(), "node must shut down")
-	})
 }
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger log.Logger) *nodeImpl {
 	t.Helper()
 
-	ns, err := newDefaultNode(ctx, conf, logger, func() {})
+	ns, err := newLocalNodeService(ctx, conf, logger)
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -200,7 +208,9 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	n, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
+
+	n, _ := ns.(*nodeImpl)
 
 	assert.Error(t, err)
 
@@ -267,10 +277,7 @@ func TestCreateProposalBlock(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	cc := abciclient.NewLocalClient(logger, kvstore.NewApplication())
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
+	app := kvstore.NewApplication()
 
 	const height int64 = 1
 	state, stateDB, privVals := state(t, 1, height)
@@ -285,7 +292,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -323,7 +330,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		evidencePool,
 		blockStore,
@@ -368,10 +375,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	cc := abciclient.NewLocalClient(logger, kvstore.NewApplication())
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
+	app := kvstore.NewApplication()
 
 	const height int64 = 1
 	state, stateDB, _ := state(t, 1, height)
@@ -387,7 +391,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -403,7 +407,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -440,10 +444,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	cc := abciclient.NewLocalClient(logger, kvstore.NewApplication())
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err = proxyApp.Start(ctx)
-	require.NoError(t, err)
+	app := kvstore.NewApplication()
 
 	state, stateDB, privVals := state(t, types.MaxVotesCount, int64(1))
 
@@ -457,7 +458,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		logger.With("module", "mempool"),
 		cfg.Mempool,
-		proxyApp,
+		app,
 		nil,
 	)
 
@@ -479,7 +480,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -590,7 +591,6 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
-		abciclient.NewLocalClient(logger, kvstore.NewApplication()),
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 	)
 	t.Cleanup(ns.Wait)
@@ -667,7 +667,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"kvv"}
-	ns, err := newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err := newLocalNodeService(ctx, cfg, logger)
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "unsupported event sink type")
 	t.Cleanup(cleanup(ns))
@@ -679,7 +679,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"psql"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "the psql connection settings cannot be empty")
 	t.Cleanup(cleanup(ns))
@@ -689,13 +689,13 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	var e = errors.New("found duplicated sinks, please check the tx-index section in the config.toml")
 	cfg.TxIndex.Indexer = []string{"null", "kv", "Kv"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{"Null", "kV", "kv", "nUlL"}
-	ns, err = newDefaultNode(ctx, cfg, logger, func() {})
+	ns, err = newLocalNodeService(ctx, cfg, logger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))

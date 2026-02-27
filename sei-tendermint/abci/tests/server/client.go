@@ -7,14 +7,13 @@ import (
 	"fmt"
 	mrand "math/rand"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
-func InitChain(ctx context.Context, client abciclient.Client) error {
+func InitChain(ctx context.Context, client types.Application) error {
 	vals := make([]types.ValidatorUpdate, 10)
 	for i := range vals {
 		keyBytes := tmrand.Bytes(len(crypto.PubKey{}.Bytes()))
@@ -40,7 +39,7 @@ func InitChain(ctx context.Context, client abciclient.Client) error {
 	return nil
 }
 
-func Commit(ctx context.Context, client abciclient.Client) error {
+func Commit(ctx context.Context, client types.Application) error {
 	_, err := client.Commit(ctx)
 	if err != nil {
 		fmt.Println("Failed test: Commit")
@@ -51,7 +50,7 @@ func Commit(ctx context.Context, client abciclient.Client) error {
 	return nil
 }
 
-func FinalizeBlock(ctx context.Context, client abciclient.Client, txBytes [][]byte, codeExp []uint32, dataExp []byte, hashExp []byte) error {
+func FinalizeBlock(ctx context.Context, client types.Application, txBytes [][]byte, codeExp []uint32, dataExp []byte, hashExp []byte) error {
 	res, _ := client.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Txs: txBytes})
 	appHash := res.AppHash
 	for i, tx := range res.TxResults {

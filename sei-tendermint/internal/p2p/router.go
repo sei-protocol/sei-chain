@@ -38,7 +38,7 @@ type Router struct {
 	privKey     NodeSecretKey
 	peerManager *PeerManager
 
-	peerDB           utils.Mutex[*peerDB]
+	peerDB           utils.Watch[*peerDB]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
@@ -76,6 +76,11 @@ func NewRouter(
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
+	for addr := range peerDB.All() {
+		if err := peerManager.AddAddrs(utils.Slice(addr)); err != nil {
+			logger.Error("peerDB: bad address", "addr", addr.String(), "err", err)
+		}
+	}
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -85,7 +90,7 @@ func NewRouter(
 		peerManager:      peerManager,
 		options:          options,
 		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
-		peerDB:           utils.NewMutex(peerDB),
+		peerDB:           utils.NewWatch(peerDB),
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
@@ -300,12 +305,16 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 // storePeersRoutine periodically snapshots the current connection set to disk,
 // so that peers are immediately rediscovered on restart.
 func (r *Router) storePeersRoutine(ctx context.Context) error {
-	const storeInterval = 10 * time.Second
+	storeInterval := r.options.peerStoreInterval()
 	for {
-		for db := range r.peerDB.Lock() {
+		for db, ctrl := range r.peerDB.Lock() {
 			// Mark connections as still available.
 			now := time.Now()
-			for _, conn := range r.peerManager.Conns().All() {
+			conns := r.peerManager.Conns()
+			if conns.Len() > 0 {
+				ctrl.Updated()
+			}
+			for _, conn := range conns.All() {
 				if addr, ok := conn.dialAddr.Get(); ok {
 					if err := db.Insert(addr, now); err != nil {
 						return fmt.Errorf("db.Insert(): %w", err)

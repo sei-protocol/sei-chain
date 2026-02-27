@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
 
-const SecretKeyName = "tendermint/PrivKeyEd25519" //nolint:gosec // G101 not a hardcoded secret
+const SecretKeyName = "tendermint/PrivKeyEd25519" //nolint:gosec
 const PublicKeyName = "tendermint/PubKeyEd25519"
 const KeyType = "ed25519"
 

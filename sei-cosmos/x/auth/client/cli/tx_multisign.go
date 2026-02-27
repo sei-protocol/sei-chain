@@ -2,26 +2,26 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
-	"github.com/cosmos/cosmos-sdk/version"
-	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
-	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
+	authclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
 
 // BroadcastReq defines a tx broadcasting request.
@@ -149,9 +149,15 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 			return err
 		}
 
-		sigOnly, _ := cmd.Flags().GetBool(flagSigOnly)
+		sigOnly, err := cmd.Flags().GetBool(flagSigOnly)
+		if err != nil {
+			return err
+		}
 
-		aminoJSON, _ := cmd.Flags().GetBool(flagAmino)
+		aminoJSON, err := cmd.Flags().GetBool(flagAmino)
+		if err != nil {
+			return err
+		}
 
 		var json []byte
 
@@ -166,7 +172,10 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 				Mode: "block|sync|async",
 			}
 
-			json, _ = clientCtx.LegacyAmino.MarshalJSON(req)
+			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
+			if err != nil {
+				return err
+			}
 
 		} else {
 			json, err = marshalSignatureJSON(txCfg, txBuilder, sigOnly)
@@ -175,13 +184,18 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 			}
 		}
 
-		outputDoc, _ := cmd.Flags().GetString(flags.FlagOutputDocument)
+		outputDoc, err := cmd.Flags().GetString(flags.FlagOutputDocument)
+		if err != nil {
+			return err
+		}
+
 		if outputDoc == "" {
 			cmd.Printf("%s\n", json)
 			return
 		}
 
-		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		outputDoc = filepath.Clean(outputDoc)
+		fp, err := os.OpenFile(outputDoc, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}
@@ -349,7 +363,7 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 					Mode: "block|sync|async",
 				}
 
-				json, _ = clientCtx.LegacyAmino.MarshalJSON(req)
+				json, _ = clientCtx.LegacyAmino.MarshalAsJSON(req)
 
 			} else {
 				json, err = marshalSignatureJSON(txCfg, txBldr, sigOnly)
@@ -376,14 +390,16 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 
 func unmarshalSignatureJSON(clientCtx client.Context, filename string) (sigs []signingtypes.SignatureV2, err error) {
 	var bytes []byte
-	if bytes, err = ioutil.ReadFile(filename); err != nil {
+	filename = filepath.Clean(filename)
+	if bytes, err = os.ReadFile(filename); err != nil {
 		return
 	}
 	return clientCtx.TxConfig.UnmarshalSignatureJSON(bytes)
 }
 
 func readSignaturesFromFile(ctx client.Context, filename string) (sigs []signingtypes.SignatureV2, err error) {
-	bz, err := ioutil.ReadFile(filename)
+	filename = filepath.Clean(filename)
+	bz, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}

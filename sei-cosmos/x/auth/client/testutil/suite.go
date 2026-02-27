@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,23 +15,23 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authcli "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankcli "github.com/cosmos/cosmos-sdk/x/bank/client/testutil"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	authcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	bankcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/client/testutil"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 type IntegrationTestSuite struct {
@@ -200,10 +200,11 @@ func (s *IntegrationTestSuite) TestCLISignAminoJSON() {
 
 	/****  test file output  ****/
 	filenameSigned := filepath.Join(s.T().TempDir(), "test_sign_out.json")
+	filenameSigned = filepath.Clean(filenameSigned)
 	fileFlag := fmt.Sprintf("--%s=%s", flags.FlagOutputDocument, filenameSigned)
 	_, err = TxSignExec(val1.ClientCtx, val1.Address, fileUnsigned.Name(), chainFlag, fileFlag, signModeAminoFlag)
 	require.NoError(err)
-	fContent, err := ioutil.ReadFile(filenameSigned)
+	fContent, err := os.ReadFile(filenameSigned)
 	require.NoError(err)
 	require.Equal(res.String(), string(fContent))
 
@@ -230,7 +231,7 @@ func (s *IntegrationTestSuite) TestCLISignAminoJSON() {
 	require.NoError(err)
 
 	var txAmino authcli.BroadcastReq
-	err = val1.ClientCtx.LegacyAmino.UnmarshalJSON(res.Bytes(), &txAmino)
+	err = val1.ClientCtx.LegacyAmino.UnmarshalAsJSON(res.Bytes(), &txAmino)
 	require.NoError(err)
 	require.Len(txAmino.Tx.Signatures, 2)
 	require.Equal(txAmino.Tx.Signatures[0].PubKey, valInfo.GetPubKey())
@@ -262,7 +263,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByHash() {
 	)
 	s.Require().NoError(err)
 	var txRes sdk.TxResponse
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
 	testCases := []struct {
@@ -307,7 +308,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByHash() {
 				s.Require().NotEqual("internal", err.Error())
 			} else {
 				var result sdk.TxResponse
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &result))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &result))
 				s.Require().NotNil(result.Height)
 				s.Require().Contains(result.RawLog, tc.rawLogContains)
 			}
@@ -330,13 +331,13 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 	)
 	s.Require().NoError(err)
 	var txRes sdk.TxResponse
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
 	// Query the tx by hash to get the inner tx.
 	out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", tmcli.OutputFlag)})
 	s.Require().NoError(err)
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 	protoTx := txRes.GetTx().(*tx.Tx)
 
 	testCases := []struct {
@@ -422,7 +423,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 				s.Require().Contains(err.Error(), tc.expectErrStr)
 			} else {
 				var result sdk.TxResponse
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &result))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &result))
 				s.Require().NotNil(result.Height)
 			}
 		})
@@ -444,13 +445,13 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 	)
 	s.Require().NoError(err)
 	var txRes sdk.TxResponse
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 	s.Require().NoError(s.network.WaitForNextBlock())
 
 	// Query the tx by hash to get the inner tx.
 	out, err = clitestutil.ExecTestCLICmd(val.ClientCtx, authcli.QueryTxCmd(), []string{txRes.TxHash, fmt.Sprintf("--%s=json", tmcli.OutputFlag)})
 	s.Require().NoError(err)
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &txRes))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txRes))
 
 	testCases := []struct {
 		name        string
@@ -487,7 +488,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxsCmdByEvents() {
 			s.Require().NoError(err)
 
 			var result sdk.SearchTxsResult
-			s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &result))
+			s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &result))
 
 			if tc.expectEmpty {
 				s.Require().Equal(0, len(result.Txs))
@@ -544,7 +545,7 @@ func (s *IntegrationTestSuite) TestCLISendGenerateSignAndBroadcast() {
 	s.Require().NoError(err)
 
 	var balRes banktypes.QueryAllBalancesResponse
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	startTokens := balRes.Balances.AmountOf(s.cfg.BondDenom)
 
@@ -605,7 +606,7 @@ func (s *IntegrationTestSuite) TestCLISendGenerateSignAndBroadcast() {
 	resp, err = bankcli.QueryBalancesExec(val1.ClientCtx, val1.Address)
 	s.Require().NoError(err)
 
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	s.Require().Equal(startTokens, balRes.Balances.AmountOf(s.cfg.BondDenom))
 
@@ -628,7 +629,7 @@ func (s *IntegrationTestSuite) TestCLISendGenerateSignAndBroadcast() {
 	resp, err = bankcli.QueryBalancesExec(val1.ClientCtx, account.GetAddress())
 	s.Require().NoError(err)
 
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	s.Require().Equal(sendTokens.Amount, balRes.Balances.AmountOf(s.cfg.BondDenom))
 
@@ -636,7 +637,7 @@ func (s *IntegrationTestSuite) TestCLISendGenerateSignAndBroadcast() {
 	resp, err = bankcli.QueryBalancesExec(val1.ClientCtx, val1.Address)
 	s.Require().NoError(err)
 
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 }
 
@@ -749,7 +750,7 @@ func (s *IntegrationTestSuite) TestCLIMultisignSortSignatures() {
 	s.Require().NoError(err)
 
 	var balRes banktypes.QueryAllBalancesResponse
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	intialCoins := balRes.Balances
 
@@ -767,7 +768,7 @@ func (s *IntegrationTestSuite) TestCLIMultisignSortSignatures() {
 	resp, err = bankcli.QueryBalancesExec(val1.ClientCtx, multisigInfo.GetAddress())
 	s.Require().NoError(err)
 
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	diff, _ := balRes.Balances.SafeSub(intialCoins)
 	s.Require().Equal(sendTokens.Amount, diff.AmountOf(s.cfg.BondDenom))
@@ -893,7 +894,7 @@ func (s *IntegrationTestSuite) TestCLIMultisign() {
 	s.Require().NoError(err)
 
 	var balRes banktypes.QueryAllBalancesResponse
-	err = val1.ClientCtx.Codec.UnmarshalJSON(resp.Bytes(), &balRes)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(resp.Bytes(), &balRes)
 	s.Require().NoError(err)
 	s.Require().Equal(sendTokens.Amount, balRes.Balances.AmountOf(s.cfg.BondDenom))
 
@@ -1143,7 +1144,7 @@ func (s *IntegrationTestSuite) TestGetAccountsCmd() {
 	s.Require().NoError(err)
 
 	var res authtypes.QueryAccountsResponse
-	s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &res))
+	s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &res))
 	s.Require().NotEmpty(res.Accounts)
 }
 
@@ -1218,7 +1219,7 @@ func (s *IntegrationTestSuite) TestQueryParamsCmd() {
 				s.Require().NotEqual("internal", err.Error())
 			} else {
 				var authParams authtypes.Params
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &authParams))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &authParams))
 				s.Require().NotNil(authParams.MaxMemoCharacters)
 			}
 		})
@@ -1265,11 +1266,11 @@ func (s *IntegrationTestSuite) TestTxWithoutPublicKey() {
 	// Note: this method is only used for test purposes! In general, one should
 	// use txBuilder and TxEncoder/TxDecoder to manipulate txs.
 	var tx tx.Tx
-	err = val1.ClientCtx.Codec.UnmarshalJSON(signedTx.Bytes(), &tx)
+	err = val1.ClientCtx.Codec.UnmarshalAsJSON(signedTx.Bytes(), &tx)
 	s.Require().NoError(err)
 	tx.AuthInfo.SignerInfos[0].PublicKey = nil
 	// Re-encode the tx again, to another file.
-	txJSON, err = val1.ClientCtx.Codec.MarshalJSON(&tx)
+	txJSON, err = val1.ClientCtx.Codec.MarshalAsJSON(&tx)
 	s.Require().NoError(err)
 	signedTxFile := testutil.WriteToNewTempFile(s.T(), string(txJSON))
 	s.Require().True(strings.Contains(string(txJSON), "\"public_key\":null"))
@@ -1279,7 +1280,7 @@ func (s *IntegrationTestSuite) TestTxWithoutPublicKey() {
 	out, err := TxBroadcastExec(val1.ClientCtx, signedTxFile.Name())
 	s.Require().NoError(err)
 	var res sdk.TxResponse
-	s.Require().NoError(val1.ClientCtx.Codec.UnmarshalJSON(out.Bytes(), &res))
+	s.Require().NoError(val1.ClientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &res))
 	s.Require().NotEqual(0, res.Code)
 }
 
@@ -1300,7 +1301,7 @@ func (s *IntegrationTestSuite) TestSignWithMultiSignersAminoJSON() {
 	// because DIRECT doesn't support multi signers via the CLI.
 	// Since we use amino, we don't need to pre-populate signer_infos.
 	txBuilder := val0.ClientCtx.TxConfig.NewTxBuilder()
-	txBuilder.SetMsgs(
+	_ = txBuilder.SetMsgs(
 		banktypes.NewMsgSend(val0.Address, addr1, sdk.NewCoins(val0Coin)),
 		banktypes.NewMsgSend(val1.Address, addr1, sdk.NewCoins(val1Coin)),
 	)
@@ -1337,25 +1338,27 @@ func (s *IntegrationTestSuite) TestSignWithMultiSignersAminoJSON() {
 
 	require.NoError(err)
 	var txRes sdk.TxResponse
-	require.NoError(val0.ClientCtx.Codec.UnmarshalJSON(res.Bytes(), &txRes))
+	require.NoError(val0.ClientCtx.Codec.UnmarshalAsJSON(res.Bytes(), &txRes))
 	require.Equal(uint32(0), txRes.Code)
 
 	// Make sure the addr1's balance got funded.
 	queryResJSON, err := bankcli.QueryBalancesExec(val0.ClientCtx, addr1)
 	require.NoError(err)
 	var queryRes banktypes.QueryAllBalancesResponse
-	err = val0.ClientCtx.Codec.UnmarshalJSON(queryResJSON.Bytes(), &queryRes)
+	err = val0.ClientCtx.Codec.UnmarshalAsJSON(queryResJSON.Bytes(), &queryRes)
 	require.NoError(err)
 	require.Equal(sdk.NewCoins(val0Coin, val1Coin), queryRes.Balances)
 }
 
 func (s *IntegrationTestSuite) createBankMsg(val *network.Validator, toAddr sdk.AccAddress, amount sdk.Coins, extraFlags ...string) (testutil.BufferWriter, error) {
-	flags := []string{fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
+	flagArgs := make([]string, 0, 3+len(extraFlags))
+	flagArgs = append(flagArgs,
+		fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 		fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
 		fmt.Sprintf("--%s=%s", flags.FlagFees,
 			sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
-	}
+	)
 
-	flags = append(flags, extraFlags...)
-	return bankcli.MsgSendExec(val.ClientCtx, val.Address, toAddr, amount, flags...)
+	flagArgs = append(flagArgs, extraFlags...)
+	return bankcli.MsgSendExec(val.ClientCtx, val.Address, toAddr, amount, flagArgs...)
 }

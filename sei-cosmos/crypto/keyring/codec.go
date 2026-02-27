@@ -1,9 +1,9 @@
 package keyring
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 )
 
 func init() {

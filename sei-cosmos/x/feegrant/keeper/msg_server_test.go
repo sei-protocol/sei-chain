@@ -1,9 +1,9 @@
 package keeper_test
 
 import (
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 )
 
 func (suite *KeeperTestSuite) TestGrantAllowance() {

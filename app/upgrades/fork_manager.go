@@ -3,8 +3,8 @@ package upgrades
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/goutils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Chain-ID constants for use in hard fork handlers.

@@ -7,7 +7,7 @@ import "cosmos/tx/signing/v1beta1/signing.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/types/tx";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx";
 
 // Tx is the standard type used for broadcasting transactions.
 message Tx {
@@ -166,7 +166,7 @@ message Fee {
   // amount is the amount of coins to be paid as a fee
   repeated cosmos.base.v1beta1.Coin amount = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 
   // gas_limit is the maximum gas that can be used in transaction processing

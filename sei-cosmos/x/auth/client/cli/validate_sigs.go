@@ -5,12 +5,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
 
 func GetValidateSignaturesCommand() *cobra.Command {

@@ -59,7 +59,7 @@ message MsgInstantiateContract {
   // Funds coins that are transferred to the contract on instantiation
   repeated cosmos.base.v1beta1.Coin funds = 6 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 }
 
@@ -82,7 +82,7 @@ message MsgExecuteContract {
   // Funds coins that are transferred to the contract on execution
   repeated cosmos.base.v1beta1.Coin funds = 5 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 }
 

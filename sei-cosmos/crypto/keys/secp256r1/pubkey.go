@@ -4,8 +4,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	ecdsa "github.com/cosmos/cosmos-sdk/crypto/keys/internal/ecdsa"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	ecdsa "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/internal/ecdsa"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
 // String implements proto.Message interface.

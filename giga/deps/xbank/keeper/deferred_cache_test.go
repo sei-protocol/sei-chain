@@ -1,10 +1,10 @@
 package keeper_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {

@@ -13,7 +13,6 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -54,11 +53,8 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 		nodeID := node.NodeID
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
-		client := abciclient.NewLocalClient(logger, rts.kvstores[nodeID])
-		require.NoError(t, client.Start(ctx))
-		t.Cleanup(client.Wait)
-
-		mempool := setup(t, client, 0)
+		app := rts.kvstores[nodeID]
+		mempool := setup(t, app, 0)
 		rts.mempools[nodeID] = mempool
 
 		reactor, err := NewReactor(

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // QueryDelegatorTotalRewardsResponse defines the properties of
@@ -33,8 +33,6 @@ func (res QueryDelegatorTotalRewardsResponse) String() string {
 }
 
 // NewDelegationDelegatorReward constructs a DelegationDelegatorReward.
-//
-//nolint:interfacer
 func NewDelegationDelegatorReward(valAddr sdk.ValAddress,
 	reward sdk.DecCoins) DelegationDelegatorReward {
 	return DelegationDelegatorReward{ValidatorAddress: valAddr.String(), Reward: reward}

@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/textproto"
 	"strconv"
@@ -19,11 +18,11 @@ import (
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc/codes"
 
-	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 // https://github.com/improbable-eng/grpc-web/blob/master/go/grpcweb/wrapper_test.go used as a reference
@@ -44,6 +43,7 @@ func (s *GRPCWebTestSuite) SetupSuite() {
 
 	cfg := network.DefaultConfig(s.T())
 	cfg.NumValidators = 1
+	cfg.EnableGRPCWeb = true
 	s.cfg = cfg
 	s.network = network.New(s.T(), s.cfg)
 	s.Require().NotNil(s.network)
@@ -195,7 +195,7 @@ func (s *GRPCWebTestSuite) makeGrpcRequest(
 		return nil, Trailer{}, nil, err
 	}
 	defer resp.Body.Close()
-	contents, err := ioutil.ReadAll(resp.Body)
+	contents, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, Trailer{}, nil, err
 	}

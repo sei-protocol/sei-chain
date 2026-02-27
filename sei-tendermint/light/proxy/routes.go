@@ -116,10 +116,6 @@ func (p proxyService) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultU
 	return p.Client.NumUnconfirmedTxs(ctx)
 }
 
-func (p proxyService) RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error {
-	return p.Client.RemoveTx(ctx, req.TxKey)
-}
-
 func (p proxyService) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
 	return p.Client.Status(ctx)
 }

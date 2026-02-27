@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -241,7 +240,7 @@ func valsEqual(t *testing.T, vals1, vals2 []types.ValidatorUpdate) {
 	}
 }
 
-func runClientTests(ctx context.Context, t *testing.T, client abciclient.Client) {
+func runClientTests(ctx context.Context, t *testing.T, client types.Application) {
 	// run some tests....
 	key := testKey
 	value := key
@@ -253,7 +252,7 @@ func runClientTests(ctx context.Context, t *testing.T, client abciclient.Client)
 	testClient(ctx, t, client, tx, key, value)
 }
 
-func testClient(ctx context.Context, t *testing.T, app abciclient.Client, tx []byte, key, value string) {
+func testClient(ctx context.Context, t *testing.T, app types.Application, tx []byte, key, value string) {
 	ar, err := app.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Txs: [][]byte{tx}})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(ar.TxResults))

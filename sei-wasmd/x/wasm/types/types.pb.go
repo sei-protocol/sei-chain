@@ -6,10 +6,10 @@ package types
 import (
 	bytes "bytes"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"

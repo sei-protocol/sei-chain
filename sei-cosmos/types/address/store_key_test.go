@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 )
 
 func TestStoreKeySuite(t *testing.T) {

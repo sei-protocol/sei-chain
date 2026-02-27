@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"reflect"
 	"strings"
 	"sync"
@@ -15,7 +15,7 @@ import (
 	"github.com/gogo/protobuf/protoc-gen-gogo/descriptor"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 const bit11NonCritical = 1 << 10
@@ -72,7 +72,7 @@ func rejectUnknownFieldsWithDepth(bz []byte, msg proto.Message, allowUnknownNonC
 			return hasUnknownNonCriticals, errors.New("invalid length")
 		}
 
-		fieldDescProto, ok := fieldDescProtoFromTagNum[int32(tagNum)]
+		fieldDescProto, ok := fieldDescProtoFromTagNum[int32(tagNum)] //nolint:gosec // protobuf field numbers are within int32 range by spec
 		switch {
 		case ok:
 			// Assert that the wireTypes match.
@@ -81,7 +81,7 @@ func rejectUnknownFieldsWithDepth(bz []byte, msg proto.Message, allowUnknownNonC
 					Type:         reflect.ValueOf(msg).Type().String(),
 					TagNum:       tagNum,
 					GotWireType:  wireType,
-					WantWireType: protowire.Type(fieldDescProto.WireType()),
+					WantWireType: protowire.Type(fieldDescProto.WireType()), //nolint:gosec // checked by wire type conversion
 				}
 			}
 
@@ -371,7 +371,7 @@ func extractFileDescMessageDesc(desc descriptorIface) (*descriptor.FileDescripto
 	if err != nil {
 		return nil, nil, err
 	}
-	protoBlob, err := ioutil.ReadAll(gzr)
+	protoBlob, err := io.ReadAll(gzr)
 	if err != nil {
 		return nil, nil, err
 	}

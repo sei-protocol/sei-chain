@@ -3,12 +3,9 @@ package consensus
 import (
 	"context"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -51,11 +48,10 @@ func (emptyMempool) Update(
 ) error {
 	return nil
 }
-func (emptyMempool) Flush()                                 {}
-func (emptyMempool) FlushAppConn(ctx context.Context) error { return nil }
-func (emptyMempool) TxsAvailable() <-chan struct{}          { return make(chan struct{}) }
-func (emptyMempool) EnableTxsAvailable()                    {}
-func (emptyMempool) SizeBytes() int64                       { return 0 }
+func (emptyMempool) Flush()                        {}
+func (emptyMempool) TxsAvailable() <-chan struct{} { return make(chan struct{}) }
+func (emptyMempool) EnableTxsAvailable()           {}
+func (emptyMempool) SizeBytes() int64              { return 0 }
 
 func (emptyMempool) TxsFront() *clist.CElement    { return nil }
 func (emptyMempool) TxsWaitChan() <-chan struct{} { return nil }
@@ -70,14 +66,13 @@ func (emptyMempool) CloseWAL()      {}
 // the real app.
 
 func newMockProxyApp(
-	logger log.Logger,
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
-) (abciclient.Client, error) {
-	return proxy.New(abciclient.NewLocalClient(logger, &mockProxyApp{
+) abci.Application {
+	return &mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	}), logger, proxy.NopMetrics()), nil
+	}
 }
 
 type mockProxyApp struct {

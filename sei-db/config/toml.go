@@ -23,6 +23,15 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # defaults to cosmos_only
 sc-read-mode = "{{ .StateCommit.ReadMode }}"
 
+# Max concurrent historical proof queries (RPC /store path)
+sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
+
+# Historical proof query rate limit in req/sec (<=0 disables rate limiting)
+sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
+
+# Historical proof query burst size
+sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
+
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
@@ -51,6 +60,20 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+###############################################################################
+###                        FlatKV (EVM) Configuration                       ###
+###############################################################################
+
+[state-commit.flatkv]
+# Fsync controls whether data DB writes use fsync for durability.
+# When true (default): all data DB writes use Sync=true for maximum durability.
+# When false: data DBs use Sync=false for better performance.
+# WAL and metaDB always use sync writes regardless.
+fsync = {{ .StateCommit.FlatKVConfig.Fsync }}
+
+# AsyncWriteBuffer defines the size of the async write buffer for data DBs.
+# Set <= 0 for synchronous writes.
+async-write-buffer = {{ .StateCommit.FlatKVConfig.AsyncWriteBuffer }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
@@ -102,7 +125,7 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Backend defines the receipt store backend.
-# Supported backends: pebble (aka pebbledb)
+# Supported backends: pebble (aka pebbledb), parquet
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 `

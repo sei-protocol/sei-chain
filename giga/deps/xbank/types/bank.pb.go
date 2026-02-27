@@ -9,11 +9,11 @@ import (
 	math "math"
 	math_bits "math/bits"
 
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -135,7 +135,7 @@ func (m *SendEnabled) GetEnabled() bool {
 // Input models transaction input.
 type Input struct {
 	Address string                                   `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Coins   github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,2,rep,name=coins,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"coins"`
+	Coins   github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,2,rep,name=coins,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"coins"`
 }
 
 func (m *Input) Reset()         { *m = Input{} }
@@ -174,7 +174,7 @@ var xxx_messageInfo_Input proto.InternalMessageInfo
 // Output models transaction outputs.
 type Output struct {
 	Address string                                   `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Coins   github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,2,rep,name=coins,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"coins"`
+	Coins   github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,2,rep,name=coins,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"coins"`
 }
 
 func (m *Output) Reset()         { *m = Output{} }
@@ -216,7 +216,7 @@ var xxx_messageInfo_Output proto.InternalMessageInfo
 //
 // Deprecated: Do not use.
 type Supply struct {
-	Total github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,1,rep,name=total,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"total"`
+	Total github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,1,rep,name=total,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"total"`
 }
 
 func (m *Supply) Reset()         { *m = Supply{} }

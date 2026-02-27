@@ -5,11 +5,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 )
 
 // Keeper manages state of all fee grants, as well as calculating approval.
@@ -127,7 +127,7 @@ func (k Keeper) getGrant(ctx sdk.Context, granter sdk.AccAddress, grantee sdk.Ac
 func (k Keeper) IterateAllFeeAllowances(ctx sdk.Context, cb func(grant feegrant.Grant) bool) error {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, feegrant.FeeAllowanceKeyPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	stop := false
 	for ; iter.Valid() && !stop; iter.Next() {
@@ -159,7 +159,7 @@ func (k Keeper) UseGrantedFees(ctx sdk.Context, granter, grantee sdk.AccAddress,
 
 	if remove {
 		// Ignoring the `revokeFeeAllowance` error, because the user has enough grants to perform this transaction.
-		k.revokeAllowance(ctx, granter, grantee)
+		_ = k.revokeAllowance(ctx, granter, grantee)
 		if err != nil {
 			return err
 		}
@@ -168,11 +168,9 @@ func (k Keeper) UseGrantedFees(ctx sdk.Context, granter, grantee sdk.AccAddress,
 
 		return nil
 	}
-
 	if err != nil {
 		return err
 	}
-
 	emitUseGrantEvent(ctx, granter.String(), grantee.String())
 
 	// if fee allowance is accepted, store the updated state of the allowance

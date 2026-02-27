@@ -8,7 +8,7 @@ import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/gov/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types";
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.stringer_all) = false;
@@ -35,7 +35,7 @@ enum VoteOption {
 message WeightedVoteOption {
   VoteOption option = 1;
   string weight = 2 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"weight\""
   ];
@@ -63,7 +63,7 @@ message Deposit {
   string depositor = 2;
   repeated cosmos.base.v1beta1.Coin amount = 3 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 }
 
@@ -93,7 +93,7 @@ message Proposal {
   ];
   repeated cosmos.base.v1beta1.Coin total_deposit = 7 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins",
     (gogoproto.moretags) = "yaml:\"total_deposit\""
   ];
   google.protobuf.Timestamp voting_start_time = 8 [
@@ -137,19 +137,19 @@ message TallyResult {
   option (gogoproto.equal) = true;
 
   string yes = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   string abstain = 2 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   string no = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   string no_with_veto = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"no_with_veto\""
   ];
@@ -176,7 +176,7 @@ message DepositParams {
   //  Minimum deposit for a proposal to enter voting period.
   repeated cosmos.base.v1beta1.Coin min_deposit = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins",
     (gogoproto.moretags) = "yaml:\"min_deposit\"",
     (gogoproto.jsontag) = "min_deposit,omitempty"
   ];
@@ -193,7 +193,7 @@ message DepositParams {
   //  Minimum deposit for a expedited proposal to enter voting period.
   repeated cosmos.base.v1beta1.Coin min_expedited_deposit = 3 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins",
     (gogoproto.moretags) = "yaml:\"min_expedited_deposit\"",
     (gogoproto.jsontag) = "min_expedited_deposit,omitempty"
   ];
@@ -223,14 +223,14 @@ message TallyParams {
   //  Minimum percentage of total stake needed to vote for a result to be
   //  considered valid.
   bytes quorum = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "quorum,omitempty"
   ];
 
   //  Minimum proportion of Yes votes for proposal to pass. Default value: 0.5.
   bytes threshold = 2 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "threshold,omitempty"
   ];
@@ -238,7 +238,7 @@ message TallyParams {
   //  Minimum value of Veto votes to Total votes ratio for proposal to be
   //  vetoed. Default value: 1/3.
   bytes veto_threshold = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "veto_threshold,omitempty",
     (gogoproto.moretags) = "yaml:\"veto_threshold\""
@@ -246,14 +246,14 @@ message TallyParams {
 
   //  Minimum percentage of total stake needed to vote for expedited proposal to be valid
   bytes expedited_quorum = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "expedited_quorum,omitempty"
   ];
 
   //  Minimum proportion of Yes votes for an expedited proposal to pass. Default value: 0.67.
   bytes expedited_threshold = 5 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "expedited_threshold,omitempty"
   ];

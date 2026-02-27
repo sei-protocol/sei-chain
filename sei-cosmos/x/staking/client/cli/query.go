@@ -8,15 +8,15 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256r1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/sr25519"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // GetQueryCmd returns the cli query commands for this module
@@ -185,19 +185,27 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 				switch {
 				case strings.Contains(pk.TypeUrl, ed25519.GenPrivKey().PubKey().Type()):
 					actualPk := &ed25519.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal ed25519 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, sr25519.GenPrivKey().PubKey().Type()):
 					actualPk := &sr25519.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal sr25519 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, secp256k1.GenPrivKey().PubKey().Type()):
 					actualPk := &secp256k1.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal secp256k1 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				case strings.Contains(pk.TypeUrl, scp256r1Type.PubKey().Type()):
 					actualPk := &secp256r1.PubKey{}
-					proto.Unmarshal(pk.Value, actualPk)
+					if err := proto.Unmarshal(pk.Value, actualPk); err != nil {
+						return fmt.Errorf("failed to unmarshal secp256r1 public key: %w", err)
+					}
 					valConsAddr = sdk.ConsAddress(actualPk.Address())
 				default:
 					return fmt.Errorf("invalid key type found=%s", pk.TypeUrl)
@@ -205,8 +213,7 @@ $ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
 
 				if valConsAddr.Equals(hexAddr) {
 					res := types.QueryValidatorResponse{Validator: val}
-					clientCtx.PrintProto(&res)
-					return nil
+					return clientCtx.PrintProto(&res)
 				}
 
 			}

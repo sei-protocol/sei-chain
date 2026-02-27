@@ -24,10 +24,13 @@ import (
 // Always created by NewStateStore; when WriteMode==CosmosOnlyWrite && ReadMode==CosmosOnlyRead,
 // evmStore is nil and the composite store behaves identically to a plain state store.
 type CompositeStateStore struct {
-	cosmosStore types.StateStore   // Main MVCC PebbleDB for all modules
-	evmStore    *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
-	config      config.StateStoreConfig
-	logger      logger.Logger
+	cosmosStore    types.StateStore   // Main MVCC PebbleDB for all modules
+	evmStore       *evm.EVMStateStore // Separate EVM DBs with default comparer (nil if disabled)
+	pruningManager *pruning.Manager   // Pruning lifecycle manager (nil if pruning disabled)
+	config         config.StateStoreConfig
+	logger         logger.Logger
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 // NewCompositeStateStore creates a new composite state store that manages both Cosmos_SS and EVM_SS.
@@ -85,10 +88,10 @@ func NewCompositeStateStore(
 
 // StartPruning starts the pruning manager for this composite store.
 // Pruning removes old versions from both Cosmos_SS and EVM_SS.
-func (s *CompositeStateStore) StartPruning() *pruning.Manager {
+func (s *CompositeStateStore) StartPruning() {
 	pm := pruning.NewPruningManager(s.logger, s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
-	return pm
+	s.pruningManager = pm
 }
 
 // Get retrieves a value for a key at a specific version
@@ -174,23 +177,34 @@ func (s *CompositeStateStore) GetLatestMigratedModule() (string, error) {
 	return s.cosmosStore.GetLatestMigratedModule()
 }
 
-// Close closes all underlying stores
+// Close stops the pruning goroutine and then closes all underlying stores.
+// This ensures no pruning operations are in progress when the stores are closed.
+// Safe to call multiple times (idempotent).
 func (s *CompositeStateStore) Close() error {
-	var lastErr error
+	s.closeOnce.Do(func() {
+		// First, stop the pruning goroutine and wait for it to exit
+		if s.pruningManager != nil {
+			s.pruningManager.Stop()
+		}
 
-	if s.evmStore != nil {
-		if err := s.evmStore.Close(); err != nil {
-			s.logger.Error("failed to close EVM store", "error", err)
+		// Then close all underlying stores
+		var lastErr error
+
+		if s.evmStore != nil {
+			if err := s.evmStore.Close(); err != nil {
+				s.logger.Error("failed to close EVM store", "error", err)
+				lastErr = err
+			}
+		}
+
+		if err := s.cosmosStore.Close(); err != nil {
+			s.logger.Error("failed to close Cosmos store", "error", err)
 			lastErr = err
 		}
-	}
 
-	if err := s.cosmosStore.Close(); err != nil {
-		s.logger.Error("failed to close Cosmos store", "error", err)
-		lastErr = err
-	}
-
-	return lastErr
+		s.closeErr = lastErr
+	})
+	return s.closeErr
 }
 
 // =============================================================================

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -9,8 +10,8 @@ import (
 	"github.com/coinbase/rosetta-sdk-go/server"
 	"github.com/coinbase/rosetta-sdk-go/types"
 
-	"github.com/cosmos/cosmos-sdk/server/rosetta/lib/internal/service"
-	crgtypes "github.com/cosmos/cosmos-sdk/server/rosetta/lib/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/internal/service"
+	crgtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/types"
 )
 
 const DefaultRetries = 5
@@ -39,7 +40,15 @@ type Server struct {
 }
 
 func (h Server) Start() error {
-	return http.ListenAndServe(h.addr, h.h)
+	srvr := &http.Server{
+		Addr:              h.addr,
+		Handler:           h.h,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srvr.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 func NewServer(settings Settings) (Server, error) {

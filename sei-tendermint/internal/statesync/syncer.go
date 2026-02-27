@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -54,7 +53,7 @@ var (
 type syncer struct {
 	logger        log.Logger
 	stateProvider StateProvider
-	conn          abciclient.Client
+	conn          abci.Application
 	snapshots     *snapshotPool
 	snapshotCh    *p2p.Channel[*pb.Message]
 	chunkCh       *p2p.Channel[*pb.Message]

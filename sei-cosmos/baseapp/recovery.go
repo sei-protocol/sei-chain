@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 )
 
 // RecoveryHandler handles recovery() object.

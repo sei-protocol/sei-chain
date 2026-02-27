@@ -1,8 +1,8 @@
 package feegrant
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	auth "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
 
 // AccountKeeper defines the expected auth Account Keeper (noalias)

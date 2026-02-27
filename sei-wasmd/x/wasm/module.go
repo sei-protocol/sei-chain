@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/server"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	simKeeper "github.com/cosmos/cosmos-sdk/x/simulation"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	simKeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -69,7 +69,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 // ValidateGenesis performs genesis state validation for the wasm module.
 func (b AppModuleBasic) ValidateGenesis(marshaler codec.JSONCodec, config client.TxEncodingConfig, message json.RawMessage) error {
 	var data GenesisState
-	err := marshaler.UnmarshalJSON(message, &data)
+	err := marshaler.UnmarshalAsJSON(message, &data)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 		defer close(genesisStateCh)
 		for genesis := range genesisCh {
 			var data GenesisState
-			err_ := cdc.UnmarshalJSON(genesis, &data)
+			err_ := cdc.UnmarshalAsJSON(genesis, &data)
 			if err_ != nil {
 				err = err_
 				doneCh <- struct{}{}

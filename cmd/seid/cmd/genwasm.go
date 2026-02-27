@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/spf13/cobra"
 
 	wasmcli "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/cli"

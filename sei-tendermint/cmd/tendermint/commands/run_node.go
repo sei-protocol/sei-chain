@@ -1,19 +1,9 @@
 package commands
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"fmt"
-	"io"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/spf13/cobra"
 
 	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 var (
@@ -97,75 +87,4 @@ func addDBFlags(cmd *cobra.Command, conf *cfg.Config) {
 		"db-dir",
 		conf.DBPath,
 		"database directory")
-}
-
-// NewRunNodeCmd returns the command that allows the CLI to start a node.
-// It can be used with a custom PrivValidator and in-process ABCI application.
-func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger log.Logger) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "start",
-		Aliases: []string{"node", "run"},
-		Short:   "Run the tendermint node",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := checkGenesisHash(conf); err != nil {
-				return err
-			}
-
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
-			restart := utils.NewAtomicSend(false)
-
-			n, err := nodeProvider(ctx, conf, logger, func() { restart.Store(true) })
-			if err != nil {
-				return fmt.Errorf("failed to create node: %w", err)
-			}
-
-			if err := n.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start node: %w", err)
-			}
-
-			logger.Info("started node", "chain", conf.ChainID())
-
-			if _, err := restart.Wait(ctx, func(x bool) bool { return x }); err != nil {
-				// Context canceled.
-				// TODO(gprusak): shouldn't we stop the node either way though?
-				return nil
-			}
-			logger.Info("Received signal to restart node.")
-			n.Stop()
-			os.Exit(1)
-			panic("unreachable")
-		},
-	}
-
-	AddNodeFlags(cmd, conf)
-	return cmd
-}
-
-func checkGenesisHash(config *cfg.Config) error {
-	if len(genesisHash) == 0 || config.Genesis == "" {
-		return nil
-	}
-
-	// Calculate SHA-256 hash of the genesis file.
-	f, err := os.Open(config.GenesisFile())
-	if err != nil {
-		return fmt.Errorf("can't open genesis file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("error when hashing genesis file: %w", err)
-	}
-	actualHash := h.Sum(nil)
-
-	// Compare with the flag.
-	if !bytes.Equal(genesisHash, actualHash) {
-		return fmt.Errorf(
-			"--genesis-hash=%X does not match %s hash: %X",
-			genesisHash, config.GenesisFile(), actualHash)
-	}
-
-	return nil
 }

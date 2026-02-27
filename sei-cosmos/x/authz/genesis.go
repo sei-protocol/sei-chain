@@ -1,7 +1,7 @@
 package authz
 
 import (
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 // NewGenesisState creates new GenesisState object
