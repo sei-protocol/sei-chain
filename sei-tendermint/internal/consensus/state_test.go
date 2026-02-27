@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -432,6 +433,10 @@ func TestStateFullRound2(t *testing.T) {
 // two validators, 4 rounds.
 // two vals take turns proposing. val1 locks on first one, precommits nil on everything else
 func TestStateLock_NoPOL(t *testing.T) {
+	synctest.Test(t, testStateLockNoPOL)
+}
+
+func testStateLockNoPOL(t *testing.T) {
 	config := configSetup(t)
 	// Deflake: when cs1 is proposer in round 3, proposal construction can race
 	// timeoutPropose on loaded CI runners and force an early prevote nil.
