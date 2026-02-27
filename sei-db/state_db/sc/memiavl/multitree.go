@@ -426,6 +426,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 		t.lastCommitInfo.Version = entry.Version
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
+		otelMetrics.CatchupReplayNumBlocks.Add(context.Background(), 1)
 		if replayCount%1000 == 0 {
 			t.logger.Info(fmt.Sprintf("Replayed %d changelog entries", replayCount))
 		}

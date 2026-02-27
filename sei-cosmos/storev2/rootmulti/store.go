@@ -928,6 +928,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			keySizePerStore[currentStoreName] += int64(len(item.Key))
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
+			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{

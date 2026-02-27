@@ -682,15 +682,7 @@ type snapshotWriter struct {
 	wg          sync.WaitGroup // Wait for all writer goroutines
 
 	// Pipeline metrics for each channel
-	maxKvFill         int
-	maxLeafFill       int
-	maxBranchFill     int
-	kvFillSum         int64
-	leafFillSum       int64
-	branchFillSum     int64
-	kvFillCount       int64
-	leafFillCount     int64
-	branchFillCount   int64
+
 	lastMetricsReport time.Time
 }
 
@@ -864,22 +856,6 @@ func (w *snapshotWriter) writeKeyValueDirect(key, value []byte) error {
 
 // writeLeaf sends leaf and KV write operations to the pipeline
 func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) error {
-	// Track channel fill metrics for all channels
-	kvFill := len(w.kvChan)
-	leafFill := len(w.leafChan)
-
-	if kvFill > w.maxKvFill {
-		w.maxKvFill = kvFill
-	}
-	if leafFill > w.maxLeafFill {
-		w.maxLeafFill = leafFill
-	}
-
-	atomic.AddInt64(&w.kvFillSum, int64(kvFill))
-	atomic.AddInt64(&w.kvFillCount, 1)
-	atomic.AddInt64(&w.leafFillSum, int64(leafFill))
-	atomic.AddInt64(&w.leafFillCount, 1)
-
 	// Calculate key offset BEFORE sending to KV channel
 	keyOffset := w.kvsOffset
 	keyLen := uint32(len(key))
@@ -942,13 +918,6 @@ func (w *snapshotWriter) writeLeafDirect(version uint32, keyLen uint32, keyOffse
 
 // writeBranch sends a branch write operation to the pipeline
 func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint8, keyLeaf uint32, hash []byte) error {
-	// Track channel fill metrics
-	branchFill := len(w.branchChan)
-	if branchFill > w.maxBranchFill {
-		w.maxBranchFill = branchFill
-	}
-	atomic.AddInt64(&w.branchFillSum, int64(branchFill))
-	atomic.AddInt64(&w.branchFillCount, 1)
 
 	// Make copy of hash since we're sending to another goroutine
 	hashCopy := make([]byte, len(hash))
