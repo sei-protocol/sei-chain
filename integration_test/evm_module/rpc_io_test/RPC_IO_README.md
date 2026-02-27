@@ -18,7 +18,7 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **.io**   | 105   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-| **.iox**  | 150   | Sei-generated; use `@ bind` (and optional `@ expect_same_block`) so data comes from a first request (e.g. latest block, deploy receipt). |
+| **.iox**  | 150   | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
 | **Total** | 255   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 

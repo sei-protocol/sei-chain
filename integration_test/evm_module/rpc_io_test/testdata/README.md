@@ -3,7 +3,7 @@
 **What it is:** Request/response fixtures for Ethereum JSON-RPC methods. The `rpc_io_test` package runs them against a Sei EVM RPC node.
 
 - `**.io` files** - Plain request (`>>`) / expected response (`<<`) pairs. Source: curated mix from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added tests. **105 files.** Data-dependent .io that required Ethereum fixture hashes were removed; equivalent coverage lives in `.iox`.
-- `**.iox` files** - Extended format with `@ bind` and optional `@ expect_same_block`; data comes from a first request (e.g. latest block, deploy receipt). **150 files.** All are Sei-generated and live only in this repo.
+- `**.iox` files** - Extended format with `@ bind` and optional `@ ref_pair N`; data comes from a first request. **150 files.** All are Sei-generated and live only in this repo.
 
 **Total: 255 tests** (105 .io + 150 .iox). See `../RPC_IO_README.md` for how to run and outcome meanings.
 

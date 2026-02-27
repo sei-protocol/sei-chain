@@ -1,7 +1,7 @@
-// Cross-check: get block by number "latest", then get same block by hash. Uses @ bind and @ expect_same_block.
-// Runner substitutes ${blockHash} from first response and checks second response is the same block.
+// Cross-check: get block by number "latest", then get same block by hash. Uses @ bind and @ ref_pair.
+// Runner substitutes ${blockHash} from first response and checks second response matches pair 1.
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind blockHash = result.hash
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByHash","params":["${blockHash}",false]}
-<< @ expect_same_block 1
+<< @ ref_pair 1

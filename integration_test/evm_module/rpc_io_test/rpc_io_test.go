@@ -1,7 +1,6 @@
 // Package rpc_io_test runs ethereum/execution-apis .io/.iox tests against a local Sei EVM RPC.
-//
 // Env: SEI_EVM_RPC_URL (default http://127.0.0.1:8545), SEI_IO_TESTS_DIR (default testdata/).
-// Debug: SEI_EVM_IO_DEBUG_FILES="file1.iox,file2.io" to run only those files with extra logging.
+// Debug: SEI_EVM_IO_DEBUG_FILES="file1.iox,file2.io" to run only those files.
 package rpc_io_test
 
 import (
@@ -15,16 +14,15 @@ import (
 
 var evmRPCSpecResults struct{ passed, failed, skipped int }
 
-// TestEVMRPCSpec runs each .io/.iox file as a subtest. Counts are stored for TestEVMRPCSpecSummary.
 func TestEVMRPCSpec(t *testing.T) {
-	abs, err := IOTestsDir()
+	abs, err := ioTestsDir()
 	if err != nil {
 		t.Fatalf("resolve io tests dir: %v", err)
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
-		t.Skipf("io tests dir not found: %s (copy execution-apis tests/ into testdata/)", abs)
+		t.Skipf("io tests dir not found: %s", abs)
 	}
-	files, err := CollectIOFiles(abs)
+	files, err := collectIOFiles(abs)
 	if err != nil {
 		t.Fatalf("collect .io files: %v", err)
 	}
@@ -48,7 +46,7 @@ func TestEVMRPCSpec(t *testing.T) {
 	}
 
 	url := rpcURL()
-	client := &RPCClient{URL: url}
+	client := &rpcClient{URL: url}
 	if !nodeReachable(client) {
 		t.Skipf("EVM RPC node not reachable at %s", url)
 	}
@@ -79,7 +77,7 @@ func TestEVMRPCSpec(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read file: %v", err)
 			}
-			pairs, err := ParseIOFile(string(content))
+			pairs, err := parseIOFile(string(content))
 			if err != nil {
 				t.Fatalf("parse .io: %v", err)
 			}
@@ -87,7 +85,7 @@ func TestEVMRPCSpec(t *testing.T) {
 				t.Skip("no request/response pairs in file")
 			}
 
-			bindings := make(map[string]interface{})
+			bindings := make(map[string]any)
 			if deployTx := os.Getenv("SEI_EVM_IO_DEPLOY_TX_HASH"); deployTx != "" {
 				bindings["deployTxHash"] = deployTx
 				bindings["txHash"] = deployTx
@@ -106,16 +104,15 @@ func TestEVMRPCSpec(t *testing.T) {
 					}
 				}
 				if len(missing) > 0 {
-					t.Logf("[SKIP] SEI_EVM_IO_SEED_BLOCK=%q SEI_EVM_IO_DEPLOY_TX_HASH set=%v", seedBlock, os.Getenv("SEI_EVM_IO_DEPLOY_TX_HASH") != "")
-					t.Logf("[SKIP] pair %d needs %v; missing %v; bindings %v", i+1, placeholders, missing, bindings)
+					t.Logf("[SKIP] pair %d needs %v; missing %v", i+1, placeholders, missing)
 					t.Skipf("pair %d: missing binding ${%s}", i+1, missing[0])
 				}
 
-				req := SubstituteSeedTag(substituteRequest(pair.Request, bindings), seedBlock)
+				req := substituteSeedTag(substituteRequest(pair.Request, bindings), seedBlock)
 				if debug {
 					t.Logf("[DEBUG] pair %d: request %s", i+1, req)
 				}
-				body, status, err := client.Call(req)
+				body, status, err := client.call(req)
 				if err != nil {
 					t.Fatalf("pair %d: call: %v", i+1, err)
 				}
@@ -131,18 +128,18 @@ func TestEVMRPCSpec(t *testing.T) {
 					t.Logf("[DEBUG] pair %d: bindings after apply: %v", i+1, bindings)
 				}
 
-				if pair.ExpectSameBlock != 0 {
-					refIdx := pair.ExpectSameBlock - 1
+				if pair.RefPair != 0 {
+					refIdx := pair.RefPair - 1
 					if refIdx < 0 || refIdx >= len(responses) || refIdx == i {
-						t.Fatalf("pair %d: invalid @ expect_same_block %d", i+1, pair.ExpectSameBlock)
+						t.Fatalf("pair %d: invalid ref_pair %d", i+1, pair.RefPair)
 					}
-					if !SameBlockResult(t, body, responses[refIdx]) {
-						t.Fatalf("pair %d: expect_same_block %d check failed", i+1, pair.ExpectSameBlock)
+					if !sameBlockResult(t, body, responses[refIdx]) {
+						t.Fatalf("pair %d: ref_pair %d check failed", i+1, pair.RefPair)
 					}
 					continue
 				}
 				if len(pair.Expected) > 0 {
-					if !SpecOnly(t, body, pair.Expected) {
+					if !specOnly(t, body, pair.Expected) {
 						logActualResponse(t, body)
 						t.Fatalf("pair %d: spec-only check failed", i+1)
 					}
@@ -168,11 +165,9 @@ func TestEVMRPCSpec(t *testing.T) {
 	}
 }
 
-// TestEVMRPCSpecSummary prints the report from the last TestEVMRPCSpec run (run after TestEVMRPCSpec).
 func TestEVMRPCSpecSummary(t *testing.T) {
 	p, f, s := evmRPCSpecResults.passed, evmRPCSpecResults.failed, evmRPCSpecResults.skipped
-	total := p + f + s
-	if total == 0 {
+	if p+f+s == 0 {
 		return
 	}
 	rate := 0.0
@@ -181,7 +176,7 @@ func TestEVMRPCSpecSummary(t *testing.T) {
 	}
 	t.Logf("")
 	t.Logf("========== Sei EVM RPC .io/.iox test report ==========")
-	t.Logf("  Total:  %d", total)
+	t.Logf("  Total:  %d", p+f+s)
 	t.Logf("  Passed: %d", p)
 	t.Logf("  Failed: %d", f)
 	t.Logf("  Skipped: %d", s)
@@ -196,12 +191,12 @@ func rpcURL() string {
 	return "http://127.0.0.1:8545"
 }
 
-func nodeReachable(c *RPCClient) bool {
-	body, status, err := c.Call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
+func nodeReachable(c *rpcClient) bool {
+	body, status, err := c.call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
 	if err != nil || status != http.StatusOK {
 		return false
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	return json.Unmarshal(body, &m) == nil && (m["result"] != nil || m["error"] != nil)
 }
 
@@ -217,7 +212,7 @@ func logActualResponse(t *testing.T, body []byte) {
 			Message string `json:"message"`
 		}
 		_ = json.Unmarshal(e, &errObj)
-		t.Logf("actual response: error code=%d message=%q (hint: -32601/not implemented, -32602/invalid params)", errObj.Code, errObj.Message)
+		t.Logf("actual response: error code=%d message=%q", errObj.Code, errObj.Message)
 		return
 	}
 	if r, ok := m["result"]; ok {
@@ -243,17 +238,17 @@ func logDebugResponse(t *testing.T, body []byte, pairIdx int) {
 	if !ok {
 		return
 	}
-	var res interface{}
+	var res any
 	if json.Unmarshal(r, &res) != nil {
 		return
 	}
-	resM, ok := res.(map[string]interface{})
+	resM, ok := res.(map[string]any)
 	if !ok {
 		return
 	}
 	if txs, ok := resM["transactions"]; ok {
 		n := -1
-		if arr, ok := txs.([]interface{}); ok {
+		if arr, ok := txs.([]any); ok {
 			n = len(arr)
 		}
 		t.Logf("[DEBUG] pair %d: result.transactions len=%d", pairIdx, n)

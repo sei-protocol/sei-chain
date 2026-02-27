@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-func TestParseIOFile_BindAndExpectSameBlock(t *testing.T) {
+func TestParseIOFile_BindAndRefPair(t *testing.T) {
 	content := `>> {"method":"eth_getBlockByNumber","params":["latest",false]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind blockHash = result.hash
 >> {"method":"eth_getBlockByHash","params":["${blockHash}",false]}
-<< @ expect_same_block 1
+<< @ ref_pair 1
 `
-	pairs, err := ParseIOFile(content)
+	pairs, err := parseIOFile(content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -25,8 +25,8 @@ func TestParseIOFile_BindAndExpectSameBlock(t *testing.T) {
 	if len(pairs[0].AfterBindings) != 1 || pairs[0].AfterBindings[0].Var != "blockHash" || pairs[0].AfterBindings[0].Path != "result.hash" {
 		t.Fatalf("pair 0 AfterBindings: got %+v", pairs[0].AfterBindings)
 	}
-	if pairs[1].ExpectSameBlock != 1 {
-		t.Fatalf("pair 1 ExpectSameBlock: got %d", pairs[1].ExpectSameBlock)
+	if pairs[1].RefPair != 1 {
+		t.Fatalf("pair 1 RefPair: got %d", pairs[1].RefPair)
 	}
 	if !bytes.Contains(pairs[1].Request, []byte("${blockHash}")) {
 		t.Fatalf("pair 1 request should contain ${blockHash}")
@@ -37,7 +37,7 @@ func TestParseIOFile_PlainIO(t *testing.T) {
 	content := `>> {"method":"eth_chainId","params":[]}
 << {"jsonrpc":"2.0","id":1,"result":"0x1"}
 `
-	pairs, err := ParseIOFile(content)
+	pairs, err := parseIOFile(content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -47,8 +47,8 @@ func TestParseIOFile_PlainIO(t *testing.T) {
 	if len(pairs[0].AfterBindings) != 0 {
 		t.Fatalf("plain .io should have no AfterBindings: %+v", pairs[0].AfterBindings)
 	}
-	if pairs[0].ExpectSameBlock != 0 {
-		t.Fatalf("plain .io ExpectSameBlock should be 0: %d", pairs[0].ExpectSameBlock)
+	if pairs[0].RefPair != 0 {
+		t.Fatalf("plain .io RefPair should be 0: %d", pairs[0].RefPair)
 	}
 	if len(pairs[0].Expected) == 0 {
 		t.Fatal("expected non-empty Expected")
@@ -61,9 +61,9 @@ func TestParseIOFile_MultipleBindings(t *testing.T) {
 @ bind blockHash = result.hash
 @ bind blockNum = result.number
 >> {"method":"eth_getBlockByNumber","params":["${blockNum}",false]}
-<< @ expect_same_block 1
+<< @ ref_pair 1
 `
-	pairs, err := ParseIOFile(content)
+	pairs, err := parseIOFile(content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -87,28 +87,28 @@ func TestParseIOFile_CommentsAndWhitespace(t *testing.T) {
 >> {"method":"eth_chainId"}
 << {"result":"0x1"}
 `
-	pairs, err := ParseIOFile(content)
+	pairs, err := parseIOFile(content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if len(pairs) != 1 {
-		t.Fatalf("expected 1 pair (comment line ignored), got %d", len(pairs))
+		t.Fatalf("expected 1 pair (comment ignored), got %d", len(pairs))
 	}
 }
 
-func TestParseIOFile_ExpectSameBlockOnly(t *testing.T) {
+func TestParseIOFile_RefPairOnly(t *testing.T) {
 	content := `>> {"method":"eth_getBlockByHash","params":["0xabc",false]}
-<< @ expect_same_block 1
+<< @ ref_pair 1
 `
-	pairs, err := ParseIOFile(content)
+	pairs, err := parseIOFile(content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if len(pairs) != 1 {
 		t.Fatalf("expected 1 pair, got %d", len(pairs))
 	}
-	if pairs[0].ExpectSameBlock != 1 {
-		t.Fatalf("ExpectSameBlock: got %d", pairs[0].ExpectSameBlock)
+	if pairs[0].RefPair != 1 {
+		t.Fatalf("RefPair: got %d", pairs[0].RefPair)
 	}
 	if len(pairs[0].Expected) != 0 {
 		t.Fatalf("expected empty Expected when using directive, got %d bytes", len(pairs[0].Expected))
@@ -170,7 +170,7 @@ func TestGetJSONPath_ArrayIndex(t *testing.T) {
 }
 
 func TestSubstituteRequest(t *testing.T) {
-	bindings := map[string]interface{}{"blockHash": "0xabc123"}
+	bindings := map[string]any{"blockHash": "0xabc123"}
 	req := []byte(`{"params":["${blockHash}",false]}`)
 	out := substituteRequest(req, bindings)
 	if !bytes.Contains(out, []byte("0xabc123")) {
@@ -187,14 +187,14 @@ func TestSubstituteRequest_EmptyBindings(t *testing.T) {
 	if !bytes.Equal(out, req) {
 		t.Errorf("nil bindings should return unchanged: got %s", out)
 	}
-	out = substituteRequest(req, map[string]interface{}{})
+	out = substituteRequest(req, map[string]any{})
 	if !bytes.Equal(out, req) {
 		t.Errorf("empty bindings should return unchanged: got %s", out)
 	}
 }
 
 func TestSubstituteRequest_MultipleVars(t *testing.T) {
-	bindings := map[string]interface{}{"hash": "0xaa", "num": "0x2d"}
+	bindings := map[string]any{"hash": "0xaa", "num": "0x2d"}
 	req := []byte(`{"hash":"${hash}","number":"${num}"}`)
 	out := substituteRequest(req, bindings)
 	if !bytes.Contains(out, []byte("0xaa")) || !bytes.Contains(out, []byte("0x2d")) {
@@ -207,7 +207,7 @@ func TestSubstituteRequest_MultipleVars(t *testing.T) {
 
 func TestSubstituteRequest_NoPlaceholder(t *testing.T) {
 	req := []byte(`{"params":["latest"]}`)
-	bindings := map[string]interface{}{"blockHash": "0xabc"}
+	bindings := map[string]any{"blockHash": "0xabc"}
 	out := substituteRequest(req, bindings)
 	if !bytes.Equal(out, req) {
 		t.Errorf("request without placeholder should be unchanged: got %s", out)
@@ -215,7 +215,7 @@ func TestSubstituteRequest_NoPlaceholder(t *testing.T) {
 }
 
 func TestSubstituteRequest_NumberBinding(t *testing.T) {
-	bindings := map[string]interface{}{"n": float64(42)}
+	bindings := map[string]any{"n": float64(42)}
 	req := []byte(`{"blockNumber":"${n}"}`)
 	out := substituteRequest(req, bindings)
 	if !bytes.Contains(out, []byte("42")) {
@@ -225,20 +225,20 @@ func TestSubstituteRequest_NumberBinding(t *testing.T) {
 
 func TestSubstituteSeedTag(t *testing.T) {
 	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}`)
-	out := SubstituteSeedTag(req, "0x2a")
-	var m map[string]interface{}
+	out := substituteSeedTag(req, "0x2a")
+	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	params, _ := m["params"].([]interface{})
+	params, _ := m["params"].([]any)
 	if len(params) < 1 || params[0] != "0x2a" {
 		t.Errorf("expected params[0]=0x2a, got %v", params)
 	}
-	out2 := SubstituteSeedTag(req, "") // __SEED__ becomes "latest" when seedBlock empty
+	out2 := substituteSeedTag(req, "")
 	if err := json.Unmarshal(out2, &m); err != nil {
 		t.Fatalf("unmarshal empty: %v", err)
 	}
-	params, _ = m["params"].([]interface{})
+	params, _ = m["params"].([]any)
 	if len(params) < 1 || params[0] != "latest" {
 		t.Errorf("expected params[0]=latest when seed empty, got %v", params)
 	}
@@ -264,13 +264,13 @@ func TestRequestPlaceholders(t *testing.T) {
 
 func TestApplyBindings(t *testing.T) {
 	response := []byte(`{"jsonrpc":"2.0","id":1,"result":{"hash":"0xhh","number":"0x2d"}}`)
-	pair := IOPair{
-		AfterBindings: []Binding{
+	pair := ioxPair{
+		AfterBindings: []binding{
 			{Var: "blockHash", Path: "result.hash"},
 			{Var: "blockNumber", Path: "result.number"},
 		},
 	}
-	bindings := make(map[string]interface{})
+	bindings := make(map[string]any)
 	applyBindings(bindings, response, pair)
 	if bindings["blockHash"] != "0xhh" || bindings["blockNumber"] != "0x2d" {
 		t.Errorf("applyBindings: got %+v", bindings)
@@ -279,13 +279,13 @@ func TestApplyBindings(t *testing.T) {
 
 func TestApplyBindings_MissingPath(t *testing.T) {
 	response := []byte(`{"result":{"hash":"0xhh"}}`)
-	pair := IOPair{
-		AfterBindings: []Binding{
+	pair := ioxPair{
+		AfterBindings: []binding{
 			{Var: "blockHash", Path: "result.hash"},
 			{Var: "missing", Path: "result.missing"},
 		},
 	}
-	bindings := make(map[string]interface{})
+	bindings := make(map[string]any)
 	applyBindings(bindings, response, pair)
 	if bindings["blockHash"] != "0xhh" {
 		t.Errorf("blockHash should be set: %+v", bindings)
@@ -296,8 +296,8 @@ func TestApplyBindings_MissingPath(t *testing.T) {
 }
 
 func TestApplyBindings_EmptyBindings(t *testing.T) {
-	bindings := make(map[string]interface{})
-	applyBindings(bindings, []byte(`{}`), IOPair{})
+	bindings := make(map[string]any)
+	applyBindings(bindings, []byte(`{}`), ioxPair{})
 	if len(bindings) != 0 {
 		t.Errorf("empty AfterBindings should not change map: %+v", bindings)
 	}
@@ -307,10 +307,10 @@ func TestSameBlockResult(t *testing.T) {
 	ref := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d","hash":"0xabc"}}`)
 	same := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d","hash":"0xabc"}}`)
 	diff := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2e","hash":"0xdef"}}`)
-	if !SameBlockResult(t, same, ref) {
+	if !sameBlockResult(t, same, ref) {
 		t.Error("same block should pass")
 	}
-	if SameBlockResult(t, diff, ref) {
+	if sameBlockResult(t, diff, ref) {
 		t.Error("different block should fail")
 	}
 }
@@ -318,11 +318,11 @@ func TestSameBlockResult(t *testing.T) {
 func TestSameBlockResult_MissingResult(t *testing.T) {
 	ref := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d","hash":"0xabc"}}`)
 	noResult := []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"missing"}}`)
-	if SameBlockResult(t, noResult, ref) {
+	if sameBlockResult(t, noResult, ref) {
 		t.Error("actual with error should fail")
 	}
 	noHash := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d"}}`)
-	if SameBlockResult(t, noHash, ref) {
+	if sameBlockResult(t, noHash, ref) {
 		t.Error("actual missing hash should fail")
 	}
 }
@@ -331,49 +331,48 @@ func TestSpecOnly(t *testing.T) {
 	expected := []byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`)
 	actualResult := []byte(`{"jsonrpc":"2.0","id":1,"result":"0x2"}`)
 	actualError := []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"err"}}`)
-	if !SpecOnly(t, actualResult, expected) {
+	if !specOnly(t, actualResult, expected) {
 		t.Error("SpecOnly: result vs result should pass")
 	}
 	expErr := []byte(`{"jsonrpc":"2.0","id":1,"error":{}}`)
-	if !SpecOnly(t, actualError, expErr) {
+	if !specOnly(t, actualError, expErr) {
 		t.Error("SpecOnly: error vs error should pass")
 	}
-	if SpecOnly(t, actualError, expected) {
+	if specOnly(t, actualError, expected) {
 		t.Error("SpecOnly: error vs result should fail")
 	}
-	if SpecOnly(t, actualResult, expErr) {
+	if specOnly(t, actualResult, expErr) {
 		t.Error("SpecOnly: result vs error should fail")
 	}
 }
 
 func TestSpecOnly_InvalidJSON(t *testing.T) {
-	if SpecOnly(t, []byte("not json"), []byte(`{"result":1}`)) {
+	if specOnly(t, []byte("not json"), []byte(`{"result":1}`)) {
 		t.Error("invalid actual JSON should fail")
 	}
-	if SpecOnly(t, []byte(`{"result":1}`), []byte("not json")) {
+	if specOnly(t, []byte(`{"result":1}`), []byte("not json")) {
 		t.Error("invalid expected JSON should fail")
 	}
 }
 
 func TestRunnerFlow_SubstitutionAndSameBlock(t *testing.T) {
-	pairs := []IOPair{
+	pairs := []ioxPair{
 		{
 			Request:       []byte(`{"method":"eth_getBlockByNumber","params":["latest",false]}`),
 			Expected:      []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`),
-			AfterBindings: []Binding{{Var: "blockHash", Path: "result.hash"}},
+			AfterBindings: []binding{{Var: "blockHash", Path: "result.hash"}},
 		},
 		{
-			Request:         []byte(`{"method":"eth_getBlockByHash","params":["${blockHash}",false]}`),
-			ExpectSameBlock: 1,
+			Request: []byte(`{"method":"eth_getBlockByHash","params":["${blockHash}",false]}`),
+			RefPair: 1,
 		},
 	}
 	resp1 := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d","hash":"0xabc"}}`)
 	resp2 := []byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x2d","hash":"0xabc"}}`)
 
-	bindings := make(map[string]interface{})
+	bindings := make(map[string]any)
 	responses := make([][]byte, 2)
 
-	// Pair 0
 	req0 := substituteRequest(pairs[0].Request, bindings)
 	if len(req0) == 0 {
 		t.Fatal("request 0 empty")
@@ -384,7 +383,6 @@ func TestRunnerFlow_SubstitutionAndSameBlock(t *testing.T) {
 		t.Fatalf("binding not set: %+v", bindings)
 	}
 
-	// Pair 1
 	req1 := substituteRequest(pairs[1].Request, bindings)
 	if bytes.Contains(req1, []byte("${blockHash}")) {
 		t.Fatalf("placeholder not substituted: %s", req1)
@@ -393,8 +391,8 @@ func TestRunnerFlow_SubstitutionAndSameBlock(t *testing.T) {
 		t.Fatalf("substituted value missing: %s", req1)
 	}
 	responses[1] = resp2
-	if !SameBlockResult(t, resp2, responses[0]) {
-		t.Fatal("expect_same_block check should pass")
+	if !sameBlockResult(t, resp2, responses[0]) {
+		t.Fatal("ref_pair check should pass")
 	}
 }
 
@@ -405,37 +403,31 @@ func TestCollectIOFiles_IncludesIOAndIox(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
-	files, err := CollectIOFiles(dir)
+	files, err := collectIOFiles(dir)
 	if err != nil {
-		t.Fatalf("CollectIOFiles: %v", err)
+		t.Fatalf("collectIOFiles: %v", err)
 	}
 	if len(files) != 3 {
-		t.Fatalf("expected 3 files (.io and .iox), got %d: %v", len(files), files)
+		t.Fatalf("expected 3 files, got %d: %v", len(files), files)
 	}
 	got := make(map[string]bool)
 	for _, f := range files {
 		got[filepath.Base(f)] = true
 	}
-	if !got["a.io"] {
-		t.Error("expected a.io to be collected")
-	}
-	if !got["b.iox"] {
-		t.Error("expected b.iox to be collected")
-	}
-	if !got["c.io"] {
-		t.Error("expected c.io to be collected")
+	if !got["a.io"] || !got["b.iox"] || !got["c.io"] {
+		t.Error("expected a.io, b.iox, c.io to be collected")
 	}
 }
 
 func TestIOTestsDir(t *testing.T) {
-	dir, err := IOTestsDir()
+	dir, err := ioTestsDir()
 	if err != nil {
-		t.Fatalf("IOTestsDir: %v", err)
+		t.Fatalf("ioTestsDir: %v", err)
 	}
 	if dir == "" {
-		t.Fatal("IOTestsDir returned empty")
+		t.Fatal("ioTestsDir returned empty")
 	}
 	if _, err := os.Stat(dir); err != nil {
-		t.Fatalf("IOTestsDir path not exist: %v", err)
+		t.Fatalf("ioTestsDir path not exist: %v", err)
 	}
 }
