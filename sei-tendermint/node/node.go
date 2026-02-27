@@ -502,9 +502,9 @@ func (n *nodeImpl) OnStop() {
 	n.logger.Info("Stopping Node")
 	// stop the listeners / external services first
 	for _, l := range n.rpcListeners {
-		n.logger.Info("Closing rpc listener", "listener", l)
+		n.logger.Info("Closing rpc listener", "listener", l.Addr())
 		if err := l.Close(); err != nil {
-			n.logger.Error("error closing listener", "listener", l, "err", err)
+			n.logger.Error("error closing listener", "listener", l.Addr(), "err", err)
 		}
 	}
 
