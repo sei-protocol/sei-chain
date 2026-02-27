@@ -19,9 +19,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/util"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -434,14 +434,6 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	return false, nil
 }
 
-func (db *Database) GetLatestMigratedKey() ([]byte, error) {
-	panic("not implemented")
-}
-
-func (db *Database) GetLatestMigratedModule() (string, error) {
-	panic("not implemented")
-}
-
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
 func newTSReadOptions(version int64) *grocksdb.ReadOptions {
 	var ts [TimestampSize]byte
@@ -489,10 +481,6 @@ func cloneAppend(bz []byte, tail []byte) (res []byte) {
 	copy(res[len(bz):], tail)
 	return
 }
-func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
-	panic("implement me")
-}
-
 func (db *Database) Close() error {
 	db.closed.Store(true)
 

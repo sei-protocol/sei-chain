@@ -1,15 +1,15 @@
 package flatkv
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -253,7 +253,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works
-		db, err := pebbledb.Open(dbPath, db_engine.OpenOptions{})
+		db, err := pebbledb.Open(dbPath, types.OpenOptions{})
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -310,10 +310,10 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	db, err := pebbledb.Open(accountDBPath, db_engine.OpenOptions{})
+	db, err := pebbledb.Open(accountDBPath, types.OpenOptions{})
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
-	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), db_engine.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup

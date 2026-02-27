@@ -11,7 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/kv"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -24,12 +24,12 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    sstypes.StateStore
+	store    seidbtypes.StateStore
 	storeKey types.StoreKey
 	version  int64
 }
 
-func NewStore(store sstypes.StateStore, storeKey types.StoreKey, version int64) *Store {
+func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64) *Store {
 	return &Store{store, storeKey, version}
 }
 

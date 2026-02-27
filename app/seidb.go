@@ -7,7 +7,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
 )

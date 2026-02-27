@@ -3,9 +3,9 @@ package sstest
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // Fills the db with multiple keys each with different versions

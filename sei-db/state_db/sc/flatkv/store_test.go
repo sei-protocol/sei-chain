@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
+
+	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // =============================================================================
@@ -54,10 +55,10 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 }
 
 // setupTestDB creates a temporary PebbleDB for testing
-func setupTestDB(t *testing.T) db_engine.DB {
+func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := pebbledb.Open(dir, db_engine.OpenOptions{})
+	db, err := pebbledb.Open(dir, types.OpenOptions{})
 	require.NoError(t, err)
 	return db
 }

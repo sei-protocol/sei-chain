@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -62,11 +62,11 @@ type CommitStore struct {
 	homeDir string
 
 	// Five separate PebbleDB instances
-	metadataDB db_engine.DB // Global version + LtHash watermark
-	accountDB  db_engine.DB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     db_engine.DB // addr(20) → bytecode
-	storageDB  db_engine.DB // addr(20)||slot(32) → value(32)
-	legacyDB   db_engine.DB // TODO: integrate into ApplyChangeSets and LtHash in a follow-up PR.
+	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
+	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
+	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
+	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
+	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
@@ -311,8 +311,8 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 		}
 	}()
 
-	openDB := func(np namedPath) (db_engine.DB, error) {
-		db, err := pebbledb.Open(np.path, db_engine.OpenOptions{})
+	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
+		db, err := pebbledb.Open(np.path, seidbtypes.OpenOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}
@@ -349,7 +349,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	toClose = append(toClose, s.changelog)
 
 	// Load per-DB local metadata (or initialize if not present)
-	dataDBs := map[string]db_engine.DB{
+	dataDBs := map[string]seidbtypes.KeyValueDB{
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
 		storageDBDir: s.storageDB,

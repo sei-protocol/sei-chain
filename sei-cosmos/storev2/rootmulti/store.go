@@ -26,12 +26,12 @@ import (
 	protoio "github.com/gogo/protobuf/io"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -47,7 +47,7 @@ type Store struct {
 	logger         log.Logger
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
-	ssStore        sstypes.StateStore
+	ssStore        seidbtypes.StateStore
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -232,7 +232,7 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // GetStateStore returns the ssStore instance
-func (rs *Store) GetStateStore() sstypes.StateStore {
+func (rs *Store) GetStateStore() seidbtypes.StateStore {
 	return rs.ssStore
 }
 
@@ -775,7 +775,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan sstypes.SnapshotNode
+		ssImporter   chan seidbtypes.SnapshotNode
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -785,7 +785,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan sstypes.SnapshotNode, 10000)
+		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
 		go func() {
 			err := rs.ssStore.Import(height, ssImporter)
 			if err != nil {
@@ -836,7 +836,7 @@ loop:
 
 			// Check if we should also import to SS store
 			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- sstypes.SnapshotNode{
+				ssImporter <- seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,

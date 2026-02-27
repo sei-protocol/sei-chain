@@ -2,8 +2,7 @@ package pebbledb
 
 import (
 	"github.com/cockroachdb/pebble/v2"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // pebbleBatch wraps a Pebble batch for atomic writes.
@@ -13,13 +12,13 @@ type pebbleBatch struct {
 	b *pebble.Batch
 }
 
-var _ db_engine.Batch = (*pebbleBatch)(nil)
+var _ types.Batch = (*pebbleBatch)(nil)
 
 func newPebbleBatch(db *pebble.DB) *pebbleBatch {
 	return &pebbleBatch{b: db.NewBatch()}
 }
 
-func (p *pebbleDB) NewBatch() db_engine.Batch {
+func (p *pebbleDB) NewBatch() types.Batch {
 	return newPebbleBatch(p.db)
 }
 
@@ -33,7 +32,7 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 	return pb.b.Delete(key, nil)
 }
 
-func (pb *pebbleBatch) Commit(opts db_engine.WriteOptions) error {
+func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	return pb.b.Commit(toPebbleWriteOpts(opts))
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -57,8 +58,8 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	batch := makeDiverseReceiptBatch(1, receiptsPerBlock, 0, addrs, t0s, t1s, nil)
 	totalBytes := int64(len(batch[0].ReceiptBytes) * totalReceipts)
 
-	// Get Pebble metrics before writing mostly to track compaction and flush counts.
-	before := rs.db.PebbleMetrics()
+	pdb := rs.db.(*mvcc.Database)
+	before := pdb.PebbleMetrics()
 	beforeCompactCount := int64(before.Compact.Count)
 	beforeCompactDuration := before.Compact.Duration.Seconds()
 	beforeFlushCount := int64(before.Flush.Count)
@@ -78,11 +79,10 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 			}
 		}
 	}
-	rs.db.WaitForPendingWrites()
+	pdb.WaitForPendingWrites()
 	b.StopTimer()
 
-	// Get Pebble metrics after writing to track compaction and flush counts.
-	after := rs.db.PebbleMetrics()
+	after := pdb.PebbleMetrics()
 	afterCompactCount := int64(after.Compact.Count)
 	afterCompactDuration := after.Compact.Duration.Seconds()
 	afterFlushCount := int64(after.Flush.Count)

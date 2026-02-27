@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
@@ -45,7 +45,7 @@ func NewEVMHTTPServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore sstypes.StateStore,
+	stateStore types.StateStore,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
@@ -238,7 +238,7 @@ func NewEVMWebSocketServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore sstypes.StateStore,
+	stateStore types.StateStore,
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 

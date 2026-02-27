@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Encapsulates the database for the cryptosim benchmark.
