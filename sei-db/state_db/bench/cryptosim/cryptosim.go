@@ -72,7 +72,7 @@ func NewCryptoSim(
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	metrics := NewCryptosimMetrics(ctx, config.MetricsAddr)
+	metrics := NewCryptosimMetrics(ctx, config)
 	// Server start deferred until after DataGenerator loads DB state and sets gauges,
 	// avoiding rate() spikes when restarting with a preserved DB.
 

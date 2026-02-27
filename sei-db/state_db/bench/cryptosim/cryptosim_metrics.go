@@ -2,7 +2,9 @@ package cryptosim
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,16 +21,18 @@ type CryptosimMetrics struct {
 	totalAccounts                prometheus.Gauge
 	totalErc20Contracts          prometheus.Gauge
 	dbCommitsTotal               prometheus.Counter
+	dataDirSizeBytes             prometheus.Gauge
 	mainThreadPhase              *PhaseTimer
 	transactionPhaseTimerFactory *PhaseTimerFactory
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
 // registry is created internally. When ctx is cancelled, the metrics HTTP server
-// (if started) is shut down gracefully.
+// (if started) is shut down gracefully. Data directory size sampling is started
+// automatically when DataDirSizeIntervalSeconds > 0.
 func NewCryptosimMetrics(
 	ctx context.Context,
-	metricsAddr string,
+	config *CryptoSimConfig,
 ) *CryptosimMetrics {
 	reg := prometheus.NewRegistry()
 
@@ -58,6 +62,10 @@ func NewCryptosimMetrics(
 		Name: "cryptosim_db_commits_total",
 		Help: "Total number of database commits",
 	})
+	dataDirSizeBytes := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_data_dir_size_bytes",
+		Help: "Approximate size in bytes of the benchmark data directory",
+	})
 	mainThreadPhase := NewPhaseTimer(reg, "main_thread")
 	transactionPhaseTimerFactory := NewPhaseTimerFactory(reg, "transaction")
 
@@ -67,9 +75,10 @@ func NewCryptosimMetrics(
 		totalAccounts,
 		totalErc20Contracts,
 		dbCommitsTotal,
+		dataDirSizeBytes,
 	)
 
-	return &CryptosimMetrics{
+	m := &CryptosimMetrics{
 		reg:                          reg,
 		ctx:                          ctx,
 		blocksFinalizedTotal:         blocksFinalizedTotal,
@@ -77,9 +86,16 @@ func NewCryptosimMetrics(
 		totalAccounts:                totalAccounts,
 		totalErc20Contracts:          totalErc20Contracts,
 		dbCommitsTotal:               dbCommitsTotal,
+		dataDirSizeBytes:             dataDirSizeBytes,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
+	if config != nil && config.DataDirSizeIntervalSeconds > 0 && config.DataDir != "" {
+		if dataDir, err := resolveAndCreateDataDir(config.DataDir); err == nil {
+			m.startDataDirSizeSampling(dataDir, config.DataDirSizeIntervalSeconds)
+		}
+	}
+	return m
 }
 
 // StartServer starts the metrics HTTP server. Call this after loading initial
@@ -90,6 +106,51 @@ func (m *CryptosimMetrics) StartServer(addr string) {
 		return
 	}
 	startMetricsServer(m.ctx, m.reg, addr)
+}
+
+// startDataDirSizeSampling starts a goroutine that periodically measures the
+// size of dataDir and exports it to cryptosim_data_dir_size_bytes. The first
+// measurement runs immediately so the gauge is never left at 0 for Prometheus scrapes.
+func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeconds int) {
+	if m == nil || intervalSeconds <= 0 || dataDir == "" {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		// Measure immediately, then on each tick.
+		m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
+			}
+		}
+	}()
+}
+
+// measureDataDirSize walks the directory tree and sums file sizes.
+// Ignores errors from individual entries (e.g., removed or inaccessible files).
+func measureDataDirSize(dataDir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dataDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip problematic entries, continue with partial result.
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil
+		}
+		total += info.Size()
+		return nil
+	})
+	return total
 }
 
 // startMetricsServer starts an HTTP server serving /metrics from reg. When ctx is

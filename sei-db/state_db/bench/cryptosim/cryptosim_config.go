@@ -114,6 +114,9 @@ type CryptoSimConfig struct {
 
 	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
 	TransactionMetricsSampleRate float64
+
+	// How often (in seconds) to measure and export the data directory size. If 0, size sampling is disabled.
+	DataDirSizeIntervalSeconds int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -148,6 +151,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
+		DataDirSizeIntervalSeconds:        60,
 	}
 }
 
@@ -212,6 +216,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.TransactionMetricsSampleRate < 0 || c.TransactionMetricsSampleRate > 1 {
 		return fmt.Errorf("TransactionMetricsSampleRate must be in [0, 1] (got %f)", c.TransactionMetricsSampleRate)
+	}
+	if c.DataDirSizeIntervalSeconds < 0 {
+		return fmt.Errorf("DataDirSizeIntervalSeconds must be non-negative (got %d)", c.DataDirSizeIntervalSeconds)
 	}
 
 	return nil
