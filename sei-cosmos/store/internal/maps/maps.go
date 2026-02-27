@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
 
 // merkleMap defines a merkle-ized tree from a map. Leave values are treated as

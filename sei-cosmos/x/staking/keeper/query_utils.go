@@ -1,8 +1,8 @@
 package keeper
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // Return all validators that a delegator is bonded to. If maxRetrieve is supplied, the respective amount will be returned.
@@ -15,7 +15,7 @@ func (k Keeper) GetDelegatorValidators(
 	delegatorPrefixKey := types.GetDelegationsKey(delegatorAddr)
 
 	iterator := sdk.KVStorePrefixIterator(store, delegatorPrefixKey) // smallest to largest
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := 0
 	for ; iterator.Valid() && i < int(maxRetrieve); iterator.Next() {
@@ -58,7 +58,7 @@ func (k Keeper) GetAllDelegatorDelegations(ctx sdk.Context, delegator sdk.AccAdd
 	delegatorPrefixKey := types.GetDelegationsKey(delegator)
 
 	iterator := sdk.KVStorePrefixIterator(store, delegatorPrefixKey) // smallest to largest
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := 0
 
@@ -79,7 +79,7 @@ func (k Keeper) GetAllUnbondingDelegations(ctx sdk.Context, delegator sdk.AccAdd
 	delegatorPrefixKey := types.GetUBDsKey(delegator)
 
 	iterator := sdk.KVStorePrefixIterator(store, delegatorPrefixKey) // smallest to largest
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for i := 0; iterator.Valid(); iterator.Next() {
 		unbondingDelegation := types.MustUnmarshalUBD(k.cdc, iterator.Value())
@@ -98,7 +98,7 @@ func (k Keeper) GetAllRedelegations(
 	delegatorPrefixKey := types.GetREDsKey(delegator)
 
 	iterator := sdk.KVStorePrefixIterator(store, delegatorPrefixKey) // smallest to largest
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	srcValFilter := !(srcValAddress.Empty())
 	dstValFilter := !(dstValAddress.Empty())

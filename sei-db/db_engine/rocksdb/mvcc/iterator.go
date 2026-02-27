@@ -5,6 +5,7 @@ package mvcc
 
 import (
 	"bytes"
+	"sync"
 
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
@@ -14,23 +15,26 @@ var _ types.DBIterator = (*iterator)(nil)
 
 type iterator struct {
 	source             *grocksdb.Iterator
+	readOpts           *grocksdb.ReadOptions
 	prefix, start, end []byte
 	version            int64
 	reverse            bool
 	invalid            bool
+	closeOnce          sync.Once
 }
 
-func NewRocksDBIterator(source *grocksdb.Iterator, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOptions, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:  source,
-			prefix:  prefix,
-			start:   start,
-			end:     end,
-			version: version,
-			reverse: reverse,
-			invalid: true,
+			source:   source,
+			readOpts: readOpts,
+			prefix:   prefix,
+			start:    start,
+			end:      end,
+			version:  version,
+			reverse:  reverse,
+			invalid:  true,
 		}
 	}
 
@@ -58,13 +62,14 @@ func NewRocksDBIterator(source *grocksdb.Iterator, prefix, start, end []byte, ve
 	}
 
 	return &iterator{
-		source:  source,
-		prefix:  prefix,
-		start:   start,
-		end:     end,
-		version: version,
-		reverse: reverse,
-		invalid: !source.Valid(),
+		source:   source,
+		readOpts: readOpts,
+		prefix:   prefix,
+		start:    start,
+		end:      end,
+		version:  version,
+		reverse:  reverse,
+		invalid:  !source.Valid(),
 	}
 }
 
@@ -138,7 +143,7 @@ func (itr *iterator) Value() []byte {
 	return copyAndFreeSlice(itr.source.Value())
 }
 
-func (itr iterator) Next() {
+func (itr *iterator) Next() {
 	if itr.invalid {
 		return
 	}
@@ -155,9 +160,20 @@ func (itr *iterator) Error() error {
 }
 
 func (itr *iterator) Close() error {
-	itr.source.Close()
-	itr.source = nil
-	itr.invalid = true
+	itr.closeOnce.Do(func() {
+		src := itr.source
+		ro := itr.readOpts
+		itr.source = nil
+		itr.readOpts = nil
+		itr.invalid = true
+
+		if src != nil {
+			src.Close()
+		}
+		if ro != nil {
+			ro.Destroy()
+		}
+	})
 	return nil
 }
 

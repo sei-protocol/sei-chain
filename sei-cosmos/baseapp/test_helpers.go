@@ -3,8 +3,8 @@ package baseapp
 import (
 	"crypto/sha256"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -16,8 +16,8 @@ func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk
 	if err != nil {
 		return sdk.GasInfo{}, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
 	}
-	ctx := app.checkState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeCheck, tx, sha256.Sum256(bz))
+	ctx := app.checkState.ctx.WithTxBytes(bz).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeCheck, tx, sha256.Sum256(bz)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	return gasInfo, result, err
 }
 
@@ -27,12 +27,12 @@ func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *s
 	if err != nil {
 		return sdk.GasInfo{}, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
 	}
-	ctx := app.deliverState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.deliverState.ctx))
+	ctx := app.deliverState.ctx.WithTxBytes(bz).WithConsensusParams(app.GetConsensusParams(app.deliverState.ctx))
 	decoded, err := app.txDecoder(bz)
 	if err != nil {
 		return sdk.GasInfo{}, &sdk.Result{}, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, decoded, sha256.Sum256(bz))
+	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, decoded, sha256.Sum256(bz)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	return gasInfo, result, err
 }
 

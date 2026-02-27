@@ -1,6 +1,8 @@
 package avail
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -40,10 +42,13 @@ func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumbe
 	return nil, false
 }
 
-func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) bool {
+func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
 	idx := appQC.Proposal().RoadIndex()
+	if idx != commitQC.Proposal().Index() {
+		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
+	}
 	if idx < types.NextOpt(i.latestAppQC) {
-		return false
+		return false, nil
 	}
 	i.latestAppQC = utils.Some(appQC)
 	i.commitQCs.prune(idx)
@@ -57,5 +62,5 @@ func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) bool {
 		i.votes[lr.Lane()].prune(lr.First())
 		i.blocks[lr.Lane()].prune(lr.First())
 	}
-	return true
+	return true, nil
 }

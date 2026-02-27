@@ -4,13 +4,13 @@ import (
 	"encoding/binary"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/slashing/keeper"
-	"github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	gogotypes "github.com/gogo/protobuf/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )

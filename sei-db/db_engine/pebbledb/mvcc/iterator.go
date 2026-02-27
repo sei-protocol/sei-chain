@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -32,6 +33,8 @@ type iterator struct {
 	reverse            bool
 	iterationCount     int64
 	storeKey           string
+
+	closeSync sync.Once
 }
 
 func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
@@ -336,20 +339,21 @@ func (itr *iterator) Error() error {
 }
 
 func (itr *iterator) Close() error {
-	_ = itr.source.Close()
-	itr.source = nil
-	itr.valid = false
+	itr.closeSync.Do(func() {
+		_ = itr.source.Close()
+		itr.source = nil
+		itr.valid = false
 
-	// Record the number of iterations performed by this iterator
-	otelMetrics.iteratorIterations.Record(
-		context.Background(),
-		float64(itr.iterationCount),
-		metric.WithAttributes(
-			attribute.Bool("reverse", itr.reverse),
-			attribute.String("store", itr.storeKey),
-		),
-	)
-
+		// Record the number of iterations performed by this iterator
+		otelMetrics.iteratorIterations.Record(
+			context.Background(),
+			float64(itr.iterationCount),
+			metric.WithAttributes(
+				attribute.Bool("reverse", itr.reverse),
+				attribute.String("store", itr.storeKey),
+			),
+		)
+	})
 	return nil
 }
 

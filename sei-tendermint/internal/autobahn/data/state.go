@@ -144,21 +144,25 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	// Atomically insert QC and blocks.
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.nextQC < gr.Next {
+		if needQC {
+			for inner.nextQC < gr.Next {
+				inner.qcs[inner.nextQC] = qc
+				inner.nextQC += 1
+			}
 			ctrl.Updated()
-		}
-		for inner.nextQC < gr.Next {
-			inner.qcs[inner.nextQC] = qc
-			inner.nextQC += 1
 		}
 		if len(byHash) == 0 {
 			break
 		}
-		for n := max(inner.nextBlock, gr.First); n < gr.Next; n += 1 {
+		// Match blocks against stored (already verified) QC headers.
+		// Cap at inner.nextQC: we have no verified QC beyond that point.
+		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
 			if _, ok := inner.blocks[n]; ok {
 				continue
 			}
-			if b, ok := byHash[qc.Headers()[n-gr.First].Hash()]; ok {
+			storedQC := inner.qcs[n]
+			storedGR := storedQC.QC().GlobalRange()
+			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				inner.blocks[n] = b
 			}
 		}
@@ -191,7 +195,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n <= inner.nextQC }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
 		// Early exit if we already have the block.

@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // Import cosmos-sdk/types/store.go for convenience.

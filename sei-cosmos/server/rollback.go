@@ -2,8 +2,9 @@ package server
 
 import (
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server/types"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	tmcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/cobra"

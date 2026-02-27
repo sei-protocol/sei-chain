@@ -8,8 +8,8 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // BlockValidatorUpdates calculates the ValidatorUpdates for the current block
@@ -122,7 +122,7 @@ func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []ab
 
 	// Iterate over validators, highest power to lowest.
 	iterator := k.ValidatorsPowerStoreIterator(ctx)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for count := 0; iterator.Valid() && count < int(maxValidators); iterator.Next() {
 		// everything that is iterated in this loop is becoming or already a
@@ -354,7 +354,7 @@ func (k Keeper) getLastValidatorsByAddr(ctx sdk.Context) (validatorsByAddr, erro
 	last := make(validatorsByAddr)
 
 	iterator := k.LastValidatorsIterator(ctx)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		// extract the validator address from the key (prefix is 1-byte, addrLen is 1-byte)

@@ -9,9 +9,9 @@ import (
 	math "math"
 	math_bits "math/bits"
 
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -105,7 +105,7 @@ func (m *AssociateTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_AssociateTx proto.InternalMessageInfo
 
 type SetCodeAuthorization struct {
-	ChainID *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"chainID"`
+	ChainID *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"chainID"`
 	Address string                                  `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
 	Nonce   uint64                                  `protobuf:"varint,3,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	// signature values
@@ -149,10 +149,10 @@ var xxx_messageInfo_SetCodeAuthorization proto.InternalMessageInfo
 
 type LegacyTx struct {
 	Nonce    uint64                                  `protobuf:"varint,1,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	GasPrice *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=gas_price,json=gasPrice,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_price,omitempty"`
+	GasPrice *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=gas_price,json=gasPrice,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_price,omitempty"`
 	GasLimit uint64                                  `protobuf:"varint,3,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	To       string                                  `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
-	Amount   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,5,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Amount   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,5,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	Data     []byte                                  `protobuf:"bytes,6,opt,name=data,proto3" json:"data,omitempty"`
 	// signature values
 	V []byte `protobuf:"bytes,7,opt,name=v,proto3" json:"v,omitempty"`
@@ -194,12 +194,12 @@ func (m *LegacyTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_LegacyTx proto.InternalMessageInfo
 
 type AccessListTx struct {
-	ChainID  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"chainID"`
+	ChainID  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"chainID"`
 	Nonce    uint64                                  `protobuf:"varint,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	GasPrice *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_price,json=gasPrice,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_price,omitempty"`
+	GasPrice *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_price,json=gasPrice,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_price,omitempty"`
 	GasLimit uint64                                  `protobuf:"varint,4,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	To       string                                  `protobuf:"bytes,5,opt,name=to,proto3" json:"to,omitempty"`
-	Amount   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,6,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Amount   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,6,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	Data     []byte                                  `protobuf:"bytes,7,opt,name=data,proto3" json:"data,omitempty"`
 	Accesses AccessList                              `protobuf:"bytes,8,rep,name=accesses,proto3,castrepeated=AccessList" json:"accessList"`
 	// signature values
@@ -242,13 +242,13 @@ func (m *AccessListTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_AccessListTx proto.InternalMessageInfo
 
 type SetCodeTx struct {
-	ChainID   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"chainID"`
+	ChainID   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"chainID"`
 	Nonce     uint64                                  `protobuf:"varint,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	GasTipCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_tip_cap,omitempty"`
-	GasFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_fee_cap,omitempty"`
+	GasTipCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_tip_cap,omitempty"`
+	GasFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_fee_cap,omitempty"`
 	GasLimit  uint64                                  `protobuf:"varint,5,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	To        string                                  `protobuf:"bytes,6,opt,name=to,proto3" json:"to,omitempty"`
-	Amount    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Amount    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	Data      []byte                                  `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
 	Accesses  AccessList                              `protobuf:"bytes,9,rep,name=accesses,proto3,castrepeated=AccessList" json:"accessList"`
 	AuthList  AuthList                                `protobuf:"bytes,10,rep,name=auth_list,json=authList,proto3,castrepeated=AuthList" json:"authList"`
@@ -292,13 +292,13 @@ func (m *SetCodeTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_SetCodeTx proto.InternalMessageInfo
 
 type DynamicFeeTx struct {
-	ChainID   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"chainID"`
+	ChainID   *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"chainID"`
 	Nonce     uint64                                  `protobuf:"varint,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	GasTipCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_tip_cap,omitempty"`
-	GasFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_fee_cap,omitempty"`
+	GasTipCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_tip_cap,omitempty"`
+	GasFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_fee_cap,omitempty"`
 	GasLimit  uint64                                  `protobuf:"varint,5,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	To        string                                  `protobuf:"bytes,6,opt,name=to,proto3" json:"to,omitempty"`
-	Amount    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Amount    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	Data      []byte                                  `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
 	Accesses  AccessList                              `protobuf:"bytes,9,rep,name=accesses,proto3,castrepeated=AccessList" json:"accessList"`
 	// signature values
@@ -341,16 +341,16 @@ func (m *DynamicFeeTx) XXX_DiscardUnknown() {
 var xxx_messageInfo_DynamicFeeTx proto.InternalMessageInfo
 
 type BlobTx struct {
-	ChainID    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"chainID"`
+	ChainID    *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,1,opt,name=chain_id,json=chainId,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"chainID"`
 	Nonce      uint64                                  `protobuf:"varint,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
-	GasTipCap  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_tip_cap,omitempty"`
-	GasFeeCap  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"gas_fee_cap,omitempty"`
+	GasTipCap  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,3,opt,name=gas_tip_cap,json=gasTipCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_tip_cap,omitempty"`
+	GasFeeCap  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,4,opt,name=gas_fee_cap,json=gasFeeCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"gas_fee_cap,omitempty"`
 	GasLimit   uint64                                  `protobuf:"varint,5,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	To         string                                  `protobuf:"bytes,6,opt,name=to,proto3" json:"to,omitempty"`
-	Amount     *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Amount     *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,7,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	Data       []byte                                  `protobuf:"bytes,8,opt,name=data,proto3" json:"data,omitempty"`
 	Accesses   AccessList                              `protobuf:"bytes,9,rep,name=accesses,proto3,castrepeated=AccessList" json:"accessList"`
-	BlobFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,10,opt,name=blob_fee_cap,json=blobFeeCap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"blob_fee_cap,omitempty"`
+	BlobFeeCap *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,10,opt,name=blob_fee_cap,json=blobFeeCap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"blob_fee_cap,omitempty"`
 	BlobHashes [][]byte                                `protobuf:"bytes,11,rep,name=blob_hashes,json=blobHashes,proto3" json:"blob_hashes,omitempty"`
 	Sidecar    *BlobTxSidecar                          `protobuf:"bytes,12,opt,name=sidecar,proto3" json:"sidecar,omitempty"`
 	// signature values

@@ -25,7 +25,10 @@ func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
 	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
-	consensusState := consensus.NewState(cfg, dataState)
+	consensusState, err := consensus.NewState(cfg, dataState)
+	if err != nil {
+		panic(fmt.Sprintf("consensus.NewState(): %v", err))
+	}
 	return &testNode{
 		data:      dataState,
 		consensus: consensusState,
@@ -67,7 +70,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 }
 
 func (e *testEnv) Run(ctx context.Context) error {
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for _, x := range e.nodes {
 			s.SpawnNamed("node", func() error { return x.Run(ctx) })
 			for _, y := range e.nodes {
@@ -81,12 +84,7 @@ func (e *testEnv) Run(ctx context.Context) error {
 			}
 		}
 		return nil
-	})
-	if ctx.Err() != nil {
-		// Ignore failures after env termination.
-		return nil
-	}
-	return err
+	}))
 }
 
 func TestDataClientServer(t *testing.T) {

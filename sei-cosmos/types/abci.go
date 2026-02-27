@@ -1,7 +1,7 @@
 package types
 
 import (
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 

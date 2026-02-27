@@ -9,19 +9,19 @@ import (
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	authsign "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 )
 
 func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {

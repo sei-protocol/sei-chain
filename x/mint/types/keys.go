@@ -22,6 +22,5 @@ const (
 	QueryMinter     = "minter"
 
 	// Format used for scheduling token releases
-	/*#nosec G101 Not a hard coded credential*/
-	TokenReleaseDateFormat = "2006-01-02"
+	TokenReleaseDateFormat = "2006-01-02" //nolint:gosec
 )

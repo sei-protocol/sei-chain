@@ -3,9 +3,9 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	cosmosbanktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 // InitGenesis initializes the bank module's state from a given genesis state.

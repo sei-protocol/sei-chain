@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // NewValidatorSigningInfo creates a new ValidatorSigningInfo instance
-//
-//nolint:interfacer
 func NewValidatorSigningInfo(
 	condAddr sdk.ConsAddress, startHeight, indexOffset int64,
 	jailedUntil time.Time, tombstoned bool, missedBlocksCounter int64,

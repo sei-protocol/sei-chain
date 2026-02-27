@@ -154,6 +154,26 @@ message FullTimeoutVote {
   optional PrepareQC latest_prepare_qc = 2;
 }
 
+// Persisted consensus state (for crash recovery).
+// Only persist votes and QCs here - these are the canonical consensus artifacts.
+// Do NOT persist internal derived fields (e.g., cached computations, runtime state).
+// Derived fields are implementation-dependent and should be recomputed on load.
+message PersistedInner {
+  optional CommitQC commit_qc = 1;
+  optional PrepareQC prepare_qc = 2;
+  optional TimeoutQC timeout_qc = 3;
+
+  optional SignedMsg commit_vote = 4;
+  optional SignedMsg prepare_vote = 5;
+  optional FullTimeoutVote timeout_vote = 6;
+}
+
+// Wrapper for persisted data with sequence number.
+message PersistedWrapper {
+  optional uint64 seq = 1;
+  optional bytes data = 2;
+}
+
 message AppQC {
   AppProposal vote = 1;
   repeated Signature sigs = 2;

@@ -249,7 +249,7 @@ func (ndb *nodeDB) setFastStorageVersionToBatch() error {
 		return err
 	}
 
-	newVersion += fastStorageVersionDelimiter + strconv.Itoa(int(latestVersion))
+	newVersion += fastStorageVersionDelimiter + strconv.FormatInt(latestVersion, 10)
 
 	if err := ndb.batch.Set(metadataKeyFormat.Key([]byte(storageVersionKey)), []byte(newVersion)); err != nil {
 		return err
@@ -280,7 +280,7 @@ func (ndb *nodeDB) shouldForceFastStorageUpgrade() (bool, error) {
 			// TODO: should be true or false as default? (removed panic here)
 			return false, err
 		}
-		if versions[1] != strconv.Itoa(int(latestVersion)) {
+		if versions[1] != strconv.FormatInt(latestVersion, 10) {
 			return true, nil
 		}
 	}

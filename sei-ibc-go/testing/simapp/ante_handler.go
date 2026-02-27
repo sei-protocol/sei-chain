@@ -1,10 +1,10 @@
 package simapp
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"

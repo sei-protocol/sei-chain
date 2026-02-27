@@ -1,8 +1,8 @@
 package wasmtesting
 
 import (
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // MockCommitMultiStore mock with a CacheMultiStore to capture commits

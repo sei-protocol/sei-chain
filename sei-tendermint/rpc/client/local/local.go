@@ -118,10 +118,6 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 	return c.env.CheckTx(ctx, &coretypes.RequestCheckTx{Tx: tx})
 }
 
-func (c *Local) RemoveTx(ctx context.Context, txKey types.TxKey) error {
-	return c.env.Mempool.RemoveTxByKey(txKey)
-}
-
 func (c *Local) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	return c.env.NetInfo(ctx)
 }

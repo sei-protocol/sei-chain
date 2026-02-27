@@ -46,11 +46,11 @@ build_tags_comma_sep := $(subst $(whitespace),$(comma),$(build_tags))
 
 # process linker flags
 
-ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
-			-X github.com/cosmos/cosmos-sdk/version.AppName=seid \
-			-X github.com/cosmos/cosmos-sdk/version.Version=$(VERSION) \
-			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
-			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
+ldflags = -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Name=sei \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.AppName=seid \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.Version=$(VERSION) \
+			-X github.com/sei-protocol/sei-chain/sei-cosmos/version.Commit=$(COMMIT) \
+			-X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=$(build_tags_comma_sep)"
 
 # go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
 # NOTE: this is a terribly ugly and unstable way of comparing version numbers,
@@ -157,7 +157,7 @@ go.sum: go.mod
 		@go mod verify
 
 lint:
-	golangci-lint run
+	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v2.8.0 run
 	find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" | xargs gofmt -d -s
 	go mod verify
 
@@ -340,6 +340,56 @@ giga-integration-test:
 	@$(MAKE) docker-cluster-stop
 	@echo "=== GIGA Integration Tests Complete ==="
 .PHONY: giga-integration-test
+
+# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.
+# Any determinism divergence between giga and V2 will cause the giga node to halt.
+docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} \
+		docker compose -f docker-compose.yml -f docker-compose.giga-mixed.yml up $$DETACH_FLAG
+.PHONY: docker-cluster-start-giga-mixed
+
+# Run the giga mixed-mode integration test.
+# Starts a cluster where only node 0 runs giga (sequential), nodes 1-3 run standard V2.
+# Then runs hardhat tests. If giga produces different results, node 0 will halt.
+giga-mixed-integration-test:
+	@echo "=== Starting GIGA Mixed-Mode Integration Tests ==="
+	@echo "=== Node 0: GIGA_EXECUTOR=true, Nodes 1-3: standard V2 ==="
+	@$(MAKE) docker-cluster-stop || true
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@DOCKER_DETACH=true $(MAKE) docker-cluster-start-giga-mixed
+	@echo "Waiting for cluster to be ready..."
+	@timeout=300; elapsed=0; \
+	while [ $$elapsed -lt $$timeout ]; do \
+		if [ -f "build/generated/launch.complete" ] && [ $$(cat build/generated/launch.complete | wc -l) -ge 4 ]; then \
+			echo "All 4 nodes are ready (took $${elapsed}s)"; \
+			break; \
+		fi; \
+		sleep 5; \
+		elapsed=$$((elapsed + 5)); \
+		echo "  Waiting... ($${elapsed}s elapsed)"; \
+	done; \
+	if [ $$elapsed -ge $$timeout ]; then \
+		echo "ERROR: Cluster failed to start within $${timeout}s"; \
+		$(MAKE) docker-cluster-stop; \
+		exit 1; \
+	fi
+	@echo "Waiting 10s for nodes to stabilize..."
+	@sleep 10
+	@echo "=== Running GIGA EVM Tests (mixed mode) ==="
+	@./integration_test/evm_module/scripts/evm_giga_tests.sh || (echo "TEST FAILURE - check if node 0 (giga) halted due to consensus mismatch" && $(MAKE) docker-cluster-stop && exit 1)
+	@echo "=== Stopping cluster ==="
+	@$(MAKE) docker-cluster-stop
+	@echo "=== GIGA Mixed-Mode Integration Tests Complete ==="
+.PHONY: giga-mixed-integration-test
 
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.

@@ -5,11 +5,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
 
 func TestLegacyAminoJSONHandler_GetSignBytes(t *testing.T) {

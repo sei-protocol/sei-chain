@@ -59,8 +59,8 @@ func (ac *AminoCodec) MustUnmarshalLengthPrefixed(bz []byte, ptr ProtoMarshaler)
 
 // MarshalJSON implements JSONCodec.MarshalJSON method,
 // it marshals to JSON using legacy amino codec.
-func (ac *AminoCodec) MarshalJSON(o proto.Message) ([]byte, error) {
-	return ac.LegacyAmino.MarshalJSON(o)
+func (ac *AminoCodec) MarshalAsJSON(o proto.Message) ([]byte, error) {
+	return ac.LegacyAmino.MarshalAsJSON(o)
 }
 
 // MustMarshalJSON implements JSONCodec.MustMarshalJSON method,
@@ -71,8 +71,8 @@ func (ac *AminoCodec) MustMarshalJSON(o proto.Message) []byte {
 
 // UnmarshalJSON implements JSONCodec.UnmarshalJSON method,
 // it unmarshals from JSON using legacy amino codec.
-func (ac *AminoCodec) UnmarshalJSON(bz []byte, ptr proto.Message) error {
-	return ac.LegacyAmino.UnmarshalJSON(bz, ptr)
+func (ac *AminoCodec) UnmarshalAsJSON(bz []byte, ptr proto.Message) error {
+	return ac.LegacyAmino.UnmarshalAsJSON(bz, ptr)
 }
 
 // MustUnmarshalJSON implements JSONCodec.MustUnmarshalJSON method,
@@ -110,7 +110,7 @@ func (ac *AminoCodec) MarshalInterfaceJSON(i proto.Message) ([]byte, error) {
 	if err := assertNotNil(i); err != nil {
 		return nil, err
 	}
-	return ac.LegacyAmino.MarshalJSON(i)
+	return ac.LegacyAmino.MarshalAsJSON(i)
 }
 
 // UnmarshalInterfaceJSON is a convenience function for amino unmarshaling interfaces.
@@ -122,5 +122,5 @@ func (ac *AminoCodec) MarshalInterfaceJSON(i proto.Message) ([]byte, error) {
 //	var x MyInterface
 //	err := cdc.UnmarshalInterfaceJSON(bz, &x)
 func (ac *AminoCodec) UnmarshalInterfaceJSON(bz []byte, ptr interface{}) error {
-	return ac.LegacyAmino.UnmarshalJSON(bz, ptr)
+	return ac.LegacyAmino.UnmarshalAsJSON(bz, ptr)
 }

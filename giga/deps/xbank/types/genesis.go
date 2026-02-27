@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Validate performs basic validation of supply genesis data returning an

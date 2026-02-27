@@ -3,7 +3,7 @@ package types
 import (
 	"bytes"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
 
 // Iterator over all the keys with a certain prefix in ascending order
@@ -21,11 +21,11 @@ func KVStoreReversePrefixIterator(kvs KVStore, prefix []byte) Iterator {
 func DiffKVStores(a KVStore, b KVStore, prefixesToSkip [][]byte) (kvAs, kvBs []kv.Pair) {
 	iterA := a.Iterator(nil, nil)
 
-	defer iterA.Close()
+	defer func() { _ = iterA.Close() }()
 
 	iterB := b.Iterator(nil, nil)
 
-	defer iterB.Close()
+	defer func() { _ = iterB.Close() }()
 
 	for {
 		if !iterA.Valid() && !iterB.Valid() {

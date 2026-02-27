@@ -6,12 +6,12 @@ import (
 
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/x/auth/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
 )
 
 func TxSignExec(clientCtx client.Context, from fmt.Stringer, filename string, extraArgs ...string) (testutil.BufferWriter, error) {
@@ -93,13 +93,14 @@ func QueryAccountExec(clientCtx client.Context, address fmt.Stringer, extraArgs 
 }
 
 func TxMultiSignBatchExec(clientCtx client.Context, filename string, from string, sigFile1 string, sigFile2 string, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
+	args := make([]string, 0, 5+len(extraArgs))
+	args = append(args,
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 		filename,
 		from,
 		sigFile1,
 		sigFile2,
-	}
+	)
 
 	args = append(args, extraArgs...)
 

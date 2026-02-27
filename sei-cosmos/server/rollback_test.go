@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -77,10 +77,6 @@ func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBegin
 
 func (m *mockApplication) Commit(ctx context.Context) (*abci.ResponseCommit, error) {
 	return &abci.ResponseCommit{}, nil
-}
-
-func (m *mockApplication) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	return &abci.ResponseLoadLatest{}, nil
 }
 
 func (m *mockApplication) ListSnapshots(ctx context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {

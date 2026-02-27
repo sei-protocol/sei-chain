@@ -3,18 +3,17 @@ package keys
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func Test_runImportCmd(t *testing.T) {
@@ -96,7 +95,7 @@ mBtElE9j21pFaLf9gt8hVPTMDXWPtbIL
 
 			keyfile := filepath.Join(kbHome, "key.asc")
 
-			require.NoError(t, ioutil.WriteFile(keyfile, []byte(armoredKey), 0644))
+			require.NoError(t, os.WriteFile(keyfile, []byte(armoredKey), 0644))
 
 			defer func() {
 				_ = os.RemoveAll(kbHome)

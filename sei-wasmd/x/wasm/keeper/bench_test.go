@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 

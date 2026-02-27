@@ -7,8 +7,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 // Parameter keys

@@ -3,10 +3,10 @@ package client
 import (
 	"net/http"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	govclient "github.com/cosmos/cosmos-sdk/x/gov/client"
-	govrest "github.com/cosmos/cosmos-sdk/x/gov/client/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	govclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client"
+	govrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/rest"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client/cli"
 )

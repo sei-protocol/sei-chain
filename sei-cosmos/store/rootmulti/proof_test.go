@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func TestVerifyIAVLStoreQueryProof(t *testing.T) {

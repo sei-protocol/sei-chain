@@ -10,7 +10,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	amino "github.com/tendermint/go-amino"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 )
 
 // LegacyAmino defines a wrapper for an Amino codec that properly
@@ -38,7 +38,7 @@ func RegisterEvidences(cdc *LegacyAmino) {
 // via an Amino codec. It returns an error if it cannot serialize or indent as
 // JSON.
 func MarshalJSONIndent(cdc *LegacyAmino, obj interface{}) ([]byte, error) {
-	bz, err := cdc.MarshalJSON(obj)
+	bz, err := cdc.MarshalAsJSON(obj)
 	if err != nil {
 		return nil, err
 	}
@@ -139,8 +139,8 @@ func (cdc *LegacyAmino) MustUnmarshalLengthPrefixed(bz []byte, ptr interface{}) 
 	}
 }
 
-// MarshalJSON implements codec.Codec interface
-func (cdc *LegacyAmino) MarshalJSON(o interface{}) ([]byte, error) {
+// MarshalAsJSON implements codec.Codec interface
+func (cdc *LegacyAmino) MarshalAsJSON(o interface{}) ([]byte, error) {
 	err := cdc.jsonMarshalAnys(o)
 	if err != nil {
 		return nil, err
@@ -149,15 +149,15 @@ func (cdc *LegacyAmino) MarshalJSON(o interface{}) ([]byte, error) {
 }
 
 func (cdc *LegacyAmino) MustMarshalJSON(o interface{}) []byte {
-	bz, err := cdc.MarshalJSON(o)
+	bz, err := cdc.MarshalAsJSON(o)
 	if err != nil {
 		panic(err)
 	}
 	return bz
 }
 
-// UnmarshalJSON implements codec.Codec interface
-func (cdc *LegacyAmino) UnmarshalJSON(bz []byte, ptr interface{}) error {
+// UnmarshalAsJSON implements codec.Codec interface
+func (cdc *LegacyAmino) UnmarshalAsJSON(bz []byte, ptr interface{}) error {
 	err := cdc.Amino.UnmarshalJSON(bz, ptr)
 	if err != nil {
 		return err
@@ -166,7 +166,7 @@ func (cdc *LegacyAmino) UnmarshalJSON(bz []byte, ptr interface{}) error {
 }
 
 func (cdc *LegacyAmino) MustUnmarshalJSON(bz []byte, ptr interface{}) {
-	err := cdc.UnmarshalJSON(bz, ptr)
+	err := cdc.UnmarshalAsJSON(bz, ptr)
 	if err != nil {
 		panic(err)
 	}

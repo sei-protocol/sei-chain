@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -21,6 +22,13 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
+
+// SkipLastResultsHashValidation controls whether LastResultsHash validation
+// is skipped during block validation. This is set to true when the Giga
+// executor is enabled, since it may produce different gas used values.
+// Uses atomic.Bool for concurrency safety since NewApp may be called
+// multiple times simultaneously.
+var SkipLastResultsHashValidation atomic.Bool
 
 const (
 	// MaxHeaderBytes is a maximum header size.

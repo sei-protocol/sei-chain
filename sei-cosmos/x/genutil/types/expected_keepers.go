@@ -3,10 +3,10 @@ package types
 import (
 	"encoding/json"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	auth "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	bankexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/exported"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 

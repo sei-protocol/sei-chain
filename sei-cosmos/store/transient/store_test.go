@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/store/transient"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 var k, v = []byte("hello"), []byte("world")

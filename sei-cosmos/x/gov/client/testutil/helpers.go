@@ -3,12 +3,12 @@ package testutil
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	govcli "github.com/cosmos/cosmos-sdk/x/gov/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/cli"
 )
 
 var commonArgs = []string{

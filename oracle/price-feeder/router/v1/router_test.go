@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	v1 "github.com/sei-protocol/sei-chain/oracle/price-feeder/router/v1"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
 var (

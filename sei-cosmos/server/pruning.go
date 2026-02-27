@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cast"
 
-	"github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/store"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // GetPruningOptionsFromFlags parses command flags and returns the correct

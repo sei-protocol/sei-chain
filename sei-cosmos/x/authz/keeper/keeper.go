@@ -9,12 +9,12 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/authz"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 )
 
 type Keeper struct {
@@ -57,7 +57,7 @@ func (k Keeper) update(ctx sdk.Context, grantee sdk.AccAddress, granter sdk.AccA
 
 	msg, ok := updated.(proto.Message)
 	if !ok {
-		sdkerrors.ErrPackAny.Wrapf("cannot proto marshal %T", updated)
+		return sdkerrors.ErrPackAny.Wrapf("cannot proto marshal %T", updated)
 	}
 
 	any, err := codectypes.NewAnyWithValue(msg)
@@ -181,7 +181,7 @@ func (k Keeper) GetAuthorizations(ctx sdk.Context, grantee sdk.AccAddress, grant
 	store := ctx.KVStore(k.storeKey)
 	key := grantStoreKey(grantee, granter, "")
 	iter := sdk.KVStorePrefixIterator(store, key)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	var authorization authz.Grant
 	for ; iter.Valid(); iter.Next() {
 		k.cdc.MustUnmarshal(iter.Value(), &authorization)
@@ -199,7 +199,7 @@ func (k Keeper) GetCleanAuthorization(ctx sdk.Context, grantee sdk.AccAddress, g
 		return nil, time.Time{}
 	}
 	if grant.Expiration.Before(ctx.BlockHeader().Time) {
-		k.DeleteGrant(ctx, grantee, granter, msgType)
+		_ = k.DeleteGrant(ctx, grantee, granter, msgType)
 		return nil, time.Time{}
 	}
 
@@ -214,7 +214,7 @@ func (k Keeper) IterateGrants(ctx sdk.Context,
 ) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, GrantKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		var grant authz.Grant
 		granterAddr, granteeAddr := addressesFromGrantStoreKey(iter.Key())

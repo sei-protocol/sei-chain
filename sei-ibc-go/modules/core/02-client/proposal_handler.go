@@ -1,9 +1,9 @@
 package client
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

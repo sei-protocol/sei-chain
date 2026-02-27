@@ -9,13 +9,12 @@ import (
 	"math/big"
 
 	secp256k1 "github.com/btcsuite/btcd/btcec/v2"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	cosmoscryptoutils "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"golang.org/x/crypto/ripemd160" // nolint: staticcheck // necessary for Bitcoin address format
-
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	cosmoscryptoutils "github.com/cosmos/cosmos-sdk/crypto/utils"
-	"github.com/cosmos/cosmos-sdk/types/errors"
+	"golang.org/x/crypto/ripemd160" //nolint:gosec,staticcheck // necessary for Bitcoin/Cosmos address derivation standard
 )
 
 var _ cryptotypes.PrivKey = &PrivKey{}
@@ -142,7 +141,7 @@ func GenPrivKeyFromSecret(secret []byte) *PrivKey {
 var _ cryptotypes.PubKey = &PubKey{}
 var _ codec.AminoMarshaler = &PubKey{}
 
-// PubKeySize is comprised of 32 bytes for one field element
+// PubKeySize comprises 32 bytes for one field element
 // (the x-coordinate), plus one byte for the parity of the y-coordinate.
 const PubKeySize = 33
 
@@ -153,8 +152,8 @@ func (pubKey *PubKey) Address() crypto.Address {
 	}
 
 	sha := sha256.Sum256(pubKey.Key)
-	hasherRIPEMD160 := ripemd160.New()
-	hasherRIPEMD160.Write(sha[:]) // does not error
+	hasherRIPEMD160 := ripemd160.New() //nolint:gosec // RIPEMD-160 is required by the Bitcoin/Cosmos address derivation standard, not used for general-purpose hashing
+	hasherRIPEMD160.Write(sha[:])      // does not error
 	return crypto.Address(hasherRIPEMD160.Sum(nil))
 }
 

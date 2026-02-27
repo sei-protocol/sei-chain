@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

@@ -3,16 +3,17 @@ package receipt
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeReceiptBackend struct {
 	receipts        map[common.Hash]*types.Receipt
+	logs            []*ethtypes.Log
 	getReceiptCalls int
 	filterLogCalls  int
 }
@@ -59,7 +60,7 @@ func (f *fakeReceiptBackend) SetReceipts(_ sdk.Context, receipts []ReceiptRecord
 
 func (f *fakeReceiptBackend) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	f.filterLogCalls++
-	return []*ethtypes.Log{}, nil
+	return append([]*ethtypes.Log(nil), f.logs...), nil
 }
 
 func (f *fakeReceiptBackend) Close() error {
@@ -98,12 +99,47 @@ func TestCachedReceiptStoreFilterLogsDelegates(t *testing.T) {
 	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
 
 	backend.filterLogCalls = 0
-	// FilterLogs now delegates to the backend for range queries
+	// FilterLogs checks both backend and cache
 	logs, err := store.FilterLogs(ctx, 9, 9, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
 	require.NoError(t, err)
-	require.Len(t, logs, 0) // fake backend returns empty
-	require.Equal(t, 1, backend.filterLogCalls)
+	require.Len(t, logs, 1)                     // cache has the log (backend returns empty)
+	require.Equal(t, 1, backend.filterLogCalls) // still delegates to backend
+}
+
+func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	backend.logs = []*ethtypes.Log{
+		{
+			BlockNumber: 12,
+			TxIndex:     1,
+			Index:       2,
+		},
+		{
+			BlockNumber: 10,
+			TxIndex:     0,
+			Index:       0,
+		},
+	}
+	store := newCachedReceiptStore(backend)
+
+	receiptA := makeTestReceipt(common.HexToHash("0xa"), 11, 1, common.HexToAddress("0x210"), []common.Hash{common.HexToHash("0x1")})
+	receiptB := makeTestReceipt(common.HexToHash("0xb"), 11, 0, common.HexToAddress("0x220"), []common.Hash{common.HexToHash("0x2")})
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: common.HexToHash("0xa"), Receipt: receiptA},
+		{TxHash: common.HexToHash("0xb"), Receipt: receiptB},
+	}))
+
+	logs, err := store.FilterLogs(ctx, 10, 12, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Len(t, logs, 4)
+	require.Equal(t, uint64(10), logs[0].BlockNumber)
+	require.Equal(t, uint64(11), logs[1].BlockNumber)
+	require.Equal(t, uint(0), logs[1].TxIndex)
+	require.Equal(t, uint64(11), logs[2].BlockNumber)
+	require.Equal(t, uint(1), logs[2].TxIndex)
+	require.Equal(t, uint64(12), logs[3].BlockNumber)
 }

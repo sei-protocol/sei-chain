@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // DefaultMaxCharacterLength defines the default maximum character length used

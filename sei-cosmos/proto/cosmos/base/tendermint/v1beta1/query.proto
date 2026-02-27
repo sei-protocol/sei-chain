@@ -8,7 +8,7 @@ import "tendermint/p2p/types.proto";
 import "tendermint/types/block.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/client/grpc/tmservice";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice";
 
 // Service defines the gRPC querier service for tendermint queries.
 service Service {

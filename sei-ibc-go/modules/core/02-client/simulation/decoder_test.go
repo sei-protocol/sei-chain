@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/simulation"

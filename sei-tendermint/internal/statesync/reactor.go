@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -169,7 +168,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn         abciclient.Client
+	conn         abci.Application
 	tempDir      string
 	router       *p2p.Router
 	evict        func(types.NodeID, error)
@@ -214,7 +213,7 @@ type Reactor struct {
 	lastNoAvailablePeers time.Time
 
 	// Used to signal a restart the node on the application level
-	restartCh                     chan struct{}
+	restartEvent                  func()
 	restartNoAvailablePeersWindow time.Duration
 }
 
@@ -228,7 +227,7 @@ func NewReactor(
 	initialHeight int64,
 	cfg config.StateSyncConfig,
 	logger log.Logger,
-	conn abciclient.Client,
+	conn abci.Application,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
@@ -237,7 +236,7 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	postSyncHook func(context.Context, sm.State) error,
 	needsStateSync bool,
-	restartCh chan struct{},
+	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) (*Reactor, error) {
 	snapshotChannel, err := p2p.OpenChannel(router, GetSnapshotChannelDescriptor())
@@ -277,7 +276,7 @@ func NewReactor(
 		lightBlockChannel:             lightBlockChannel,
 		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
-		restartCh:                     restartCh,
+		restartEvent:                  restartEvent,
 		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 	}
 
@@ -1020,7 +1019,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 			r.lastNoAvailablePeers = time.Now()
 		} else if time.Since(r.lastNoAvailablePeers) > r.restartNoAvailablePeersWindow {
 			r.logger.Error("no available peers left for statesync (restarting router)")
-			r.restartCh <- struct{}{}
+			r.restartEvent()
 		}
 	} else {
 		// Reset

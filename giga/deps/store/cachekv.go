@@ -6,8 +6,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // Store wraps an in-memory cache around an underlying types.KVStore.
@@ -110,18 +110,7 @@ func (store *Store) Write() {
 		}
 	}
 
-	// Mark all entries as clean (not dirty) instead of clearing the cache.
-	// This is important because the parent store (commitment.Store) doesn't make
-	// writes immediately visible until Commit(). By keeping the cache populated
-	// with clean entries, subsequent reads will still hit the cache instead of
-	// falling through to the parent which can't read uncommitted data.
-	store.cache.Range(func(key, value any) bool {
-		cv := value.(*types.CValue)
-		// Replace with a clean (non-dirty) version of the same value
-		store.cache.Store(key, types.NewCValue(cv.Value(), false))
-		return true
-	})
-	// Clear the deleted map since those deletes have been sent to parent
+	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
 }
 

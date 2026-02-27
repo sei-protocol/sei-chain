@@ -9,16 +9,16 @@ import (
 	"io"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	testutilmod "github.com/cosmos/cosmos-sdk/types/module/testutil"
-	"github.com/cosmos/cosmos-sdk/x/gov"
-	"github.com/cosmos/cosmos-sdk/x/gov/client/cli"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	testutilmod "github.com/sei-protocol/sei-chain/sei-cosmos/types/module/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/cli"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -148,7 +148,7 @@ func (s *CLITestSuite) TestNewCmdSubmitLegacyProposal() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), tc.respType), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), tc.respType), out.String())
 			}
 		})
 	}
@@ -218,7 +218,7 @@ func (s *CLITestSuite) TestNewCmdVote() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &txResp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txResp), out.String())
 			}
 		})
 	}
@@ -280,7 +280,7 @@ func (s *CLITestSuite) TestNewCmdDeposit() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &resp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &resp), out.String())
 			}
 		})
 	}
@@ -362,7 +362,7 @@ func (s *CLITestSuite) TestNewCmdWeightedVote() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(s.clientCtx.Codec.UnmarshalJSON(out.Bytes(), &txResp), out.String())
+				s.Require().NoError(s.clientCtx.Codec.UnmarshalAsJSON(out.Bytes(), &txResp), out.String())
 			}
 		})
 	}

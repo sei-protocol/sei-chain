@@ -1,9 +1,12 @@
 package multisig
 
 import (
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"fmt"
+	"math"
+
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // tmMultisig implements a K of N threshold multisig. It is used for
@@ -48,6 +51,10 @@ func protoToTm(protoPk *LegacyAminoPubKey) (tmMultisig, error) {
 
 // tmToProto converts a tmMultisig into a LegacyAminoPubKey.
 func tmToProto(tmPk tmMultisig) (*LegacyAminoPubKey, error) {
+	if tmPk.K > math.MaxUint32 {
+		return nil, fmt.Errorf("threshold %d out of uint32 range", tmPk.K)
+	}
+
 	var err error
 	pks := make([]*types.Any, len(tmPk.PubKeys))
 	for i, pk := range tmPk.PubKeys {
@@ -58,7 +65,7 @@ func tmToProto(tmPk tmMultisig) (*LegacyAminoPubKey, error) {
 	}
 
 	return &LegacyAminoPubKey{
-		Threshold: uint32(tmPk.K),
+		Threshold: uint32(tmPk.K), //nolint:gosec // bounds checked above
 		PubKeys:   pks,
 	}, nil
 }
@@ -84,7 +91,7 @@ func (m *LegacyAminoPubKey) UnmarshalAminoJSON(tmPk tmMultisig) error {
 	for i := range m.PubKeys {
 		if m.PubKeys[i] == nil {
 			// create the compat jsonBz value
-			bz, err := AminoCdc.MarshalJSON(tmPk.PubKeys[i])
+			bz, err := AminoCdc.MarshalAsJSON(tmPk.PubKeys[i])
 			if err != nil {
 				return err
 			}

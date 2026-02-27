@@ -17,7 +17,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -464,8 +463,8 @@ func newStateWithConfigAndBlockStore(
 	blockStore *store.BlockStore,
 ) *State {
 	// one for mempool, one for consensus
-	proxyAppConnMem := abciclient.NewLocalClient(logger, app)
-	proxyAppConnCon := abciclient.NewLocalClient(logger, app)
+	proxyAppConnMem := app
+	proxyAppConnCon := app
 
 	// Make Mempool
 

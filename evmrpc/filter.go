@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -934,14 +935,6 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 		return nil, err
 	}
 
-	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
-	sort.Slice(logs, func(i, j int) bool {
-		if logs[i].BlockNumber != logs[j].BlockNumber {
-			return logs[i].BlockNumber < logs[j].BlockNumber
-		}
-		return logs[i].Index < logs[j].Index
-	})
-
 	return logs, nil
 }
 
@@ -965,7 +958,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 
 	// Pre-encode bloom filter indexes for fast per-receipt filtering
 	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
-	var filterIndexes [][]bloomIndexes
+	var filterIndexes [][]BloomIndexes
 	if hasFilters {
 		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
 	}
@@ -1004,7 +997,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			}
 			logIndex++
 
-			if !matchesCriteria(ethLog, crit) {
+			if !MatchesCriteria(ethLog, crit) {
 				continue
 			}
 			collector.Append(ethLog)
@@ -1012,47 +1005,13 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	}
 }
 
-// matchesCriteria checks if a log matches the filter criteria
-func matchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
-	// Check address filter
-	if len(crit.Addresses) > 0 {
-		found := false
-		for _, addr := range crit.Addresses {
-			if log.Address == addr {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Check topics filter
-	for i, topicList := range crit.Topics {
-		if len(topicList) == 0 {
-			continue
-		}
-		if i >= len(log.Topics) {
-			return false
-		}
-		found := false
-		for _, topic := range topicList {
-			if log.Topics[i] == topic {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	return true
+// MatchesCriteria checks if a log matches the filter criteria.
+func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
+	return ethbloom.MatchesCriteria(log, crit)
 }
 
 // Optimized fetchBlocksByCrit with batch processing
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
 	if crit.BlockHash != nil {
 		// Check for invalid zero hash
 		zeroHash := common.Hash{}
@@ -1151,7 +1110,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 }
 
 // Batch processing function for blocks
-func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	defer func() {
 		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
 	}()

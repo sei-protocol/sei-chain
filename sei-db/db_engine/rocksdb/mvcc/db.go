@@ -34,6 +34,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -112,9 +113,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
-
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
 	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -127,8 +128,11 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 }
 
 func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grocksdb.Slice, error) {
+	readOpts := newTSReadOptions(version)
+	defer readOpts.Destroy()
+
 	return db.storage.GetCF(
-		newTSReadOptions(version),
+		readOpts,
 		db.cfHandle,
 		prependStoreKey(storeKey, key),
 	)
@@ -291,6 +295,11 @@ func (db *Database) writeAsyncInBackground() {
 // lazy prune. Future compactions will honor the increased full_history_ts_low
 // and trim history when possible.
 func (db *Database) Prune(version int64) error {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return fmt.Errorf("rocksdb: database is closed")
+	}
+
 	tsLow := version + 1 // we increment by 1 to include the provided version
 
 	var ts [TimestampSize]byte
@@ -317,8 +326,9 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, false), nil
+	readOpts := newTSReadOptions(version)
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
+	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -333,8 +343,9 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	prefix := storePrefix(storeKey)
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
-	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, true), nil
+	readOpts := newTSReadOptions(version)
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
+	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -395,20 +406,19 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		return false, err
 	}
 
-	var startTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(startTs[:], uint64(0))
+	startTs := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(startTs, uint64(0))
 
-	var endTs [TimestampSize]byte
-	binary.LittleEndian.PutUint64(endTs[:], uint64(latestVersion))
+	endTs := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(endTs, uint64(latestVersion))
 
 	// Set timestamp lower and upper bound to iterate over all keys in db
 	readOpts := grocksdb.NewDefaultReadOptions()
-	readOpts.SetIterStartTimestamp(startTs[:])
-	readOpts.SetTimestamp(endTs[:])
-	defer readOpts.Destroy()
+	readOpts.SetIterStartTimestamp(startTs)
+	readOpts.SetTimestamp(endTs)
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	rocksItr := NewRocksDBIterator(itr, prefix, start, end, latestVersion, 1, false)
+	rocksItr := NewRocksDBIterator(itr, readOpts, prefix, start, end, latestVersion, 1, false)
 	defer func() { _ = rocksItr.Close() }()
 
 	for rocksItr.Valid() {
@@ -437,11 +447,11 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
 func newTSReadOptions(version int64) *grocksdb.ReadOptions {
-	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	ts := make([]byte, TimestampSize)
+	binary.LittleEndian.PutUint64(ts, uint64(version))
 
 	readOpts := grocksdb.NewDefaultReadOptions()
-	readOpts.SetTimestamp(ts[:])
+	readOpts.SetTimestamp(ts)
 
 	return readOpts
 }

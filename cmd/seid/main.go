@@ -6,8 +6,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"
 
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"github.com/sei-protocol/sei-chain/app"
+	svrcmd "github.com/sei-protocol/sei-chain/sei-cosmos/server/cmd"
 )
 
 func main() {

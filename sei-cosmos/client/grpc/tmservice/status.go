@@ -5,7 +5,7 @@ import (
 
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 func getNodeStatus(ctx context.Context, clientCtx client.Context) (*ctypes.ResultStatus, error) {

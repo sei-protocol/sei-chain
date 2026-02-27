@@ -1,7 +1,7 @@
 package simulation
 
 import (
-	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
@@ -20,7 +20,7 @@ func RandomizedGenState(simstate *module.SimulationState) {
 		GenMsgs: nil,
 	}
 
-	_, err := simstate.Cdc.MarshalJSON(&wasmGenesis)
+	_, err := simstate.Cdc.MarshalAsJSON(&wasmGenesis)
 	if err != nil {
 		panic(err)
 	}

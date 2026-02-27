@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -17,6 +19,15 @@ var ErrBadLane = errors.New("bad lane")
 const BlocksPerLane = 3 * BlocksPerLanePerCommit
 const BlocksPerLanePerCommit = 10
 
+// State represents the Data Availability Plane and Ordered Event Log.
+// Although it resides in a sub-package, it serves as the "source of truth" for:
+// - Block data: storing and disseminating raw transaction payloads (lanes).
+// - Finality tracking: acting as a persistent buffer for CommitQCs and AppQCs.
+// - Pruning: managing memory by deleting data once enough execution proofs (AppVotes) are seen.
+//
+// NOTE: This component is more than an observer; it actively aggregates AppVotes
+// to trigger internal pruning, which allows it to manage memory independently
+// of the main consensus loop.
 // State is the block availability state provided by the node for consensus.
 // It contains:
 // * commitQCs
@@ -160,7 +171,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		if inner.prune(appQC, qc) {
+		updated, err := inner.prune(appQC, qc)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}
@@ -177,13 +192,20 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		}
 	}
 	if err := appQC.Verify(s.data.Committee()); err != nil {
-		return fmt.Errorf("appQC.Proposal().VerifyAgainstCommitQC(commitQC): %w", err)
+		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
 	if err := commitQC.Verify(s.data.Committee()); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
+	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
+		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
+	}
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.prune(appQC, commitQC) {
+		updated, err := inner.prune(appQC, commitQC)
+		if err != nil {
+			return err
+		}
+		if updated {
 			ctrl.Updated()
 		}
 	}
@@ -223,13 +245,16 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 // PushBlock pushes a block to the state.
 // Waits until all previous blocks are available.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
+	h := p.Msg().Block().Header()
+	if p.Key() != h.Lane() {
+		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
+	}
 	if err := p.Msg().Verify(s.data.Committee()); err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	if err := p.VerifySig(s.data.Committee()); err != nil {
 		return fmt.Errorf("p.VerifySig(): %w", err)
 	}
-	h := p.Msg().Block().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[h.Lane()]
 		if !ok {
@@ -243,6 +268,27 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// not needed any more
 		if q.next != h.BlockNumber() {
 			return nil
+		}
+		// Verify parent hash chain to prevent a malicious producer from
+		// breaking the block chain, which would deadlock header reconstruction.
+		// A mismatch means the producer equivocated (produced a different
+		// chain than we already have). We log it to aid debugging stalled
+		// lanes but do not return an error — the caller should not tear
+		// down the peer connection over an equivocating producer.
+		// NOTE: after pruning (q.first >= q.next), we cannot verify the parent
+		// hash because the previous block is gone. This is safe because
+		// headers() never follows the first block's parentHash in a LaneRange.
+		if q.first < q.next {
+			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
+			if h.ParentHash() != prevHash {
+				log.Error().
+					Stringer("lane", h.Lane()).
+					Uint64("block", uint64(h.BlockNumber())).
+					Hex("got", h.ParentHash().Bytes()).
+					Hex("want", prevHash.Bytes()).
+					Msg("parent hash mismatch (producer equivocation)")
+				return nil
+			}
 		}
 		q.pushBack(p)
 		ctrl.Updated()

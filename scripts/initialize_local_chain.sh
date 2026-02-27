@@ -50,7 +50,7 @@ else
     make install
 fi
 # initialize chain with chain ID and add the first key
-~/go/bin/seid init demo --chain-id sei-chain
+~/go/bin/seid init demo --chain-id sei-chain --overwrite
 ~/go/bin/seid keys add $keyname --keyring-backend test
 # add the key as a genesis account with massive balances of several different tokens
 ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test

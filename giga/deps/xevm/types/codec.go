@@ -5,10 +5,10 @@ import (
 	"errors"
 	fmt "fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/msgservice"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"

@@ -3,8 +3,8 @@ package keeper
 import (
 	"strconv"
 
-	cosmostelemetry "github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	cosmostelemetry "github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 

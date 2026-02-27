@@ -6,8 +6,8 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
-	sdkproofs "github.com/cosmos/cosmos-sdk/store/internal/proofs"
+	sdkmaps "github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps"
+	sdkproofs "github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/proofs"
 )
 
 // GetHash returns the GetHash from the CommitID.

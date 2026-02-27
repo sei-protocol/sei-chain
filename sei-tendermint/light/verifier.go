@@ -53,9 +53,9 @@ func VerifyNonAdjacent(
 		return err
 	}
 
-	// check if the untrusted header is within the trust period
-	if HeaderExpired(untrustedHeader, trustingPeriod, now) {
-		return ErrOldHeaderExpired{untrustedHeader.Time.Add(trustingPeriod), now}
+	// check if the trusted header has expired past the trusting period
+	if HeaderExpired(trustedHeader, trustingPeriod, now) {
+		return ErrOldHeaderExpired{trustedHeader.Time.Add(trustingPeriod), now}
 	}
 
 	if err := verifyNewHeaderAndVals(
@@ -124,9 +124,9 @@ func VerifyAdjacent(
 		return errors.New("headers must be adjacent in height")
 	}
 
-	// check if the untrusted header is within the trust period
-	if HeaderExpired(untrustedHeader, trustingPeriod, now) {
-		return ErrOldHeaderExpired{untrustedHeader.Time.Add(trustingPeriod), now}
+	// check if the trusted header has expired past the trusting period
+	if HeaderExpired(trustedHeader, trustingPeriod, now) {
+		return ErrOldHeaderExpired{trustedHeader.Time.Add(trustingPeriod), now}
 	}
 
 	if err := verifyNewHeaderAndVals(

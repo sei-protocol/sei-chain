@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
@@ -14,11 +14,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	pagination "github.com/cosmos/cosmos-sdk/types/query"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	pagination "github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
 // baseAppSimulateFn is the signature of the Baseapp#Simulate function.
@@ -259,7 +259,7 @@ func RegisterTxService(
 // RegisterGRPCGatewayRoutes mounts the tx service's GRPC-gateway routes on the
 // given Mux.
 func RegisterGRPCGatewayRoutes(clientConn gogogrpc.ClientConn, mux *runtime.ServeMux) {
-	txtypes.RegisterServiceHandlerClient(context.Background(), mux, txtypes.NewServiceClient(clientConn))
+	_ = txtypes.RegisterServiceHandlerClient(context.Background(), mux, txtypes.NewServiceClient(clientConn))
 }
 
 func parseOrderBy(orderBy txtypes.OrderBy) string {

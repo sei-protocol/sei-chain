@@ -463,12 +463,16 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 		if !ok {
 			// channel was closed without sending a result
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return errors.New("snapshot rewrite channel closed unexpectedly")
 		}
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
 			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
 		} else {
 			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))

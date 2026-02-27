@@ -1,12 +1,12 @@
 package codec
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/sr25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
 // RegisterCrypto registers all crypto dependency types with the provided Amino

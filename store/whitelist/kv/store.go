@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 type Store struct {

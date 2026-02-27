@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,13 +14,12 @@ import (
 )
 
 func Test_ResetAll(t *testing.T) {
-	ctx := t.Context()
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
 	logger := log.NewNopLogger()
 	cfg.EnsureRoot(dir)
-	require.NoError(t, initFilesWithConfig(ctx, config, logger, types.ABCIPubKeyTypeEd25519))
+	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
 	require.NoError(t, err)
 	pv.LastSignState.Height = 10
@@ -38,13 +38,12 @@ func Test_ResetAll(t *testing.T) {
 }
 
 func Test_ResetState(t *testing.T) {
-	ctx := t.Context()
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
 	logger := log.NewNopLogger()
 	cfg.EnsureRoot(dir)
-	require.NoError(t, initFilesWithConfig(ctx, config, logger, types.ABCIPubKeyTypeEd25519))
+	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
 	require.NoError(t, err)
 	pv.LastSignState.Height = 10
@@ -63,13 +62,12 @@ func Test_ResetState(t *testing.T) {
 }
 
 func Test_UnsafeResetAll(t *testing.T) {
-	ctx := t.Context()
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
 	logger := log.NewNopLogger()
 	cfg.EnsureRoot(dir)
-	require.NoError(t, initFilesWithConfig(ctx, config, logger, types.ABCIPubKeyTypeEd25519))
+	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
 	require.NoError(t, err)
 	pv.LastSignState.Height = 10
@@ -85,4 +83,17 @@ func Test_UnsafeResetAll(t *testing.T) {
 	pv, err = privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pv.LastSignState.Height)
+}
+
+func initTestFiles(t *testing.T, config *cfg.Config) {
+	t.Helper()
+
+	privValKeyFile := config.PrivValidator.KeyFile()
+	privValStateFile := config.PrivValidator.StateFile()
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(privValKeyFile), 0o755))
+
+	pv, err := privval.GenFilePV(privValKeyFile, privValStateFile, types.ABCIPubKeyTypeEd25519)
+	require.NoError(t, err)
+	require.NoError(t, pv.Save())
 }

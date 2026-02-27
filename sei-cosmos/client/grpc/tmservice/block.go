@@ -6,7 +6,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 func getBlock(ctx context.Context, clientCtx client.Context, height *int64) (*ctypes.ResultBlock, error) {

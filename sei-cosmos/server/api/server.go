@@ -16,14 +16,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 
 	// unnamed import of statik for swagger UI support
-	_ "github.com/cosmos/cosmos-sdk/client/docs/statik"
+	_ "github.com/sei-protocol/sei-chain/sei-cosmos/client/docs/statik"
 )
 
 // Server defines the server's API interface.
@@ -97,10 +97,10 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	}
 
 	tmCfg := tmrpcserver.DefaultConfig()
-	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)
-	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second
-	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second
-	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)
+	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)                //nolint:gosec // config value, validated at startup
+	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second   //nolint:gosec // config value, validated at startup
+	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second //nolint:gosec // config value, validated at startup
+	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)                       //nolint:gosec // config value, validated at startup
 
 	listener, err := tmrpcserver.Listen(cfg.API.Address, tmCfg.MaxOpenConnections)
 	if err != nil {

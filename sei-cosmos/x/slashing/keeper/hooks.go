@@ -5,8 +5,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 )
 
 func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address sdk.ConsAddress, _ sdk.ValAddress) {
@@ -32,7 +32,10 @@ func (k Keeper) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) e
 	if err != nil {
 		return err
 	}
-	k.AddPubkey(ctx, consPk)
+
+	if err := k.AddPubkey(ctx, consPk); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -66,7 +69,7 @@ func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, consAddr sdk.ConsAddress, 
 
 // Implements sdk.ValidatorHooks
 func (h Hooks) AfterValidatorCreated(ctx sdk.Context, valAddr sdk.ValAddress) {
-	h.k.AfterValidatorCreated(ctx, valAddr)
+	_ = h.k.AfterValidatorCreated(ctx, valAddr)
 }
 
 func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ sdk.ConsAddress, _ sdk.ValAddress)  {}
