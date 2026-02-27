@@ -107,3 +107,20 @@ even if your connection is interrupted.
 cd sei-chain/sei-db/state_db/bench/cryptosim
 ./run.sh ./config/basic-config.json
 ```
+
+4: Connect Local Grafana to Remote Prometheus (optional)
+
+Before taking this step, you will need to set up SSH access to the remote VM. The easiest way to do this is to
+copy your public ssh key into the remote machine's `~/.ssh/authorized_keys` file.
+
+You will want the prometheus container running on your remote machine, and the grafana container running locally.
+Make sure you don't have a local prometheus container running.
+
+Then, initiate an ssh connection with the remote machine using this command:
+
+```
+ssh -L 9091:localhost:9091 user@remote-host
+```
+
+As long as this connection remains open, your local grafana instance will be able to talk to the remote prometheus
+instance over the SSH tunnel.
