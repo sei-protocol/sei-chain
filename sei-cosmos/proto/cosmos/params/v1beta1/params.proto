@@ -3,7 +3,7 @@ package cosmos.params.v1beta1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/params/types/proposal";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal";
 option (gogoproto.equal_all) = true;
 
 // ParameterChangeProposal defines a proposal to change one or more parameters.

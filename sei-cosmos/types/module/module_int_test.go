@@ -15,7 +15,7 @@ type TestSuite struct {
 	suite.Suite
 }
 
-func (s TestSuite) TestAssertNoForgottenModules() {
+func (s *TestSuite) TestAssertNoForgottenModules() {
 	m := Manager{
 		Modules: map[string]AppModule{"a": nil, "b": nil},
 	}
@@ -37,7 +37,7 @@ func (s TestSuite) TestAssertNoForgottenModules() {
 	}
 }
 
-func (s TestSuite) TestModuleNames() {
+func (s *TestSuite) TestModuleNames() {
 	m := Manager{
 		Modules: map[string]AppModule{"a": nil, "b": nil},
 	}
@@ -46,7 +46,7 @@ func (s TestSuite) TestModuleNames() {
 	s.Require().Equal([]string{"a", "b"}, ms)
 }
 
-func (s TestSuite) TestDefaultMigrationsOrder() {
+func (s *TestSuite) TestDefaultMigrationsOrder() {
 	require := s.Require()
 	require.Equal(
 		[]string{"auth2", "d", "z", "auth"},

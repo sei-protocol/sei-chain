@@ -7,7 +7,7 @@ import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/bank/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types";
 
 // Query defines the gRPC querier service.
 service Query {
@@ -89,7 +89,7 @@ message QueryAllBalancesResponse {
   // balances is the balances of all the coins.
   repeated cosmos.base.v1beta1.Coin balances = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 
   // pagination defines the pagination in the response.
@@ -115,7 +115,7 @@ message QuerySpendableBalancesResponse {
   // balances is the spendable balances of all the coins.
   repeated cosmos.base.v1beta1.Coin balances = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 
   // pagination defines the pagination in the response.
@@ -140,7 +140,7 @@ message QueryTotalSupplyResponse {
   // supply is the supply of the coins
   repeated cosmos.base.v1beta1.Coin supply = 1 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 
   // pagination defines the pagination in the response.

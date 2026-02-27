@@ -73,8 +73,16 @@ func TestCommitQC(
 		}
 	}
 	viewSpec := types.ViewSpec{CommitQC: prev}
-	proposal, err := types.NewProposal(
-		types.GenSecretKey(rng),
+	leader := committee.Leader(viewSpec.View())
+	var leaderKey types.SecretKey
+	for _, k := range keys {
+		if k.Public() == leader {
+			leaderKey = k
+			break
+		}
+	}
+	proposal := utils.OrPanic1(types.NewProposal(
+		leaderKey,
 		committee,
 		viewSpec,
 		time.Now(),
@@ -86,10 +94,7 @@ func TestCommitQC(
 			}
 			return utils.None[*types.AppQC]()
 		}(),
-	)
-	if err != nil {
-		panic(err)
-	}
+	))
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))

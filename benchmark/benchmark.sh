@@ -118,7 +118,7 @@ else
 fi
 
 # initialize chain with chain ID and add the first key
-"$SEID" init demo --chain-id sei-chain
+"$SEID" init demo --chain-id sei-chain --overwrite
 "$SEID" keys add $keyname --keyring-backend test
 # add the key as a genesis account with massive balances of several different tokens
 "$SEID" add-genesis-account $("$SEID" keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test

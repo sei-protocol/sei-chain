@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -45,23 +45,30 @@ type ReceiptStore interface {
 }
 
 type ReceiptRecord struct {
-	TxHash  common.Hash
-	Receipt *types.Receipt
+	TxHash       common.Hash
+	Receipt      *types.Receipt
+	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
 }
 
 type receiptStore struct {
 	db          *mvcc.Database
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
+	pruneWg     sync.WaitGroup
 	closeOnce   sync.Once
 }
 
-const receiptBackendPebble = "pebble"
+const (
+	receiptBackendPebble  = "pebble"
+	receiptBackendParquet = "parquet"
+)
 
 func normalizeReceiptBackend(backend string) string {
 	switch strings.ToLower(strings.TrimSpace(backend)) {
 	case "", "pebbledb", receiptBackendPebble:
 		return receiptBackendPebble
+	case receiptBackendParquet:
+		return receiptBackendParquet
 	default:
 		return strings.ToLower(strings.TrimSpace(backend))
 	}
@@ -85,6 +92,8 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
+	case receiptBackendParquet:
+		return newParquetReceiptStore(log, config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
@@ -103,13 +112,13 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 			_ = db.Close()
 			return nil, err
 		}
-		stopPruning := make(chan struct{})
-		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), stopPruning)
-		return &receiptStore{
+		rs := &receiptStore{
 			db:          db,
 			storeKey:    storeKey,
-			stopPruning: stopPruning,
-		}, nil
+			stopPruning: make(chan struct{}),
+		}
+		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
+		return rs, nil
 	default:
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
 	}
@@ -180,9 +189,13 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		if record.Receipt == nil {
 			continue
 		}
-		marshalledReceipt, err := record.Receipt.Marshal()
-		if err != nil {
-			return err
+		marshalledReceipt := record.ReceiptBytes
+		if len(marshalledReceipt) == 0 {
+			var err error
+			marshalledReceipt, err = record.Receipt.Marshal()
+			if err != nil {
+				return err
+			}
 		}
 		kvPair := &iavl.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
@@ -224,10 +237,10 @@ func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCr
 func (s *receiptStore) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		// Signal the pruning goroutine to stop
 		if s.stopPruning != nil {
 			close(s.stopPruning)
 		}
+		s.pruneWg.Wait()
 		err = s.db.Close()
 	})
 	return err
@@ -286,12 +299,21 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db *mvcc.Dat
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}) {
+func startReceiptPruning(log dbLogger.Logger, db *mvcc.Database, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
+			select {
+			case <-stopCh:
+				log.Info("Receipt store pruning goroutine stopped")
+				return
+			default:
+			}
+
 			pruneStartTime := time.Now()
 			latestVersion := db.GetLatestVersion()
 			pruneVersion := latestVersion - keepRecent

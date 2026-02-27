@@ -7,9 +7,9 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -34,7 +34,7 @@ func getCurrentPlanHandler(clientCtx client.Context) func(http.ResponseWriter, *
 		}
 
 		var plan types.Plan
-		err = clientCtx.LegacyAmino.UnmarshalJSON(res, &plan)
+		err = clientCtx.LegacyAmino.UnmarshalAsJSON(res, &plan)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -48,7 +48,7 @@ func getDonePlanHandler(clientCtx client.Context) func(http.ResponseWriter, *htt
 		name := mux.Vars(r)["name"]
 
 		params := types.QueryAppliedPlanRequest{Name: name}
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -64,10 +64,10 @@ func getDonePlanHandler(clientCtx client.Context) func(http.ResponseWriter, *htt
 		}
 		if len(res) != 8 {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, "unknown format for applied-upgrade")
+			return
 		}
 
-		applied := int64(binary.BigEndian.Uint64(res))
-		fmt.Println(applied)
+		applied := int64(binary.BigEndian.Uint64(res)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 		rest.PostProcessResponse(w, clientCtx, applied)
 	}
 }

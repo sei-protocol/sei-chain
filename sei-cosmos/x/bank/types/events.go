@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // bank module event types
@@ -29,7 +29,7 @@ const (
 )
 
 // NewCoinSpentEvent constructs a new coin spent sdk.Event
-// nolint: interfacer
+
 func NewCoinSpentEvent(spender sdk.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinSpent,
@@ -39,7 +39,7 @@ func NewCoinSpentEvent(spender sdk.AccAddress, amount sdk.Coins) sdk.Event {
 }
 
 // NewCoinReceivedEvent constructs a new coin received sdk.Event
-// nolint: interfacer
+
 func NewCoinReceivedEvent(receiver sdk.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinReceived,
@@ -49,7 +49,7 @@ func NewCoinReceivedEvent(receiver sdk.AccAddress, amount sdk.Coins) sdk.Event {
 }
 
 // NewWeiSpentEvent constructs a new wei spent sdk.Event
-// nolint: interfacer
+
 func NewWeiSpentEvent(spender sdk.AccAddress, amount sdk.Int) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeWeiSpent,
@@ -59,7 +59,7 @@ func NewWeiSpentEvent(spender sdk.AccAddress, amount sdk.Int) sdk.Event {
 }
 
 // NewWeiReceivedEvent constructs a new wei received sdk.Event
-// nolint: interfacer
+
 func NewWeiReceivedEvent(receiver sdk.AccAddress, amount sdk.Int) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeWeiReceived,
@@ -69,7 +69,7 @@ func NewWeiReceivedEvent(receiver sdk.AccAddress, amount sdk.Int) sdk.Event {
 }
 
 // NewCoinMintEvent construct a new coin minted sdk.Event
-// nolint: interfacer
+
 func NewCoinMintEvent(minter sdk.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinMint,
@@ -79,7 +79,7 @@ func NewCoinMintEvent(minter sdk.AccAddress, amount sdk.Coins) sdk.Event {
 }
 
 // NewCoinBurnEvent constructs a new coin burned sdk.Event
-// nolint: interfacer
+
 func NewCoinBurnEvent(burner sdk.AccAddress, amount sdk.Coins) sdk.Event {
 	return sdk.NewEvent(
 		EventTypeCoinBurn,

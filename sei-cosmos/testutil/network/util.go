@@ -2,27 +2,26 @@ package network
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/codec"
-	tmtime "github.com/cosmos/cosmos-sdk/std"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/server/api"
-	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	srvtypes "github.com/cosmos/cosmos-sdk/server/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
+	srvtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
+	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 )
 
 func startInProcess(cfg Config, val *Validator) error {
@@ -56,8 +55,8 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.GoCtx,
 		tmCfg,
 		logger,
-		make(chan struct{}),
-		abciclient.NewLocalClient(logger, app),
+		func() {},
+		app,
 		defaultGensis,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),
@@ -211,15 +210,9 @@ func writeFile(name string, dir string, contents []byte) error {
 	writePath := filepath.Join(dir)
 	file := filepath.Join(writePath, name)
 
-	err := tmos.EnsureDir(writePath, 0755)
-	if err != nil {
+	if err := tmos.EnsureDir(writePath, 0750); err != nil {
 		return err
 	}
 
-	err = ioutil.WriteFile(file, contents, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.WriteFile(file, contents, 0600)
 }

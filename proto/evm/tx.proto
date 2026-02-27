@@ -32,7 +32,7 @@ message MsgEVMTransactionResponse {
 
 message MsgInternalEVMCall {
   string sender = 1;
-  string value = 2 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string value = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   string to = 3;
   bytes data = 4;
 }
@@ -56,7 +56,7 @@ message MsgSend {
   string to_address = 2;
   repeated cosmos.base.v1beta1.Coin amount = 3 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 }
 

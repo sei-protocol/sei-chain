@@ -18,7 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (

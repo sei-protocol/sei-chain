@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"time"
 
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/spf13/cast"
 )
 

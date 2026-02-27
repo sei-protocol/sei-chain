@@ -3,8 +3,8 @@ package testutil
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // GenerateCoinKey generates a new key mnemonic along with its addrress.
@@ -78,5 +78,5 @@ func GenerateSaveCoinKey(
 		return sdk.AccAddress{}, "", err
 	}
 
-	return sdk.AccAddress(info.GetAddress()), secret, nil
+	return info.GetAddress(), secret, nil
 }

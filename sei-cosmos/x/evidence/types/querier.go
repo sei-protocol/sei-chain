@@ -3,7 +3,7 @@ package types
 import (
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 
-	query "github.com/cosmos/cosmos-sdk/types/query"
+	query "github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 )
 
 // Querier routes for the evidence module

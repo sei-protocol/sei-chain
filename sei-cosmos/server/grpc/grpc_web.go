@@ -8,8 +8,8 @@ import (
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"google.golang.org/grpc"
 
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 )
 
 // StartGRPCWeb starts a gRPC-Web server on the given address.
@@ -25,8 +25,9 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 
 	wrappedServer := grpcweb.WrapServer(grpcSrv, options...)
 	grpcWebSrv := &http.Server{
-		Addr:    config.GRPCWeb.Address,
-		Handler: wrappedServer,
+		Addr:              config.GRPCWeb.Address,
+		Handler:           wrappedServer,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	errCh := make(chan error)

@@ -8,15 +8,15 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
-	stakingcli "github.com/cosmos/cosmos-sdk/x/staking/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
+	stakingcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 type IntegrationTestSuite struct {
@@ -99,7 +99,7 @@ func (s *IntegrationTestSuite) TestGenTxCmd() {
 		tc := tc
 
 		dir := s.T().TempDir()
-		genTxFile := filepath.Join(dir, "myTx")
+		genTxFile := filepath.Clean(filepath.Join(dir, "myTx"))
 		tc.args = append(tc.args, fmt.Sprintf("--%s=%s", flags.FlagOutputDocument, genTxFile))
 
 		s.Run(tc.name, func() {

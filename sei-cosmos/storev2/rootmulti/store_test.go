@@ -1,16 +1,17 @@
 package rootmulti
 
 import (
+	"fmt"
 	"testing"
-
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/storev2/state"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestLastCommitID(t *testing.T) {
@@ -74,6 +75,9 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	gotV1 := cmsV1.GetKVStore(key).Get(keyBytes)
 	require.Equal(t, valV1, gotV1)
 
+	// Occupy the historical-proof semaphore. No-proof + SS queries should bypass it.
+	store.histProofSem <- struct{}{}
+
 	// Query API without proof at v1 should be served by SS and return v1
 	resp := store.Query(abci.RequestQuery{
 		Path:   "/store1/key",
@@ -83,6 +87,8 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+
+	<-store.histProofSem
 
 	// Query API with proof at v1 should still return v1 (served by SC historical)
 	resp = store.Query(abci.RequestQuery{
@@ -181,11 +187,119 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			}
 
 			if !tc.ssEnabled {
-				cmsHistorical, err := store.CacheMultiStoreWithVersion(c1.Version)
-				require.NoError(t, err)
-				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey1) })
-				require.Panics(t, func() { _ = cmsHistorical.GetKVStore(iavlKey2) })
+				_, err := store.CacheMultiStoreWithVersion(c1.Version)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), fmt.Sprintf("unable to load historical state with SS disabled for version: %d", c1.Version))
 			}
 		})
 	}
+}
+
+func TestTryAcquireHistProofPermit(t *testing.T) {
+	t.Run("busy-when-semaphore-full", func(t *testing.T) {
+		store := &Store{
+			histProofSem: make(chan struct{}, 1),
+		}
+
+		require.NoError(t, store.tryAcquireHistProofPermit())
+
+		err := store.tryAcquireHistProofPermit()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "historical proof busy")
+
+		store.releaseHistProofPermit()
+		store.releaseHistProofPermit() // no-op when empty
+		require.NoError(t, store.tryAcquireHistProofPermit())
+	})
+
+	t.Run("rate-limited-before-semaphore-check", func(t *testing.T) {
+		store := &Store{
+			histProofSem:     make(chan struct{}, 2),
+			histProofLimiter: rate.NewLimiter(rate.Limit(0.001), 1),
+		}
+
+		require.NoError(t, store.tryAcquireHistProofPermit())
+
+		err := store.tryAcquireHistProofPermit()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "historical proof rate limited")
+	})
+}
+
+func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.HistoricalProofRateLimit = 0
+	scCfg.HistoricalProofMaxInFlight = 1
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("store1")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("k")
+	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv.Set(keyBytes, []byte("v1"))
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	kv = store.GetStoreByName("store1").(types.KVStore)
+	kv.Set(keyBytes, []byte("v2"))
+	c2 := store.Commit(true)
+	require.Equal(t, int64(2), c2.Version)
+
+	// Saturate historical permit and verify historical query is rejected.
+	store.histProofSem <- struct{}{}
+	defer func() { <-store.histProofSem }()
+
+	resp := store.Query(abci.RequestQuery{
+		Path:   "/store1/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  false,
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+	require.Contains(t, resp.Log, "historical proof busy")
+}
+
+func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.HistoricalProofRateLimit = 0
+	scCfg.HistoricalProofMaxInFlight = 1
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("store1")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("k")
+	valV1 := []byte("v1")
+	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv.Set(keyBytes, valV1)
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	// Saturate permit; latest proof query should not need historical permit.
+	store.histProofSem <- struct{}{}
+	defer func() { <-store.histProofSem }()
+
+	resp := store.Query(abci.RequestQuery{
+		Path:   "/store1/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  true,
+	})
+	require.EqualValues(t, 0, resp.Code)
+	require.Equal(t, valV1, resp.Value)
 }

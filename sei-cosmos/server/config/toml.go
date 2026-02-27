@@ -3,8 +3,8 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"github.com/spf13/viper"
@@ -99,7 +99,7 @@ snapshot-interval = {{ .StateSync.SnapshotInterval }}
 snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 
 # snapshot-directory sets the directory for where state sync snapshots are persisted.
-# default is emtpy which will then store under the app home directory same as before.
+# default is empty which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 `
 
@@ -303,7 +303,7 @@ func WriteConfigFile(configFilePath string, config interface{}) {
 		panic(err)
 	}
 
-	if err := ioutil.WriteFile(configFilePath, buffer.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(filepath.Clean(configFilePath), buffer.Bytes(), 0600); err != nil {
 		fmt.Printf("MustWriteFile failed: %v\n", err)
 		os.Exit(1)
 	}

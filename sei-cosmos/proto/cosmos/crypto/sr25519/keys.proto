@@ -3,7 +3,7 @@ package cosmos.crypto.sr25519;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/crypto/keys/sr25519";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/sr25519";
 option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.messagename_all) = true;
@@ -12,5 +12,5 @@ option (gogoproto.messagename_all) = true;
 message PubKey {
   option (gogoproto.goproto_stringer) = false;
 
-  bytes key = 1 [(gogoproto.casttype) = "github.com/cosmos/cosmos-sdk/crypto/keys/sr25519/internal.PubKey"];
+  bytes key = 1 [(gogoproto.casttype) = "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/sr25519/internal.PubKey"];
 }

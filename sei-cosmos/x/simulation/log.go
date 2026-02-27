@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func (lw *StandardLogWriter) AddEntry(opEntry OperationEntry) {
 // PrintLogs - print the logs to a simulation file
 func (lw *StandardLogWriter) PrintLogs() {
 	f := createLogFile()
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	for i := 0; i < len(lw.OpEntries); i++ {
 		writeEntry := fmt.Sprintf("%s\n", (lw.OpEntries[i]).MustMarshal())
@@ -52,9 +53,9 @@ func createLogFile() *os.File {
 
 	fileName := fmt.Sprintf("%s.log", time.Now().Format("2006-01-02_15:04:05"))
 	folderPath := path.Join(os.ExpandEnv("$HOME"), ".simapp", "simulations")
-	filePath := path.Join(folderPath, fileName)
+	filePath := filepath.Clean(filepath.Join(folderPath, fileName))
 
-	err := os.MkdirAll(folderPath, os.ModePerm)
+	err := os.MkdirAll(folderPath, 0750)
 	if err != nil {
 		panic(err)
 	}

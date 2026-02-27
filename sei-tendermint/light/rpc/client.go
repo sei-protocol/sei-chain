@@ -249,10 +249,6 @@ func (c *Client) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChe
 	return c.next.CheckTx(ctx, tx)
 }
 
-func (c *Client) RemoveTx(ctx context.Context, txKey types.TxKey) error {
-	return c.next.RemoveTx(ctx, txKey)
-}
-
 func (c *Client) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	return c.next.NetInfo(ctx)
 }
@@ -468,7 +464,7 @@ func (c *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.Re
 	mh := merkle.HashFromByteSlices(append([][]byte{bbeBytes}, rs...))
 
 	// Verify block results.
-	if !bytes.Equal(mh, trustedBlock.LastResultsHash) {
+	if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(mh, trustedBlock.LastResultsHash) {
 		return nil, fmt.Errorf("last results %X does not match with trusted last results %X",
 			mh, trustedBlock.LastResultsHash)
 	}

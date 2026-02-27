@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 // BeginBlock will check if there is a scheduled plan and if it is ready to be executed.
@@ -100,7 +100,7 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 func panicUpgradeNeeded(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 	// Write the upgrade info to disk. The UpgradeStoreLoader uses this info to perform or skip
 	// store migrations.
-	err := k.DumpUpgradeInfoWithInfoToDisk(ctx.BlockHeight(), plan.Name, plan.Info)
+	err := k.DumpUpgradeInfoWithInfoToDisk(ctx.BlockHeight(), plan.Name, plan.Info) //nolint:staticcheck // SA1019: not worth fixing
 	if err != nil {
 		panic(fmt.Errorf("unable to write upgrade info to filesystem: %s", err.Error()))
 	}

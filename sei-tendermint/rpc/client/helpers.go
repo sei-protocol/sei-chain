@@ -57,7 +57,7 @@ func WaitForHeight(ctx context.Context, c StatusClient, h int64, waiter Waiter) 
 // until ctx ends. It reports an error if ctx ends before a matching event is
 // received.
 func WaitForOneEvent(ctx context.Context, c EventsClient, query string) (types.EventData, error) {
-	for {
+	for ctx.Err() == nil {
 		rsp, err := c.Events(ctx, &coretypes.RequestEvents{
 			Filter:   &coretypes.EventFilter{Query: query},
 			MaxItems: 1,
@@ -74,4 +74,5 @@ func WaitForOneEvent(ctx context.Context, c EventsClient, query string) (types.E
 		}
 		return result, nil
 	}
+	return nil, ctx.Err()
 }

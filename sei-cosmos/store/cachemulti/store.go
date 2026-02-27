@@ -7,11 +7,11 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
 	gigacachekv "github.com/sei-protocol/sei-chain/giga/deps/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 //----------------------------------------
@@ -106,7 +106,7 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 		for k := range cms.parents {
 			// Inline the creation here — we already hold the write lock.
 			parent := cms.parents[k]
-			var cw types.CacheWrapper = parent
+			var cw = parent
 			if cms.TracingEnabled() {
 				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 			}
@@ -156,7 +156,7 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 	if !ok {
 		return nil
 	}
-	var cw types.CacheWrapper = parent
+	var cw = parent
 	if cms.TracingEnabled() {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
@@ -310,7 +310,7 @@ func (cms *Store) AddCloser(closer io.Closer) {
 
 func (cms Store) Close() {
 	for _, closer := range cms.closers {
-		closer.Close()
+		_ = closer.Close()
 	}
 }
 

@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 // Cmd returns a CLI command to interactively create an application CLI
@@ -66,7 +66,9 @@ func runConfigCmd(cmd *cobra.Command, args []string) error {
 	case 2:
 		// it's set
 		key, value := args[0], args[1]
-		SetClientConfig(key, value, configPath, conf)
+		if err := SetClientConfig(key, value, configPath, conf); err != nil {
+			return err
+		}
 	default:
 		panic("cound not execute config command")
 	}

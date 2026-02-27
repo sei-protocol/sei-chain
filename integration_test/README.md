@@ -13,7 +13,11 @@ on your local machine for development and testing purposes.
 
 ### Usage
 1. Ensure docker containers are up and running: `make docker-cluster-start`
-2. Execute the tests with this command: `python3 integration_test/scripts/runner.py test.yaml`
+2. Execute a test by passing the path to a test YAML file (from repo root), e.g.:
+   ```bash
+   python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+   ```
+   To run other tests, use paths under `integration_test/` such as `integration_test/bank_module/send_funds_test.yaml`.
 
 ## Writing Tests
 Each integration test is defined in a YAML file under its specific module folder under the integration_test directory

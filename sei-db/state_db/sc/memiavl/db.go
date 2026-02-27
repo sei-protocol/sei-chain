@@ -463,12 +463,19 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 		if !ok {
 			// channel was closed without sending a result
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return errors.New("snapshot rewrite channel closed unexpectedly")
 		}
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
+		} else {
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		// wait for potential pending writes to finish, to make sure we catch up to latest state.
@@ -485,11 +492,15 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		}
 
 		// catchup the remaining entries in rlog
+		startTime := time.Now()
 		if wal := db.GetWAL(); wal != nil {
 			if err := result.mtree.Catchup(context.Background(), wal, db.walIndexDelta, 0); err != nil {
 				return fmt.Errorf("catchup failed: %w", err)
 			}
 		}
+		replayElapsedTime := time.Since(startTime).Seconds()
+		otelMetrics.CatchupBeforeReloadLatency.Record(context.Background(), replayElapsedTime)
+		db.logger.Info("successfully replayed and caught up before switching to new memiavl snapshot", "version", db.MultiTree.Version(), "latency_sec", replayElapsedTime)
 
 		// do the switch
 		if err := db.reloadMultiTree(result.mtree); err != nil {
@@ -519,7 +530,9 @@ func (db *DB) pruneSnapshots() {
 	db.logger.Info("pruneSnapshots started")
 	startTime := time.Now()
 	defer func() {
-		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", time.Since(startTime).Seconds()))
+		pruneLatency := time.Since(startTime).Seconds()
+		otelMetrics.SnapshotPruneLatency.Record(context.Background(), pruneLatency)
+		db.logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", pruneLatency))
 	}()
 
 	currentVersion, err := currentVersion(db.dir)
@@ -541,15 +554,19 @@ func (db *DB) pruneSnapshots() {
 		}
 
 		name := snapshotName(version)
-		db.logger.Info("prune snapshot", "name", name)
 
 		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
 			db.logger.Error("failed to prune snapshot", "err", err)
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+		} else {
+			db.logger.Info("successfully pruned snapshot", "name", name)
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		return false, nil
 	}); err != nil {
 		db.logger.Error("fail to prune snapshots", "err", err)
+		otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		return
 	}
 }
@@ -651,6 +668,7 @@ func (db *DB) Commit() (version int64, _err error) {
 	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
 	db.tryTruncateWAL()
+	otelMetrics.CurrentSnapshotHeight.Record(context.Background(), db.SnapshotVersion())
 
 	return v, nil
 }
@@ -840,6 +858,7 @@ func (db *DB) rewriteIfApplicable(height int64) {
 
 		if err := db.rewriteSnapshotBackground(); err != nil {
 			db.logger.Error("failed to rewrite snapshot in background", "err", err)
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		}
 	}
 }
@@ -881,7 +900,6 @@ func (db *DB) rewriteSnapshotBackground() error {
 		defer close(ch)
 		startTime := time.Now()
 		cloned.logger.Info("start rewriting snapshot", "version", cloned.Version())
-
 		rewriteStart := time.Now()
 		if err := cloned.RewriteSnapshot(ctx); err != nil {
 			cloned.logger.Error("failed to rewrite snapshot", "error", err, "elapsed", time.Since(rewriteStart).Seconds())
@@ -921,15 +939,17 @@ func (db *DB) rewriteSnapshotBackground() error {
 				ch <- snapshotResult{err: err}
 				return
 			}
-			cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version(), "elapsed", time.Since(catchupStart).Seconds())
+			catchupElapsed := time.Since(catchupStart).Seconds()
+			otelMetrics.CatchupAfterRewriteLatency.Record(context.Background(), catchupElapsed)
+			cloned.logger.Info("finished best-effort catchup after snapshot rewrite", "version", cloned.Version(), "latest", mtree.Version(), "elapsed", catchupElapsed)
 		}
 
 		ch <- snapshotResult{mtree: mtree}
-		totalElapsed := time.Since(startTime).Seconds()
-		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalElapsed, "duration_min", totalElapsed/60)
-		otelMetrics.SnapshotCreationLatency.Record(
+		totalRewriteElapsed := time.Since(startTime).Seconds()
+		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalRewriteElapsed, "duration_min", totalRewriteElapsed/60)
+		otelMetrics.SnapshotRewriteLatency.Record(
 			context.Background(),
-			totalElapsed,
+			totalRewriteElapsed,
 		)
 	}()
 

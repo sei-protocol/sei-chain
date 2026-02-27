@@ -306,7 +306,8 @@ func (s *StorageTestSuite) TestDatabaseIteratorClose() {
 	s.Require().NoError(iter.Close())
 
 	s.Require().False(iter.Valid())
-	s.Require().Panics(func() { _ = iter.Close() })
+	// Close is idempotent
+	s.Require().NotPanics(func() { _ = iter.Close() })
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorDomain() {

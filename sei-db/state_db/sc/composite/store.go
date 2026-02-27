@@ -1,9 +1,12 @@
+// Package composite provides a unified commit store that coordinates
+// between Cosmos (memiavl) and EVM (flatkv) committers.
 package composite
 
 import (
 	"fmt"
+	"math"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -23,10 +26,10 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 type CompositeCommitStore struct {
 	logger logger.Logger
 
-	// cosmosSC is the Cosmos (memiavl) backend - always initialized
+	// cosmosCommitter is the Cosmos (memiavl) backend - always initialized
 	cosmosCommitter *memiavl.CommitStore
 
-	// flatkvSC is the FlatKV backend - may be nil if not enabled
+	// evmCommitter is the FlatKV backend - may be nil if not enabled
 	evmCommitter flatkv.Store
 
 	// homeDir is the base directory for the store
@@ -36,23 +39,29 @@ type CompositeCommitStore struct {
 	config config.StateCommitConfig
 }
 
-// NewCompositeCommitStore creates a new composite commit store
+// NewCompositeCommitStore creates a new composite commit store.
+// Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DBs.
+// This matches the memiavl.NewCommitStore pattern.
 func NewCompositeCommitStore(
 	homeDir string,
 	logger logger.Logger,
 	cfg config.StateCommitConfig,
 ) *CompositeCommitStore {
-	// Always initialize the Cosmos backend
-	cosmosSC := memiavl.NewCommitStore(homeDir, logger, cfg.MemIAVLConfig)
+	// Always initialize the Cosmos backend (creates struct only, not opened)
+	cosmosCommitter := memiavl.NewCommitStore(homeDir, logger, cfg.MemIAVLConfig)
 
 	store := &CompositeCommitStore{
 		logger:          logger,
-		cosmosCommitter: cosmosSC,
+		cosmosCommitter: cosmosCommitter,
 		homeDir:         homeDir,
 		config:          cfg,
 	}
 
-	// TODO: initialize FlatKV store for evmSC when cfg.WriteMode != config.CosmosOnlyWrite
+	// Initialize FlatKV store struct if write mode requires it
+	// Note: DB is NOT opened here, will be opened in LoadVersion
+	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
+		store.evmCommitter = flatkv.NewCommitStore(homeDir, logger, cfg.FlatKVConfig)
+	}
 
 	return store
 }
@@ -68,7 +77,7 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 }
 
 // LoadVersion loads the specified version of the database.
-// Being used for two scenario:
+// Being used for two scenarios:
 // ReadOnly: Either for state sync or for historical proof
 // Writable: Opened during initialization for root multistore
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
@@ -81,14 +90,31 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 	if !ok {
 		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 	}
-	return &CompositeCommitStore{
-		logger:          cs.logger,
-		cosmosCommitter: cosmosCommitter,
-		homeDir:         cs.homeDir,
-		config:          cs.config,
-		// TODO: Also load evmCommitter for readOnly if enabled
-	}, nil
 
+	// Read only mode should return a new SC
+	if readOnly {
+		newStore := &CompositeCommitStore{
+			logger:          cs.logger,
+			cosmosCommitter: cosmosCommitter,
+			homeDir:         cs.homeDir,
+			config:          cs.config,
+		}
+		// TODO: Support loading FlatKV at target version for read only
+		return newStore, nil
+	}
+
+	cs.cosmosCommitter = cosmosCommitter
+	// Load evmCommitter if initialized (nil when WriteMode is CosmosOnlyWrite).
+	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
+	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
+	if cs.evmCommitter != nil {
+		_, err := cs.evmCommitter.LoadVersion(targetVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
+		}
+	}
+
+	return cs, nil
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
@@ -108,8 +134,19 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 			cosmosChangeset = append(cosmosChangeset, changeset)
 		}
 	}
-	if cs.config.WriteMode == config.CosmosOnlyWrite || cs.config.WriteMode == config.DualWrite {
+
+	// Handle write mode routing
+	switch cs.config.WriteMode {
+	case config.CosmosOnlyWrite:
+		// All data goes to cosmos
 		cosmosChangeset = changesets
+		evmChangeset = nil
+	case config.DualWrite:
+		// EVM data goes to both, non-EVM only to cosmos
+		cosmosChangeset = changesets
+		// evmChangeset already filtered above
+	case config.SplitWrite:
+		// EVM goes to EVM store, non-EVM to cosmos (already filtered above)
 	}
 
 	// Cosmos changesets always goes to cosmos commit store
@@ -119,7 +156,7 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 		}
 	}
 
-	if cs.evmCommitter != nil {
+	if cs.evmCommitter != nil && len(evmChangeset) > 0 {
 		if err := cs.evmCommitter.ApplyChangeSets(evmChangeset); err != nil {
 			return fmt.Errorf("failed to apply EVM changesets: %w", err)
 		}
@@ -161,9 +198,8 @@ func (cs *CompositeCommitStore) Version() int64 {
 		return cs.cosmosCommitter.Version()
 	} else if cs.evmCommitter != nil {
 		return cs.evmCommitter.Version()
-	} else {
-		return 0
 	}
+	return 0
 }
 
 // GetLatestVersion returns the latest version
@@ -198,10 +234,8 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 
 // Rollback rolls back to the specified version
 func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
-	if cs.cosmosCommitter != nil {
-		if err := cs.cosmosCommitter.Rollback(targetVersion); err != nil {
-			return fmt.Errorf("failed to rollback cosmos commit store: %w", err)
-		}
+	if err := cs.cosmosCommitter.Rollback(targetVersion); err != nil {
+		return fmt.Errorf("failed to rollback cosmos commit store: %w", err)
 	}
 
 	if cs.evmCommitter != nil {
@@ -215,14 +249,28 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 
 // Exporter returns an exporter for state sync
 func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) {
+	if version < 0 || version > math.MaxUint32 {
+		return nil, fmt.Errorf("version %d out of range", version)
+	}
 	// TODO: Add evm committer for exporter
 	return cs.cosmosCommitter.Exporter(version)
 }
 
 // Importer returns an importer for state sync
 func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) {
-	// TODO: Add evm committer for Importer
-	return cs.cosmosCommitter.Importer(version)
+	cosmosImporter, err := cs.cosmosCommitter.Importer(version)
+	if err != nil {
+		return nil, err
+	}
+	var evmImporter types.Importer
+	if cs.evmCommitter != nil {
+		evmImporter, err = cs.evmCommitter.Importer(version)
+		if err != nil {
+			return nil, err
+		}
+	}
+	compositeImporter := NewImporter(cosmosImporter, evmImporter)
+	return compositeImporter, nil
 }
 
 // Close closes all backends
@@ -241,5 +289,5 @@ func (cs *CompositeCommitStore) Close() error {
 		}
 	}
 
-	return errors.Join(errs...)
+	return commonerrors.Join(errs...)
 }
