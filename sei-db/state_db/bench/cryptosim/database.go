@@ -49,7 +49,7 @@ func NewDatabase(
 // Insert a key-value pair into the database/cache.
 //
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
-// safe with FinalizeBlock().
+// safe with FinalizeBlock(). It is not thread safe to modify the returned value (make a copy first).
 func (d *Database) Put(key []byte, value []byte) error {
 	d.batch.Put(string(key), value)
 	return nil

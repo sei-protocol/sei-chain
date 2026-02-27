@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
@@ -104,13 +105,16 @@ type CryptoSimConfig struct {
 
 	// The size of the queue for each transaction executor.
 	ExecutorQueueSize int
+
+	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
+	MaxRuntimeSeconds time.Duration
 }
 
 // Returns the default configuration for the cryptosim benchmark.
 func DefaultCryptoSimConfig() *CryptoSimConfig {
 
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
-	// That file should conatain every available config set to its default value, as a reference.
+	// That file should contain every available config set to its default value, as a reference.
 
 	return &CryptoSimConfig{
 		MinimumNumberOfAccounts:           1_000_000,
@@ -135,7 +139,17 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
+		MaxRuntimeSeconds:                 0,
 	}
+}
+
+// StringifiedConfig returns the config as human-readable, multi-line JSON.
+func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // Validate checks that the configuration is sane and returns an error if not.
@@ -184,6 +198,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.SetupUpdateIntervalCount < 1 {
 		return fmt.Errorf("SetupUpdateIntervalCount must be at least 1 (got %d)", c.SetupUpdateIntervalCount)
+	}
+	if c.MaxRuntimeSeconds < 0 {
+		return fmt.Errorf("MaxRuntimeSeconds must be at least 0 (got %d)", c.MaxRuntimeSeconds)
 	}
 	return nil
 }

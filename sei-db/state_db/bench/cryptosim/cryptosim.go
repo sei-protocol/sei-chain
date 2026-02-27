@@ -42,8 +42,8 @@ type CryptoSim struct {
 	// The time the benchmark started.
 	startTimestamp time.Time
 
-	// The run channel sends a signal on this channel when it has halted.
-	runHaltedChan chan struct{}
+	// A message is sent on this channel when the benchmark is fully stopped and all resources have been released.
+	closeChan chan struct{}
 
 	// The data generator for the benchmark.
 	dataGenerator *DataGenerator
@@ -117,7 +117,7 @@ func NewCryptoSim(
 		consoleUpdatePeriod:               consoleUpdatePeriod,
 		lastConsoleUpdateTime:             start,
 		lastConsoleUpdateTransactionCount: 0,
-		runHaltedChan:                     make(chan struct{}, 1),
+		closeChan:                         make(chan struct{}, 1),
 		dataGenerator:                     dataGenerator,
 		database:                          database,
 		executors:                         executors,
@@ -232,7 +232,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 
 		c.database.IncrementTransactionCount()
 
-		_, _, err := c.dataGenerator.CreateNewErc20Contract(c, c.config.Erc20ContractSize, true)
+		_, _, err := c.dataGenerator.CreateNewErc20Contract(c.config.Erc20ContractSize, true)
 		if err != nil {
 			return fmt.Errorf("failed to create new ERC20 contract: %w", err)
 		}
@@ -274,9 +274,9 @@ func (c *CryptoSim) setupErc20Contracts() error {
 // The main loop of the benchmark.
 func (c *CryptoSim) run() {
 
-	defer func() {
-		c.runHaltedChan <- struct{}{}
-	}()
+	defer c.teardown()
+
+	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds * time.Second))
 
 	for {
 		select {
@@ -291,6 +291,7 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
+				continue
 			}
 
 			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
@@ -303,12 +304,28 @@ func (c *CryptoSim) run() {
 			}
 			if finalized {
 				c.dataGenerator.ReportFinalizeBlock()
+
+				if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
+					c.cancel()
+				}
 			}
 
 			c.database.IncrementTransactionCount()
 			c.generateConsoleReport(false)
 		}
 	}
+}
+
+// Clean up the benchmark and release any resources.
+func (c *CryptoSim) teardown() {
+	err := c.database.Close(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+	if err != nil {
+		fmt.Printf("failed to close database: %v\n", err)
+	}
+
+	c.dataGenerator.Close()
+
+	c.closeChan <- struct{}{}
 }
 
 // Generates a human readable report of the benchmark's progress.
@@ -345,14 +362,10 @@ func (c *CryptoSim) generateConsoleReport(force bool) {
 // Shut down the benchmark and release any resources.
 func (c *CryptoSim) Close() error {
 	c.cancel()
-	<-c.runHaltedChan
+	<-c.closeChan
 
-	err := c.database.Close(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
-	if err != nil {
-		return fmt.Errorf("failed to close database: %w", err)
-	}
-
-	c.dataGenerator.Close()
+	// "reload" closeChan in case other goroutines are waiting on it.
+	c.closeChan <- struct{}{}
 
 	fmt.Printf("Benchmark terminated successfully.\n")
 
@@ -364,4 +377,12 @@ func (c *CryptoSim) flushExecutors() {
 	for _, executor := range c.executors {
 		executor.Flush()
 	}
+}
+
+// Blocks until the benchmark has halted.
+func (c *CryptoSim) BlockUntilHalted() {
+	<-c.closeChan
+
+	// "reload" closeChan in case other goroutines are waiting on it.
+	c.closeChan <- struct{}{}
 }

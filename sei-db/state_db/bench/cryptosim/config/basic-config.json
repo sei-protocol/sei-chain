@@ -22,5 +22,6 @@
   "Seed": 1337,
   "SetupUpdateIntervalCount": 100000,
   "ThreadsPerCore": 2.0,
-  "TransactionsPerBlock": 1024
+  "TransactionsPerBlock": 1024,
+  "MaxRuntimeSeconds": 60
 }
