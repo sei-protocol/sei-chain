@@ -114,7 +114,7 @@ func NewCryptoSim(
 	executors := make([]*TransactionExecutor, threadCount)
 	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
-			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
+			ctx, cancel, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
 
 	c := &CryptoSim{
@@ -305,6 +305,7 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
+				c.cancel()
 				continue
 			}
 
@@ -315,6 +316,8 @@ func (c *CryptoSim) run() {
 				c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
+				c.cancel()
+				continue
 			}
 			if finalized {
 				c.dataGenerator.ReportFinalizeBlock()

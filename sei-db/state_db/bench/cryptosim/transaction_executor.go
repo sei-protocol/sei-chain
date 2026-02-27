@@ -6,7 +6,8 @@ import (
 )
 
 type TransactionExecutor struct {
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// The database for the benchmark.
 	database *Database
@@ -29,6 +30,7 @@ type flushRequest struct {
 // A single threaded transaction executor.
 func NewTransactionExecutor(
 	ctx context.Context,
+	cancel context.CancelFunc,
 	database *Database,
 	feeCollectionAddress []byte,
 	queueSize int,
@@ -88,6 +90,7 @@ func (e *TransactionExecutor) mainLoop() {
 
 				if err := request.Execute(e.database, e.feeCollectionAddress, phaseTimer); err != nil {
 					log.Printf("transaction execution error: %v", err)
+					e.cancel()
 				}
 			case flushRequest:
 				request.doneChan <- struct{}{}
