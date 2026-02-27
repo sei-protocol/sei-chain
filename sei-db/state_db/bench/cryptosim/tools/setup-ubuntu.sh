@@ -66,7 +66,7 @@ else
 fi
 
 echo ""
-echo "=== Installing Docker (for Prometheus/Grafana metrics; optional) ==="
+echo "=== Installing Docker (for Prometheus/Grafana metrics) ==="
 if command -v docker &>/dev/null; then
 	echo "Docker already installed: $(docker --version)"
 else
@@ -78,22 +78,21 @@ else
 		> /etc/apt/sources.list.d/docker.list
 	apt-get update
 	apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-	echo "Docker installed. Add users to the 'docker' group for non-root access: usermod -aG docker <username>"
+	echo "Docker installed."
+fi
+
+# Start Docker daemon and enable on boot (handles both fresh install and existing install)
+echo "Starting and enabling Docker daemon..."
+systemctl start docker
+systemctl enable docker
+
+# Add sudo user to docker group for non-root access (requires new login to take effect)
+if [[ -n "${SUDO_USER:-}" ]] && [[ "$SUDO_USER" != "root" ]]; then
+	usermod -aG docker "$SUDO_USER"
+	echo "Added $SUDO_USER to docker group. Log out and back in (or run 'newgrp docker') for non-root access."
 fi
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
-echo "To use Go in the current shell, run:"
-echo "  export PATH=\$PATH:/usr/local/go/bin"
-echo "  (or log out and back in, or start a new tmux session)"
-echo ""
-echo "To run the cryptosim benchmark:"
-echo "  1. Clone the sei-chain repo (or copy it to the machine)"
-echo "  2. cd <sei-chain>/sei-db/state_db/bench/cryptosim"
-echo "  3. ./run.sh ./config/basic-config.json"
-echo ""
-echo "For Prometheus/Grafana metrics:"
-echo "  ./metrics/start-prometheus.sh"
-echo "  ./metrics/start-grafana.sh"
-echo ""
+

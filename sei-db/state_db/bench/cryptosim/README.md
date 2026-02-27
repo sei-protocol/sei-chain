@@ -73,3 +73,37 @@ You can stop these services by killing their containers, or by running the follo
 ./metrics/stop-prometheus.sh
 ./metrics/stop-grafana.sh
 ```
+
+# Running in AWS
+
+To set up this benchmark on an AWS machine, perform the following steps:
+
+1. Clone the repo
+
+```
+git clone https://github.com/sei-protocol/sei-chain.git
+```
+
+2. Install dependencies
+
+```
+cd ./sei-chain/sei-db/state_db/bench/cryptosim
+./tools/setup-ubuntu.sh
+```
+
+3: Start Prometheus Server (optional)
+
+```
+cd ./sei-chain/sei-db/state_db/bench/cryptosim
+./metrics/start-prometheus.sh
+```
+
+3. Start the Benchmark
+
+Optional: start a tmux session (the install script installs tmux). This will allow the benchmark to run
+even if your connection is interrupted.
+
+```
+cd sei-chain/sei-db/state_db/bench/cryptosim
+./run.sh ./config/basic-config.json
+```
