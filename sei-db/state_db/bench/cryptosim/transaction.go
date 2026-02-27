@@ -143,6 +143,9 @@ func (txn *transaction) Execute(
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
+	srcAccountValueCopy := make([]byte, len(srcAccountValue))
+	copy(srcAccountValueCopy, srcAccountValue)
+	srcAccountValue = srcAccountValueCopy
 
 	if txn.isSrcNew {
 		// This is a new account, so we should not find it in the DB.
@@ -176,6 +179,9 @@ func (txn *transaction) Execute(
 			return fmt.Errorf("destination account not found")
 		}
 	}
+	dstAccountValueCopy := make([]byte, len(dstAccountValue))
+	copy(dstAccountValueCopy, dstAccountValue)
+	dstAccountValue = dstAccountValueCopy
 
 	phaseTimer.SetPhase("read_src_account_slot")
 
@@ -205,6 +211,9 @@ func (txn *transaction) Execute(
 	if !found {
 		return fmt.Errorf("fee collection account not found")
 	}
+	feeValueCopy := make([]byte, len(feeValue))
+	copy(feeValueCopy, feeValue)
+	feeValue = feeValueCopy
 
 	phaseTimer.SetPhase("update_balances")
 
