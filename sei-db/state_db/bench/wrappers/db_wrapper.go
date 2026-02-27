@@ -11,6 +11,9 @@ type DBWrapper interface {
 	// Non-EVM modules are ignored. Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
+	// Read reads the value for the given key.
+	Read(key []byte) (data []byte, found bool, err error)
+
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
