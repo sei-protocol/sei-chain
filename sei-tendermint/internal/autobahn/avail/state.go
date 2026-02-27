@@ -67,17 +67,17 @@ func newNoOpPersisters() persisters {
 const innerFile = "avail_inner"
 
 // loadPersistedState loads persisted avail state from disk and creates persisters for ongoing writes.
-func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.AppQC], *persist.BlockPersister, *persist.CommitQCPersister, error) {
-	persister, persistedProto, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
+func loadPersistedState(dir string) (*loadedAvailState, persisters, error) {
+	appQCPersister, persistedProto, err := persist.NewPersister[*apb.AppQC](dir, innerFile)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+		return nil, persisters{}, fmt.Errorf("NewPersister %s: %w", innerFile, err)
 	}
 
 	var appQC utils.Option[*types.AppQC]
 	if pb, ok := persistedProto.Get(); ok {
 		qc, err := types.AppQCConv.Decode(pb)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("decode persisted AppQC: %w", err)
+			return nil, persisters{}, fmt.Errorf("decode persisted AppQC: %w", err)
 		}
 		log.Info().
 			Uint64("roadIndex", uint64(qc.Proposal().RoadIndex())).
@@ -88,15 +88,17 @@ func loadPersistedState(dir string) (*loadedAvailState, persist.Persister[*apb.A
 
 	bp, blocks, err := persist.NewBlockPersister(dir)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
+		return nil, persisters{}, fmt.Errorf("NewBlockPersister: %w", err)
 	}
 
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("NewCommitQCPersister: %w", err)
+		return nil, persisters{}, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
 
-	return &loadedAvailState{appQC: appQC, commitQCs: commitQCs, blocks: blocks}, persister, bp, cp, nil
+	loaded := &loadedAvailState{appQC: appQC, commitQCs: commitQCs, blocks: blocks}
+	pers := persisters{appQC: appQCPersister, blocks: bp, commitQCs: cp}
+	return loaded, pers, nil
 }
 
 // NewState constructs a new availability state.
@@ -107,12 +109,12 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	var pers persisters
 
 	if dir, ok := stateDir.Get(); ok {
-		l, appQC, blocks, commitQCs, err := loadPersistedState(dir)
+		l, p, err := loadPersistedState(dir)
 		if err != nil {
 			return nil, err
 		}
 		loaded = utils.Some(l)
-		pers = persisters{appQC: appQC, blocks: blocks, commitQCs: commitQCs}
+		pers = p
 	} else {
 		pers = newNoOpPersisters()
 	}
