@@ -201,6 +201,13 @@ func (c *MConnection) LocalAddr() netip.AddrPort  { return c.conn.LocalAddr() }
 func (c *MConnection) RemoteAddr() netip.AddrPort { return c.conn.RemoteAddr() }
 func (c *MConnection) Close()                     { c.conn.Close() }
 
+// String returns a safe, concise representation of the connection.
+// This prevents the race caused by slog/fmt reflecting over mutable fields
+// (such as recvPong) when MConnection is passed as a log value.
+func (c *MConnection) String() string {
+	return fmt.Sprintf("MConnection{%s->%s}", c.conn.LocalAddr(), c.conn.RemoteAddr())
+}
+
 // Queues a message to be sent.
 // WARNING: takes ownership of msgBytes
 // TODO(gprusak): fix the ownership

@@ -35,7 +35,7 @@ type Migrator struct {
 }
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	logger := log.NewTMLogger(os.Stdout)
 
 	// Creating CMS for store V1
 	cmsV1 := rootmulti.NewStore(db, logger)

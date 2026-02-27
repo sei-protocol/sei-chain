@@ -1,9 +1,8 @@
 package log
 
 import (
+	"log/slog"
 	"testing"
-
-	"github.com/rs/zerolog"
 )
 
 // NewTestingLogger converts a testing.T into a logging interface to
@@ -20,24 +19,16 @@ import (
 // made in goroutines that are running after (which, by the rules of
 // testing.TB will panic.)
 func NewTestingLogger(t testing.TB) Logger {
-	level := LogLevelError
+	level := slog.LevelError
 	if testing.Verbose() {
-		level = LogLevelDebug
+		level = slog.LevelDebug
 	}
-
-	return NewTestingLoggerWithLevel(t, level)
-}
-
-// NewTestingLoggerWithLevel creates a testing logger instance at a
-// specific level that wraps the behavior of testing.T.Log().
-func NewTestingLoggerWithLevel(t testing.TB, level string) Logger {
-	logLevel, err := zerolog.ParseLevel(level)
-	if err != nil {
-		t.Fatalf("failed to parse log level (%s): %v", level, err)
-	}
-
-	return defaultLogger{
-		Logger: zerolog.New(newSyncWriter(testingWriter{t})).Level(logLevel),
+	out := &testingWriter{t}
+	return &defaultLogger{
+		logger: slog.New(
+			slog.NewTextHandler(
+				out,
+				&slog.HandlerOptions{Level: level})),
 	}
 }
 

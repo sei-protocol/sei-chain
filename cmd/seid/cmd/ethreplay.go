@@ -49,7 +49,7 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+			logger := log.NewTMLogger(os.Stdout)
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
