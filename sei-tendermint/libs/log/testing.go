@@ -1,9 +1,11 @@
 package log
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
-	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 // NewTestingLogger converts a testing.T into a logging interface to
@@ -24,21 +26,24 @@ func NewTestingLogger(t testing.TB) Logger {
 	if testing.Verbose() {
 		level = LogLevelDebug
 	}
-
-	return NewTestingLoggerWithLevel(t, level)
+	logger, err := NewTestingLoggerWithLevel(&testingWriter{t}, level)
+	require.NoError(t, err)
+	return logger
 }
 
 // NewTestingLoggerWithLevel creates a testing logger instance at a
 // specific level that wraps the behavior of testing.T.Log().
-func NewTestingLoggerWithLevel(t testing.TB, level string) Logger {
-	logLevel, err := zerolog.ParseLevel(level)
-	if err != nil {
-		t.Fatalf("failed to parse log level (%s): %v", level, err)
+func NewTestingLoggerWithLevel(out io.Writer, level string) (Logger, error) {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		return nil, err
 	}
-
-	return defaultLogger{
-		Logger: zerolog.New(newSyncWriter(testingWriter{t})).Level(logLevel),
-	}
+	return &defaultLogger{
+		logger: slog.New(
+			slog.NewTextHandler(
+				out,
+				&slog.HandlerOptions{Level: lvl})),
+	}, nil
 }
 
 type testingWriter struct {

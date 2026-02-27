@@ -28,8 +28,6 @@ require (
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/go-kit/kit v0.13.0
-	github.com/go-kit/log v0.2.1
-	github.com/go-logfmt/logfmt v0.6.0
 	github.com/go-playground/validator/v10 v10.11.1
 	github.com/gofrs/flock v0.13.0
 	github.com/gogo/gateway v1.1.0

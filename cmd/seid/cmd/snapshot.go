@@ -58,7 +58,7 @@ func SnapshotCmd() *cobra.Command {
 			}
 
 			// Create logger
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+			logger := log.NewTMLogger(os.Stdout)
 
 			// Get app options from server context
 			appOpts := serverCtx.Viper
