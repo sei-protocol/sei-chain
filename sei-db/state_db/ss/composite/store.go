@@ -315,51 +315,58 @@ func RecoverCompositeStateStore(
 	changelogPath string,
 	compositeStore *CompositeStateStore,
 ) error {
-	// TODO: Remove this piece once cosmos is fully deprecated
+	var cosmosVersion int64
 	if compositeStore.cosmosStore != nil {
-		cosmosVersion := compositeStore.cosmosStore.GetLatestVersion()
-		logger.Info("Recovering Cosmos state store",
-			"cosmosVersion", cosmosVersion,
-			"changelogPath", changelogPath,
-		)
-		if err := ReplayWAL(logger, changelogPath, cosmosVersion, -1, func(entry proto.ChangelogEntry) error {
+		cosmosVersion = compositeStore.cosmosStore.GetLatestVersion()
+	}
+
+	var evmVersion int64
+	if compositeStore.evmStore != nil {
+		evmVersion = compositeStore.evmStore.GetLatestVersion()
+	}
+
+	startVersion := cosmosVersion
+	if compositeStore.evmStore != nil && evmVersion < startVersion {
+		startVersion = evmVersion
+	}
+
+	splitWrite := compositeStore.config.WriteMode == config.SplitWrite
+
+	logger.Info("Recovering CompositeStateStore",
+		"cosmosVersion", cosmosVersion,
+		"evmVersion", evmVersion,
+		"startVersion", startVersion,
+		"changelogPath", changelogPath,
+	)
+
+	return ReplayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
+		if compositeStore.cosmosStore != nil && entry.Version > cosmosVersion {
 			changesets := entry.Changesets
-			if compositeStore.config.WriteMode == config.SplitWrite {
+			if splitWrite {
 				changesets = stripEVMFromChangesets(changesets)
 			}
 			if err := compositeStore.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {
 				return fmt.Errorf("failed to apply cosmos changeset at version %d: %w", entry.Version, err)
 			}
-			return compositeStore.cosmosStore.SetLatestVersion(entry.Version)
-		}); err != nil {
-			return fmt.Errorf("failed to recover cosmos state store: %w", err)
+			if err := compositeStore.cosmosStore.SetLatestVersion(entry.Version); err != nil {
+				return fmt.Errorf("failed to set cosmos version %d: %w", entry.Version, err)
+			}
 		}
-	}
 
-	// TODO: consider combine the replay together to avoid double read WAL
-	if compositeStore.evmStore != nil {
-		evmVersion := compositeStore.evmStore.GetLatestVersion()
-		if evmVersion <= 0 {
-			return nil
-		}
-		logger.Info("Recovering EVM state store",
-			"evmVersion", evmVersion,
-			"changelogPath", changelogPath,
-		)
-		if err := ReplayWAL(logger, changelogPath, evmVersion, -1, func(entry proto.ChangelogEntry) error {
+		if compositeStore.evmStore != nil && entry.Version > evmVersion {
 			evmChangesets := filterEVMChangesets(entry.Changesets)
 			if len(evmChangesets) > 0 {
 				if err := compositeStore.evmStore.ApplyChangesetSync(entry.Version, evmChangesets); err != nil {
 					return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
 				}
 			}
-			return compositeStore.evmStore.SetLatestVersion(entry.Version)
-		}); err != nil {
-			return fmt.Errorf("failed to recover EVM state store: %w", err)
+			if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
+				return fmt.Errorf("failed to set EVM version %d: %w", entry.Version, err)
+			}
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 type WALEntryHandler func(entry proto.ChangelogEntry) error
