@@ -1323,12 +1323,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		// Only do expensive validation for potentially gasless transactions
 		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+			if isExpectedGaslessMetricsError(err) {
 				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
 				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
 				skipMetrics = true
 			} else {
-				ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
+				ctx.Logger().Debug("error checking if tx is gasless for metrics", "error", err)
 				// If we can't determine if it's gasless, record metrics to maintain existing behavior
 			}
 		} else if isGasless {
@@ -1497,12 +1497,12 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 				// Only do expensive validation for potentially gasless transactions
 				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
 				if err != nil {
-					if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+					if isExpectedGaslessMetricsError(err) {
 						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
 						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
 						recordGasMetrics = false
 					} else {
-						ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+						ctx.Logger().Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
 						// If we can't determine if it's gasless, record metrics to maintain existing behavior
 					}
 				} else if isGasless {
@@ -2419,6 +2419,20 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 	}
 
 	return true
+}
+
+func isExpectedGaslessMetricsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
+		return true
+	}
+
+	// Some wrapped error chains can lose sentinel identity while preserving
+	// the canonical oracle error text.
+	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
 }
 
 // couldBeGaslessTransaction performs a fast heuristic check to identify potentially
