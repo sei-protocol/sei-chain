@@ -2,8 +2,7 @@ package pebbledb
 
 import (
 	"github.com/cockroachdb/pebble/v2"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // pebbleIterator implements db_engine.Iterator using PebbleDB.
@@ -12,7 +11,7 @@ type pebbleIterator struct {
 	it *pebble.Iterator
 }
 
-var _ db_engine.KeyValueDBIterator = (*pebbleIterator)(nil)
+var _ types.KeyValueDBIterator = (*pebbleIterator)(nil)
 
 func (pi *pebbleIterator) First() bool          { return pi.it.First() }
 func (pi *pebbleIterator) Last() bool           { return pi.it.Last() }

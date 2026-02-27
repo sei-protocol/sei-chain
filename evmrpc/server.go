@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
@@ -45,7 +45,7 @@ func NewEVMHTTPServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore db_engine.StateStore,
+	stateStore types.StateStore,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
@@ -238,7 +238,7 @@ func NewEVMWebSocketServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
-	stateStore db_engine.StateStore,
+	stateStore types.StateStore,
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 

@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 type Manager struct {
 	logger        logger.Logger
-	stateStore    db_engine.StateStore
+	stateStore    types.StateStore
 	keepRecent    int64
 	pruneInterval int64
 
@@ -27,7 +27,7 @@ type Manager struct {
 // Pruning Manager will periodically prune state store based on keep-recent and prune-interval configs.
 func NewPruningManager(
 	logger logger.Logger,
-	stateStore db_engine.StateStore,
+	stateStore types.StateStore,
 	keepRecent int64,
 	pruneInterval int64,
 ) *Manager {

@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 func TestDBGetSetDelete(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestDBGetSetDelete(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
-	if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := db.Set(key, val, types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -38,7 +39,7 @@ func TestDBGetSetDelete(t *testing.T) {
 		t.Fatalf("value mismatch: got %q want %q", got, val)
 	}
 
-	if err := db.Delete(key, db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := db.Delete(key, types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -50,7 +51,7 @@ func TestDBGetSetDelete(t *testing.T) {
 
 func TestBatchAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -66,7 +67,7 @@ func TestBatchAtomicWrite(t *testing.T) {
 		t.Fatalf("batch set: %v", err)
 	}
 
-	if err := b.Commit(db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := b.Commit(types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("batch commit: %v", err)
 	}
 
@@ -89,7 +90,7 @@ func TestBatchAtomicWrite(t *testing.T) {
 
 func TestIteratorBounds(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -97,12 +98,12 @@ func TestIteratorBounds(t *testing.T) {
 
 	// Keys: a, b, c
 	for _, k := range []string{"a", "b", "c"} {
-		if err := db.Set([]byte(k), []byte("x"), db_engine.WriteOptions{Sync: false}); err != nil {
+		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
 			t.Fatalf("Set(%q): %v", k, err)
 		}
 	}
 
-	itr, err := db.NewIter(&db_engine.IterOptions{LowerBound: []byte("b"), UpperBound: []byte("d")})
+	itr, err := db.NewIter(&types.IterOptions{LowerBound: []byte("b"), UpperBound: []byte("d")})
 	if err != nil {
 		t.Fatalf("NewIter: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestIteratorBounds(t *testing.T) {
 
 func TestIteratorPrev(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestIteratorPrev(t *testing.T) {
 
 	// Keys: a, b, c
 	for _, k := range []string{"a", "b", "c"} {
-		if err := db.Set([]byte(k), []byte("x"), db_engine.WriteOptions{Sync: false}); err != nil {
+		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
 			t.Fatalf("Set(%q): %v", k, err)
 		}
 	}
@@ -188,14 +189,14 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{Comparer: &cmp})
+	db, err := Open(dir, types.OpenOptions{Comparer: &cmp})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	for _, k := range []string{"a/1", "a/2", "a/3", "b/1"} {
-		if err := db.Set([]byte(k), []byte("x"), db_engine.WriteOptions{Sync: false}); err != nil {
+		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
 			t.Fatalf("Set(%q): %v", k, err)
 		}
 	}
@@ -223,7 +224,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 
 func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Open(dir, db_engine.OpenOptions{Comparer: "not-a-pebble-comparer"})
+	_, err := Open(dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"})
 	if err == nil {
 		t.Fatalf("expected error for invalid comparer type")
 	}
@@ -231,7 +232,7 @@ func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 
 func TestErrNotFoundConsistency(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 
 func TestGetReturnsCopy(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestGetReturnsCopy(t *testing.T) {
 
 	key := []byte("k")
 	val := []byte("v")
-	if err := db.Set(key, val, db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := db.Set(key, val, types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -286,14 +287,14 @@ func TestGetReturnsCopy(t *testing.T) {
 
 func TestBatchLenResetDelete(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// First, set a key so we can delete it
-	if err := db.Set([]byte("to-delete"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -326,7 +327,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 	if err := b.Set([]byte("b"), []byte("2")); err != nil {
 		t.Fatalf("batch set: %v", err)
 	}
-	if err := b.Commit(db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := b.Commit(types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("batch commit: %v", err)
 	}
 
@@ -342,7 +343,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 		{"b", "val-b"},
 		{"c", "val-c"},
 	} {
-		if err := db.Set([]byte(kv.k), []byte(kv.v), db_engine.WriteOptions{Sync: false}); err != nil {
+		if err := db.Set([]byte(kv.k), []byte(kv.v), types.WriteOptions{Sync: false}); err != nil {
 			t.Fatalf("Set(%q): %v", kv.k, err)
 		}
 	}
@@ -379,14 +380,14 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestFlush(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Set some data
-	if err := db.Set([]byte("flush-test"), []byte("val"), db_engine.WriteOptions{Sync: false}); err != nil {
+	if err := db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -407,7 +408,7 @@ func TestFlush(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, db_engine.OpenOptions{})
+	db, err := Open(dir, types.OpenOptions{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

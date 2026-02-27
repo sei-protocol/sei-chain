@@ -6,16 +6,17 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/require"
 )
 
 // StorageBenchSuite defines a reusable benchmark suite for all storage backends.
 type StorageBenchSuite struct {
 	BenchBackendName string
-	NewDB            func(dir string) (db_engine.StateStore, error)
+	NewDB            func(dir string) (types.StateStore, error)
 }
 
 var rng = rand.New(rand.NewSource(567320))

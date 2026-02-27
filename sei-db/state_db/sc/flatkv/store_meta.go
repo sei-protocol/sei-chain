@@ -6,12 +6,12 @@ import (
 	"math"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // loadLocalMeta loads the local metadata from a DB, or returns default if not present.
-func loadLocalMeta(db db_engine.KeyValueDB) (*LocalMeta, error) {
+func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 	val, err := db.Get(DBLocalMetaKey)
 	if err != nil && !errorutils.IsNotFound(err) {
 		return nil, fmt.Errorf("could not get DBLocalMetaKey: %w", err)
@@ -76,5 +76,5 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	}
 
 	// Atomic commit with fsync
-	return batch.Commit(db_engine.WriteOptions{Sync: true})
+	return batch.Commit(types.WriteOptions{Sync: true})
 }

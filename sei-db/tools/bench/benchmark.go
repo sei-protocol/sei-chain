@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -19,7 +19,7 @@ import (
 // Given kv pairs (randomly shuffled), the version, batch size, it will spin up `concurrency` goroutines
 // each of which is assigned to a portion of the kv data and writes to db in `batchSize` batches.
 // It maintains a `latencies` channel which aggregates all the latencies
-func writeToDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair, concurrency int, version int64, batchSize int) []time.Duration {
+func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, concurrency int, version int64, batchSize int) []time.Duration {
 	allKVsLen := len(allKVs)
 	allLatencies := make([]time.Duration, 0, allKVsLen)
 	latencies := make(chan time.Duration, allKVsLen)
@@ -85,7 +85,7 @@ func writeToDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair,
 
 // BenchmarkDBWrite measures random write performance of the db
 // Given an input dir containing all the raw kv data, it writes to the db one version after another
-func BenchmarkDBWrite(db db_engine.StateStore, inputKVDir string, numVersions int, concurrency int, batchSize int) {
+func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, concurrency int, batchSize int) {
 	startLoad := time.Now()
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
@@ -127,7 +127,7 @@ func BenchmarkDBWrite(db db_engine.StateStore, inputKVDir string, numVersions in
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key and query the db.
 // It only performs `maxOps“ random reads and maintains a `latencies` channel which aggregates all the latencies.
-func readFromDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, maxOps int64) []time.Duration {
+func readFromDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, maxOps int64) []time.Duration {
 	allLatencies := make([]time.Duration, 0, maxOps)
 	latencies := make(chan time.Duration, maxOps)
 
@@ -176,7 +176,7 @@ func readFromDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair
 
 // BenchmarkDBRead measures random read performance of the db
 // Given an input dir containing all the raw kv data, it generates random read load and measures performance.
-func BenchmarkDBRead(db db_engine.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64) {
+func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
@@ -213,7 +213,7 @@ func BenchmarkDBRead(db db_engine.StateStore, inputKVDir string, numVersions int
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key, seeks to that key and starts a forward iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ forward iterations and maintains a `latencies` channel which aggregates all the latencies.
-func forwardIterateDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
+func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
 	allLatencies := make([]time.Duration, 0, maxOps)
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
@@ -275,7 +275,7 @@ func forwardIterateDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyVal
 
 // BenchmarkDBForwardIteration measures forward iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, forward iterates and measures performance.
-func BenchmarkDBForwardIteration(db db_engine.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
+func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
@@ -304,7 +304,7 @@ func BenchmarkDBForwardIteration(db db_engine.StateStore, inputKVDir string, num
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key, seeks to that key and starts a reverse iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ reverse iterations and maintains a `latencies` channel which aggregates all the latencies.
-func reverseIterateDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
+func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
 	allLatencies := make([]time.Duration, 0, maxOps)
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
@@ -367,7 +367,7 @@ func reverseIterateDBConcurrently(db db_engine.StateStore, allKVs []utils.KeyVal
 
 // BenchmarkDBReverseIteration measures reverse iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, reverse iterates and measures performance.
-func BenchmarkDBReverseIteration(db db_engine.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
+func BenchmarkDBReverseIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)

@@ -3,13 +3,14 @@ package evm
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/require"
 )
 
 func testConfig() config.StateStoreConfig {
@@ -20,7 +21,7 @@ func testConfig() config.StateStoreConfig {
 	}
 }
 
-func openTestStore(t *testing.T) db_engine.StateStore {
+func openTestStore(t *testing.T) types.StateStore {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := NewEVMStateStore(dir, testConfig(), logger.NewNopLogger())
@@ -31,7 +32,7 @@ func openTestStore(t *testing.T) db_engine.StateStore {
 
 // verifyStateStoreInterface ensures EVMStateStore satisfies db_engine.StateStore.
 func TestEVMStateStoreImplementsInterface(t *testing.T) {
-	var _ db_engine.StateStore = (*EVMStateStore)(nil)
+	var _ types.StateStore = (*EVMStateStore)(nil)
 }
 
 func TestEVMStateStoreGetHas(t *testing.T) {

@@ -3,12 +3,13 @@ package flatkv
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -52,10 +53,10 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 }
 
 // setupTestDB creates a temporary PebbleDB for testing
-func setupTestDB(t *testing.T) db_engine.KeyValueDB {
+func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := pebbledb.Open(dir, db_engine.OpenOptions{})
+	db, err := pebbledb.Open(dir, types.OpenOptions{})
 	require.NoError(t, err)
 	return db
 }

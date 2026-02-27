@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 func TestStorageTestSuite(t *testing.T) {
@@ -18,7 +18,7 @@ func TestStorageTestSuite(t *testing.T) {
 	rocksConfig.Backend = "rocksdb"
 	s := &sstest.StorageTestSuite{
 		BaseStorageTestSuite: sstest.BaseStorageTestSuite{
-			NewDB: func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error) {
+			NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
 				return OpenDB(dir, config)
 			},
 			Config:         rocksConfig,

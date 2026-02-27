@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -51,11 +51,11 @@ type CommitStore struct {
 	homeDir string
 
 	// Five separate PebbleDB instances
-	metadataDB db_engine.KeyValueDB // Global version + LtHash watermark
-	accountDB  db_engine.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     db_engine.KeyValueDB // addr(20) → bytecode
-	storageDB  db_engine.KeyValueDB // addr(20)||slot(32) → value(32)
-	legacyDB   db_engine.KeyValueDB // Legacy data for backward compatibility
+	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
+	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
+	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
+	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
+	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
 
 	// Per-DB local metadata (stored inside each DB at 0x00)
 	// Tracks committed version for recovery and consistency checks.
@@ -172,32 +172,32 @@ func (s *CommitStore) open() (retErr error) {
 	}()
 
 	// Open metadata DB first (needed for catchup)
-	metaDB, err := pebbledb.Open(metadataPath, db_engine.OpenOptions{})
+	metaDB, err := pebbledb.Open(metadataPath, seidbtypes.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}
 	toClose = append(toClose, metaDB)
 
 	// Open PebbleDB instances
-	accountDB, err := pebbledb.Open(accountPath, db_engine.OpenOptions{})
+	accountDB, err := pebbledb.Open(accountPath, seidbtypes.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open accountDB: %w", err)
 	}
 	toClose = append(toClose, accountDB)
 
-	codeDB, err := pebbledb.Open(codePath, db_engine.OpenOptions{})
+	codeDB, err := pebbledb.Open(codePath, seidbtypes.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open codeDB: %w", err)
 	}
 	toClose = append(toClose, codeDB)
 
-	storageDB, err := pebbledb.Open(storagePath, db_engine.OpenOptions{})
+	storageDB, err := pebbledb.Open(storagePath, seidbtypes.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open storageDB: %w", err)
 	}
 	toClose = append(toClose, storageDB)
 
-	legacyDB, err := pebbledb.Open(legacyPath, db_engine.OpenOptions{})
+	legacyDB, err := pebbledb.Open(legacyPath, seidbtypes.OpenOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to open legacyDB: %w", err)
 	}
@@ -216,7 +216,7 @@ func (s *CommitStore) open() (retErr error) {
 	toClose = append(toClose, changelog)
 
 	// Load per-DB local metadata (or initialize if not present)
-	dataDBs := map[string]db_engine.KeyValueDB{
+	dataDBs := map[string]seidbtypes.KeyValueDB{
 		accountDBDir: accountDB,
 		codeDBDir:    codeDB,
 		storageDBDir: storageDB,

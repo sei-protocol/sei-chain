@@ -1,4 +1,4 @@
-package db_engine
+package types
 
 import (
 	"io"
@@ -85,7 +85,7 @@ type KeyValueDBIterator interface {
 }
 
 // ---------------------------------------------------------------------------
-// MVCC (versioned) DB layer
+// SS DB layer
 // ---------------------------------------------------------------------------
 
 // StateStore is the unified interface for versioned key-value storage.

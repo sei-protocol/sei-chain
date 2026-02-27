@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"fmt"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	dbm "github.com/tendermint/tm-db"
 )
 
 type HashScanner struct {
@@ -40,7 +41,7 @@ func (s *HashScanner) ScanAllModules() {
 }
 
 func (s *HashScanner) scanAllHeights(module string) [][]byte {
-	dataCh := make(chan db_engine.RawSnapshotNode, 10000)
+	dataCh := make(chan types.RawSnapshotNode, 10000)
 	hashCalculator := hasher.NewXorHashCalculator(s.blocksInterval, int(s.latestVersion/s.blocksInterval+1), dataCh)
 	fmt.Printf("Starting to scan module: %s\n", module)
 	go func() {
@@ -62,7 +63,7 @@ func (s *HashScanner) scanAllHeights(module string) [][]byte {
 			if node.GetHeight() != 0 {
 				continue
 			}
-			snapshotNode := db_engine.RawSnapshotNode{
+			snapshotNode := types.RawSnapshotNode{
 				StoreKey: module,
 				Key:      node.GetNodeKey(),
 				Value:    node.GetValue(),

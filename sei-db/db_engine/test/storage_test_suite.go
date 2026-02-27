@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/stretchr/testify/suite"
+
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/stretchr/testify/suite"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 type BaseStorageTestSuite struct {
 	suite.Suite
 
-	NewDB          func(dir string, config config.StateStoreConfig) (db_engine.StateStore, error)
+	NewDB          func(dir string, config config.StateStoreConfig) (types.StateStore, error)
 	EmptyBatchSize int
 	Config         config.StateStoreConfig
 }
@@ -1295,10 +1296,10 @@ func (s *BaseStorageTestSuite) TestDatabaseImport() {
 
 	defer func() { _ = db.Close() }()
 
-	ch := make(chan db_engine.SnapshotNode, 10)
+	ch := make(chan types.SnapshotNode, 10)
 	go func() {
 		for i := 0; i < 10; i++ {
-			ch <- db_engine.SnapshotNode{
+			ch <- types.SnapshotNode{
 				StoreKey: "store1",
 				Key:      []byte(fmt.Sprintf("key%03d", i)),
 				Value:    []byte(fmt.Sprintf("value%03d", i)),

@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
-	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-var _ db_engine.DBIterator = (*iterator)(nil)
+var _ types.DBIterator = (*iterator)(nil)
 
 // iterator implements the Iterator interface. It wraps a PebbleDB iterator
 // with added MVCC key handling logic. The iterator will iterate over the key space

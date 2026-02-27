@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
@@ -18,13 +18,13 @@ import (
 )
 
 // Compile-time check.
-var _ db_engine.StateStore = (*CompositeStateStore)(nil)
+var _ types.StateStore = (*CompositeStateStore)(nil)
 
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
 // Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
 type CompositeStateStore struct {
-	cosmosStore    db_engine.StateStore // CosmosStateStore wrapping MVCC DB
-	evmStore       db_engine.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
+	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
+	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
 	config         config.StateStoreConfig
 	logger         logger.Logger
@@ -120,11 +120,11 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 	return s.cosmosStore.Has(storeKey, version, key)
 }
 
-func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
+func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	return s.cosmosStore.Iterator(storeKey, version, start, end)
 }
 
-func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (db_engine.DBIterator, error) {
+func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)
 }
 
@@ -253,15 +253,15 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
-func (s *CompositeStateStore) Import(version int64, ch <-chan db_engine.SnapshotNode) error {
+func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
 		return s.cosmosStore.Import(version, ch)
 	}
 
 	splitWrite := s.config.WriteMode == config.SplitWrite
 
-	cosmosCh := make(chan db_engine.SnapshotNode, 100)
-	evmCh := make(chan db_engine.SnapshotNode, 100)
+	cosmosCh := make(chan types.SnapshotNode, 100)
+	evmCh := make(chan types.SnapshotNode, 100)
 
 	var wg sync.WaitGroup
 	var cosmosErr, evmErr error
