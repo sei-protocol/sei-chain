@@ -50,3 +50,14 @@ The following features might be useful to add to this benchmark:
     - Metrics exported by the underlying DB
 - Prometheus/Grafana dashboards to visualize metrics
 - More exotic key access patterns
+
+
+# Setting Up Prometheus / Grafana
+
+TODO
+
+Other TODOs:
+
+- system metrics (e.g. memory, cpu, thread count, IO info if it's available)
+- disk utilization
+- disk utilizaiton per account (good for detecting disk leaks)
