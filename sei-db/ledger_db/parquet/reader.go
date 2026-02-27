@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -106,22 +107,25 @@ func (r *Reader) scanExistingFiles() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	receiptPattern := filepath.Join(r.basePath, "receipts_*.parquet")
-	receiptFiles, err := filepath.Glob(receiptPattern)
-	if err != nil {
-		log.Printf("failed to glob receipt parquet files with pattern %q: %v", receiptPattern, err)
-	}
-	r.closedReceiptFiles = r.validateFiles(receiptFiles)
-
-	logPattern := filepath.Join(r.basePath, "logs_*.parquet")
-	logFiles, err := filepath.Glob(logPattern)
-	if err != nil {
-		log.Printf("failed to glob log parquet files with pattern %q: %v", logPattern, err)
-	}
-	r.closedLogFiles = r.validateFiles(logFiles)
+	r.closedReceiptFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("receipts"), "logs")
+	r.closedLogFiles = r.validateAndCleanFiles(r.getAllParquetFilesByPrefix("logs"), "receipts")
 }
 
-func (r *Reader) validateFiles(files []string) []string {
+func (r *Reader) getAllParquetFilesByPrefix(prefix string) []string {
+	pattern := filepath.Join(r.basePath, prefix+"_*.parquet")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Printf("failed to glob %s parquet files with pattern %q: %v", prefix, pattern, err)
+	}
+	return files
+}
+
+// validateAndCleanFiles checks the last file for readability. If it is corrupt
+// (e.g. missing parquet footer from an unclean shutdown), the file and its
+// counterpart (identified by counterpartPrefix) are deleted from disk so they
+// cannot poison future DuckDB queries. Only the last file needs checking
+// because all previously rotated files had their writers properly closed.
+func (r *Reader) validateAndCleanFiles(files []string, counterpartPrefix string) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -134,7 +138,37 @@ func (r *Reader) validateFiles(files []string) []string {
 	if r.isFileReadable(lastFile) {
 		return files
 	}
+
+	startBlock := ExtractBlockNumber(lastFile)
+	log.Printf("removing corrupt parquet file: %s", lastFile)
+	_ = os.Remove(lastFile)
+
+	counterpart := filepath.Join(r.basePath, fmt.Sprintf("%s_%d.parquet", counterpartPrefix, startBlock))
+	_ = os.Remove(counterpart)
+	r.untrackCounterpart(counterpartPrefix, counterpart)
+
 	return files[:len(files)-1]
+}
+
+// untrackCounterpart removes a deleted counterpart from the already-populated
+// tracked slice. Must be called with r.mu held.
+func (r *Reader) untrackCounterpart(prefix, target string) {
+	switch prefix {
+	case "receipts":
+		r.closedReceiptFiles = removeFromSlice(r.closedReceiptFiles, target)
+	case "logs":
+		r.closedLogFiles = removeFromSlice(r.closedLogFiles, target)
+	}
+}
+
+func removeFromSlice(s []string, target string) []string {
+	filtered := s[:0]
+	for _, v := range s {
+		if v != target {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
 }
 
 func (r *Reader) isFileReadable(path string) bool {
