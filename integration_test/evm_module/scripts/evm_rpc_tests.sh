@@ -10,6 +10,7 @@ FROM="${SEI_EVM_IO_TX_FROM:-admin}"
 RECIPIENT="${SEI_EVM_IO_TX_RECIPIENT:-0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52}"
 PROJECT_ROOT="${SEI_EVM_IO_PROJECT_ROOT:-/sei-protocol/sei-chain}"
 CONTRACT_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/minimal_contract.hex"
+EVM_RPC_URL="${SEI_EVM_RPC_URL:-http://localhost:8545}"
 KEYRING_ARGS=()
 if [[ -n "${SEI_EVM_IO_KEYRING_BACKEND:-}" ]]; then
   KEYRING_ARGS+=(--keyring-backend "$SEI_EVM_IO_KEYRING_BACKEND")
@@ -24,15 +25,14 @@ run() {
 # CLI deploy expects hex file with no whitespace; write trimmed hex to a temp path in the container.
 docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$CONTRACT_HEX\" > /tmp/minimal_contract.hex"
 run seid tx evm associate-address --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei -b block -y 2>/dev/null || true
-run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc http://localhost:8545 -b sync -y
-DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc http://localhost:8545 -b block -y 2>&1) || true
+run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y
+DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b block -y 2>&1) || true
 DEPLOY_TX=$(echo "$DEPLOY_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$DEPLOY_TX" ]]; then
   sleep 2
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    RESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$DEPLOY_TX\"]}" http://localhost:8545 2>/dev/null) || true
-    SEED=$(echo "$RESP" | jq -r '.result.blockNumber // empty' 2>/dev/null)
-    [[ -z "$SEED" ]] && SEED=$(echo "$RESP" | grep -o '"blockNumber":"[^"]*"' | head -1 | cut -d'"' -f4)
+    RESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$DEPLOY_TX\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
+    SEED=$(echo "$RESP" | grep -o '"blockNumber":"[^"]*"' | head -1 | cut -d'"' -f4)
     [[ -n "$SEED" ]] && break
     sleep 1
   done
