@@ -2,6 +2,7 @@ package wrappers
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -25,6 +26,9 @@ const (
 
 	SSPebbleDB  DBType = "SSPebbleDB"
 	SSComposite DBType = "SSComposite"
+
+	FlatKV_SSPebble           DBType = "FlatKV+SSPebble"
+	CompositeDual_SSComposite DBType = "CompositeDual+SSComposite"
 )
 
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
@@ -110,6 +114,42 @@ func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
 	return NewStateStoreWrapper(store), nil
 }
 
+func newCombinedFlatKVSSPebble(dbDir string) (DBWrapper, error) {
+	fmt.Printf("Opening FlatKV (SC) + PebbleDB (SS) from directory %s\n", dbDir)
+	sc, err := newFlatKVCommitStore(filepath.Join(dbDir, "sc"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SC store: %w", err)
+	}
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Backend = config.PebbleDBBackend
+	ssCfg.AsyncWriteBuffer = 0
+	ss, err := backend.ResolveBackend(ssCfg.Backend)(filepath.Join(dbDir, "ss"), ssCfg)
+	if err != nil {
+		_ = sc.Close()
+		return nil, fmt.Errorf("failed to create SS store: %w", err)
+	}
+	return NewCombinedWrapper(sc, ss), nil
+}
+
+func newCombinedCompositeDualSSComposite(dbDir string) (DBWrapper, error) {
+	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
+	sc, err := newCompositeCommitStore(filepath.Join(dbDir, "sc"), config.DualWrite)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SC store: %w", err)
+	}
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Backend = config.PebbleDBBackend
+	ssCfg.AsyncWriteBuffer = 0
+	ssCfg.WriteMode = config.DualWrite
+	ssCfg.ReadMode = config.EVMFirstRead
+	ss, err := ssComposite.NewCompositeStateStore(ssCfg, filepath.Join(dbDir, "ss"), logger.NewNopLogger())
+	if err != nil {
+		_ = sc.Close()
+		return nil, fmt.Errorf("failed to create SS store: %w", err)
+	}
+	return NewCombinedWrapper(sc, ss), nil
+}
+
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
 func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 	switch dbType {
@@ -127,6 +167,10 @@ func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 		return newSSPebbleDBStateStore(dataDir)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir)
+	case FlatKV_SSPebble:
+		return newCombinedFlatKVSSPebble(dataDir)
+	case CompositeDual_SSComposite:
+		return newCombinedCompositeDualSSComposite(dataDir)
 	default:
 		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}
