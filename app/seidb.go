@@ -14,21 +14,20 @@ import (
 
 const (
 	// SC Store configs
-	FlagSCEnable                           = "state-commit.sc-enable"
-	FlagSCDirectory                        = "state-commit.sc-directory"
-	FlagSCAsyncCommitBuffer                = "state-commit.sc-async-commit-buffer"
-	FlagSCZeroCopy                         = "state-commit.sc-zero-copy"
-	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
-	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
-	FlagSCSnapshotMinTimeInterval          = "state-commit.sc-snapshot-min-time-interval"
-	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
-	FlagSCSnapshotPrefetchThreshold        = "state-commit.sc-snapshot-prefetch-threshold"
-	FlagSCSnapshotWriteRateMBps            = "state-commit.sc-snapshot-write-rate-mbps"
-	FlagSCCacheSize                        = "state-commit.sc-cache-size"
-	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
-	FlagSCHistoricalProofMaxInFlight       = "state-commit.sc-historical-proof-max-inflight"
-	FlagSCHistoricalProofRateLimit         = "state-commit.sc-historical-proof-rate-limit"
-	FlagSCHistoricalProofBurst             = "state-commit.sc-historical-proof-burst"
+	FlagSCEnable                     = "state-commit.sc-enable"
+	FlagSCDirectory                  = "state-commit.sc-directory"
+	FlagSCAsyncCommitBuffer          = "state-commit.sc-async-commit-buffer"
+	FlagSCSnapshotKeepRecent         = "state-commit.sc-keep-recent"
+	FlagSCSnapshotInterval           = "state-commit.sc-snapshot-interval"
+	FlagSCSnapshotMinTimeInterval    = "state-commit.sc-snapshot-min-time-interval"
+	FlagSCSnapshotWriterLimit        = "state-commit.sc-snapshot-writer-limit"
+	FlagSCSnapshotPrefetchThreshold  = "state-commit.sc-snapshot-prefetch-threshold"
+	FlagSCSnapshotWriteRateMBps      = "state-commit.sc-snapshot-write-rate-mbps"
+	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
+	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
+	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCWriteMode                  = "state-comment.sc-write-mode"
+	FlagSCReadMode                   = "state-comment.sc-read-mode"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -105,6 +104,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 	scConfig.HistoricalProofMaxInFlight = cast.ToInt(appOpts.Get(FlagSCHistoricalProofMaxInFlight))
 	scConfig.HistoricalProofRateLimit = cast.ToFloat64(appOpts.Get(FlagSCHistoricalProofRateLimit))
+	scConfig.WriteMode = config.WriteMode(cast.ToString(appOpts.Get(FlagSCWriteMode)))
+	scConfig.ReadMode = config.ReadMode(cast.ToString(appOpts.Get(FlagSCReadMode)))
+
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
 	}
