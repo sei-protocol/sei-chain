@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 )
 
@@ -24,10 +23,9 @@ const (
 	CompositeSplit  DBType = "CompositeSplit"
 	CompositeCosmos DBType = "CompositeCosmos"
 
-	SSPebbleDB  DBType = "SSPebbleDB"
 	SSComposite DBType = "SSComposite"
 
-	FlatKV_SSPebble           DBType = "FlatKV+SSPebble"
+	FlatKV_SSComposite        DBType = "FlatKV+SSComposite"
 	CompositeDual_SSComposite DBType = "CompositeDual+SSComposite"
 )
 
@@ -85,45 +83,31 @@ func newCompositeCommitStore(dbDir string, writeMode config.WriteMode) (DBWrappe
 	return NewCompositeWrapper(loadedStore), nil
 }
 
-func newSSPebbleDBStateStore(dbDir string) (DBWrapper, error) {
-	cfg := config.DefaultStateStoreConfig()
-	cfg.Backend = config.PebbleDBBackend
-	cfg.AsyncWriteBuffer = 0
-
-	fmt.Printf("Opening PebbleDB state store from directory %s\n", dbDir)
-	openFn := backend.ResolveBackend(cfg.Backend)
-	db, err := openFn(dbDir, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open PebbleDB state store: %w", err)
-	}
-	return NewStateStoreWrapper(db), nil
-}
-
-func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
+func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg := config.DefaultStateStoreConfig()
 	cfg.Backend = config.PebbleDBBackend
 	cfg.AsyncWriteBuffer = 0
 	cfg.WriteMode = config.DualWrite
 	cfg.ReadMode = config.EVMFirstRead
+	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewNopLogger())
+}
 
+func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
 	fmt.Printf("Opening composite state store from directory %s\n", dbDir)
-	store, err := ssComposite.NewCompositeStateStore(cfg, dbDir, logger.NewNopLogger())
+	store, err := openSSComposite(dbDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open composite state store: %w", err)
 	}
 	return NewStateStoreWrapper(store), nil
 }
 
-func newCombinedFlatKVSSPebble(dbDir string) (DBWrapper, error) {
-	fmt.Printf("Opening FlatKV (SC) + PebbleDB (SS) from directory %s\n", dbDir)
+func newCombinedFlatKVSSComposite(dbDir string) (DBWrapper, error) {
+	fmt.Printf("Opening FlatKV (SC) + Composite (SS) from directory %s\n", dbDir)
 	sc, err := newFlatKVCommitStore(filepath.Join(dbDir, "sc"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Backend = config.PebbleDBBackend
-	ssCfg.AsyncWriteBuffer = 0
-	ss, err := backend.ResolveBackend(ssCfg.Backend)(filepath.Join(dbDir, "ss"), ssCfg)
+	ss, err := openSSComposite(filepath.Join(dbDir, "ss"))
 	if err != nil {
 		_ = sc.Close()
 		return nil, fmt.Errorf("failed to create SS store: %w", err)
@@ -137,12 +121,7 @@ func newCombinedCompositeDualSSComposite(dbDir string) (DBWrapper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
-	ssCfg := config.DefaultStateStoreConfig()
-	ssCfg.Backend = config.PebbleDBBackend
-	ssCfg.AsyncWriteBuffer = 0
-	ssCfg.WriteMode = config.DualWrite
-	ssCfg.ReadMode = config.EVMFirstRead
-	ss, err := ssComposite.NewCompositeStateStore(ssCfg, filepath.Join(dbDir, "ss"), logger.NewNopLogger())
+	ss, err := openSSComposite(filepath.Join(dbDir, "ss"))
 	if err != nil {
 		_ = sc.Close()
 		return nil, fmt.Errorf("failed to create SS store: %w", err)
@@ -163,12 +142,10 @@ func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 		return newCompositeCommitStore(dataDir, config.SplitWrite)
 	case CompositeCosmos:
 		return newCompositeCommitStore(dataDir, config.CosmosOnlyWrite)
-	case SSPebbleDB:
-		return newSSPebbleDBStateStore(dataDir)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir)
-	case FlatKV_SSPebble:
-		return newCombinedFlatKVSSPebble(dataDir)
+	case FlatKV_SSComposite:
+		return newCombinedFlatKVSSComposite(dataDir)
 	case CompositeDual_SSComposite:
 		return newCombinedCompositeDualSSComposite(dataDir)
 	default:

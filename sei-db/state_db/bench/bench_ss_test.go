@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
-func BenchmarkSSPebbleDBWrite(b *testing.B) {
+func BenchmarkSSCompositeWrite(b *testing.B) {
 	const totalKeys int64 = 10_000
 
 	scenarios := []TestScenario{
@@ -14,7 +14,7 @@ func BenchmarkSSPebbleDBWrite(b *testing.B) {
 			Name:      "100_keys_per_block",
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 100,
-			Backend:   wrappers.SSPebbleDB,
+			Backend:   wrappers.SSComposite,
 		},
 	}
 
@@ -25,7 +25,7 @@ func BenchmarkSSPebbleDBWrite(b *testing.B) {
 	}
 }
 
-func BenchmarkCombinedFlatKVSSPebbleWrite(b *testing.B) {
+func BenchmarkCombinedFlatKVSSCompositeWrite(b *testing.B) {
 	const totalKeys int64 = 10_000
 
 	scenarios := []TestScenario{
@@ -33,7 +33,7 @@ func BenchmarkCombinedFlatKVSSPebbleWrite(b *testing.B) {
 			Name:      "100_keys_per_block",
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 100,
-			Backend:   wrappers.FlatKV_SSPebble,
+			Backend:   wrappers.FlatKV_SSComposite,
 		},
 	}
 
