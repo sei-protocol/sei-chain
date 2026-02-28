@@ -23,9 +23,7 @@ const (
 	CompositeSplit  DBType = "CompositeSplit"
 	CompositeCosmos DBType = "CompositeCosmos"
 
-	SSComposite DBType = "SSComposite"
-
-	FlatKV_SSComposite        DBType = "FlatKV+SSComposite"
+	SSComposite               DBType = "SSComposite"
 	CompositeDual_SSComposite DBType = "CompositeDual+SSComposite"
 )
 
@@ -101,20 +99,6 @@ func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
 	return NewStateStoreWrapper(store), nil
 }
 
-func newCombinedFlatKVSSComposite(dbDir string) (DBWrapper, error) {
-	fmt.Printf("Opening FlatKV (SC) + Composite (SS) from directory %s\n", dbDir)
-	sc, err := newFlatKVCommitStore(filepath.Join(dbDir, "sc"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SC store: %w", err)
-	}
-	ss, err := openSSComposite(filepath.Join(dbDir, "ss"))
-	if err != nil {
-		_ = sc.Close()
-		return nil, fmt.Errorf("failed to create SS store: %w", err)
-	}
-	return NewCombinedWrapper(sc, ss), nil
-}
-
 func newCombinedCompositeDualSSComposite(dbDir string) (DBWrapper, error) {
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
 	sc, err := newCompositeCommitStore(filepath.Join(dbDir, "sc"), config.DualWrite)
@@ -144,8 +128,6 @@ func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 		return newCompositeCommitStore(dataDir, config.CosmosOnlyWrite)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir)
-	case FlatKV_SSComposite:
-		return newCombinedFlatKVSSComposite(dataDir)
 	case CompositeDual_SSComposite:
 		return newCombinedCompositeDualSSComposite(dataDir)
 	default:

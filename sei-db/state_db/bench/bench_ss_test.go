@@ -25,7 +25,7 @@ func BenchmarkSSCompositeWrite(b *testing.B) {
 	}
 }
 
-func BenchmarkCombinedFlatKVSSCompositeWrite(b *testing.B) {
+func BenchmarkCombinedCompositeDualSSCompositeWrite(b *testing.B) {
 	const totalKeys int64 = 10_000
 
 	scenarios := []TestScenario{
@@ -33,7 +33,7 @@ func BenchmarkCombinedFlatKVSSCompositeWrite(b *testing.B) {
 			Name:      "100_keys_per_block",
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 100,
-			Backend:   wrappers.FlatKV_SSComposite,
+			Backend:   wrappers.CompositeDual_SSComposite,
 		},
 	}
 

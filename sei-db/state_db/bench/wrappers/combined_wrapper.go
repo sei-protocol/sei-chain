@@ -38,7 +38,10 @@ func (c *combinedWrapper) Read(key []byte) (data []byte, found bool, err error) 
 }
 
 func (c *combinedWrapper) Commit() (int64, error) {
-	return c.sc.Commit()
+	if _, err := c.sc.Commit(); err != nil {
+		return 0, err
+	}
+	return c.ssVersion.Load(), nil
 }
 
 func (c *combinedWrapper) Close() error {
@@ -51,7 +54,7 @@ func (c *combinedWrapper) Close() error {
 }
 
 func (c *combinedWrapper) Version() int64 {
-	return c.sc.Version()
+	return c.ssVersion.Load()
 }
 
 func (c *combinedWrapper) LoadVersion(version int64) error {
