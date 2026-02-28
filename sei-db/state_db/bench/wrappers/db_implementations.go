@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 )
 
 const EVMStoreName = "evm"
@@ -20,6 +22,9 @@ const (
 	CompositeDual   DBType = "CompositeDual"
 	CompositeSplit  DBType = "CompositeSplit"
 	CompositeCosmos DBType = "CompositeCosmos"
+
+	SSPebbleDB  DBType = "SSPebbleDB"
+	SSComposite DBType = "SSComposite"
 )
 
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
@@ -76,6 +81,35 @@ func newCompositeCommitStore(dbDir string, writeMode config.WriteMode) (DBWrappe
 	return NewCompositeWrapper(loadedStore), nil
 }
 
+func newSSPebbleDBStateStore(dbDir string) (DBWrapper, error) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+	cfg.AsyncWriteBuffer = 0
+
+	fmt.Printf("Opening PebbleDB state store from directory %s\n", dbDir)
+	openFn := backend.ResolveBackend(cfg.Backend)
+	db, err := openFn(dbDir, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PebbleDB state store: %w", err)
+	}
+	return NewStateStoreWrapper(db), nil
+}
+
+func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+	cfg.AsyncWriteBuffer = 0
+	cfg.WriteMode = config.DualWrite
+	cfg.ReadMode = config.EVMFirstRead
+
+	fmt.Printf("Opening composite state store from directory %s\n", dbDir)
+	store, err := ssComposite.NewCompositeStateStore(cfg, dbDir, logger.NewNopLogger())
+	if err != nil {
+		return nil, fmt.Errorf("failed to open composite state store: %w", err)
+	}
+	return NewStateStoreWrapper(store), nil
+}
+
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
 func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 	switch dbType {
@@ -89,6 +123,10 @@ func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
 		return newCompositeCommitStore(dataDir, config.SplitWrite)
 	case CompositeCosmos:
 		return newCompositeCommitStore(dataDir, config.CosmosOnlyWrite)
+	case SSPebbleDB:
+		return newSSPebbleDBStateStore(dataDir)
+	case SSComposite:
+		return newSSCompositeStateStore(dataDir)
 	default:
 		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}
