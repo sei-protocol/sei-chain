@@ -254,9 +254,16 @@ func (s *Store) UpdateLatestVersion(version int64) {
 	}
 }
 
-// SimulateCrash closes file handles and the WAL without flushing parquet
-// writers, leaving on-disk parquet files in a potentially corrupt or
-// incomplete state. This is intended only for crash-recovery tests.
+// SimulateCrash abandons the store without flushing or finalizing, mimicking
+// an abrupt process termination (e.g. kill -9 or power loss). Specifically
+// it skips:
+//   - flushLocked(): in-memory buffered receipts are lost
+//   - receiptWriter.Close() / logWriter.Close(): parquet footers are never
+//     written, leaving on-disk files corrupt/unreadable
+//   - receiptFile.Sync() / logFile.Sync(): OS-buffered writes may be lost
+//
+// The raw os.File.Close() and wal.Close() calls below exist only to release
+// file descriptors and locks so the test process can reopen the same directory.
 func (s *Store) SimulateCrash() {
 	if s.pruneStop != nil {
 		close(s.pruneStop)
