@@ -98,6 +98,7 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
@@ -118,7 +119,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"

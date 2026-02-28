@@ -10,20 +10,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// newCompositeStateStoreWithStores is a test helper that creates a composite store
-// from pre-created stores without triggering auto-recovery or pruning.
 func newCompositeStateStoreWithStores(
 	cosmosStore types.StateStore,
-	evmStore *evm.EVMStateStore,
+	evmStore types.StateStore,
 	ssConfig config.StateStoreConfig,
 	log logger.Logger,
 ) *CompositeStateStore {
@@ -42,33 +41,29 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 
 	log := logger.NewNopLogger()
 
-	// Create cosmos store directly (without pruning for testing)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
-	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
+	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
 	require.NoError(t, err)
+	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 	defer cosmosStore.Close()
 
-	// Create EVM store directly
 	ssConfig.WriteMode = config.DualWrite
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig, log)
 	require.NoError(t, err)
 	defer evmStore.Close()
 
-	// Create composite store using test helper (no auto-recovery)
 	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
 	defer compositeStore.Close()
 
-	// Create WAL and write some entries
 	changelogDir := filepath.Join(dir, "changelog")
 	walLog, err := wal.NewChangelogWAL(log, changelogDir, wal.Config{})
 	require.NoError(t, err)
 
-	// Create test data - EVM storage key
 	addr := make([]byte, 20)
 	for i := range addr {
 		addr[i] = byte(i)
@@ -80,7 +75,6 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	evmKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
 	evmValue := []byte("test_value")
 
-	// Write WAL entries
 	for version := int64(1); version <= 5; version++ {
 		entry := proto.ChangelogEntry{
 			Version: version,
@@ -100,22 +94,17 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	}
 	walLog.Close()
 
-	// Run recovery
 	err = RecoverCompositeStateStore(log, changelogDir, compositeStore)
 	require.NoError(t, err)
 
-	// Verify data was recovered to both stores
-	// Check cosmos store
 	cosmosVal, err := compositeStore.cosmosStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, cosmosVal)
 
-	// Check EVM store (via composite)
 	evmVal, err := compositeStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, evmVal)
 
-	// Verify versions
 	require.Equal(t, int64(5), compositeStore.GetLatestVersion())
 }
 
@@ -126,19 +115,17 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 
 	log := logger.NewNopLogger()
 
-	// Create cosmos store directly
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
-	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
+	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
 	require.NoError(t, err)
+	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 
-	// Create test EVM key
 	addr := make([]byte, 20)
 	slot := make([]byte, 32)
 	evmKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
 
-	// Write directly to cosmos store (simulating EVM store being behind)
 	for version := int64(1); version <= 10; version++ {
 		changeset := []*proto.NamedChangeSet{
 			{
@@ -156,7 +143,6 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Create WAL with same entries
 	changelogDir := filepath.Join(dir, "changelog")
 	walLog, err := wal.NewChangelogWAL(log, changelogDir, wal.Config{})
 	require.NoError(t, err)
@@ -180,37 +166,30 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	}
 	walLog.Close()
 
-	// Create EVM store (fresh, at version 0)
 	ssConfig.WriteMode = config.DualWrite
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig, log)
 	require.NoError(t, err)
 
-	// Create composite store using test helper - EVM store starts at version 0
 	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
 	defer compositeStore.Close()
 
-	// Verify EVM store is behind
 	require.Equal(t, int64(0), compositeStore.evmStore.GetLatestVersion())
 	require.Equal(t, int64(10), compositeStore.cosmosStore.GetLatestVersion())
 
-	// Run recovery - should sync EVM store
 	err = RecoverCompositeStateStore(log, changelogDir, compositeStore)
 	require.NoError(t, err)
 
-	// Verify EVM store is now caught up
 	require.Equal(t, int64(10), compositeStore.evmStore.GetLatestVersion())
 
-	// Verify data in EVM store
-	val, err := compositeStore.evmStore.Get(evmKey, 10)
+	val, err := compositeStore.evmStore.Get("evm", 10, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte{10}, val)
 }
 
 func TestExtractEVMChanges(t *testing.T) {
-	// Create test keys
 	addr := make([]byte, 20)
 	slot := make([]byte, 32)
 	storageKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
@@ -228,7 +207,7 @@ func TestExtractEVMChanges(t *testing.T) {
 			},
 		},
 		{
-			Name: "bank", // non-EVM module
+			Name: "bank",
 			Changeset: iavl.ChangeSet{
 				Pairs: []*iavl.KVPair{
 					{Key: nonEvmKey, Value: []byte("bank_val")},
@@ -237,21 +216,12 @@ func TestExtractEVMChanges(t *testing.T) {
 		},
 	}
 
-	evmChanges := extractEVMChangesFromChangesets(changesets)
-
-	// Should have storage and nonce changes
-	require.Len(t, evmChanges, 2)
-	require.Len(t, evmChanges[evm.StoreStorage], 1)
-	require.Len(t, evmChanges[evm.StoreNonce], 1)
-
-	// Verify keys are stripped of prefix
-	require.Equal(t, append(addr, slot...), evmChanges[evm.StoreStorage][0].Key)
-	require.Equal(t, addr, evmChanges[evm.StoreNonce][0].Key)
+	evmCS := filterEVMChangesets(changesets)
+	require.Len(t, evmCS, 1)
+	require.Equal(t, evm.EVMStoreKey, evmCS[0].Name)
+	require.Len(t, evmCS[0].Changeset.Pairs, 2)
 }
 
-// TestConstructorRecoversStalEVM verifies Bug 2 fix:
-// NewCompositeStateStore itself recovers EVM_SS when it's behind Cosmos_SS,
-// using RecoverCompositeStateStore (not the old recoverFromWAL).
 func TestConstructorRecoversStalEVM(t *testing.T) {
 	dir, err := os.MkdirTemp("", "constructor_recovery_test")
 	require.NoError(t, err)
@@ -267,8 +237,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	// Step 1: Create cosmos store directly and write 5 versions
-	cosmosStore, err := mvcc.OpenDB(dbHome, ssConfig)
+	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
 	require.NoError(t, err)
 
 	addr := make([]byte, 20)
@@ -277,7 +246,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	evmKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
 
 	for v := int64(1); v <= 5; v++ {
-		err := cosmosStore.ApplyChangesetSync(v, []*proto.NamedChangeSet{
+		err := mvccDB.ApplyChangesetSync(v, []*proto.NamedChangeSet{
 			{
 				Name: evm.EVMStoreKey,
 				Changeset: iavl.ChangeSet{
@@ -288,11 +257,10 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.NoError(t, cosmosStore.SetLatestVersion(v))
+		require.NoError(t, mvccDB.SetLatestVersion(v))
 	}
-	cosmosStore.Close()
+	mvccDB.Close()
 
-	// Step 2: Write matching WAL entries so recovery can replay
 	changelogPath := utils.GetChangelogPath(dbHome)
 	walLog, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
 	require.NoError(t, err)
@@ -313,19 +281,14 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	}
 	walLog.Close()
 
-	// Step 3: Open via NewCompositeStateStore -- EVM_SS starts at v0, Cosmos at v5.
-	// The constructor must detect this and replay WAL to catch EVM up.
 	compositeStore, err := NewCompositeStateStore(ssConfig, dir, log)
 	require.NoError(t, err)
 	defer compositeStore.Close()
 
-	// EVM store should now be caught up to version 5
 	require.Equal(t, int64(5), compositeStore.evmStore.GetLatestVersion(),
 		"EVM_SS should be caught up to Cosmos version after constructor recovery")
 
-	// Data should be readable from EVM_SS directly
-	evmVal, err := compositeStore.evmStore.Get(evmKey, 5)
+	evmVal, err := compositeStore.evmStore.Get("evm", 5, evmKey)
 	require.NoError(t, err)
-	require.Equal(t, []byte{5}, evmVal,
-		"EVM_SS should have data after constructor recovery")
+	require.Equal(t, []byte{5}, evmVal)
 }

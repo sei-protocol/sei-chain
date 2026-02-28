@@ -44,3 +44,9 @@ func (c *compositeWrapper) Importer(version int64) (types.Importer, error) {
 func (c *compositeWrapper) Close() error {
 	return c.base.Close()
 }
+
+func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	store := c.base.GetChildStoreByName(EVMStoreName)
+	data = store.Get(key)
+	return data, data != nil, nil
+}

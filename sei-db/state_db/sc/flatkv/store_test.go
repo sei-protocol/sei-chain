@@ -1,14 +1,17 @@
 package flatkv
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -52,10 +55,10 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 }
 
 // setupTestDB creates a temporary PebbleDB for testing
-func setupTestDB(t *testing.T) db_engine.DB {
+func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := pebbledb.Open(dir, db_engine.OpenOptions{})
+	db, err := pebbledb.Open(dir, types.OpenOptions{})
 	require.NoError(t, err)
 	return db
 }
@@ -399,20 +402,298 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 // Lifecycle (WriteSnapshot, Rollback)
 // =============================================================================
 
-func TestStoreWriteSnapshotNotImplemented(t *testing.T) {
+func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	err := s.WriteSnapshot(t.TempDir())
+	// Cannot snapshot at version 0 (nothing committed)
+	err := s.WriteSnapshot("")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "not implemented")
+	require.Contains(t, err.Error(), "uncommitted")
 }
 
-func TestStoreRollbackNoOp(t *testing.T) {
+func TestStoreRollbackNoSnapshot(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Rollback is currently a no-op - doesn't error
+	// Rollback with no snapshots should fail (no snapshot found)
 	err := s.Rollback(1)
+	require.Error(t, err)
+}
+
+// =============================================================================
+// File lock
+// =============================================================================
+
+func TestFileLockPreventsDoubleOpen(t *testing.T) {
+	dir := t.TempDir()
+
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s1.LoadVersion(0)
 	require.NoError(t, err)
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.Error(t, err, "second open on same dir should fail due to file lock")
+	require.Contains(t, err.Error(), "file lock")
+
+	require.NoError(t, s1.Close())
+
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err, "should succeed after first store releases lock")
+	require.NoError(t, s2.Close())
+}
+
+// =============================================================================
+// clearChangelog
+// =============================================================================
+
+func TestClearChangelog(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0x02})
+
+	last, _ := s.changelog.LastOffset()
+	require.Greater(t, last, uint64(0), "WAL should have entries")
+
+	require.NoError(t, s.clearChangelog())
+
+	require.NotNil(t, s.changelog, "changelog should be reopened")
+
+	last, _ = s.changelog.LastOffset()
+	require.Equal(t, uint64(0), last, "WAL should be empty after clear")
+}
+
+// =============================================================================
+// closeDBsOnly and Close idempotent
+// =============================================================================
+
+func TestCloseDBsOnlyIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	require.NoError(t, s.closeDBsOnly())
+	require.NoError(t, s.closeDBsOnly(), "double closeDBsOnly should be safe")
+
+	require.NoError(t, s.Close())
+	require.NoError(t, s.Close(), "double Close should be safe")
+}
+
+// =============================================================================
+// LoadVersion with targetVersion > WAL
+// =============================================================================
+
+func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
+	dir := t.TempDir()
+
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s1.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s1, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s1, Address{0x01}, Slot{0x02}, []byte{0x02})
+	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.Close())
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(100)
+	require.Error(t, err, "loading version beyond WAL should fail")
+}
+
+// =============================================================================
+// Reopen preserves working dir optimization
+// =============================================================================
+
+func TestReopenReusesWorkingDir(t *testing.T) {
+	dir := t.TempDir()
+
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	workDir := filepath.Join(dir, flatkvRootDir, workingDirName)
+	basePath := filepath.Join(workDir, snapshotBaseFile)
+	_, err = os.Stat(basePath)
+	require.NoError(t, err, "SNAPSHOT_BASE should exist after close")
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(1), s2.Version())
+}
+
+// =============================================================================
+// walOffsetForVersion
+// =============================================================================
+
+func TestWalOffsetForVersionFastPath(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	for i := 0; i < 5; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	for v := int64(1); v <= 5; v++ {
+		off, err := s.walOffsetForVersion(v)
+		require.NoError(t, err)
+		require.Greater(t, off, uint64(0), "offset for version %d should be nonzero", v)
+
+		ver, err := s.walVersionAtOffset(off)
+		require.NoError(t, err)
+		require.Equal(t, v, ver)
+	}
+}
+
+func TestWalOffsetForVersionBeforeWAL(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	for i := 0; i < 3; i++ {
+		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+
+	off, err := s.walOffsetForVersion(0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), off, "version 0 predates WAL")
+}
+
+func TestWalOffsetForVersionNotFound(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+	defer s.Close()
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0x02})
+
+	_, err = s.walOffsetForVersion(10)
+	require.Error(t, err, "version 10 should not be found in WAL with only 2 entries")
+}
+
+// =============================================================================
+// Catchup from specific version
+// =============================================================================
+
+func TestCatchupFromSpecificVersion(t *testing.T) {
+	dir := t.TempDir()
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s1.LoadVersion(0)
+	require.NoError(t, err)
+
+	for i := 0; i < 10; i++ {
+		commitStorageEntry(t, s1, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+	hashAtV10 := s1.RootHash()
+
+	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.Close())
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, hashAtV10, s2.RootHash())
+}
+
+// =============================================================================
+// Version, RootHash basic behavior
+// =============================================================================
+
+func TestVersionStartsAtZero(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	require.Equal(t, int64(0), s.Version())
+}
+
+func TestRootHashIsBlake3_256(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	hash := s.RootHash()
+	require.Len(t, hash, 32)
+}
+
+// =============================================================================
+// Get returns nil for unknown keys
+// =============================================================================
+
+func TestGetUnknownKeyReturnsNil(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	v, ok := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	require.False(t, ok)
+	require.Nil(t, v)
+}
+
+// =============================================================================
+// Persistence across close/reopen
+// =============================================================================
+
+func TestPersistenceAllKeyTypes(t *testing.T) {
+	dir := t.TempDir()
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+
+	s1 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s1.LoadVersion(0)
+	require.NoError(t, err)
+
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+
+	cs := makeChangeSet(storageKey, []byte{0x11}, false)
+	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	cs2 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 5}, false)
+	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	cs3 := makeChangeSet(codeKey, []byte{0x60, 0x80}, false)
+	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	commitAndCheck(t, s1)
+
+	hash := s1.RootHash()
+	require.NoError(t, s1.Close())
+
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(1), s2.Version())
+	require.Equal(t, hash, s2.RootHash())
+
+	v, ok := s2.Get(storageKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x11}, v)
+
+	v, ok = s2.Get(nonceKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 5}, v)
+
+	v, ok = s2.Get(codeKey)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x60, 0x80}, v)
 }
