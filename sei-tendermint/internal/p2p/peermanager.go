@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
@@ -10,12 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const maxAddrsPerPeer = 10
-
 type connSet[C peerConn] = im.Map[types.NodeID, C]
 
 type peerManagerInner[C peerConn] struct {
-	selfID       types.NodeID
 	options      *RouterOptions
 	isPersistent map[types.NodeID]bool
 	// sum of regular and persistent connection sets.
@@ -25,11 +23,13 @@ type peerManagerInner[C peerConn] struct {
 	persistent *pool[C]
 }
 
-func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) bool {
+var errPersistentPeerAddr = errors.New("cannot add a persistent peer address to the regular address pool")
+
+func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) error {
 	// Adding persistent peer addrs is only allowed during initialization.
 	// This is to make sure that malicious peers won't cause the preconfigured addrs to be dropped.
 	if i.isPersistent[addr.NodeID] {
-		return false
+		return errPersistentPeerAddr
 	}
 	return i.regular.AddAddr(addr)
 }
@@ -105,6 +105,7 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 // * Connected(conn) -> [communicate] -> Disconnected(conn)
 // For adding new peer addrs, call AddAddrs().
 type peerManager[C peerConn] struct {
+	logger          log.Logger
 	options         *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	isPrivate       map[types.NodeID]bool
@@ -114,9 +115,9 @@ type peerManager[C peerConn] struct {
 	inner utils.Watch[*peerManagerInner[C]]
 }
 
-func (p *peerManager[C]) LogState(logger log.Logger) {
+func (p *peerManager[C]) LogState() {
 	for inner := range p.inner.Lock() {
-		logger.Info("p2p connections",
+		p.logger.Info("p2p connections",
 			"regular", fmt.Sprintf("%v/%v", len(inner.regular.conns), p.options.maxConns()),
 			"unconditional", len(inner.persistent.conns),
 		)
@@ -175,19 +176,17 @@ func (m *peerManager[C]) Subscribe() *peerUpdatesRecv[C] {
 	}
 }
 
-func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *peerManager[C] {
+func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	inner := &peerManagerInner[C]{
-		selfID:       selfID,
 		options:      options,
 		isPersistent: map[types.NodeID]bool{},
 		conns:        utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
 
 		persistent: newPool[C](poolConfig{selfID: selfID}),
 		regular: newPool[C](poolConfig{
-			selfID:          selfID,
-			maxConns:        utils.Some(options.maxConns()),
-			maxAddrs:        utils.Some(options.maxPeers()),
-			maxAddrsPerPeer: utils.Some(maxAddrsPerPeer),
+			selfID:   selfID,
+			maxConns: utils.Some(options.maxConns()),
+			maxAddrs: utils.Some(options.maxPeers()),
 		}),
 	}
 	isBlockSyncPeer := map[types.NodeID]bool{}
@@ -202,14 +201,22 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		inner.isPersistent[id] = true
 		isBlockSyncPeer[id] = true
 	}
+	// We do not allow multiple addresses for the same peer in the peer manager any more.
+	// It would be backward incompatible to invalidate configs with multiple addresses per peer.
+	// Instead we just log an error to indicate that some addresses have been ignored.
 	for _, addr := range options.PersistentPeers {
 		inner.isPersistent[addr.NodeID] = true
-		inner.persistent.AddAddr(addr)
+		if err := inner.persistent.AddAddr(addr); err != nil {
+			logger.Error("failed to add a persistent peer address to the pool", "addr", addr, "err", err)
+		}
 	}
 	for _, addr := range options.BootstrapPeers {
-		inner.AddAddr(addr)
+		if err := inner.AddAddr(addr); err != nil {
+			logger.Error("failed to add a bootstrap peer address to the pool", "addr", addr, "err", err)
+		}
 	}
 	return &peerManager[C]{
+		logger:          logger,
 		options:         options,
 		isBlockSyncPeer: isBlockSyncPeer,
 		isPrivate:       isPrivate,
@@ -242,7 +249,8 @@ func (m *peerManager[C]) AddAddrs(addrs []NodeAddress) error {
 	for inner, ctrl := range m.inner.Lock() {
 		updated := false
 		for _, addr := range addrs {
-			if inner.AddAddr(addr) {
+			// It is expected that not peer addresses will be accepted to the pool.
+			if err := inner.AddAddr(addr); err == nil {
 				updated = true
 			}
 		}
@@ -369,13 +377,9 @@ func (m *peerManager[C]) Peers() []types.NodeID {
 func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
 	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
-		peerAddrs := inner.regular.addrs
-		if inner.isPersistent[id] {
-			peerAddrs = inner.persistent.addrs
-		}
-		if pa, ok := peerAddrs[id]; ok {
-			for addr := range pa.addrs {
-				addrs = append(addrs, addr)
+		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
+			if pa, ok := pool.addrs[id]; ok {
+				addrs = append(addrs, pa.addr)
 			}
 		}
 	}

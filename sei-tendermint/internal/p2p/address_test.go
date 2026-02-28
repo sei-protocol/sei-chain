@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -274,6 +275,21 @@ func TestNodeAddress_String(t *testing.T) {
 		t.Run(tc.address.String(), func(t *testing.T) {
 			require.Equal(t, tc.expect, tc.address.String())
 		})
+	}
+}
+
+func TestNodeAddress_IsPublic(t *testing.T) {
+	rng := utils.TestRng()
+	id := makeNodeID(rng)
+	testcases := map[string]bool{
+		"192.168.1.10":  false,
+		"93.184.216.34": true,
+		"example.com":   true,
+		"100.64.0.1":    false,
+	}
+	for hostname, isPublic := range testcases {
+		addr := NodeAddress{NodeID: id, Hostname: hostname, Port: defaultPort}
+		require.Equal(t, isPublic, addr.IsPublic())
 	}
 }
 

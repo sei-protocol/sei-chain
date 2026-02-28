@@ -8,32 +8,111 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func makeIPAddr(id types.NodeID, host string) NodeAddress {
+	return NodeAddress{NodeID: id, Hostname: host, Port: defaultPort}
+}
+
 func TestPool_AddAddr_deduplicate(t *testing.T) {
 	rng := utils.TestRng()
 	selfID := makeNodeID(rng)
 	p := newPool[*fakeConn](poolConfig{selfID: selfID})
-	require.False(t, p.AddAddr(makeAddrFor(rng, selfID)))
+	require.Error(t, p.AddAddr(makeAddrFor(rng, selfID)))
 	require.Nil(t, p.addrs[selfID])
 
 	peer := makeNodeID(rng)
 	addr := makeAddrFor(rng, peer)
-	require.True(t, p.AddAddr(addr))
-	require.False(t, p.AddAddr(addr))
-	require.Len(t, p.addrs[peer].addrs, 1)
+	require.NoError(t, p.AddAddr(addr))
+	require.Error(t, p.AddAddr(addr))
+	require.Equal(t, addr, p.addrs[peer].addr)
+}
+
+func TestPool_AddAddr_publicReplacesPrivateOnly(t *testing.T) {
+	rng := utils.TestRng()
+	selfID := makeNodeID(rng)
+	peer := makeNodeID(rng)
+	p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(10)})
+	privateAddr := makeIPAddr(peer, "192.168.0.10")
+	publicAddr := makeIPAddr(peer, "93.184.216.34")
+
+	require.NoError(t, p.AddAddr(privateAddr))
+	require.NoError(t, p.AddAddr(publicAddr))
+	require.Equal(t, publicAddr, p.addrs[peer].addr)
+	require.ErrorIs(t, p.AddAddr(privateAddr), errDuplicate)
+	require.Equal(t, publicAddr, p.addrs[peer].addr)
+}
+
+func TestPool_AddAddr_pruneFailedAllowsAnyAddr(t *testing.T) {
+	for name, host := range map[string]string{
+		"private": "10.0.0.2",
+		"public":  "93.184.216.35",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rng := utils.TestRng()
+			selfID := makeNodeID(rng)
+			p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(1)})
+
+			// Add an address and fail to dial it.
+			failedPeer := makeNodeID(rng)
+			failedAddr := makeIPAddr(failedPeer, "10.0.0.1")
+			require.NoError(t, p.AddAddr(failedAddr))
+			dialAddr, ok := p.TryStartDial()
+			require.True(t, ok)
+			require.Equal(t, failedAddr, dialAddr)
+			p.DialFailed(dialAddr)
+
+			// Add another address which should replace it.
+			newPeer := makeNodeID(rng)
+			newAddr := makeIPAddr(newPeer, host)
+			require.NoError(t, p.AddAddr(newAddr))
+			require.Equal(t, newAddr, p.addrs[newPeer].addr)
+			_, stillPresent := p.addrs[failedPeer]
+			require.False(t, stillPresent)
+		})
+	}
+}
+
+func TestPool_AddAddr_prunePrivateOnlyForPublicInsert(t *testing.T) {
+	rng := utils.TestRng()
+	selfID := makeNodeID(rng)
+	p := newPool[*fakeConn](poolConfig{selfID: selfID, maxAddrs: utils.Some(2)})
+
+	// Fill the pool with private and public addresses.
+	peerA := makeNodeID(rng)
+	peerB := makeNodeID(rng)
+	addrA := makeIPAddr(peerA, "93.184.216.1")
+	addrB := makeIPAddr(peerB, "10.0.0.4")
+	require.NoError(t, p.AddAddr(addrA))
+	require.NoError(t, p.AddAddr(addrB))
+
+	// Adding a private address should fail.
+	peerC := makeNodeID(rng)
+	privateNew := makeIPAddr(peerC, "10.0.0.5")
+	require.ErrorIs(t, p.AddAddr(privateNew), errTooMany)
+	require.Equal(t, addrA, p.addrs[peerA].addr)
+	require.Equal(t, addrB, p.addrs[peerB].addr)
+
+	// Adding a public address should prune the private one.
+	peerD := makeNodeID(rng)
+	publicNew := makeIPAddr(peerD, "93.184.216.36")
+	require.NoError(t, p.AddAddr(publicNew))
+	require.Equal(t, publicNew, p.addrs[peerD].addr)
+	_, okPublic := p.addrs[peerA]
+	_, okPrivate := p.addrs[peerB]
+	require.True(t, okPublic)
+	require.False(t, okPrivate)
 }
 
 func TestPool_AddAddr_prune_failed_addrs(t *testing.T) {
 	rng := utils.TestRng()
 	selfID := makeNodeID(rng)
 	p := newPool[*fakeConn](poolConfig{
-		selfID:          selfID,
-		maxAddrsPerPeer: utils.Some(1),
+		selfID: selfID,
 	})
 	peer := makeNodeID(rng)
 	for range 3 {
 		// Insert a new address which should replace the old one.
 		addr := makeAddrFor(rng, peer)
-		require.True(t, p.AddAddr(addr))
+		require.NoError(t, p.AddAddr(addr))
 
 		// Dial and fail multiple times.
 		// Only the newest address is expected, since maxAddrsPerPeer == 1
@@ -56,7 +135,7 @@ func TestPool_AddAddr_prune_failed_peers(t *testing.T) {
 		peer := makeNodeID(rng)
 		// Insert a new peer which should replace the old one.
 		addr := makeAddrFor(rng, peer)
-		require.True(t, p.AddAddr(addr))
+		require.NoError(t, p.AddAddr(addr))
 
 		// Dial and fail multiple times.
 		// Only the newest address is expected, since maxAddrsPerPeer == 1
@@ -75,11 +154,9 @@ func TestPool_TryStartDial_RoundRobin(t *testing.T) {
 	addrs := map[NodeAddress]bool{}
 	for range 10 {
 		id := makeNodeID(rng)
-		for range rng.Intn(5) + 1 {
-			addr := makeAddrFor(rng, id)
-			addrs[addr] = true
-			p.AddAddr(addr)
-		}
+		addr := makeAddrFor(rng, id)
+		addrs[addr] = true
+		require.NoError(t, p.AddAddr(addr))
 	}
 	// Go through all addresses multiple times.
 	for range 3 {
@@ -128,8 +205,8 @@ func TestPool_Connected_race(t *testing.T) {
 		// They know each others addresses.
 		p1addr := makeAddrFor(rng, p1.selfID)
 		p2addr := makeAddrFor(rng, p2.selfID)
-		require.True(t, p1.AddAddr(p2addr))
-		require.True(t, p2.AddAddr(p1addr))
+		require.NoError(t, p1.AddAddr(p2addr))
+		require.NoError(t, p2.AddAddr(p1addr))
 		// They dial each other.
 		require.Equal(t, utils.Some(p2addr), opt(p1.TryStartDial()))
 		require.Equal(t, utils.Some(p1addr), opt(p2.TryStartDial()))
@@ -160,7 +237,7 @@ func TestPool_Evict(t *testing.T) {
 	// Dial a peer and connect.
 	peer := makeNodeID(rng)
 	addr := makeAddrFor(rng, peer)
-	require.True(t, p.AddAddr(addr))
+	require.NoError(t, p.AddAddr(addr))
 	require.Equal(t, utils.Some(addr), opt(p.TryStartDial()))
 	conn := makeConnTo(addr)
 	require.NoError(t, p.Connected(conn))
