@@ -60,6 +60,7 @@ func NewCompositeCommitStore(
 	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
+		logger.Info(fmt.Sprintf("Detecting write mode %s, going to enable flatkv for EVM", cfg.WriteMode))
 		store.evmCommitter = flatkv.NewCommitStore(homeDir, logger, cfg.FlatKVConfig)
 	}
 

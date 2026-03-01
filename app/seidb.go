@@ -62,6 +62,7 @@ func SetupSeiDB(
 	}
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
+	logger.Info("SeiDB configuration", "config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
@@ -74,16 +75,9 @@ func SetupSeiDB(
 
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")))
-	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
-	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig)
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
-			if migrationEnabled || migrationHeight > 0 {
-				originalCMS := baseApp.CommitMultiStore()
-				baseApp.SetQueryMultiStore(originalCMS)
-				baseApp.SetMigrationHeight(migrationHeight)
-			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
