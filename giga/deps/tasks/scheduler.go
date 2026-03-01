@@ -163,9 +163,20 @@ func (s *scheduler) DoExecute(work func()) {
 	s.executeCh <- work
 }
 
+// Pool for reusing conflict dedup maps
+var conflictMapPool = sync.Pool{
+	New: func() interface{} {
+		return make(map[int]struct{})
+	},
+}
+
 func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 	var conflicts []int
-	uniq := make(map[int]struct{})
+	uniq := conflictMapPool.Get().(map[int]struct{})
+	// Clear the map for reuse
+	clear(uniq)
+	defer conflictMapPool.Put(uniq)
+
 	valid := true
 	for _, mv := range s.multiVersionStores {
 		ok, mvConflicts := mv.ValidateTransactionState(task.AbsoluteIndex)
@@ -183,7 +194,7 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 }
 
 func toTasks(reqs []*sdk.DeliverTxEntry) ([]*deliverTxTask, map[int]*deliverTxTask) {
-	tasksMap := make(map[int]*deliverTxTask)
+	tasksMap := make(map[int]*deliverTxTask, len(reqs))
 	allTasks := make([]*deliverTxTask, 0, len(reqs))
 	for _, r := range reqs {
 		task := &deliverTxTask{
@@ -192,7 +203,7 @@ func toTasks(reqs []*sdk.DeliverTxEntry) ([]*deliverTxTask, map[int]*deliverTxTa
 			Checksum:      r.Checksum,
 			AbsoluteIndex: r.AbsoluteIndex,
 			Status:        statusPending,
-			Dependencies:  map[int]struct{}{},
+			Dependencies:  make(map[int]struct{}, 4), // Pre-allocate with small capacity
 			TxTracer:      r.TxTracer,
 		}
 
@@ -239,16 +250,6 @@ func dependenciesValidated(tasksMap map[int]*deliverTxTask, deps map[int]struct{
 		}
 	}
 	return true
-}
-
-func filterTasks(tasks []*deliverTxTask, filter func(*deliverTxTask) bool) []*deliverTxTask {
-	var res []*deliverTxTask
-	for _, t := range tasks {
-		if filter(t) {
-			res = append(res, t)
-		}
-	}
-	return res
 }
 
 func allValidated(tasks []*deliverTxTask) bool {
@@ -485,16 +486,18 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
 
+	numStores := len(s.multiVersionStores)
+
 	// initialize the context
-	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
+	abortCh := make(chan occ.Abort, numStores)
 
 	// if there are no stores, don't try to wrap, because there's nothing to wrap
-	if len(s.multiVersionStores) > 0 {
+	if numStores > 0 {
 		// non-blocking
 		cms := ctx.MultiStore().CacheMultiStore()
 
-		// init version stores by store key
-		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
+		// init version stores by store key with pre-allocated capacity
+		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore, numStores)
 		for storeKey, mvs := range s.multiVersionStores {
 			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
 		}
