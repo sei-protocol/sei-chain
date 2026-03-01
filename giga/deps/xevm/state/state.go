@@ -23,7 +23,10 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	return s.getState(s.snapshottedCtxs[0], addr, hash)
+	if s.k.ShouldUseRegularStore() {
+		return s.getState(s.snapshottedCtxs[0], addr, hash)
+	}
+	return s.k.GetCommittedState(s.ctx, addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
