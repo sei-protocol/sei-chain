@@ -473,6 +473,8 @@ func New(
 	appOptions []AppOption,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
+	debug.SetGCPercent(200)
+
 	appCodec := encodingConfig.Marshaler
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
