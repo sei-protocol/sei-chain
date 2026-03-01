@@ -50,3 +50,77 @@ The following features might be useful to add to this benchmark:
     - Metrics exported by the underlying DB
 - Prometheus/Grafana dashboards to visualize metrics
 - More exotic key access patterns
+
+
+# Setting Up Prometheus / Grafana
+
+To set up local prometheus/grafana instances, run the following. You must have docker installed.
+
+```
+./metrics/start-prometheus.sh
+./metrics/start-grafana.sh
+```
+
+Then, navigate to http://localhost:3000/ in a web browser to reach the grafana UI. Username and password are "admin".
+
+There is a pre-built dashboard containing visualizations for benchmark metrics in `metrics/dashboard.json` that 
+you can import into grafana.
+
+
+You can stop these services by killing their containers, or by running the following:
+
+```
+./metrics/stop-prometheus.sh
+./metrics/stop-grafana.sh
+```
+
+# Running in AWS
+
+To set up this benchmark on an AWS machine, perform the following steps:
+
+1. Clone the repo
+
+```
+git clone https://github.com/sei-protocol/sei-chain.git
+```
+
+2. Install dependencies
+
+```
+cd ./sei-chain/sei-db/state_db/bench/cryptosim
+./tools/setup-ubuntu.sh
+```
+
+3: Start Prometheus Server (optional)
+
+```
+cd ./sei-chain/sei-db/state_db/bench/cryptosim
+./metrics/start-prometheus.sh
+```
+
+3. Start the Benchmark
+
+Optional: start a tmux session (the install script installs tmux). This will allow the benchmark to run
+even if your connection is interrupted.
+
+```
+cd sei-chain/sei-db/state_db/bench/cryptosim
+./run.sh ./config/basic-config.json
+```
+
+4: Connect Local Grafana to Remote Prometheus (optional)
+
+Before taking this step, you will need to set up SSH access to the remote VM. The easiest way to do this is to
+copy your public ssh key into the remote machine's `~/.ssh/authorized_keys` file.
+
+You will want the prometheus container running on your remote machine, and the grafana container running locally.
+Make sure you don't have a local prometheus container running.
+
+Then, initiate an ssh connection with the remote machine using this command:
+
+```
+ssh -L 9091:localhost:9091 user@remote-host
+```
+
+As long as this connection remains open, your local grafana instance will be able to talk to the remote prometheus
+instance over the SSH tunnel.

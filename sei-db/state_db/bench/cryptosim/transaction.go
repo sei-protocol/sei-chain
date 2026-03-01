@@ -41,6 +41,10 @@ type transaction struct {
 	newSrcAccountSlot []byte
 	// Pre-generated random value for the destination account's ERC20 storage slot.
 	newDstAccountSlot []byte
+
+	// If true, capture detailed (and potentially expensive) metrics about this transaction.
+	// We may only sample a small percentage of transactions with this flag set to true.
+	captureMetrics bool
 }
 
 // Generate all data needed to execute a transaction.
@@ -83,6 +87,8 @@ func BuildTransaction(
 		newDstData = append([]byte(nil), b...)
 	}
 
+	captureMetrics := dataGenerator.rand.Float64() < dataGenerator.config.TransactionMetricsSampleRate
+
 	return &transaction{
 		srcAccount:        srcAccountAddress,
 		isSrcNew:          isSrcNew,
@@ -98,6 +104,7 @@ func BuildTransaction(
 		newFeeBalance:     dataGenerator.rand.Int64(),
 		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
 		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
+		captureMetrics:    captureMetrics,
 	}, nil
 }
 
@@ -108,7 +115,10 @@ func BuildTransaction(
 func (txn *transaction) Execute(
 	database *Database,
 	feeCollectionAddress []byte,
+	phaseTimer *PhaseTimer,
 ) error {
+
+	phaseTimer.SetPhase("read_erc20")
 
 	// Read the simulated ERC20 contract.
 	_, found, err := database.Get(txn.erc20Contract)
@@ -126,11 +136,16 @@ func (txn *transaction) Execute(
 	// - the receiver's storage slot for the ERC20 contract
 	// - the fee collection account's native balance
 
+	phaseTimer.SetPhase("read_src_account")
+
 	// Read the sender's native balance / nonce / codehash.
 	srcAccountValue, found, err := database.Get(txn.srcAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
+	srcAccountValueCopy := make([]byte, len(srcAccountValue))
+	copy(srcAccountValueCopy, srcAccountValue)
+	srcAccountValue = srcAccountValueCopy
 
 	if txn.isSrcNew {
 		// This is a new account, so we should not find it in the DB.
@@ -144,6 +159,8 @@ func (txn *transaction) Execute(
 			return fmt.Errorf("source account not found")
 		}
 	}
+
+	phaseTimer.SetPhase("read_dst_account")
 
 	// Read the receiver's native balance.
 	dstAccountValue, found, err := database.Get(txn.dstAccount)
@@ -162,6 +179,11 @@ func (txn *transaction) Execute(
 			return fmt.Errorf("destination account not found")
 		}
 	}
+	dstAccountValueCopy := make([]byte, len(dstAccountValue))
+	copy(dstAccountValueCopy, dstAccountValue)
+	dstAccountValue = dstAccountValueCopy
+
+	phaseTimer.SetPhase("read_src_account_slot")
 
 	// Read the sender's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
@@ -170,12 +192,16 @@ func (txn *transaction) Execute(
 		return fmt.Errorf("failed to get source account slot: %w", err)
 	}
 
+	phaseTimer.SetPhase("read_dst_account_slot")
+
 	// Read the receiver's storage slot for the ERC20 contract.
 	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
 	_, _, err = database.Get(txn.dstAccountSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account slot: %w", err)
 	}
+
+	phaseTimer.SetPhase("read_fee_collection_account")
 
 	// Read the fee collection account's native balance.
 	feeValue, found, err := database.Get(feeCollectionAddress)
@@ -185,10 +211,17 @@ func (txn *transaction) Execute(
 	if !found {
 		return fmt.Errorf("fee collection account not found")
 	}
+	feeValueCopy := make([]byte, len(feeValue))
+	copy(feeValueCopy, feeValue)
+	feeValue = feeValueCopy
+
+	phaseTimer.SetPhase("update_balances")
 
 	// Apply the random values from the transaction to the account and slot data.
 	const minAccountBytes = 8 // balance at offset 0
-	if len(srcAccountValue) < minAccountBytes || len(dstAccountValue) < minAccountBytes || len(feeValue) < minAccountBytes {
+	if len(srcAccountValue) < minAccountBytes ||
+		len(dstAccountValue) < minAccountBytes ||
+		len(feeValue) < minAccountBytes {
 		return fmt.Errorf("account value too short for balance update (need %d bytes)", minAccountBytes)
 	}
 	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance)) //nolint:gosec
@@ -232,5 +265,12 @@ func (txn *transaction) Execute(
 		return fmt.Errorf("failed to put fee collection account: %w", err)
 	}
 
+	phaseTimer.Reset()
+
 	return nil
+}
+
+// Returns true if metrics should be captured for this transaction.
+func (txn *transaction) ShouldCaptureMetrics() bool {
+	return txn.captureMetrics
 }

@@ -32,17 +32,22 @@ type Database struct {
 
 	// A method that flushes the executors.
 	flushFunc func()
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new database for the cryptosim benchmark.
 func NewDatabase(
 	config *CryptoSimConfig,
 	db wrappers.DBWrapper,
+	metrics *CryptosimMetrics,
 ) *Database {
 	return &Database{
-		config: config,
-		db:     db,
-		batch:  NewSyncMap[string, []byte](),
+		config:  config,
+		db:      db,
+		batch:   NewSyncMap[string, []byte](),
+		metrics: metrics,
 	}
 }
 
@@ -124,7 +129,7 @@ func (d *Database) FinalizeBlock(
 		return nil
 	}
 
-	d.transactionsInCurrentBlock = 0
+	d.metrics.SetMainThreadPhase("finalizing")
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
 	for key, value := range d.batch.Iterator() {
@@ -162,15 +167,22 @@ func (d *Database) FinalizeBlock(
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
 
+	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
+	d.transactionsInCurrentBlock = 0
+
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++
 	if forceCommit || d.uncommittedBlockCount >= int64(d.config.BlocksPerCommit) {
+		d.metrics.SetMainThreadPhase("committing")
 		_, err := d.db.Commit()
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
+		d.metrics.ReportDBCommit()
 		d.uncommittedBlockCount = 0
 	}
+
+	d.metrics.SetMainThreadPhase("executing")
 
 	return nil
 }
