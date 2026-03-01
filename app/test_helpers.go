@@ -121,12 +121,12 @@ func NewTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, false, TestAppOpts{}, baseAppOptions...)
 }
 
-func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true}, baseAppOptions...)
+func NewTestWrapperWithSc(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	return newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true}, baseAppOptions...)
 }
 
-func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
+func NewGigaTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	wrapper := newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
 	genState := evmtypes.DefaultGenesis()
 	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
 	return wrapper
@@ -140,9 +140,9 @@ func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, e
 // - Creates app with UseSc=true but EnableGiga=false (so GigaKVStore is NOT registered)
 // - Manually enables Giga executor flags on the app
 // - Sets GigaEvmKeeper.UseRegularStore=true so it uses ctx.KVStore instead of ctx.GigaKVStore
-func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+func NewGigaTestWrapperWithRegularStore(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	// Create wrapper with Sc but WITHOUT EnableGiga - this means GigaKVStore won't be registered
-	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: false, EnableGigaOCC: false}, baseAppOptions...)
+	wrapper := newTestWrapper(tb, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: false, EnableGigaOCC: false}, baseAppOptions...)
 
 	// Manually enable Giga executor on the app
 	wrapper.App.GigaExecutorEnabled = true
@@ -180,11 +180,7 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 		DefaultNodeHome = originalHome
 	})
 	if UseSc {
-		if testT, ok := tb.(*testing.T); ok {
-			appPtr = SetupWithSc(testT, false, enableEVMCustomPrecompiles, testAppOpts, baseAppOptions...)
-		} else {
-			panic("SetupWithSc requires *testing.T, cannot use with *testing.B")
-		}
+		appPtr = SetupWithSc(tb, false, enableEVMCustomPrecompiles, testAppOpts, baseAppOptions...)
 	} else {
 		appPtr = Setup(tb, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
@@ -472,7 +468,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	return res
 }
 
-func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+func SetupWithSc(tb testing.TB, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -493,7 +489,7 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		nil,
 		true,
 		map[int64]bool{},
-		t.TempDir(),
+		tb.TempDir(),
 		1,
 		enableEVMCustomPrecompiles,
 		config.TestConfig(),
