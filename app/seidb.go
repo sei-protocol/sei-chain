@@ -26,8 +26,8 @@ const (
 	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
-	FlagSCWriteMode                  = "state-comment.sc-write-mode"
-	FlagSCReadMode                   = "state-comment.sc-read-mode"
+	FlagSCWriteMode                  = "state-commit.sc-write-mode"
+	FlagSCReadMode                   = "state-commit.sc-read-mode"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
