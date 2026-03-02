@@ -1,0 +1,6 @@
+{
+    "Comment": "A large simulation. This is the largest sane simulation for local testing.",
+    "DataDir": "data",
+    "MinimumNumberOfAccounts": 100000000
+}
+
