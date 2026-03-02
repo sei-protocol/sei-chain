@@ -14,17 +14,15 @@ import (
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	proto "github.com/sei-protocol/sei-chain/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
@@ -215,10 +213,10 @@ type fakeStateStore struct {
 
 func (f *fakeStateStore) Get(string, int64, []byte) ([]byte, error) { return nil, nil }
 func (f *fakeStateStore) Has(string, int64, []byte) (bool, error)   { return false, nil }
-func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (sstypes.DBIterator, error) {
+func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (types.DBIterator, error) {
 	return nil, nil
 }
-func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (sstypes.DBIterator, error) {
+func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (types.DBIterator, error) {
 	return nil, nil
 }
 func (f *fakeStateStore) RawIterate(string, func([]byte, []byte, int64) bool) (bool, error) {
@@ -228,12 +226,9 @@ func (f *fakeStateStore) GetLatestVersion() int64                               
 func (f *fakeStateStore) SetLatestVersion(version int64) error                         { return nil }
 func (f *fakeStateStore) GetEarliestVersion() int64                                    { return f.earliest }
 func (f *fakeStateStore) SetEarliestVersion(version int64, _ bool) error               { return nil }
-func (f *fakeStateStore) GetLatestMigratedKey() ([]byte, error)                        { return nil, nil }
-func (f *fakeStateStore) GetLatestMigratedModule() (string, error)                     { return "", nil }
 func (f *fakeStateStore) ApplyChangesetSync(_ int64, _ []*proto.NamedChangeSet) error  { return nil }
 func (f *fakeStateStore) ApplyChangesetAsync(_ int64, _ []*proto.NamedChangeSet) error { return nil }
-func (f *fakeStateStore) Import(_ int64, _ <-chan sstypes.SnapshotNode) error          { return nil }
-func (f *fakeStateStore) RawImport(_ <-chan sstypes.RawSnapshotNode) error             { return nil }
+func (f *fakeStateStore) Import(_ int64, _ <-chan types.SnapshotNode) error            { return nil }
 func (f *fakeStateStore) Prune(_ int64) error                                          { return nil }
 func (f *fakeStateStore) Close() error                                                 { return nil }
 

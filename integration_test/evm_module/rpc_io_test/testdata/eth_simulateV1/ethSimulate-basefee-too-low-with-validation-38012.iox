@@ -1,0 +1,3 @@
+// Error: BaseFeePerGas too low with validation (-38012)
+>> {"jsonrpc":"2.0","id":1,"method":"eth_simulateV1","params":[{"blockStateCalls":[{"blockOverrides":{"baseFeePerGas":"0xa"},"stateOverrides":{"0xc000000000000000000000000000000000000000":{"balance":"0x7d0"}},"calls":[{"from":"0xc000000000000000000000000000000000000000","to":"0xc100000000000000000000000000000000000000","maxFeePerGas":"0x0","maxPriorityFeePerGas":"0x0"}]}],"validation":true},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"err: max fee per gas less than block base fee: address 0xC000000000000000000000000000000000000000, maxFeePerGas: 0, baseFee: 10 (supplied gas 50000000)"}}

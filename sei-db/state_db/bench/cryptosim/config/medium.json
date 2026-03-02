@@ -1,0 +1,6 @@
+{
+    "Comment": "A medium-sized simulation. Takes a few minutes to set up, but is not extremely onerous to set up.",
+    "DataDir": "data",
+    "MinimumNumberOfAccounts": 10000000
+}
+

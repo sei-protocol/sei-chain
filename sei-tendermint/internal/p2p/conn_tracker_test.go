@@ -1,27 +1,21 @@
 package p2p
 
 import (
-	"math"
-	"math/rand"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func randByte() byte {
-	return byte(rand.Intn(math.MaxUint8))
-}
-
-func randPort() uint16 {
-	return uint16(rand.Intn(math.MaxUint16))
-}
+var localAddrCounter atomic.Uint32
 
 func randLocalAddr() netip.AddrPort {
+	n := localAddrCounter.Add(1)
 	return netip.AddrPortFrom(
-		netip.AddrFrom4([4]byte{127, randByte(), randByte(), randByte()}),
-		randPort(),
+		netip.AddrFrom4([4]byte{127, byte(n >> 16), byte(n >> 8), byte(n)}),
+		uint16(n),
 	)
 }
 
