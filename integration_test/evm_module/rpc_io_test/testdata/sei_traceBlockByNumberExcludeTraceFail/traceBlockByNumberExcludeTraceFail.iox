@@ -1,0 +1,6 @@
+// Data-dependent: bind block number from latest, then sei_traceBlockByNumberExcludeTraceFail(blockNum). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind blockNum = result.number
+>> {"jsonrpc":"2.0","id":1,"method":"sei_traceBlockByNumberExcludeTraceFail","params":["${blockNum}",{"tracer":"callTracer"}]}
+<< {"jsonrpc":"2.0","id":1,"result":[]}
