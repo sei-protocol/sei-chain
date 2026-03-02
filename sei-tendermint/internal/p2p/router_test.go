@@ -25,7 +25,7 @@ import (
 )
 
 func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
-	hConn, err := handshake(ctx, conn, r.privKey, false)
+	hConn, err := handshake(ctx, conn, r.privKey, handshakeSpec{SeiGigaConnection: false})
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}
@@ -223,6 +223,37 @@ func TestRouter_SendError(t *testing.T) {
 	require.True(t, ok)
 	nodes[0].Router.Evict(nodes[1].NodeID, errors.New("boom"))
 	nodes[0].WaitForDisconnect(ctx, conn)
+}
+
+func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
+	ctx := t.Context()
+
+	// Start a network of 2 nodes connected to each other with PexOnHandshake = true
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 2, NodeOpts: TestNodeOptions{PexOnHandshake: true}})
+	network.Start(t)
+	nodes := network.Nodes()
+
+	// Add a node with PexOnHandshake = false and connect it to nodes[0]
+	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
+	newNode.Connect(ctx, nodes[0])
+
+	// newNode should not learn about nodes[1] during handshake.
+	require.Empty(t, newNode.Router.Addresses(nodes[1].NodeID))
+}
+
+func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
+	ctx := t.Context()
+
+	t.Log("Create a network with 3 nodes.")
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true}})
+	nodes := network.Nodes()
+
+	t.Log("Connect nodes 1,2 to 0.")
+	nodes[1].Connect(ctx, nodes[0])
+	nodes[2].Connect(ctx, nodes[0])
+
+	t.Log("Node 2 should learn about node 1 during handshake with 0, and connect to it eventually.")
+	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
 }
 
 var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
@@ -714,7 +745,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: TestAddress(x).NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, hConn.conn, info, utils.Some(addr))) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(x.runConn(ctx, hConn, info, utils.Some(addr))) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}
