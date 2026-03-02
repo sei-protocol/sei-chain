@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
@@ -419,7 +418,9 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.codeDB = nil
 			s.storageDB = nil
 			s.legacyDB = nil
-			s.changelog = nil
+			if changelogRoot != "" {
+				s.changelog = nil
+			}
 			s.localMeta = make(map[string]*LocalMeta)
 		}
 	}()

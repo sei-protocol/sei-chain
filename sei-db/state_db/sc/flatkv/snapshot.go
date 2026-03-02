@@ -187,8 +187,12 @@ func removeTmpDirs(dir string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
+		if !e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix) {
 			_ = os.RemoveAll(filepath.Join(dir, name))
+			continue
 		}
 	}
 	return nil
