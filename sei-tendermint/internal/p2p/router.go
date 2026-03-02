@@ -294,13 +294,13 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								if err != nil {
 									return fmt.Errorf("handshake(): %w", err)
 								}
+								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
+									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
+								}
 								if r.options.PexOnHandshake {
 									if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
 										return fmt.Errorf("r.AddAddrs(): %w", err)
 									}
-								}
-								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
-									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
 								}
 								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 								if err != nil {
