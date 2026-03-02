@@ -522,7 +522,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
-	workDir := filepath.Join(dir, flatkvRootDir, workingDirName)
+	workDir := filepath.Join(dir, "data", flatkvRootDir, workingDirName)
 	basePath := filepath.Join(workDir, snapshotBaseFile)
 	_, err = os.Stat(basePath)
 	require.NoError(t, err, "SNAPSHOT_BASE should exist after close")

@@ -70,6 +70,13 @@ func (imp *KVImporter) Close() error {
 		return imp.err
 	}
 
+	// Store may have been closed before snapshot import (rootmulti.Restore
+	// closes the store then creates an importer). If the DBs are nil there
+	// is nothing to flush or finalize.
+	if imp.store.metadataDB == nil {
+		return nil
+	}
+
 	imp.flush()
 	if imp.err != nil {
 		return imp.err

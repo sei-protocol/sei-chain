@@ -39,7 +39,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 
 	// Verify snapshot directory exists with all 4 DB subdirs
 	snapDir := filepath.Join(flatkvDir, snapshotName(1))
@@ -67,7 +67,7 @@ func TestSnapshotIdempotent(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	target, err := os.Readlink(currentPath(flatkvDir))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(1), target)
@@ -215,7 +215,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	// Take a valid snapshot first
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	prevTarget, err := os.Readlink(currentPath(flatkvDir))
 	require.NoError(t, err)
 
@@ -246,7 +246,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 
 func TestMigrationFromFlatLayout(t *testing.T) {
 	dir := t.TempDir()
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 
 	// Simulate the old flat layout by creating DB dirs directly
 	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, legacyDBDir} {
@@ -305,7 +305,7 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
 	// (accountDB thinks it's at v1, but global says v2)
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	snapDir, _, err := currentSnapshotDir(flatkvDir)
 	require.NoError(t, err)
 
@@ -762,7 +762,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 		require.NoError(t, s.WriteSnapshot(""))
 	}
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	var snapshots []int64
 	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
 		snapshots = append(snapshots, v)
@@ -787,7 +787,7 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 		require.NoError(t, s.WriteSnapshot(""))
 	}
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	var count int
 	_ = traverseSnapshots(flatkvDir, true, func(_ int64) (bool, error) {
 		count++
@@ -803,7 +803,7 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 
 func TestOrphanSnapshotRecovery(t *testing.T) {
 	dir := t.TempDir()
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 
 	snapDir := filepath.Join(flatkvDir, snapshotName(5))
 	for _, sub := range snapshotDBDirs {
@@ -975,7 +975,7 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
 	var beforeRollback []int64
 	_ = traverseSnapshots(flatkvDir, true, func(v int64) (bool, error) {
 		beforeRollback = append(beforeRollback, v)

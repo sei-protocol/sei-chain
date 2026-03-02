@@ -118,7 +118,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return filepath.Join(s.homeDir, flatkvRootDir)
+	return filepath.Join(s.homeDir, "data", flatkvRootDir)
 }
 
 // LoadVersion loads the specified version of the database.
@@ -421,5 +421,12 @@ func (s *CommitStore) RootHash() []byte {
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	// rootmulti.Restore closes the store before creating an importer.
+	// Reopen the DBs so the importer can write data.
+	if s.metadataDB == nil {
+		if err := s.open(); err != nil {
+			return nil, fmt.Errorf("reopen store for import: %w", err)
+		}
+	}
 	return NewKVImporter(s, version), nil
 }
