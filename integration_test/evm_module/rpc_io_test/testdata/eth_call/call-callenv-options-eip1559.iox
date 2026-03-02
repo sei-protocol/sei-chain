@@ -1,0 +1,9 @@
+// Data-dependent: eth_call with EIP1559 options to our deployed contract. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"0x0000000000000000000000000000000000000000","gas":"0xea60","input":"0x","maxFeePerGas":"0x5763d65","maxPriorityFeePerGas":"0xb","to":"${contractAddress}","value":"0x0"},"__SEED__"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

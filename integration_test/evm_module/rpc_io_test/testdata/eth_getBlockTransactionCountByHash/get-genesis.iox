@@ -1,0 +1,6 @@
+// Data-dependent: get genesis block by number, bind hash, then getBlockTransactionCountByHash(genesisHash). Genesis exists on any chain.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["0x0",false]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind genesisHash = result.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockTransactionCountByHash","params":["${genesisHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

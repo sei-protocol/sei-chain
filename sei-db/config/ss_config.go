@@ -1,10 +1,16 @@
 package config
 
+// DBBackend defines the SS DB backend.
+type DBBackend string
+
 const (
 	DefaultSSKeepRecent    = 100000
 	DefaultSSPruneInterval = 600
 	DefaultSSImportWorkers = 1
 	DefaultSSAsyncBuffer   = 100
+	PebbleDBBackend        = "pebbledb"
+	RocksDBBackend         = "rocksdb"
+	DefaultSSBackend       = PebbleDBBackend
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
@@ -91,7 +97,7 @@ func (c StateStoreConfig) EVMEnabled() bool {
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
 		Enable:               true,
-		Backend:              "pebbledb",
+		Backend:              DefaultSSBackend,
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
