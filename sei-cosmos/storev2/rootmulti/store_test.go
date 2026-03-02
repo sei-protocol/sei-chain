@@ -267,6 +267,62 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	require.Contains(t, resp.Log, "historical proof busy")
 }
 
+func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("store1")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv.Set([]byte("k"), []byte("v"))
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	// Spin up a goroutine that holds the write lock for a short period.
+	// With the old code (re-entrant RLock), a concurrent
+	// CacheMultiStoreWithVersion call would deadlock because the pending
+	// writer causes the second RLock to block.
+	writerReady := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		store.mtx.Lock()
+		close(writerReady)
+		time.Sleep(50 * time.Millisecond)
+		store.mtx.Unlock()
+	}()
+
+	<-writerReady
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// version=0 with SS disabled takes the else-if branch that previously
+		// called the public CacheMultiStore (which re-acquired RLock).
+		cms, err := store.CacheMultiStoreWithVersion(0)
+		require.NoError(t, err)
+		require.NotNil(t, cms)
+	}()
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, 3*time.Second, 10*time.Millisecond, "CacheMultiStoreWithVersion deadlocked on re-entrant RLock")
+	<-writerDone
+}
+
 func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
