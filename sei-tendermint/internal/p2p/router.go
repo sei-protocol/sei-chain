@@ -230,7 +230,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						// Listener has to send pex data, so that dialer can learn about more peers in
 						// case listener does not have capacity for new connections.
 						// Dialer also could potentially send pex data, but there is no benefit from doing so:
-						// - if listener is full, then it won't use the new data. Listener also will not broadcast unverified data to anyone.
+						// - if listener is full, then it won't use the new data and it won't gossip it further either, since only verified data is gossiped.
 						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
 						PexAddrs:          pexAddrs,
 						SeiGigaConnection: r.giga.IsPresent(),

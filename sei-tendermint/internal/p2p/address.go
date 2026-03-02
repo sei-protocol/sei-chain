@@ -28,11 +28,7 @@ var (
 )
 
 // NodeAddress is a node address URL. It differs from a transport Endpoint in
-// that it contains the node's ID, and that the address hostname may be resolved
-// into multiple IP addresses (and thus multiple endpoints).
-//
-// If the URL is opaque, i.e. of the form "scheme:opaque", then the opaque part
-// is expected to contain a node ID.
+// that it contains the node's ID, and that the hostname migth be either an IP or a DNS address.
 type NodeAddress struct {
 	NodeID   types.NodeID
 	Hostname string
@@ -54,12 +50,6 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 	}
 
 	address := NodeAddress{}
-
-	// Opaque URLs are expected to contain only a node ID.
-	if url.Opaque != "" {
-		address.NodeID = types.NodeID(url.Opaque)
-		return address, address.Validate()
-	}
 
 	// Otherwise, just parse a normal networked URL.
 	if url.User != nil {
