@@ -104,8 +104,21 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
-	scConfig.WriteMode = config.WriteMode(cast.ToString(appOpts.Get(FlagSCWriteMode)))
-	scConfig.ReadMode = config.ReadMode(cast.ToString(appOpts.Get(FlagSCReadMode)))
+
+	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		scConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagSCReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		scConfig.ReadMode = parsedRM
+	}
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
