@@ -39,6 +39,21 @@ type NodeAddress struct {
 	Port     uint16
 }
 
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+// IsPublic checks if the address is routable from the public internet.
+// It is good enough to exclude internal addresses of cloud providers.
+// As a simplification, it treats non-IP Hostnames (DNS addresses) as public.
+// TODO(gprusak): DNS addresses should be eliminated from PEX entirely - all
+// addresses should be resolved locally and only then advertised to peers.
+func (a NodeAddress) IsPublic() bool {
+	ip, err := netip.ParseAddr(a.Hostname)
+	if err != nil {
+		return true
+	}
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !cgnat.Contains(ip.Unmap())
+}
+
 // ParseNodeAddress parses a node address URL into a NodeAddress, normalizing
 // and validating it.
 func ParseNodeAddress(urlString string) (NodeAddress, error) {

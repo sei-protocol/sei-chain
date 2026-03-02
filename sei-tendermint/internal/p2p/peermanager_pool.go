@@ -30,10 +30,9 @@ func getOpt[K comparable, V any](m map[K]V, k K) utils.Option[V] {
 }
 
 type poolConfig struct {
-	selfID          types.NodeID
-	maxConns        utils.Option[int]
-	maxAddrs        utils.Option[int]
-	maxAddrsPerPeer utils.Option[int]
+	selfID   types.NodeID
+	maxConns utils.Option[int]
+	maxAddrs utils.Option[int]
 }
 
 type pool[C peerConn] struct {
@@ -41,7 +40,7 @@ type pool[C peerConn] struct {
 
 	outbound int
 	conns    map[types.NodeID]C
-	addrs    map[types.NodeID]*peerAddrs
+	addrs    map[types.NodeID]*peerAddr
 	dialing  map[types.NodeID]NodeAddress
 }
 
@@ -49,24 +48,15 @@ func newPool[C peerConn](cfg poolConfig) *pool[C] {
 	return &pool[C]{
 		poolConfig: cfg,
 		conns:      map[types.NodeID]C{},
-		addrs:      map[types.NodeID]*peerAddrs{},
+		addrs:      map[types.NodeID]*peerAddr{},
 		dialing:    map[types.NodeID]NodeAddress{},
 	}
 }
 
-type peerAddrs struct {
+type peerAddr struct {
 	lastFail utils.Option[time.Time]
-	// Invariants:
-	// * fails is a subset of addrs.
-	addrs map[NodeAddress]struct{}
-	fails map[NodeAddress]time.Time
-}
-
-func newPeerAddrs() *peerAddrs {
-	return &peerAddrs{
-		addrs: map[NodeAddress]struct{}{},
-		fails: map[NodeAddress]time.Time{},
-	}
+	addr     NodeAddress
+	isPublic bool
 }
 
 type peerConnInfo struct {
@@ -81,61 +71,73 @@ type peerConn interface {
 	Close()
 }
 
-// Returns true iff the address was actually added.
-func (p *pool[C]) AddAddr(addr NodeAddress) bool {
-	// Ignore self.
+var errSelfAddr = errors.New("self address is ignored")
+var errDuplicate = errors.New("duplicate address for the same peer")
+var errTooMany = errors.New("too many addresses in the peer manager")
+
+// AddAddr adds an address to the pool.
+// Returns an error iff the address could not be added.
+func (p *pool[C]) AddAddr(addr NodeAddress) error {
+	pa := &peerAddr{addr: addr, isPublic: addr.IsPublic()}
+	// Ignore address to self.
 	if addr.NodeID == p.selfID {
-		return false
+		return errSelfAddr
 	}
-	pa, ok := p.addrs[addr.NodeID]
-	// Add new peerAddrs if missing.
-	if !ok {
-		// Prune some peer if maxPeers limit has been reached.
-		if m, ok := p.maxAddrs.Get(); ok && len(p.addrs) == m {
-			toPrune, ok := p.findFailedPeer()
-			if !ok {
-				return false
+	if old, ok := p.addrs[addr.NodeID]; ok {
+		// Ignore duplicates.
+		if old.addr == addr {
+			return errDuplicate
+		}
+		// If the old address failed, prune it.
+		if old.lastFail.IsPresent() {
+			p.addrs[pa.addr.NodeID] = pa
+			return nil
+		}
+		// Prune private address, if we insert a public address
+		if !old.isPublic && addr.IsPublic() {
+			p.addrs[pa.addr.NodeID] = pa
+			return nil
+		}
+		// Otherwise, do not replace
+		return errDuplicate
+	}
+	// If there limit on addresses has not been reached, allow the new address.
+	if maxAddrs, ok := p.maxAddrs.Get(); !ok || len(p.addrs) < maxAddrs {
+		p.addrs[pa.addr.NodeID] = pa
+		return nil
+	}
+	// Find any failed address to prune.
+	// It doesn't matter what was the time of the failure,
+	// since lastFail time is used just for round robin ordering.
+	for id, old := range p.addrs {
+		if old.lastFail.IsPresent() {
+			delete(p.addrs, id)
+			p.addrs[pa.addr.NodeID] = pa
+			return nil
+		}
+	}
+	// If the new address is public, find a private address to prune.
+	if addr.IsPublic() {
+		for id, old := range p.addrs {
+			if !old.isPublic {
+				delete(p.addrs, id)
+				p.addrs[pa.addr.NodeID] = pa
+				return nil
 			}
-			delete(p.addrs, toPrune)
 		}
-		pa = newPeerAddrs()
-		p.addrs[addr.NodeID] = pa
 	}
-	// Ignore duplicate address.
-	if _, ok := pa.addrs[addr]; ok {
-		return false
-	}
-	// Prune any failing address if maxAddrsPerPeer has been reached.
-	if m, ok := p.maxAddrsPerPeer.Get(); ok && len(pa.addrs) >= m {
-		var failedAddr utils.Option[NodeAddress]
-		for old := range pa.fails {
-			failedAddr = utils.Some(old)
-			break
-		}
-		toPrune, ok := failedAddr.Get()
-		if !ok {
-			return false
-		}
-		delete(pa.addrs, toPrune)
-		delete(pa.fails, toPrune)
-	}
-	pa.addrs[addr] = struct{}{}
-	return true
+	// Nothing can be pruned.
+	return errTooMany
 }
 
 func (p *pool[C]) DialFailed(addr NodeAddress) {
+	// Clear dialing status.
 	if p.dialing[addr.NodeID] == addr {
 		delete(p.dialing, addr.NodeID)
 	}
-	peerAddrs, ok := p.addrs[addr.NodeID]
-	if !ok {
-		return
-	}
 	// Record the failure time.
-	now := time.Now()
-	peerAddrs.lastFail = utils.Some(now)
-	if _, ok := peerAddrs.addrs[addr]; ok {
-		peerAddrs.fails[addr] = now
+	if peerAddr, ok := p.addrs[addr.NodeID]; ok && peerAddr.addr == addr {
+		peerAddr.lastFail = utils.Some(time.Now())
 	}
 }
 
@@ -146,16 +148,6 @@ func (p *pool[C]) Evict(id types.NodeID) {
 	}
 }
 
-func (p *pool[C]) findFailedPeer() (types.NodeID, bool) {
-	for old, pa := range p.addrs {
-		if len(pa.fails) < len(pa.addrs) {
-			continue
-		}
-		return old, true
-	}
-	return "", false
-}
-
 func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 	// Check the connections limit.
 	if m, ok := p.maxConns.Get(); ok && len(p.dialing)+len(p.conns) >= m {
@@ -163,7 +155,7 @@ func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 	}
 
 	// Choose peer with the oldest lastFail.
-	var bestPeer utils.Option[*peerAddrs]
+	var best utils.Option[*peerAddr]
 	for id, peerAddrs := range p.addrs {
 		if _, ok := p.dialing[id]; ok {
 			continue
@@ -171,25 +163,18 @@ func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 		if _, ok := p.conns[id]; ok {
 			continue
 		}
-		if x, ok := bestPeer.Get(); !ok || before(peerAddrs.lastFail, x.lastFail) {
-			bestPeer = utils.Some(peerAddrs)
+		if x, ok := best.Get(); !ok || before(peerAddrs.lastFail, x.lastFail) {
+			best = utils.Some(peerAddrs)
 		}
 	}
-	// Choose address with the oldest lastFail.
-	var best utils.Option[NodeAddress]
-	if peer, ok := bestPeer.Get(); ok {
-		for addr := range peer.addrs {
-			if x, ok := best.Get(); !ok || before(getOpt(peer.fails, addr), getOpt(peer.fails, x)) {
-				best = utils.Some(addr)
-			}
-		}
+	x, ok := best.Get()
+	if !ok {
+		return NodeAddress{}, false
 	}
-	if x, ok := best.Get(); ok {
-		// clear the failed status for the chosen address and mark it as dialing.
-		delete(p.addrs[x.NodeID].fails, x)
-		p.dialing[x.NodeID] = x
-	}
-	return best.Get()
+	// clear the failed status for the chosen address and mark it as dialing.
+	p.addrs[x.addr.NodeID].lastFail = utils.None[time.Time]()
+	p.dialing[x.addr.NodeID] = x.addr
+	return x.addr, true
 }
 
 func (p *pool[C]) Connected(conn C) (err error) {
