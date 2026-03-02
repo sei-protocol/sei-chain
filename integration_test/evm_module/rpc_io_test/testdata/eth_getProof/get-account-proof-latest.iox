@@ -1,0 +1,9 @@
+// Data-dependent: getProof for an account that exists. Bind contractAddress from deploy, then getProof(contractAddress, [], "__SEED__"). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getProof","params":["${contractAddress}",[],"__SEED__"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
