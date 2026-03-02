@@ -1,0 +1,6 @@
+// Data-dependent: get latest block with full tx, bind first tx hash, then get that tx by hash. Run evm_rpc_tests.sh first when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind txHash = result.transactions.0.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionByHash","params":["${txHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}

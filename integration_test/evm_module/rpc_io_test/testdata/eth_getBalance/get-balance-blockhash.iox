@@ -1,0 +1,6 @@
+// Data-dependent: bind block hash from latest, then eth_getBalance(addr, blockHash). Use recipient 0xF87A. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind blockHash = result.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52","${blockHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

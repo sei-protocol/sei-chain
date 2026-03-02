@@ -1,0 +1,3 @@
+// Data-dependent: genesis block. Same as .io but .iox so .io is skipped.
+>> {"jsonrpc":"2.0","id":1,"method":"debug_getRawHeader","params":["0x0"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}
