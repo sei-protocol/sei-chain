@@ -8,9 +8,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -300,7 +300,7 @@ func (s *CommitStore) clearPendingWrites() {
 // Each DB batch includes LocalMeta update for crash recovery.
 // Also called by catchup to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
-	syncOpt := db_engine.WriteOptions{Sync: s.config.Fsync}
+	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
 
 	// Commit to accountDB
 	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)

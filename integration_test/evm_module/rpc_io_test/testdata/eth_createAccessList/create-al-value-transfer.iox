@@ -1,0 +1,3 @@
+// Data-dependent: createAccessList for simple value transfer to 0xF87A (our script recipient). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_createAccessList","params":[{"to":"0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52","value":"0x1"},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
