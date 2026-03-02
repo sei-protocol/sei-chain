@@ -57,9 +57,9 @@ type pendingAccountWrite struct {
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
-	log     logger.Logger
-	config  Config
-	dbDir string
+	log    logger.Logger
+	config Config
+	dbDir  string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
