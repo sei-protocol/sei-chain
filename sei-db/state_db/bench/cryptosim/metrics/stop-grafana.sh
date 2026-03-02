@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-CONTAINER_NAME="cryptosim-grafana"
+CONTAINER_NAME="sei-grafana"
 
 # Check for Docker
 if ! command -v docker &>/dev/null; then

@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-CONTAINER_NAME="cryptosim-prometheus"
+CONTAINER_NAME="sei-prometheus"
 
 # Check for Docker
 if ! command -v docker &>/dev/null; then
