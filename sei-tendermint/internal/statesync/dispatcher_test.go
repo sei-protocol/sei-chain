@@ -235,6 +235,23 @@ func TestPeerListBasic(t *testing.T) {
 	assert.Equal(t, half, peerList.Len())
 }
 
+func TestPeerListAllReturnsSnapshot(t *testing.T) {
+	peerList := NewPeerList()
+	peerSet := createPeerSet(2)
+	for _, peer := range peerSet {
+		peerList.Append(peer)
+	}
+
+	peers := peerList.All()
+	require.Len(t, peers, 2)
+
+	// Mutating the returned list must not mutate the internal peer list.
+	peers[0] = peerSet[1]
+	peers = peerList.All()
+	require.Equal(t, peerSet[0], peers[0])
+	require.Equal(t, peerSet[1], peers[1])
+}
+
 func TestPeerListBlocksWhenEmpty(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 	peerList := NewPeerList()
