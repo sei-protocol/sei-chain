@@ -50,7 +50,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string) (DBWrapper, error) 
 	cfg.Fsync = false
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
 	cs := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
-	_, err := cs.LoadVersion(0)
+	_, err := cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)

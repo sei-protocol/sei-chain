@@ -187,8 +187,12 @@ func removeTmpDirs(dir string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
+		if !e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix) {
 			_ = os.RemoveAll(filepath.Join(dir, name))
+			continue
 		}
 	}
 	return nil
@@ -423,6 +427,9 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 // (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
 // The dir parameter is ignored; snapshots are always stored alongside the live data.
 func (s *CommitStore) WriteSnapshot(_ string) error {
+	if s.readOnly {
+		return errReadOnly
+	}
 	version := s.committedVersion
 	if version <= 0 {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
@@ -530,6 +537,9 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
 // completes, the next restart will simply re-run catchup against the
 // already-truncated WAL, converging to targetVersion.
 func (s *CommitStore) Rollback(targetVersion int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
 	s.log.Info("FlatKV Rollback", "targetVersion", targetVersion)
 
 	dir := s.flatkvDir()

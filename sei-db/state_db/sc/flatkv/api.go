@@ -24,7 +24,11 @@ type Store interface {
 	// LoadVersion opens the database at the specified version.
 	// targetVersion == 0 opens the latest; targetVersion > 0 seeks the best
 	// snapshot <= target and replays WAL to reach it exactly.
-	LoadVersion(targetVersion int64) (Store, error)
+	//
+	// When readOnly is true a new, isolated CommitStore is returned that
+	// shares no mutable state with the receiver. The caller must Close it
+	// when done; Close removes the temporary working directory.
+	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.

@@ -3,6 +3,7 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -22,8 +23,8 @@ func (s *CommitStore) closeDBsOnly() error {
 		if err := s.changelog.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("changelog close: %w", err))
 		}
-		s.changelog = nil
 	}
+	s.changelog = nil
 
 	if s.metadataDB != nil {
 		if err := s.metadataDB.Close(); err != nil {
@@ -67,6 +68,7 @@ func (s *CommitStore) closeDBsOnly() error {
 }
 
 // Close closes all database instances and releases the file lock.
+// For readonly stores it also removes the temporary working directory.
 func (s *CommitStore) Close() error {
 	err := s.closeDBsOnly()
 
@@ -75,6 +77,10 @@ func (s *CommitStore) Close() error {
 			err = errors.Join(err, fmt.Errorf("file lock release: %w", lockErr))
 		}
 		s.fileLock = nil
+	}
+
+	if s.readOnlyWorkDir != "" {
+		_ = os.RemoveAll(s.readOnlyWorkDir)
 	}
 
 	if err != nil {

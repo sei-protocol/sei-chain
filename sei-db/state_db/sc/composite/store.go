@@ -104,7 +104,13 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 			homeDir:         cs.homeDir,
 			config:          cs.config,
 		}
-		// TODO: Support loading FlatKV at target version for read only
+		if cs.evmCommitter != nil {
+			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load readonly FlatKV version: %w", err)
+			}
+			newStore.evmCommitter = evmStore
+		}
 		return newStore, nil
 	}
 
@@ -113,7 +119,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
 	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
 	if cs.evmCommitter != nil {
-		_, err := cs.evmCommitter.LoadVersion(targetVersion)
+		_, err := cs.evmCommitter.LoadVersion(targetVersion, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
