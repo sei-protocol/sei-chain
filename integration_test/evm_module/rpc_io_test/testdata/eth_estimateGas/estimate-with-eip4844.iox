@@ -1,0 +1,9 @@
+// Data-dependent: eth_estimateGas with EIP-4844 related params; use our contract. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_estimateGas","params":[{"to":"${contractAddress}","data":"0x"}],"__SEED__"}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

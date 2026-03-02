@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
@@ -14,7 +14,7 @@ import (
 // EXPERIMENTAL: not used in production; only storage keys supported.
 // Interface may change when Exporter/state-sync is implemented.
 type dbIterator struct {
-	iter   db_engine.Iterator
+	iter   types.KeyValueDBIterator
 	kind   evm.EVMKeyKind // key type for conversion
 	start  []byte         // external format start key
 	end    []byte         // external format end key
@@ -29,7 +29,7 @@ var (
 )
 
 // newDBIterator creates a new dbIterator for the given key kind.
-func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iterator {
+func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) Iterator {
 	// Convert external bounds to internal bounds
 	var internalStart, internalEnd []byte
 	startMatches := start == nil // nil start means unbounded
@@ -59,7 +59,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 		internalStart = metaKeyLowerBound()
 	}
 
-	iter, err := db.NewIter(&db_engine.IterOptions{
+	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalStart,
 		UpperBound: internalEnd,
 	})
@@ -76,7 +76,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 }
 
 // newDBPrefixIterator creates a new dbIterator for prefix scanning.
-func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
+func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
 	internalEnd := PrefixEnd(internalPrefix)
 
 	// Exclude metadata key (0x00)
@@ -84,7 +84,7 @@ func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []
 		internalPrefix = metaKeyLowerBound()
 	}
 
-	iter, err := db.NewIter(&db_engine.IterOptions{
+	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalPrefix,
 		UpperBound: internalEnd,
 	})

@@ -1,0 +1,9 @@
+// Data-dependent: estimateGasAfterCalls with our contract and recipient 0xF87A. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_estimateGasAfterCalls","params":[{"from":"0x0000000000000000000000000000000000000000","to":"0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52","value":"0x1"},[{"to":"${contractAddress}","data":"0x"}],"__SEED__"]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}

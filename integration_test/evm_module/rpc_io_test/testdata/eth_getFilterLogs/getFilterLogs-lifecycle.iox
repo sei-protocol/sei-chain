@@ -1,0 +1,6 @@
+// Data-dependent: create filter, bind filterId, then getFilterLogs(filterId). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_newFilter","params":[{"fromBlock":"0x1","toBlock":"latest"}]}
+<< {"jsonrpc":"2.0","id":1,"result":"0x"}
+@ bind filterId = result
+>> {"jsonrpc":"2.0","id":2,"method":"eth_getFilterLogs","params":["${filterId}"]}
+<< {"jsonrpc":"2.0","id":2,"result":[]}
