@@ -69,7 +69,6 @@ func (imp *KVImporter) Close() error {
 	if imp.err != nil {
 		return imp.err
 	}
-
 	imp.flush()
 	if imp.err != nil {
 		return imp.err

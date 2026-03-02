@@ -57,9 +57,9 @@ type pendingAccountWrite struct {
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
-	log     logger.Logger
-	config  Config
-	homeDir string
+	log    logger.Logger
+	config Config
+	dbDir  string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
@@ -97,7 +97,7 @@ var _ Store = (*CommitStore)(nil)
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
-func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore {
+func NewCommitStore(dbDir string, log logger.Logger, cfg Config) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
@@ -105,7 +105,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 	return &CommitStore{
 		log:               log,
 		config:            cfg,
-		homeDir:           homeDir,
+		dbDir:             dbDir,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
@@ -118,7 +118,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return filepath.Join(s.homeDir, flatkvRootDir)
+	return s.dbDir
 }
 
 // LoadVersion loads the specified version of the database.
@@ -421,5 +421,12 @@ func (s *CommitStore) RootHash() []byte {
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	// rootmulti.Restore closes the store before creating an importer.
+	// Reopen the DBs so the importer can write data.
+	if s.isClosed() {
+		if err := s.open(); err != nil {
+			return nil, fmt.Errorf("reopen store for import: %w", err)
+		}
+	}
 	return NewKVImporter(s, version), nil
 }
