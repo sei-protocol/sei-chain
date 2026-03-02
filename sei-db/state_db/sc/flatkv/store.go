@@ -59,7 +59,7 @@ type pendingAccountWrite struct {
 type CommitStore struct {
 	log     logger.Logger
 	config  Config
-	homeDir string
+	dbDir string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
@@ -97,7 +97,7 @@ var _ Store = (*CommitStore)(nil)
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
-func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore {
+func NewCommitStore(dbDir string, log logger.Logger, cfg Config) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
@@ -105,7 +105,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 	return &CommitStore{
 		log:               log,
 		config:            cfg,
-		homeDir:           homeDir,
+		dbDir:             dbDir,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
@@ -118,7 +118,7 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return filepath.Join(s.homeDir, "data", flatkvRootDir)
+	return s.dbDir
 }
 
 // LoadVersion loads the specified version of the database.
