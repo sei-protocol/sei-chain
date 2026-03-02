@@ -75,7 +75,7 @@ func (i *peerManagerInner[C]) Connected(conn C) error {
 	err := pool.Connected(conn)
 	// Copy the update to the total connection pool.
 	conns := i.conns.Load()
-	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
+	if got, want := conns.GetOpt(info.ID), pool.getConn(info.ID); got != want {
 		i.conns.Store(conns.SetOpt(info.ID, want))
 	}
 	return err
@@ -90,7 +90,7 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 	pool.Disconnected(conn)
 	// Copy the update to the total connection pool.
 	conns := i.conns.Load()
-	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
+	if got, want := conns.GetOpt(info.ID), pool.getConn(info.ID); got != want {
 		i.conns.Store(conns.SetOpt(info.ID, want))
 	}
 }

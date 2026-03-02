@@ -36,11 +36,16 @@ type poolConfig struct {
 	maxAddrsPerPeer utils.Option[int]
 }
 
+type poolConn[C peerConn] struct {
+	conn C
+	addrs []NodeAddress // TODO, we need a lock on it or we 
+}
+
 type pool[C peerConn] struct {
 	poolConfig
 
 	outbound int
-	conns    map[types.NodeID]C
+	conns    map[types.NodeID]*poolConn[C]
 	addrs    map[types.NodeID]*peerAddrs
 	dialing  map[types.NodeID]NodeAddress
 }
@@ -48,7 +53,7 @@ type pool[C peerConn] struct {
 func newPool[C peerConn](cfg poolConfig) *pool[C] {
 	return &pool[C]{
 		poolConfig: cfg,
-		conns:      map[types.NodeID]C{},
+		conns:      map[types.NodeID]*poolConn[C]{},
 		addrs:      map[types.NodeID]*peerAddrs{},
 		dialing:    map[types.NodeID]NodeAddress{},
 	}
@@ -143,8 +148,15 @@ func (p *pool[C]) DialFailed(addr NodeAddress) {
 func (p *pool[C]) Evict(id types.NodeID) {
 	delete(p.addrs, id)
 	if conn, ok := p.conns[id]; ok {
-		conn.Close()
+		conn.conn.Close()
 	}
+}
+
+func (p *pool[C]) getConn(id types.NodeID) utils.Option[C] {
+	if c,ok := p.conns[id]; ok {
+		return utils.Some(c.conn)
+	}
+	return utils.None[C]()
 }
 
 func (p *pool[C]) findFailedPeer() (types.NodeID, bool) {
@@ -212,11 +224,11 @@ func (p *pool[C]) Connected(conn C) (err error) {
 		// * inbound priority > outbound priority <=> peerID > selfID.
 		//   This resolves the situation when peers try to connect to each other
 		//   at the same time.
-		oldIsOutbound := old.Info().DialAddr.IsPresent()
+		oldIsOutbound := old.conn.Info().DialAddr.IsPresent()
 		if oldIsOutbound != newIsOutbound && (info.ID < p.selfID) != newIsOutbound {
 			return fmt.Errorf("duplicate connection from peer %q", info.ID)
 		}
-		old.Close()
+		old.conn.Close()
 		delete(p.conns, info.ID)
 		if oldIsOutbound {
 			p.outbound -= 1
@@ -228,14 +240,14 @@ func (p *pool[C]) Connected(conn C) (err error) {
 	if newIsOutbound {
 		p.outbound += 1
 	}
-	p.conns[info.ID] = conn
+	p.conns[info.ID] = &poolConn[C]{conn:conn}
 	return nil
 }
 
 func (p *pool[C]) Disconnected(conn C) {
 	info := conn.Info()
-	if old, ok := p.conns[info.ID]; ok && old == conn {
-		old.Close()
+	if old, ok := p.conns[info.ID]; ok && old.conn == conn {
+		old.conn.Close()
 		delete(p.conns, info.ID)
 		if info.DialAddr.IsPresent() {
 			p.outbound -= 1
