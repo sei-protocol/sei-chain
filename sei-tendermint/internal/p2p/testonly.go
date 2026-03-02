@@ -50,8 +50,9 @@ type TestNetworkOptions struct {
 }
 
 type TestNodeOptions struct {
-	MaxPeers     utils.Option[int]
-	MaxConnected utils.Option[int]
+	MaxPeers       utils.Option[int]
+	MaxConnected   utils.Option[int]
+	PexOnHandshake bool
 }
 
 func TestAddress(r *Router) NodeAddress {
@@ -105,9 +106,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	}
 }
 
-// Start starts the network by setting up a list of node addresses to dial in
-// addition to creating a peer update subscription for each node. Finally, all
-// nodes are connected to each other.
+// Start starts the network and connects all nodes to each other.
 func (n *TestNetwork) Start(t *testing.T) {
 	nodes := n.Nodes()
 	// Populate peer managers.
@@ -282,9 +281,11 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	privKey := NodeSecretKey(ed25519.GenerateSecretKey())
 	nodeID := privKey.Public().NodeID()
 	logger := n.logger.With("node", nodeID[:5])
-
+	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
 	routerOpts := &RouterOptions{
-		Endpoint:                 Endpoint{AddrPort: tcp.TestReserveAddr()},
+		SelfAddress:              utils.Some(endpoint.NodeAddress(nodeID)),
+		PexOnHandshake:           opts.PexOnHandshake,
+		Endpoint:                 endpoint,
 		Connection:               conn.DefaultMConnConfig(),
 		IncomingConnectionWindow: utils.Some[time.Duration](0),
 		MaxAcceptRate:            utils.Some(rate.Inf),

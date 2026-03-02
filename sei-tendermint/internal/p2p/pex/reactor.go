@@ -31,20 +31,13 @@ const (
 	// NOTE: dont use massive DNS name ..
 	maxAddressSize = 256
 
-	// max addresses returned by GetSelection
-	// NOTE: this must match "maxMsgSize"
-	maxGetSelection = 250
-
 	// NOTE: amplification factor!
 	// small request results in up to maxMsgSize response
-	maxMsgSize = maxAddressSize * maxGetSelection
+	maxMsgSize = 1000 + maxAddressSize*p2p.MaxPexAddrs
 
 	// the minimum time one peer can send another request to the same peer
 	maxPeerRecvBurst    = 10
 	DefaultSendInterval = 10 * time.Second
-
-	// the maximum amount of addresses that can be included in a response
-	maxAddresses = 100
 )
 
 var ErrNoPeersAvailable = errors.New("no available peers to send a PEX request to (retrying)")
@@ -68,11 +61,6 @@ func ChannelDescriptor() p2p.ChannelDescriptor[*pb.PexMessage] {
 // The peer exchange or PEX reactor supports the peer manager by sending
 // requests to other peers for addresses that can be given to the peer manager
 // and at the same time advertises addresses to peers that need more.
-//
-// The reactor is able to tweak the intensity of it's search by decreasing or
-// increasing the interval between each request. It tracks connected peers via
-// a linked list, sending a request to the node at the front of the list and
-// adding it to the back of the list once a response is received.
 type Reactor struct {
 	service.BaseService
 	sendInterval time.Duration
@@ -193,7 +181,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 	case *pb.PexMessage_PexRequest:
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
-		nodeAddresses := r.router.Advertise(maxAddresses)
+		nodeAddresses := r.router.Advertise(p2p.MaxPexAddrs)
 		pexAddresses := make([]*pb.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = &pb.PexAddress{Url: addr.String()}
@@ -204,9 +192,8 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 	case *pb.PexMessage_PexResponse:
 		resp := msg.PexResponse
 		// Verify that the response does not exceed the safety limit.
-		if len(resp.Addresses) > maxAddresses {
-			return fmt.Errorf("peer sent too many addresses (%d > maxiumum %d)",
-				len(resp.Addresses), maxAddresses)
+		if got, wantMax := len(resp.Addresses), p2p.MaxPexAddrs; got > wantMax {
+			return fmt.Errorf("peer sent too many addresses (%d > maxiumum %d)", got, wantMax)
 		}
 
 		var addrs []p2p.NodeAddress

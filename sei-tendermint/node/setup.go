@@ -227,6 +227,7 @@ func createRouter(
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
 	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
 	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
+	options.PexOnHandshake = cfg.P2P.PexReactor
 	options.Connection = conn.DefaultMConnConfig()
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate
