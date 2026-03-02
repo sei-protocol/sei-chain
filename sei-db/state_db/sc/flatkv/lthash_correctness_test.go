@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
@@ -21,8 +21,8 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	t.Helper()
 	var pairs []lthash.KVPairWithLastValue
 
-	scanDB := func(db db_engine.DB) {
-		iter, err := db.NewIter(&db_engine.IterOptions{
+	scanDB := func(db types.KeyValueDB) {
+		iter, err := db.NewIter(&types.IterOptions{
 			LowerBound: metaKeyLowerBound(),
 		})
 		require.NoError(t, err)

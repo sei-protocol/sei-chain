@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -90,7 +91,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					} else {
 						rawBytes, err := s.accountDB.Get(AccountKey(addr))
 						if err != nil {
-							if !db_engine.IsNotFound(err) {
+							if !errorutils.IsNotFound(err) {
 								return fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
 							}
 							oldAccountRawValues[addrStr] = nil
