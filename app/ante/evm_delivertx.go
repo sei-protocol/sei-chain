@@ -90,6 +90,7 @@ func DecorateNonceCallback(ctx sdk.Context, ek *evmkeeper.Keeper, evmAddr common
 		// bump nonce if it is for some reason not incremented (e.g. ante failure)
 		if ek.GetNonce(callCtx, evmAddr) == startingNonce {
 			ek.SetNonce(callCtx, evmAddr, startingNonce+1)
+			ek.SetNonceBumped(callCtx)
 		}
 	})
 }
