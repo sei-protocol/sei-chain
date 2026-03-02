@@ -11,7 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATASOURCE_CONFIG="${SCRIPT_DIR}/grafana.yaml"
+MONITOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DATASOURCE_CONFIG="${MONITOR_DIR}/config/grafana.yaml"
 CONTAINER_NAME="sei-grafana"
 GRAFANA_PORT=3000
 PROMETHEUS_UI_PORT=9091

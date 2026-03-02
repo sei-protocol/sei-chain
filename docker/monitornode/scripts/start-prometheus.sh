@@ -11,10 +11,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROMETHEUS_CONFIG="${SCRIPT_DIR}/prometheus.yaml"
+MONITOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROMETHEUS_CONFIG="${MONITOR_DIR}/config/prometheus.yaml"
 CONTAINER_NAME="sei-prometheus"
 PROMETHEUS_UI_PORT=9091
-CRYPTOSIM_METRICS_PORT=9090
 
 # Check for Docker
 if ! command -v docker &>/dev/null; then

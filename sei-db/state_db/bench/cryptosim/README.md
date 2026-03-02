@@ -6,7 +6,7 @@ predictive of DB performance under a heavy crypto transfer load.
 To run this benchmark, execute the following from within the cryptosim directory:
 
 ```
-./run.sh ./config/basic-config.json
+./cryptosim.sh ./config/basic-config.json
 ```
 
 # Configuring Cryptosim
@@ -54,24 +54,25 @@ The following features might be useful to add to this benchmark:
 
 # Setting Up Prometheus / Grafana
 
-To set up local prometheus/grafana instances, run the following. You must have docker installed.
+To set up local prometheus/grafana instances, run the following from the repository root. You must have docker 
+installed.
 
 ```
-./metrics/start-prometheus.sh
-./metrics/start-grafana.sh
+docker/monitornode/scripts/start-prometheus.sh
+docker/monitornode/scripts/start-grafana.sh
 ```
 
 Then, navigate to http://localhost:3000/ in a web browser to reach the grafana UI. Username and password are "admin".
 
-There is a pre-built dashboard containing visualizations for benchmark metrics in `metrics/dashboard.json` that 
-you can import into grafana.
+There is a pre-built dashboard containing visualizations for benchmark metrics in 
+`docker/monitornode/dashboards/cryptosim-dashboard.json` that you can import into grafana.
 
 
 You can stop these services by killing their containers, or by running the following:
 
 ```
-./metrics/stop-prometheus.sh
-./metrics/stop-grafana.sh
+docker/monitornode/scripts/stop-prometheus.sh
+docker/monitornode/scripts/stop-grafana.sh
 ```
 
 # Running in AWS
@@ -94,8 +95,8 @@ cd ./sei-chain/sei-db/state_db/bench/cryptosim
 3: Start Prometheus Server (optional)
 
 ```
-cd ./sei-chain/sei-db/state_db/bench/cryptosim
-./metrics/start-prometheus.sh
+cd ./sei-chain
+./docker/monitornode/scripts/start-prometheus.sh
 ```
 
 3. Start the Benchmark
@@ -105,7 +106,7 @@ even if your connection is interrupted.
 
 ```
 cd sei-chain/sei-db/state_db/bench/cryptosim
-./run.sh ./config/basic-config.json
+./cryptosim.sh ./config/basic-config.json
 ```
 
 4: Connect Local Grafana to Remote Prometheus (optional)
