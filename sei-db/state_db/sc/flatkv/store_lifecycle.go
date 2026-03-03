@@ -7,6 +7,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
+// isClosed reports whether the store's DB handles have been released.
+func (s *CommitStore) isClosed() bool {
+	return s.metadataDB == nil && s.accountDB == nil &&
+		s.codeDB == nil && s.storageDB == nil && s.legacyDB == nil
+}
+
 // closeDBsOnly closes all database handles and the WAL but retains the
 // file lock, preventing a race window during Rollback or LoadVersion.
 func (s *CommitStore) closeDBsOnly() error {

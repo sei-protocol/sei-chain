@@ -40,6 +40,9 @@ type DataGenerator struct {
 	// choose read/write targets from acccounts that were created before the current block. This field tracks the
 	// highest account ID that was created before the current block.
 	highestSafeAccountIDInBlock int64
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new data generator.
@@ -47,6 +50,7 @@ func NewDataGenerator(
 	config *CryptoSimConfig,
 	database *Database,
 	rand *CannedRandom,
+	metrics *CryptosimMetrics,
 ) (*DataGenerator, error) {
 
 	nextAccountIDBinary, found, err := database.Get(AccountIDCounterKey())
@@ -60,6 +64,7 @@ func NewDataGenerator(
 	}
 
 	fmt.Printf("There are currently %s keys in the database.\n", int64Commas(nextAccountID))
+	metrics.SetTotalNumberOfAccounts(nextAccountID)
 
 	nextErc20ContractIDBinary, found, err := database.Get(Erc20IDCounterKey())
 	if err != nil {
@@ -72,6 +77,7 @@ func NewDataGenerator(
 	}
 
 	fmt.Printf("There are currently %s ERC20 contracts in the database.\n", int64Commas(nextErc20ContractID))
+	metrics.SetTotalNumberOfERC20Contracts(nextErc20ContractID)
 
 	// Use EVMKeyCode for account data; EVMKeyNonce only accepts 8-byte values.
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
@@ -87,6 +93,7 @@ func NewDataGenerator(
 		feeCollectionAddress:        feeCollectionAddress,
 		database:                    database,
 		highestSafeAccountIDInBlock: nextAccountID - 1,
+		metrics:                     metrics,
 	}, nil
 }
 
@@ -190,6 +197,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 			if err != nil {
 				return 0, nil, false, fmt.Errorf("failed to create new account: %w", err)
 			}
+			d.metrics.IncrementTotalNumberOfAccounts()
 			return id, address, true, nil
 		}
 
