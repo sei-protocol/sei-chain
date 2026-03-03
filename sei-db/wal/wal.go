@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -361,6 +362,8 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 }
 
 // handleTruncate runs on the main loop and performs the truncation.
+// "Out of range" truncate errors (e.g. empty log or invalid index) are reported to the caller
+// but are not fatal; the WAL continues operating so callers can treat them as benign.
 func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	var err error
 	if req.before {
@@ -370,6 +373,10 @@ func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	}
 	if err != nil {
 		err = fmt.Errorf("failed to truncate: %w", err)
+		if strings.Contains(err.Error(), "out of range") {
+			req.errChan <- err
+			return
+		}
 		walLog.reportFatalError(err, req.errChan)
 		return
 	}
