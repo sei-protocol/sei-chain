@@ -16,13 +16,6 @@ import (
 	"time"
 )
 
-type Config struct {
-	Endpoint    string
-	Concurrency int
-	BlockCount  int
-	RequestsPer int
-}
-
 type RPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
@@ -57,9 +50,6 @@ func (s *LatencyStats) Report() {
 	}
 	sort.Slice(s.Latencies, func(i, j int) bool { return s.Latencies[i] < s.Latencies[j] })
 	p := func(pct float64) time.Duration {
-		if len(s.Latencies) == 0 {
-			return 0
-		}
 		idx := int(float64(len(s.Latencies)) * pct)
 		if idx >= len(s.Latencies) {
 			idx = len(s.Latencies) - 1
@@ -82,14 +72,13 @@ var httpClient = &http.Client{
 
 var reqID atomic.Int64
 
-func rpcCall(endpoint string, method string, params []interface{}) (*RPCResponse, time.Duration, error) {
-	req := RPCRequest{
+func rpcCall(endpoint, method string, params []interface{}) (*RPCResponse, time.Duration, error) {
+	body, err := json.Marshal(RPCRequest{
 		JSONRPC: "2.0",
 		Method:  method,
 		Params:  params,
 		ID:      int(reqID.Add(1)),
-	}
-	body, err := json.Marshal(req)
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -114,6 +103,29 @@ func rpcCall(endpoint string, method string, params []interface{}) (*RPCResponse
 	return &rpcResp, elapsed, nil
 }
 
+// benchMethod defines a single RPC method to benchmark.
+type benchMethod struct {
+	name   string
+	params func() []interface{}
+	weight int
+	heavy  bool // heavy methods get dedicated sequential + concurrent phases
+}
+
+func (m *benchMethod) call(endpoint string) (string, time.Duration, error) {
+	resp, lat, err := rpcCall(endpoint, m.name, m.params())
+	if err == nil && resp != nil && resp.Error != nil {
+		err = fmt.Errorf("rpc: %s", resp.Error.Message)
+	}
+	return m.name, lat, err
+}
+
+type BlockInfo struct {
+	Number       int64
+	Hash         string
+	Transactions []string
+	Addresses    []string
+}
+
 func getLatestBlockNumber(endpoint string) (int64, error) {
 	resp, _, err := rpcCall(endpoint, "eth_blockNumber", []interface{}{})
 	if err != nil {
@@ -129,13 +141,6 @@ func getLatestBlockNumber(endpoint string) (int64, error) {
 	var num int64
 	fmt.Sscanf(hex, "0x%x", &num)
 	return num, nil
-}
-
-type BlockInfo struct {
-	Number       int64
-	Hash         string
-	Transactions []string // tx hashes
-	Addresses    []string // from/to addresses found
 }
 
 func getBlockInfo(endpoint string, blockNum int64) (*BlockInfo, error) {
@@ -177,8 +182,6 @@ func getBlockInfo(endpoint string, blockNum int64) (*BlockInfo, error) {
 	return info, nil
 }
 
-// runConcurrent fires `total` requests across `concurrency` goroutines.
-// workFn returns the method name, latency, and any error for one request.
 func runConcurrent(concurrency, total int, workFn func(i int) (string, time.Duration, error)) map[string]*LatencyStats {
 	stats := make(map[string]*LatencyStats)
 	var mu sync.Mutex
@@ -250,30 +253,36 @@ func printStats(title string, stats map[string]*LatencyStats) {
 }
 
 func main() {
-	cfg := Config{}
-	flag.StringVar(&cfg.Endpoint, "endpoint", "", "RPC endpoint URL (required)")
-	flag.IntVar(&cfg.Concurrency, "concurrency", 16, "number of concurrent workers")
-	flag.IntVar(&cfg.BlockCount, "blocks", 20, "number of recent blocks to sample")
-	flag.IntVar(&cfg.RequestsPer, "requests", 100, "requests per method per phase")
+	var (
+		endpoint    string
+		concurrency int
+		blockCount  int
+		requestsPer int
+		methodsFlag string
+	)
+	flag.StringVar(&endpoint, "endpoint", "", "RPC endpoint URL (required)")
+	flag.IntVar(&concurrency, "concurrency", 16, "number of concurrent workers")
+	flag.IntVar(&blockCount, "blocks", 20, "number of recent blocks to sample")
+	flag.IntVar(&requestsPer, "requests", 100, "requests per method per phase")
+	flag.StringVar(&methodsFlag, "methods", "", "comma-separated methods to run (default: all)")
 	flag.Parse()
 
-	if cfg.Endpoint == "" {
-		fmt.Fprintf(os.Stderr, "Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-requests 100]\n")
+	if endpoint == "" {
+		fmt.Fprintf(os.Stderr, "Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-requests 100] [-methods debug_traceBlockByNumber,eth_getBalance]\n")
 		os.Exit(1)
 	}
 
+	// =========================================================================
+	// Discover recent blocks, transactions, and addresses
+	// =========================================================================
 	fmt.Printf("RPC Read Benchmark\n")
-	fmt.Printf("  endpoint:    %s\n", cfg.Endpoint)
-	fmt.Printf("  concurrency: %d\n", cfg.Concurrency)
-	fmt.Printf("  blocks:      %d\n", cfg.BlockCount)
-	fmt.Printf("  requests:    %d per method per phase\n", cfg.RequestsPer)
+	fmt.Printf("  endpoint:    %s\n", endpoint)
+	fmt.Printf("  concurrency: %d\n", concurrency)
+	fmt.Printf("  blocks:      %d\n", blockCount)
+	fmt.Printf("  requests:    %d per method per phase\n", requestsPer)
 
-	// =========================================================================
-	// Phase 0: Discover recent blocks, transactions, and addresses
-	// =========================================================================
 	fmt.Printf("\n--- Discovering recent blocks ---\n")
-
-	latestBlock, err := getLatestBlockNumber(cfg.Endpoint)
+	latestBlock, err := getLatestBlockNumber(endpoint)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get latest block: %v\n", err)
 		os.Exit(1)
@@ -285,12 +294,12 @@ func main() {
 	var allAddresses []string
 	addrSeen := make(map[string]bool)
 
-	for i := 0; i < cfg.BlockCount; i++ {
+	for i := 0; i < blockCount; i++ {
 		blockNum := latestBlock - int64(i)
 		if blockNum < 1 {
 			break
 		}
-		info, err := getBlockInfo(cfg.Endpoint, blockNum)
+		info, err := getBlockInfo(endpoint, blockNum)
 		if err != nil {
 			fmt.Printf("  block %d: error %v\n", blockNum, err)
 			continue
@@ -310,13 +319,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "No blocks discovered\n")
 		os.Exit(1)
 	}
-	fmt.Printf("Discovered %d blocks, %d transactions, %d unique addresses\n",
-		len(blocks), len(allTxHashes), len(allAddresses))
-
 	if len(allAddresses) == 0 {
-		fmt.Fprintf(os.Stderr, "No addresses found in recent blocks, cannot run state queries\n")
+		fmt.Fprintf(os.Stderr, "No addresses found in recent blocks\n")
 		os.Exit(1)
 	}
+	fmt.Printf("Discovered %d blocks, %d transactions, %d unique addresses\n",
+		len(blocks), len(allTxHashes), len(allAddresses))
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randBlock := func() *BlockInfo { return blocks[rng.Intn(len(blocks))] }
@@ -327,172 +335,139 @@ func main() {
 		}
 		return allTxHashes[rng.Intn(len(allTxHashes))]
 	}
-
 	latestHex := fmt.Sprintf("0x%x", latestBlock)
 
 	// =========================================================================
-	// Phase 1: debug_traceBlockByNumber — sequential (1 at a time)
+	// Method registry — add new methods here (one line each)
 	// =========================================================================
-	fmt.Printf("\n--- Phase 1: debug_traceBlockByNumber (sequential) ---\n")
-	seqCount := min(cfg.RequestsPer, len(blocks))
-	stats1 := runConcurrent(1, seqCount, func(i int) (string, time.Duration, error) {
-		b := blocks[i%len(blocks)]
-		hexNum := fmt.Sprintf("0x%x", b.Number)
-		resp, lat, err := rpcCall(cfg.Endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
-		if err == nil && resp != nil && resp.Error != nil {
-			err = fmt.Errorf("rpc: %s", resp.Error.Message)
-		}
-		return "debug_traceBlockByNumber", lat, err
-	})
-	printStats("Phase 1: debug_traceBlockByNumber (sequential)", stats1)
-
-	// =========================================================================
-	// Phase 2: debug_traceBlockByNumber — concurrent blast
-	// =========================================================================
-	fmt.Printf("\n--- Phase 2: debug_traceBlockByNumber (concurrent x%d) ---\n", cfg.Concurrency)
-	stats2 := runConcurrent(cfg.Concurrency, cfg.RequestsPer, func(i int) (string, time.Duration, error) {
-		b := randBlock()
-		hexNum := fmt.Sprintf("0x%x", b.Number)
-		resp, lat, err := rpcCall(cfg.Endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
-		if err == nil && resp != nil && resp.Error != nil {
-			err = fmt.Errorf("rpc: %s", resp.Error.Message)
-		}
-		return "debug_traceBlockByNumber", lat, err
-	})
-	printStats("Phase 2: debug_traceBlockByNumber (concurrent)", stats2)
-
-	// =========================================================================
-	// Phase 3: debug_traceTransaction — concurrent blast
-	// =========================================================================
-	if len(allTxHashes) > 0 {
-		fmt.Printf("\n--- Phase 3: debug_traceTransaction (concurrent x%d) ---\n", cfg.Concurrency)
-		stats3 := runConcurrent(cfg.Concurrency, cfg.RequestsPer, func(i int) (string, time.Duration, error) {
-			txHash := randTxHash()
-			resp, lat, err := rpcCall(cfg.Endpoint, "debug_traceTransaction", []interface{}{txHash})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return "debug_traceTransaction", lat, err
-		})
-		printStats("Phase 3: debug_traceTransaction (concurrent)", stats3)
-	}
-
-	// =========================================================================
-	// Phase 4: State read methods — concurrent blast
-	// Each method gets `requestsPer` calls at `concurrency` parallelism.
-	// =========================================================================
-	type stateMethod struct {
-		name   string
-		params func() []interface{}
-	}
-	stateMethods := []stateMethod{
-		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), latestHex} }},
-		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), latestHex} }},
-		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), latestHex} }},
+	allMethods := []benchMethod{
+		{"debug_traceBlockByNumber", func() []interface{} { return []interface{}{fmt.Sprintf("0x%x", randBlock().Number)} }, 10, true},
+		{"debug_traceTransaction", func() []interface{} { return []interface{}{randTxHash()} }, 10, true},
+		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 25, false},
+		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
+		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
 		{"eth_getStorageAt", func() []interface{} {
-			slot := fmt.Sprintf("0x%064x", rng.Intn(10))
-			return []interface{}{randAddr(), slot, latestHex}
-		}},
+			return []interface{}{randAddr(), fmt.Sprintf("0x%064x", rng.Intn(10)), latestHex}
+		}, 25, false},
 	}
 
-	fmt.Printf("\n--- Phase 4: State reads (concurrent x%d, %d reqs each) ---\n", cfg.Concurrency, cfg.RequestsPer)
-	allStats4 := make(map[string]*LatencyStats)
-	for _, sm := range stateMethods {
-		method := sm // capture
-		s := runConcurrent(cfg.Concurrency, cfg.RequestsPer, func(i int) (string, time.Duration, error) {
-			params := method.params()
-			resp, lat, err := rpcCall(cfg.Endpoint, method.name, params)
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
+	// Skip debug_traceTransaction if no txs discovered
+	if len(allTxHashes) == 0 {
+		filtered := allMethods[:0]
+		for _, m := range allMethods {
+			if m.name != "debug_traceTransaction" {
+				filtered = append(filtered, m)
 			}
-			return method.name, lat, err
+		}
+		allMethods = filtered
+	}
+
+	// Filter by -methods flag if provided
+	if methodsFlag != "" {
+		allowed := make(map[string]bool)
+		for _, m := range strings.Split(methodsFlag, ",") {
+			allowed[strings.TrimSpace(m)] = true
+		}
+		filtered := allMethods[:0]
+		for _, m := range allMethods {
+			if allowed[m.name] {
+				filtered = append(filtered, m)
+			}
+		}
+		allMethods = filtered
+	}
+
+	if len(allMethods) == 0 {
+		fmt.Fprintf(os.Stderr, "No methods selected\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("  methods:     ")
+	for i, m := range allMethods {
+		if i > 0 {
+			fmt.Printf(", ")
+		}
+		fmt.Printf("%s", m.name)
+	}
+	fmt.Printf("\n")
+
+	// =========================================================================
+	// Phase 1: Heavy methods — sequential (baseline latency)
+	// =========================================================================
+	for i := range allMethods {
+		m := &allMethods[i]
+		if !m.heavy {
+			continue
+		}
+		seqCount := min(requestsPer, len(blocks))
+		title := fmt.Sprintf("%s (sequential)", m.name)
+		fmt.Printf("\n--- %s ---\n", title)
+		s := runConcurrent(1, seqCount, func(_ int) (string, time.Duration, error) {
+			return m.call(endpoint)
+		})
+		printStats(title, s)
+	}
+
+	// =========================================================================
+	// Phase 2: Heavy methods — concurrent blast
+	// =========================================================================
+	for i := range allMethods {
+		m := &allMethods[i]
+		if !m.heavy {
+			continue
+		}
+		title := fmt.Sprintf("%s (concurrent x%d)", m.name, concurrency)
+		fmt.Printf("\n--- %s ---\n", title)
+		s := runConcurrent(concurrency, requestsPer, func(_ int) (string, time.Duration, error) {
+			return m.call(endpoint)
+		})
+		printStats(title, s)
+	}
+
+	// =========================================================================
+	// Phase 3: Light methods — concurrent per-method
+	// =========================================================================
+	lightStats := make(map[string]*LatencyStats)
+	hasLight := false
+	for i := range allMethods {
+		m := &allMethods[i]
+		if m.heavy {
+			continue
+		}
+		hasLight = true
+		s := runConcurrent(concurrency, requestsPer, func(_ int) (string, time.Duration, error) {
+			return m.call(endpoint)
 		})
 		for k, v := range s {
-			allStats4[k] = v
+			lightStats[k] = v
 		}
 	}
-	printStats("Phase 4: State reads (per-method)", allStats4)
-
-	// =========================================================================
-	// Phase 5: Mixed workload — all methods at once
-	// =========================================================================
-	type weightedMethod struct {
-		name   string
-		weight int
-		call   func() (time.Duration, error)
-	}
-	mixed := []weightedMethod{
-		{"debug_traceBlockByNumber", 10, func() (time.Duration, error) {
-			b := randBlock()
-			hexNum := fmt.Sprintf("0x%x", b.Number)
-			resp, lat, err := rpcCall(cfg.Endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}},
-		{"eth_getBalance", 25, func() (time.Duration, error) {
-			resp, lat, err := rpcCall(cfg.Endpoint, "eth_getBalance", []interface{}{randAddr(), latestHex})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}},
-		{"eth_getStorageAt", 25, func() (time.Duration, error) {
-			slot := fmt.Sprintf("0x%064x", rng.Intn(10))
-			resp, lat, err := rpcCall(cfg.Endpoint, "eth_getStorageAt", []interface{}{randAddr(), slot, latestHex})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}},
-		{"eth_getCode", 15, func() (time.Duration, error) {
-			resp, lat, err := rpcCall(cfg.Endpoint, "eth_getCode", []interface{}{randAddr(), latestHex})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}},
-		{"eth_getTransactionCount", 15, func() (time.Duration, error) {
-			resp, lat, err := rpcCall(cfg.Endpoint, "eth_getTransactionCount", []interface{}{randAddr(), latestHex})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}},
-	}
-	if len(allTxHashes) > 0 {
-		mixed = append(mixed, weightedMethod{"debug_traceTransaction", 10, func() (time.Duration, error) {
-			resp, lat, err := rpcCall(cfg.Endpoint, "debug_traceTransaction", []interface{}{randTxHash()})
-			if err == nil && resp != nil && resp.Error != nil {
-				err = fmt.Errorf("rpc: %s", resp.Error.Message)
-			}
-			return lat, err
-		}})
+	if hasLight {
+		printStats(fmt.Sprintf("State reads (concurrent x%d, %d reqs each)", concurrency, requestsPer), lightStats)
 	}
 
+	// =========================================================================
+	// Phase 4: Mixed workload — all methods, weighted random
+	// =========================================================================
 	totalWeight := 0
-	for _, m := range mixed {
+	for _, m := range allMethods {
 		totalWeight += m.weight
 	}
 
-	totalMixed := cfg.RequestsPer * 3
-	fmt.Printf("\n--- Phase 5: Mixed workload (concurrent x%d, %d total reqs) ---\n", cfg.Concurrency, totalMixed)
-	stats5 := runConcurrent(cfg.Concurrency, totalMixed, func(i int) (string, time.Duration, error) {
+	totalMixed := requestsPer * 3
+	fmt.Printf("\n--- Mixed workload (concurrent x%d, %d total reqs) ---\n", concurrency, totalMixed)
+	stats := runConcurrent(concurrency, totalMixed, func(_ int) (string, time.Duration, error) {
 		r := rng.Intn(totalWeight)
 		cumulative := 0
-		for _, m := range mixed {
-			cumulative += m.weight
+		for i := range allMethods {
+			cumulative += allMethods[i].weight
 			if r < cumulative {
-				lat, err := m.call()
-				return m.name, lat, err
+				return allMethods[i].call(endpoint)
 			}
 		}
-		last := mixed[len(mixed)-1]
-		lat, err := last.call()
-		return last.name, lat, err
+		return allMethods[len(allMethods)-1].call(endpoint)
 	})
-	printStats("Phase 5: Mixed workload", stats5)
+	printStats("Mixed workload", stats)
 
 	fmt.Printf("\nBenchmark complete.\n")
 }
