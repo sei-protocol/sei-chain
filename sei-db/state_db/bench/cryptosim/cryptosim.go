@@ -76,6 +76,23 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Ensure that we at least 1 cold account and at least 1 hot account. Additionally, make sure
+	// that the number of dormant accounts is at least as large as 2x the number of transactions per block.
+	// This simplifies boundary condition checking when selecting random account IDs.
+	if config.MinimumNumberOfColdAccounts < 1 {
+		// Eliminates edge case where we want a random cold account, but there are no cold accounts.
+		config.MinimumNumberOfColdAccounts = 1
+	}
+	if config.NumberOfHotAccounts < 1 {
+		// Eliminates edge case where we want a random hot account, but there are no hot accounts.
+		config.NumberOfHotAccounts = 1
+	}
+	if config.MinimumNumberOfDormantAccounts < 2*config.TransactionsPerBlock {
+		// Simplifies cold account selection before a block is committed if we have a very
+		// small number of total accounts.
+		config.MinimumNumberOfDormantAccounts = 2 * config.TransactionsPerBlock
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	metrics := NewCryptosimMetrics(ctx, config)
 	// Server start deferred until after DataGenerator loads DB state and sets gauges,
@@ -169,26 +186,26 @@ func (c *CryptoSim) setup() error {
 
 // Prepopulate the database with the minimum number of accounts.
 func (c *CryptoSim) setupAccounts() error {
-	// Ensure that we at least have as many accounts as the hot set + 2. This simplifies logic elsewhere.
-	if c.config.MinimumNumberOfAccounts < c.config.HotAccountSetSize+2 {
-		c.config.MinimumNumberOfAccounts = c.config.HotAccountSetSize + 2
-	}
 
-	if c.dataGenerator.NextAccountID() >= int64(c.config.MinimumNumberOfAccounts) {
+	requiredNumberOfAccounts := c.config.NumberOfHotAccounts +
+		c.config.MinimumNumberOfColdAccounts +
+		c.config.MinimumNumberOfDormantAccounts
+
+	if c.dataGenerator.NextAccountID() >= int64(requiredNumberOfAccounts) {
 		return nil
 	}
 
 	fmt.Printf("Benchmark is configured to run with a minimum of %s accounts. Creating %s new accounts.\n",
-		int64Commas(int64(c.config.MinimumNumberOfAccounts)),
-		int64Commas(int64(c.config.MinimumNumberOfAccounts)-c.dataGenerator.NextAccountID()))
+		int64Commas(int64(requiredNumberOfAccounts)),
+		int64Commas(int64(requiredNumberOfAccounts)-c.dataGenerator.NextAccountID()))
 
-	for c.dataGenerator.NextAccountID() < int64(c.config.MinimumNumberOfAccounts) {
+	for c.dataGenerator.NextAccountID() < int64(requiredNumberOfAccounts) {
 		if c.ctx.Err() != nil {
 			fmt.Printf("benchmark aborted during account creation\n")
 			break
 		}
 
-		_, _, err := c.dataGenerator.CreateNewAccount(c.config.PaddedAccountSize, true)
+		_, _, _, err := c.dataGenerator.CreateNewAccount(c.config.PaddedAccountSize, true)
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
@@ -199,26 +216,26 @@ func (c *CryptoSim) setupAccounts() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 		if finalized {
-			c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
+			c.dataGenerator.ReportAccountCounts()
 			c.dataGenerator.ReportFinalizeBlock()
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
 			fmt.Printf("Created %s of %s accounts.      \r",
-				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 		}
 	}
 	if c.dataGenerator.NextAccountID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
 	fmt.Printf("Created %s of %s accounts.      \n",
-		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
-	c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
+	c.dataGenerator.ReportAccountCounts()
 	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
@@ -339,6 +356,7 @@ func (c *CryptoSim) handleNextCycle(haltTime time.Time) {
 		return
 	}
 	if finalized {
+		c.dataGenerator.ReportAccountCounts()
 		c.dataGenerator.ReportFinalizeBlock()
 
 		if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
