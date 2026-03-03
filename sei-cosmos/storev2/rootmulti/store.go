@@ -249,6 +249,11 @@ func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
+	return rs.cacheMultiStoreLocked()
+}
+
+// cacheMultiStoreLocked must be called with rs.mtx held (at least RLock).
+func (rs *Store) cacheMultiStoreLocked() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range rs.ckvStores {
 		store := types.KVStore(v)
@@ -278,7 +283,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		// Only serve from SC when query latest version and SS not enabled
-		return rs.CacheMultiStore(), nil
+		return rs.cacheMultiStoreLocked(), nil
 	} else {
 		return nil, fmt.Errorf("unable to load historical state with SS disabled for version: %d", version)
 	}
