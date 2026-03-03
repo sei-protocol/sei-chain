@@ -3,33 +3,33 @@ package app
 import (
 	"fmt"
 
+	"github.com/spf13/cast"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	"github.com/spf13/cast"
 )
 
 const (
 	// SC Store configs
-	FlagSCEnable                           = "state-commit.sc-enable"
-	FlagSCDirectory                        = "state-commit.sc-directory"
-	FlagSCAsyncCommitBuffer                = "state-commit.sc-async-commit-buffer"
-	FlagSCZeroCopy                         = "state-commit.sc-zero-copy"
-	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
-	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
-	FlagSCSnapshotMinTimeInterval          = "state-commit.sc-snapshot-min-time-interval"
-	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
-	FlagSCSnapshotPrefetchThreshold        = "state-commit.sc-snapshot-prefetch-threshold"
-	FlagSCSnapshotWriteRateMBps            = "state-commit.sc-snapshot-write-rate-mbps"
-	FlagSCCacheSize                        = "state-commit.sc-cache-size"
-	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
-	FlagSCHistoricalProofMaxInFlight       = "state-commit.sc-historical-proof-max-inflight"
-	FlagSCHistoricalProofRateLimit         = "state-commit.sc-historical-proof-rate-limit"
-	FlagSCHistoricalProofBurst             = "state-commit.sc-historical-proof-burst"
+	FlagSCEnable                     = "state-commit.sc-enable"
+	FlagSCDirectory                  = "state-commit.sc-directory"
+	FlagSCAsyncCommitBuffer          = "state-commit.sc-async-commit-buffer"
+	FlagSCSnapshotKeepRecent         = "state-commit.sc-keep-recent"
+	FlagSCSnapshotInterval           = "state-commit.sc-snapshot-interval"
+	FlagSCSnapshotMinTimeInterval    = "state-commit.sc-snapshot-min-time-interval"
+	FlagSCSnapshotWriterLimit        = "state-commit.sc-snapshot-writer-limit"
+	FlagSCSnapshotPrefetchThreshold  = "state-commit.sc-snapshot-prefetch-threshold"
+	FlagSCSnapshotWriteRateMBps      = "state-commit.sc-snapshot-write-rate-mbps"
+	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
+	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
+	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCWriteMode                  = "state-commit.sc-write-mode"
+	FlagSCReadMode                   = "state-commit.sc-read-mode"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -47,8 +47,6 @@ const (
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
-	FlagMigrateIAVL      = "migrate-iavl"
-	FlagMigrateHeight    = "migrate-height"
 )
 
 var GigaKeys = []string{"evm", "bank"}
@@ -64,11 +62,11 @@ func SetupSeiDB(
 		logger.Info("SeiDB is disabled, falling back to IAVL")
 		return baseAppOptions, nil
 	}
-	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
+	logger.Info(fmt.Sprintf("SeiDB SC is enabled, running node with sc config %v", scConfig))
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
-		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
+		logger.Info(fmt.Sprintf("SeiDB SS is enabled, running %s for historical state", ssConfig.Backend))
 	}
 	if ssConfig.EVMEnabled() {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",
@@ -85,16 +83,9 @@ func SetupSeiDB(
 	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
-	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
-	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, gigaStoreKeys)
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
-			if migrationEnabled || migrationHeight > 0 {
-				originalCMS := baseApp.CommitMultiStore()
-				baseApp.SetQueryMultiStore(originalCMS)
-				baseApp.SetMigrationHeight(migrationHeight)
-			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
@@ -113,6 +104,21 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+
+	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		scConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagSCReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		scConfig.ReadMode = parsedRM
+	}
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)

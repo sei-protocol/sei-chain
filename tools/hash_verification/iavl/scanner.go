@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"fmt"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	dbm "github.com/tendermint/tm-db"
 )
 
 type HashScanner struct {

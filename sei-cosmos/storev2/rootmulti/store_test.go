@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, false, []string{})
+	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -36,7 +37,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	// Mount one IAVL store and load
@@ -123,7 +124,7 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			ssCfg.Enable = tc.ssEnabled
 			ssCfg.AsyncWriteBuffer = 0
 
-			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
 			defer func() { _ = store.Close() }()
 
 			iavlKey1 := types.NewKVStoreKey("iavl_store1")
@@ -235,7 +236,7 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")
@@ -267,6 +268,99 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	require.Contains(t, resp.Log, "historical proof busy")
 }
 
+// TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock stress-tests that
+// CacheMultiStoreWithVersion does not deadlock with concurrent writers.
+//
+// The deadlock scenario (with the old re-entrant RLock bug):
+//  1. Reader goroutine calls CacheMultiStoreWithVersion, acquires RLock.
+//  2. Writer goroutine calls Lock, blocks — and marks the RWMutex as writer-pending.
+//  3. Reader calls CacheMultiStore which attempts a second RLock — this blocks
+//     because Go's RWMutex starves new readers when a writer is pending.
+//  4. Deadlock: reader holds RLock waiting for RLock, writer waits for reader's RLock.
+//
+// By racing many readers and writers concurrently we make it statistically
+// near-certain that a writer queues between the two RLock calls (in buggy code).
+func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = false
+
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("store1")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv.Set([]byte("k"), []byte("v"))
+	c1 := store.Commit(true)
+	require.Equal(t, int64(1), c1.Version)
+
+	const (
+		numReaders = 8
+		numWriters = 8
+		duration   = 200 * time.Millisecond
+	)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				// version=0 with SS disabled takes the else-if branch that
+				// previously called CacheMultiStore (re-entrant RLock).
+				cms, _ := store.CacheMultiStoreWithVersion(0)
+				_ = cms
+			}
+		}()
+	}
+
+	for i := 0; i < numWriters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				store.mtx.Lock()
+				store.mtx.Unlock()
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(duration)
+		close(stop)
+		wg.Wait()
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, 5*time.Second, 20*time.Millisecond,
+		"CacheMultiStoreWithVersion deadlocked with concurrent writers")
+}
+
 func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
@@ -276,7 +370,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")

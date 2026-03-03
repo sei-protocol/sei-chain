@@ -1,0 +1,3 @@
+// try to move non-precompile
+>> {"jsonrpc":"2.0","id":1,"method":"eth_simulateV1","params":[{"blockStateCalls":[{"stateOverrides":{"0xc000000000000000000000000000000000000000":{"nonce":"0x5"}}},{"stateOverrides":{"0xc000000000000000000000000000000000000000":{"movePrecompileToAddress":"0xc100000000000000000000000000000000000000"}},"calls":[{"from":"0xc000000000000000000000000000000000000000","to":"0xc000000000000000000000000000000000000000","nonce":"0x0"},{"from":"0xc100000000000000000000000000000000000000","to":"0xc100000000000000000000000000000000000000","nonce":"0x5"}]}],"validation":true},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"account 0xC000000000000000000000000000000000000000 is not a precompile"}}

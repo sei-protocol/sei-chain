@@ -1,0 +1,9 @@
+// Data-dependent: createAccessList with EIP1559 options for our deployed contract. Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_createAccessList","params":[{"to":"${contractAddress}","data":"0x","maxFeePerGas":"0x5763d64","maxPriorityFeePerGas":"0xb"},"__SEED__"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}

@@ -35,7 +35,7 @@ type Migrator struct {
 }
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	logger := log.NewTMLogger(os.Stdout)
 
 	// Creating CMS for store V1
 	cmsV1 := rootmulti.NewStore(db, logger)
@@ -53,7 +53,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true, []string{})
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, []string{})
 	for _, key := range utils.ModuleKeys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}

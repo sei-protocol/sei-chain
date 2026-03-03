@@ -108,6 +108,16 @@ type CryptoSimConfig struct {
 
 	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
 	MaxRuntimeSeconds int
+
+	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
+	MetricsAddr string
+
+	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
+	TransactionMetricsSampleRate float64
+
+	// How often (in seconds) to scrape background metrics (data dir size, process I/O).
+	// If 0, background metrics are disabled.
+	BackgroundMetricsScrapeInterval int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -140,6 +150,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 64,
 		MaxRuntimeSeconds:                 0,
+		MetricsAddr:                       ":9090",
+		TransactionMetricsSampleRate:      0.001,
+		BackgroundMetricsScrapeInterval:   60,
 	}
 }
 
@@ -202,6 +215,13 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.MaxRuntimeSeconds < 0 {
 		return fmt.Errorf("MaxRuntimeSeconds must be at least 0 (got %d)", c.MaxRuntimeSeconds)
 	}
+	if c.TransactionMetricsSampleRate < 0 || c.TransactionMetricsSampleRate > 1 {
+		return fmt.Errorf("TransactionMetricsSampleRate must be in [0, 1] (got %f)", c.TransactionMetricsSampleRate)
+	}
+	if c.BackgroundMetricsScrapeInterval < 0 {
+		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
+	}
+
 	return nil
 }
 

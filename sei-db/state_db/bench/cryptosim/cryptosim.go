@@ -56,6 +56,9 @@ type CryptoSim struct {
 
 	// The index of the next executor to receive a transaction.
 	nextExecutorIndex int
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -68,15 +71,22 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	metrics := NewCryptosimMetrics(ctx, config)
+	// Server start deferred until after DataGenerator loads DB state and sets gauges,
+	// avoiding rate() spikes when restarting with a preserved DB.
+
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
 
 	db, err := wrappers.NewDBImpl(config.Backend, dataDir)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
@@ -87,11 +97,9 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	ctx, cancel := context.WithCancel(ctx)
+	database := NewDatabase(config, db, metrics)
 
-	database := NewDatabase(config, db)
-
-	dataGenerator, err := NewDataGenerator(config, database, rand)
+	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
 		cancel()
 		if closeErr := db.Close(); closeErr != nil {
@@ -99,7 +107,6 @@ func NewCryptoSim(
 		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
-
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1
@@ -109,7 +116,7 @@ func NewCryptoSim(
 	executors := make([]*TransactionExecutor, threadCount)
 	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
-			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize)
+			ctx, cancel, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
 
 	c := &CryptoSim{
@@ -123,6 +130,7 @@ func NewCryptoSim(
 		dataGenerator:                     dataGenerator,
 		database:                          database,
 		executors:                         executors,
+		metrics:                           metrics,
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
@@ -134,6 +142,7 @@ func NewCryptoSim(
 
 	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
+	c.metrics.StartServer(config.MetricsAddr)
 
 	go c.run()
 	return c, nil
@@ -184,6 +193,7 @@ func (c *CryptoSim) setupAccounts() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 		if finalized {
+			c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
 			c.dataGenerator.ReportFinalizeBlock()
 		}
 
@@ -202,6 +212,7 @@ func (c *CryptoSim) setupAccounts() error {
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
+	c.metrics.SetTotalNumberOfAccounts(c.dataGenerator.NextAccountID())
 	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
@@ -245,6 +256,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 		if finalized {
 			c.dataGenerator.ReportFinalizeBlock()
+			c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -266,6 +278,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 	c.dataGenerator.ReportFinalizeBlock()
+	c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()))
@@ -280,6 +293,8 @@ func (c *CryptoSim) run() {
 
 	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds) * time.Second)
 
+	c.metrics.SetMainThreadPhase("executing")
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -293,6 +308,7 @@ func (c *CryptoSim) run() {
 			txn, err := BuildTransaction(c.dataGenerator)
 			if err != nil {
 				fmt.Printf("\nfailed to build transaction: %v\n", err)
+				c.cancel()
 				continue
 			}
 
@@ -303,6 +319,8 @@ func (c *CryptoSim) run() {
 				c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 			if err != nil {
 				fmt.Printf("error finalizing block: %v\n", err)
+				c.cancel()
+				continue
 			}
 			if finalized {
 				c.dataGenerator.ReportFinalizeBlock()
