@@ -1566,7 +1566,8 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			uint64ToInt64Clamped(m.Snapshots.PinnedSize), metric.WithAttributes(dbAttr))
 	}
 	if pm.snapshotEarliestSeqNum != nil {
-		pm.snapshotEarliestSeqNum.Record(ctx, int64(m.Snapshots.EarliestSeqNum), metric.WithAttributes(dbAttr))
+		pm.snapshotEarliestSeqNum.Record(ctx,
+			uint64ToInt64Clamped(uint64(m.Snapshots.EarliestSeqNum)), metric.WithAttributes(dbAttr))
 	}
 
 	if pm.tableIters != nil {
