@@ -41,6 +41,10 @@ type DataGenerator struct {
 	// highest account ID that was created before the current block.
 	highestSafeAccountIDInBlock int64
 
+	// The current number of cold accounts. These are accounts that are not used frequently, but are not
+	// entirely dormant.
+	numberOfColdAccounts int64
+
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
 }
@@ -64,7 +68,9 @@ func NewDataGenerator(
 	}
 
 	fmt.Printf("There are currently %s keys in the database.\n", int64Commas(nextAccountID))
-	metrics.SetTotalNumberOfAccounts(nextAccountID)
+	hot := min(int64(config.NumberOfHotAccounts), max(0, nextAccountID-1))
+	cold := min(int64(config.MinimumNumberOfColdAccounts), max(0, nextAccountID-1-hot))
+	metrics.SetTotalNumberOfAccounts(nextAccountID, hot, cold)
 
 	nextErc20ContractIDBinary, found, err := database.Get(Erc20IDCounterKey())
 	if err != nil {
@@ -93,6 +99,7 @@ func NewDataGenerator(
 		feeCollectionAddress:        feeCollectionAddress,
 		database:                    database,
 		highestSafeAccountIDInBlock: nextAccountID - 1,
+		numberOfColdAccounts:        int64(config.MinimumNumberOfColdAccounts),
 		metrics:                     metrics,
 	}, nil
 }
@@ -103,19 +110,30 @@ func (d *DataGenerator) NextAccountID() int64 {
 	return d.nextAccountID
 }
 
+// NumberOfColdAccounts returns the current count of cold accounts.
+func (d *DataGenerator) NumberOfColdAccounts() int64 {
+	return d.numberOfColdAccounts
+}
+
+// ReportAccountCounts updates the metrics with the current account counts (total, hot, cold).
+func (d *DataGenerator) ReportAccountCounts() {
+	d.metrics.SetTotalNumberOfAccounts(d.nextAccountID, int64(d.config.NumberOfHotAccounts), d.numberOfColdAccounts)
+}
+
 // Get the next ERC20 contract ID to be used when creating a new ERC20 contract. This is also the total number of
 // ERC20 contracts currently in the database.
 func (d *DataGenerator) NextErc20ContractID() int64 {
 	return d.nextErc20ContractID
 }
 
-// Creates a new account and optionally writes it to the database. Returns the address of the new account.
+// Creates a new account and optionally writes it to the database. Returns the address of the new
+// account and whether it is a cold account (vs dormant).
 func (d *DataGenerator) CreateNewAccount(
 	// The number of bytes to allocate for the account data.
 	accountSize int,
 	// If true, the account will be immediately written to the database.
 	write bool,
-) (id int64, address []byte, err error) {
+) (id int64, address []byte, isCold bool, err error) {
 
 	accountID := d.nextAccountID
 	d.nextAccountID++
@@ -124,8 +142,13 @@ func (d *DataGenerator) CreateNewAccount(
 	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 
+	isCold = d.rand.Float64() >= d.config.NewAccountDormancyProbability
+
 	if !write {
-		return accountID, address, nil
+		if isCold {
+			d.numberOfColdAccounts++
+		}
+		return accountID, address, isCold, nil
 	}
 
 	balance := d.rand.Int64()
@@ -141,10 +164,14 @@ func (d *DataGenerator) CreateNewAccount(
 
 	err = d.database.Put(address, accountData)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to put account: %w", err)
+		return 0, nil, false, fmt.Errorf("failed to put account: %w", err)
 	}
 
-	return accountID, address, nil
+	if isCold {
+		d.numberOfColdAccounts++
+	}
+
+	return accountID, address, isCold, nil
 }
 
 // Creates a new ERC20 contract and optionally writes it to the database. Returns the address of the new ERC20 contract.
@@ -184,7 +211,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 
 	if hot {
 		firstHotAccountID := 1
-		lastHotAccountID := d.config.HotAccountSetSize
+		lastHotAccountID := d.config.NumberOfHotAccounts
 		accountID := d.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
@@ -193,18 +220,20 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		new := d.rand.Float64() < d.config.NewAccountProbability
 		if new {
 			// create a new account
-			id, address, err := d.CreateNewAccount(d.config.PaddedAccountSize, false)
+			id, address, isCold, err := d.CreateNewAccount(d.config.PaddedAccountSize, false)
 			if err != nil {
 				return 0, nil, false, fmt.Errorf("failed to create new account: %w", err)
 			}
-			d.metrics.IncrementTotalNumberOfAccounts()
+			d.metrics.IncrementTotalNumberOfAccounts(isCold)
 			return id, address, true, nil
 		}
 
 		// select an existing account at random
 
-		firstNonHotAccountID := d.config.HotAccountSetSize + 1
-		accountID := d.rand.Int64Range(int64(firstNonHotAccountID), d.highestSafeAccountIDInBlock+1)
+		lastLegalColdAccountID := d.highestSafeAccountIDInBlock + 1
+		firstLegalColdAccountID := lastLegalColdAccountID - d.numberOfColdAccounts
+
+		accountID := d.rand.Int64Range(int64(firstLegalColdAccountID), lastLegalColdAccountID)
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
 	}
