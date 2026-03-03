@@ -374,6 +374,7 @@ func (walLog *WAL[T]) handleTruncate(req *truncateRequest) {
 	if err != nil {
 		err = fmt.Errorf("failed to truncate: %w", err)
 		if strings.Contains(err.Error(), "out of range") {
+			err = fmt.Errorf("out of range truncate error: %w", err)
 			req.errChan <- err
 			return
 		}
