@@ -34,7 +34,7 @@ func (c *compositeWrapper) LoadVersion(version int64) error {
 }
 
 func (c *compositeWrapper) Version() int64 {
-	return c.base.WorkingCommitInfo().Version
+	return c.base.Version()
 }
 
 func (c *compositeWrapper) Importer(version int64) (types.Importer, error) {
