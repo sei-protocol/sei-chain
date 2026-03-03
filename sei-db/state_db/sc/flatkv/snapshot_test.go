@@ -1,13 +1,14 @@
 package flatkv
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
@@ -1081,6 +1082,43 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 // =============================================================================
 // Snapshot with all key types
 // =============================================================================
+
+func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(dir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0xF0}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, Address{0xF0}, Slot{0x02}, []byte{0x02})
+	require.NoError(t, s.WriteSnapshot(""))
+
+	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
+	workDir := filepath.Join(flatkvDir, workingDirName)
+
+	// SNAPSHOT_BASE should now match the new snapshot, not the old one.
+	data, err := os.ReadFile(filepath.Join(workDir, snapshotBaseFile))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(2), strings.TrimSpace(string(data)))
+
+	// Commit more versions beyond the snapshot.
+	commitStorageEntry(t, s, Address{0xF0}, Slot{0x03}, []byte{0x03})
+	commitStorageEntry(t, s, Address{0xF0}, Slot{0x04}, []byte{0x04})
+	commitStorageEntry(t, s, Address{0xF0}, Slot{0x05}, []byte{0x05})
+	hashAtV5 := s.RootHash()
+	require.NoError(t, s.Close())
+
+	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
+	// so committedVersion should be 5 (from working dir metadata), not 2
+	// (from the snapshot). Catchup should replay 0 entries.
+	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, hashAtV5, s2.RootHash())
+}
 
 func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	dir := t.TempDir()
