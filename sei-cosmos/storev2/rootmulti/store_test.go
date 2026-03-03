@@ -287,7 +287,7 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, false, []string{})
+	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")
