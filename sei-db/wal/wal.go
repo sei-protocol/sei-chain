@@ -488,11 +488,9 @@ func (walLog *WAL[T]) prune() {
 
 // drain processes all pending requests so in-flight work completes before shutdown.
 // When asyncError is already set, skip draining; context cancellation will unblock any waiting callers.
+// Stops processing as soon as asyncError is set to avoid overwriting the first error.
 func (walLog *WAL[T]) drain() {
-	if walLog.asyncError.Load() != nil {
-		return
-	}
-	for {
+	for walLog.asyncError.Load() == nil {
 		select {
 		case req := <-walLog.writeChan:
 			walLog.handleWrite(req)
