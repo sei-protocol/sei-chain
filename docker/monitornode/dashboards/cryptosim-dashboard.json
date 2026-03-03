@@ -557,7 +557,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 138
+            "y": 154
           },
           "id": 21,
           "options": {
@@ -652,7 +652,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 146
+            "y": 162
           },
           "id": 22,
           "options": {
@@ -783,7 +783,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 146
+            "y": 162
           },
           "id": 23,
           "options": {
@@ -914,7 +914,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 154
+            "y": 170
           },
           "id": 24,
           "options": {
@@ -1045,7 +1045,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 154
+            "y": 170
           },
           "id": 25,
           "options": {
@@ -1176,7 +1176,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 162
+            "y": 178
           },
           "id": 26,
           "options": {
@@ -1307,7 +1307,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 162
+            "y": 178
           },
           "id": 27,
           "options": {
@@ -1438,7 +1438,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 170
+            "y": 186
           },
           "id": 28,
           "options": {
@@ -1582,7 +1582,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 179
+            "y": 195
           },
           "id": 1,
           "options": {
@@ -1681,7 +1681,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 179
+            "y": 195
           },
           "id": 18,
           "options": {
@@ -1825,7 +1825,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 188
+            "y": 204
           },
           "id": 3,
           "options": {
@@ -1924,7 +1924,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 188
+            "y": 204
           },
           "id": 4,
           "options": {
@@ -2069,7 +2069,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 197
+            "y": 21
           },
           "id": 6,
           "options": {
@@ -2077,7 +2077,7 @@
               "calcs": [],
               "displayMode": "list",
               "placement": "bottom",
-              "showLegend": false
+              "showLegend": true
             },
             "tooltip": {
               "hideZeros": false,
@@ -2090,9 +2090,45 @@
             {
               "editorMode": "code",
               "expr": "cryptosim_accounts_total",
-              "legendFormat": "__auto",
+              "legendFormat": "total",
               "range": true,
               "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "cryptosim_accounts_hot",
+              "instant": false,
+              "legendFormat": "hot",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "cryptosim_accounts_cold",
+              "instant": false,
+              "legendFormat": "cold",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "cryptosim_accounts_dormant",
+              "instant": false,
+              "legendFormat": "dormant",
+              "range": true,
+              "refId": "D"
             }
           ],
           "title": "Number of Accounts",
@@ -2163,7 +2199,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 197
+            "y": 21
           },
           "id": 7,
           "options": {
@@ -2258,7 +2294,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 205
+            "y": 29
           },
           "id": 10,
           "options": {
@@ -2352,7 +2388,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 205
+            "y": 29
           },
           "id": 11,
           "options": {
@@ -2461,7 +2497,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 214
+            "y": 230
           },
           "id": 31,
           "options": {
@@ -2556,7 +2592,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 214
+            "y": 230
           },
           "id": 36,
           "options": {
@@ -2651,7 +2687,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 222
+            "y": 238
           },
           "id": 38,
           "options": {
@@ -2759,7 +2795,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 23
+            "y": 39
           },
           "id": 30,
           "options": {
@@ -2854,7 +2890,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 23
+            "y": 39
           },
           "id": 33,
           "options": {
@@ -2949,7 +2985,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 63
+            "y": 79
           },
           "id": 34,
           "options": {
@@ -3058,7 +3094,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 24
+            "y": 40
           },
           "id": 39,
           "options": {
@@ -3153,7 +3189,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 24
+            "y": 40
           },
           "id": 40,
           "options": {
@@ -3248,7 +3284,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 32
+            "y": 48
           },
           "id": 41,
           "options": {
@@ -3343,7 +3379,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 32
+            "y": 48
           },
           "id": 42,
           "options": {
@@ -3438,7 +3474,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 40
+            "y": 56
           },
           "id": 32,
           "options": {
@@ -3547,7 +3583,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 49
+            "y": 65
           },
           "id": 43,
           "options": {
@@ -3596,6 +3632,6 @@
   "timezone": "browser",
   "title": "CryptoSim",
   "uid": "adnqfm4",
-  "version": 13,
+  "version": 2,
   "weekStart": ""
 }
