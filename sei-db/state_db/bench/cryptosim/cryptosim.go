@@ -60,7 +60,7 @@ type CryptoSim struct {
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
 
-	// Send a boolean value to this channel to supsend/resume the benchmark. Sending "true" will suspend the
+	// Send a boolean value to this channel to suspend/resume the benchmark. Sending "true" will suspend the
 	// benchmark, sending "false" will resume it. Suspending an already suspended benchmark will have no effect,
 	// and resuming an already resumed benchmark will likewise have no effect.
 	suspendChan chan bool
