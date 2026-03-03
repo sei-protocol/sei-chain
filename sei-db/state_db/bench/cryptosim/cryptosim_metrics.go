@@ -24,6 +24,9 @@ type CryptosimMetrics struct {
 	blocksFinalizedTotal         prometheus.Counter
 	transactionsProcessedTotal   prometheus.Counter
 	totalAccounts                prometheus.Gauge
+	hotAccounts                  prometheus.Gauge
+	coldAccounts                 prometheus.Gauge
+	dormantAccounts              prometheus.Gauge
 	totalErc20Contracts          prometheus.Gauge
 	dbCommitsTotal               prometheus.Counter
 	dataDirSizeBytes             prometheus.Gauge
@@ -64,6 +67,18 @@ func NewCryptosimMetrics(
 	totalAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "cryptosim_accounts_total",
 		Help: "Total number of accounts",
+	})
+	hotAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_accounts_hot",
+		Help: "Number of hot accounts",
+	})
+	coldAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_accounts_cold",
+		Help: "Number of cold accounts",
+	})
+	dormantAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cryptosim_accounts_dormant",
+		Help: "Number of dormant accounts",
 	})
 	totalErc20Contracts := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "cryptosim_erc20_contracts_total",
@@ -110,6 +125,9 @@ func NewCryptosimMetrics(
 		blocksFinalizedTotal,
 		transactionsProcessedTotal,
 		totalAccounts,
+		hotAccounts,
+		coldAccounts,
+		dormantAccounts,
 		totalErc20Contracts,
 		dbCommitsTotal,
 		dataDirSizeBytes,
@@ -127,6 +145,9 @@ func NewCryptosimMetrics(
 		blocksFinalizedTotal:         blocksFinalizedTotal,
 		transactionsProcessedTotal:   transactionsProcessedTotal,
 		totalAccounts:                totalAccounts,
+		hotAccounts:                  hotAccounts,
+		coldAccounts:                 coldAccounts,
+		dormantAccounts:              dormantAccounts,
 		totalErc20Contracts:          totalErc20Contracts,
 		dbCommitsTotal:               dbCommitsTotal,
 		dataDirSizeBytes:             dataDirSizeBytes,
@@ -348,21 +369,29 @@ func (m *CryptosimMetrics) ReportDBCommit() {
 	m.dbCommitsTotal.Inc()
 }
 
-// SetTotalNumberOfAccounts sets the total number of accounts (e.g., when loading
-// from existing data).
-func (m *CryptosimMetrics) SetTotalNumberOfAccounts(total int64) {
+// SetTotalNumberOfAccounts sets the total number of accounts and the hot/cold/dormant
+// breakdown (e.g., when loading from existing data or after block finalization).
+func (m *CryptosimMetrics) SetTotalNumberOfAccounts(total int64, hot int64, cold int64) {
 	if m == nil {
 		return
 	}
 	m.totalAccounts.Set(float64(total))
+	m.hotAccounts.Set(float64(hot))
+	m.coldAccounts.Set(float64(cold))
+	m.dormantAccounts.Set(float64(total - hot - cold))
 }
 
 // IncrementTotalNumberOfAccounts records that a new account was created.
-func (m *CryptosimMetrics) IncrementTotalNumberOfAccounts() {
+func (m *CryptosimMetrics) IncrementTotalNumberOfAccounts(cold bool) {
 	if m == nil {
 		return
 	}
 	m.totalAccounts.Inc()
+	if cold {
+		m.coldAccounts.Inc()
+	} else {
+		m.dormantAccounts.Inc()
+	}
 }
 
 // SetTotalNumberOfERC20Contracts sets the total number of ERC20 contracts (e.g.,
