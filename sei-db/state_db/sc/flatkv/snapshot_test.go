@@ -1085,7 +1085,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, DefaultConfig())
+	s := NewCommitStore(filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
@@ -1093,7 +1093,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	commitStorageEntry(t, s, Address{0xF0}, Slot{0x02}, []byte{0x02})
 	require.NoError(t, s.WriteSnapshot(""))
 
-	flatkvDir := filepath.Join(dir, "data", flatkvRootDir)
+	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	workDir := filepath.Join(flatkvDir, workingDirName)
 
 	// SNAPSHOT_BASE should now match the new snapshot, not the old one.
@@ -1111,7 +1111,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
 	// so committedVersion should be 5 (from working dir metadata), not 2
 	// (from the snapshot). Catchup should replay 0 entries.
-	s2 := NewCommitStore(dir, nil, DefaultConfig())
+	s2 := NewCommitStore(filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
