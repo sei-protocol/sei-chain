@@ -220,11 +220,10 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		new := d.rand.Float64() < d.config.NewAccountProbability
 		if new {
 			// create a new account
-			id, address, isCold, err := d.CreateNewAccount(d.config.PaddedAccountSize, false)
+			id, address, _, err := d.CreateNewAccount(d.config.PaddedAccountSize, false)
 			if err != nil {
 				return 0, nil, false, fmt.Errorf("failed to create new account: %w", err)
 			}
-			d.metrics.IncrementTotalNumberOfAccounts(isCold)
 			return id, address, true, nil
 		}
 

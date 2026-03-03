@@ -4,143 +4,140 @@ import (
 	"context"
 	"io/fs"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/shirou/gopsutil/v3/process"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sys/unix"
+
+	"github.com/shirou/gopsutil/v3/process"
 )
 
-// CryptosimMetrics holds Prometheus metrics for the cryptosim benchmark.
+const cryptosimMeterName = "cryptosim"
+
+// CryptosimMetrics holds OpenTelemetry metrics for the cryptosim benchmark.
+// Metrics are exported via whatever exporter is configured on the global OTel
+// MeterProvider (e.g., Prometheus, OTLP). This package does not import Prometheus.
 type CryptosimMetrics struct {
-	reg                          *prometheus.Registry
-	ctx                          context.Context
-	blocksFinalizedTotal         prometheus.Counter
-	transactionsProcessedTotal   prometheus.Counter
-	totalAccounts                prometheus.Gauge
-	hotAccounts                  prometheus.Gauge
-	coldAccounts                 prometheus.Gauge
-	dormantAccounts              prometheus.Gauge
-	totalErc20Contracts          prometheus.Gauge
-	dbCommitsTotal               prometheus.Counter
-	dataDirSizeBytes             prometheus.Gauge
-	dataDirAvailableBytes        prometheus.Gauge
-	processReadBytesTotal        prometheus.Counter
-	processWriteBytesTotal       prometheus.Counter
-	processReadCountTotal        prometheus.Counter
-	processWriteCountTotal       prometheus.Counter
-	uptimeSeconds                prometheus.Gauge
+	ctx context.Context
+
+	blocksFinalizedTotal       metric.Int64Counter
+	transactionsProcessedTotal metric.Int64Counter
+	totalAccounts              metric.Int64Gauge
+	hotAccounts                metric.Int64Gauge
+	coldAccounts               metric.Int64Gauge
+	dormantAccounts            metric.Int64Gauge
+	totalErc20Contracts        metric.Int64Gauge
+	dbCommitsTotal             metric.Int64Counter
+	dataDirSizeBytes           metric.Int64Gauge
+	dataDirAvailableBytes      metric.Int64Gauge
+	processReadBytesTotal      metric.Int64Counter
+	processWriteBytesTotal     metric.Int64Counter
+	processReadCountTotal      metric.Int64Counter
+	processWriteCountTotal     metric.Int64Counter
+	uptimeSeconds              metric.Float64Gauge
+
 	mainThreadPhase              *PhaseTimer
 	transactionPhaseTimerFactory *PhaseTimerFactory
 }
 
-// NewCryptosimMetrics creates metrics for the cryptosim benchmark. A dedicated
-// registry is created internally. When ctx is cancelled, the metrics HTTP server
-// (if started) is shut down gracefully. Data directory size sampling is started
-// automatically when BackgroundMetricsScrapeInterval > 0.
-func NewCryptosimMetrics(
-	ctx context.Context,
-	config *CryptoSimConfig,
-) *CryptosimMetrics {
-	reg := prometheus.NewRegistry()
+// NewCryptosimMetrics creates metrics for the cryptosim benchmark using the
+// global OTel MeterProvider. The caller (e.g., main) must configure the
+// MeterProvider with a Prometheus or other exporter before calling this.
+// When ctx is cancelled, background sampling goroutines exit.
+// Data directory size sampling is started automatically when
+// BackgroundMetricsScrapeInterval > 0.
+//
+// Unit convention: Use WithUnit values from the UCUM standard (see
+// https://ucum.org/ucum). Durations use "s" (seconds). Bytes use "By".
+// Counts use curly-brace annotations, e.g. "{count}" for generic counts or
+// more specific "{block}", "{transaction}", "{account}" to match what is measured.
+func NewCryptosimMetrics(ctx context.Context, config *CryptoSimConfig) *CryptosimMetrics {
+	meter := otel.Meter(cryptosimMeterName)
 
-	// Register automatic process and Go runtime metrics (CPU, memory, goroutines, etc.)
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	blocksFinalizedTotal, _ := meter.Int64Counter(
+		"cryptosim_blocks_finalized_total",
+		metric.WithDescription("Total number of blocks finalized"),
+		metric.WithUnit("{count}"),
+	)
+	transactionsProcessedTotal, _ := meter.Int64Counter(
+		"cryptosim_transactions_processed_total",
+		metric.WithDescription("Total number of transactions processed"),
+		metric.WithUnit("{count}"),
+	)
+	totalAccounts, _ := meter.Int64Gauge(
+		"cryptosim_accounts_total",
+		metric.WithDescription("Total number of accounts"),
+		metric.WithUnit("{count}"),
+	)
+	hotAccounts, _ := meter.Int64Gauge(
+		"cryptosim_accounts_hot",
+		metric.WithDescription("Number of hot accounts"),
+		metric.WithUnit("{count}"),
+	)
+	coldAccounts, _ := meter.Int64Gauge(
+		"cryptosim_accounts_cold",
+		metric.WithDescription("Number of cold accounts"),
+		metric.WithUnit("{count}"),
+	)
+	dormantAccounts, _ := meter.Int64Gauge(
+		"cryptosim_accounts_dormant",
+		metric.WithDescription("Number of dormant accounts"),
+		metric.WithUnit("{count}"),
+	)
+	totalErc20Contracts, _ := meter.Int64Gauge(
+		"cryptosim_erc20_contracts_total",
+		metric.WithDescription("Total number of ERC20 contracts"),
+		metric.WithUnit("{count}"),
+	)
+	dbCommitsTotal, _ := meter.Int64Counter(
+		"cryptosim_db_commits_total",
+		metric.WithDescription("Total number of database commits"),
+		metric.WithUnit("{count}"),
+	)
+	dataDirSizeBytes, _ := meter.Int64Gauge(
+		"cryptosim_data_dir_size_bytes",
+		metric.WithDescription("Approximate size in bytes of the benchmark data directory"),
+		metric.WithUnit("By"),
+	)
+	dataDirAvailableBytes, _ := meter.Int64Gauge(
+		"cryptosim_data_dir_available_bytes",
+		metric.WithDescription("Available disk space in bytes on the filesystem containing the data directory"),
+		metric.WithUnit("By"),
+	)
+	processReadBytesTotal, _ := meter.Int64Counter(
+		"cryptosim_process_read_bytes_total",
+		metric.WithDescription("Bytes read from storage by benchmark. Use rate() for throughput. Linux only."),
+		metric.WithUnit("By"),
+	)
+	processWriteBytesTotal, _ := meter.Int64Counter(
+		"cryptosim_process_write_bytes_total",
+		metric.WithDescription("Bytes written to storage by benchmark. Use rate() for throughput. Linux only."),
+		metric.WithUnit("By"),
+	)
+	processReadCountTotal, _ := meter.Int64Counter(
+		"cryptosim_process_read_count_total",
+		metric.WithDescription("Read I/O ops by benchmark. Use rate() for read IOPS. Linux only."),
+		metric.WithUnit("{count}"),
+	)
+	processWriteCountTotal, _ := meter.Int64Counter(
+		"cryptosim_process_write_count_total",
+		metric.WithDescription("Write I/O ops by benchmark. Use rate() for write IOPS. Linux only."),
+		metric.WithUnit("{count}"),
+	)
+	uptimeSeconds, _ := meter.Float64Gauge(
+		"cryptosim_uptime_seconds",
+		metric.WithDescription("Seconds since benchmark started. Resets to 0 on restart."),
+		metric.WithUnit("s"),
 	)
 
-	blocksFinalizedTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_blocks_finalized_total",
-		Help: "Total number of blocks finalized",
-	})
-	transactionsProcessedTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_transactions_processed_total",
-		Help: "Total number of transactions processed",
-	})
-	totalAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_accounts_total",
-		Help: "Total number of accounts",
-	})
-	hotAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_accounts_hot",
-		Help: "Number of hot accounts",
-	})
-	coldAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_accounts_cold",
-		Help: "Number of cold accounts",
-	})
-	dormantAccounts := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_accounts_dormant",
-		Help: "Number of dormant accounts",
-	})
-	totalErc20Contracts := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_erc20_contracts_total",
-		Help: "Total number of ERC20 contracts",
-	})
-	dbCommitsTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_db_commits_total",
-		Help: "Total number of database commits",
-	})
-	dataDirSizeBytes := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_data_dir_size_bytes",
-		Help: "Approximate size in bytes of the benchmark data directory",
-	})
-	dataDirAvailableBytes := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_data_dir_available_bytes",
-		Help: "Available disk space in bytes on the filesystem containing the data directory",
-	})
-	processReadBytesTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_process_read_bytes_total",
-		Help: "Bytes read from storage by benchmark. Use rate() for throughput. " +
-			"Linux only (ErrNotImplemented on darwin).",
-	})
-	processWriteBytesTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_process_write_bytes_total",
-		Help: "Bytes written to storage by benchmark. Use rate() for throughput. " +
-			"Linux only (ErrNotImplemented on darwin).",
-	})
-	processReadCountTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_process_read_count_total",
-		Help: "Read I/O ops by benchmark. Use rate() for read IOPS. Linux only (ErrNotImplemented on darwin).",
-	})
-	processWriteCountTotal := prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "cryptosim_process_write_count_total",
-		Help: "Write I/O ops by benchmark. Use rate() for write IOPS. Linux only (ErrNotImplemented on darwin).",
-	})
-	uptimeSeconds := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cryptosim_uptime_seconds",
-		Help: "Seconds since benchmark started. Resets to 0 on restart.",
-	})
-	mainThreadPhase := NewPhaseTimer(reg, "main_thread")
-	transactionPhaseTimerFactory := NewPhaseTimerFactory(reg, "transaction")
-
-	reg.MustRegister(
-		blocksFinalizedTotal,
-		transactionsProcessedTotal,
-		totalAccounts,
-		hotAccounts,
-		coldAccounts,
-		dormantAccounts,
-		totalErc20Contracts,
-		dbCommitsTotal,
-		dataDirSizeBytes,
-		dataDirAvailableBytes,
-		processReadBytesTotal,
-		processWriteBytesTotal,
-		processReadCountTotal,
-		processWriteCountTotal,
-		uptimeSeconds,
-	)
+	mainThreadPhase := NewPhaseTimer(meter, "main_thread")
+	transactionPhaseTimerFactory := NewPhaseTimerFactory(meter, "transaction")
 
 	m := &CryptosimMetrics{
-		reg:                          reg,
 		ctx:                          ctx,
 		blocksFinalizedTotal:         blocksFinalizedTotal,
 		transactionsProcessedTotal:   transactionsProcessedTotal,
@@ -169,31 +166,30 @@ func NewCryptosimMetrics(
 	return m
 }
 
-// StartServer starts the metrics HTTP server. Call this after loading initial
-// state and setting gauges (e.g., SetTotalNumberOfAccounts) to avoid spurious
-// rate spikes on restart. If addr is empty, no server is started.
-func (m *CryptosimMetrics) StartServer(addr string) {
-	if m == nil || addr == "" {
+// StartBackgroundSampling starts goroutines that periodically update gauges
+// (uptime, etc.). Call this when the benchmark is about to run, after initial
+// state is loaded. Does not start any HTTP server; the caller configures export.
+func (m *CryptosimMetrics) StartBackgroundSampling(startTime time.Time) {
+	if m == nil {
 		return
 	}
-	m.startUptimeSampling(time.Now())
-	startMetricsServer(m.ctx, m.reg, addr)
+	m.startUptimeSampling(startTime)
 }
 
-// startUptimeSampling updates the uptime gauge every second from startTime.
 func (m *CryptosimMetrics) startUptimeSampling(startTime time.Time) {
-	if m == nil {
+	if m == nil || m.uptimeSeconds == nil {
 		return
 	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+		ctx := context.Background()
 		for {
 			select {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
-				m.uptimeSeconds.Set(time.Since(startTime).Seconds())
+				m.uptimeSeconds.Record(ctx, time.Since(startTime).Seconds())
 			}
 		}
 	}()
@@ -201,18 +197,13 @@ func (m *CryptosimMetrics) startUptimeSampling(startTime time.Time) {
 
 // startProcessIOSampling starts a goroutine that periodically samples process
 // I/O counters (read/write bytes and operation counts) via gopsutil and adds
-// deltas to Prometheus counters. Use rate() on these counters for throughput
-// and IOPS. Runs when BackgroundMetricsScrapeInterval > 0.
-//
-// Skipped on darwin: gopsutil does not implement process.IOCounters on macOS;
-// the kernel does not expose per-process disk I/O via public APIs. These metrics
-// will remain at zero on darwin.
+// deltas to OTel counters. Use rate() on these counters for throughput and IOPS.
+// Skipped on darwin: gopsutil does not implement process.IOCounters on macOS.
 func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 	if m == nil || intervalSeconds <= 0 {
 		return
 	}
 	if runtime.GOOS == "darwin" {
-		// OSX does not support process I/O stats.
 		return
 	}
 	pid := os.Getpid()
@@ -226,6 +217,7 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 	interval := time.Duration(intervalSeconds) * time.Second
 	var prevReadBytes, prevWriteBytes, prevReadCount, prevWriteCount uint64
 	var initialized bool
+	ctx := context.Background()
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -239,17 +231,17 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 			curReadCount := io.ReadCount
 			curWriteCount := io.WriteCount
 			if initialized {
-				if curRead >= prevReadBytes {
-					m.processReadBytesTotal.Add(float64(curRead - prevReadBytes))
+				if curRead >= prevReadBytes && m.processReadBytesTotal != nil {
+					m.processReadBytesTotal.Add(ctx, int64(curRead-prevReadBytes))
 				}
-				if curWrite >= prevWriteBytes {
-					m.processWriteBytesTotal.Add(float64(curWrite - prevWriteBytes))
+				if curWrite >= prevWriteBytes && m.processWriteBytesTotal != nil {
+					m.processWriteBytesTotal.Add(ctx, int64(curWrite-prevWriteBytes))
 				}
-				if curReadCount >= prevReadCount {
-					m.processReadCountTotal.Add(float64(curReadCount - prevReadCount))
+				if curReadCount >= prevReadCount && m.processReadCountTotal != nil {
+					m.processReadCountTotal.Add(ctx, int64(curReadCount-prevReadCount))
 				}
-				if curWriteCount >= prevWriteCount {
-					m.processWriteCountTotal.Add(float64(curWriteCount - prevWriteCount))
+				if curWriteCount >= prevWriteCount && m.processWriteCountTotal != nil {
+					m.processWriteCountTotal.Add(ctx, int64(curWriteCount-prevWriteCount))
 				}
 			}
 			prevReadBytes, prevWriteBytes = curRead, curWrite
@@ -268,20 +260,22 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 	}()
 }
 
-// startDataDirSizeSampling starts a goroutine that periodically measures the
-// size and available disk space of dataDir and exports them. The first
-// measurement runs immediately so the gauges are never left at 0 for Prometheus scrapes.
 func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeconds int) {
 	if m == nil || intervalSeconds <= 0 || dataDir == "" {
 		return
 	}
 	interval := time.Duration(intervalSeconds) * time.Second
+	ctx := context.Background()
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		sample := func() {
-			m.dataDirSizeBytes.Set(float64(measureDataDirSize(dataDir)))
-			m.dataDirAvailableBytes.Set(float64(measureDataDirAvailableBytes(dataDir)))
+			if m.dataDirSizeBytes != nil {
+				m.dataDirSizeBytes.Record(ctx, measureDataDirSize(dataDir))
+			}
+			if m.dataDirAvailableBytes != nil {
+				m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dataDir))
+			}
 		}
 		sample()
 		for {
@@ -295,8 +289,6 @@ func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeco
 	}()
 }
 
-// measureDataDirAvailableBytes returns the available disk space in bytes for the
-// filesystem containing dataDir. Returns 0 on error or unsupported platforms.
 func measureDataDirAvailableBytes(dataDir string) int64 {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(dataDir, &stat); err != nil {
@@ -309,13 +301,11 @@ func measureDataDirAvailableBytes(dataDir string) int64 {
 	return int64(result)
 }
 
-// measureDataDirSize walks the directory tree and sums file sizes.
-// Ignores errors from individual entries (e.g., removed or inaccessible files).
 func measureDataDirSize(dataDir string) int64 {
 	var total int64
 	_ = filepath.WalkDir(dataDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip problematic entries, continue with partial result.
+			return nil
 		}
 		if entry.IsDir() {
 			return nil
@@ -330,82 +320,61 @@ func measureDataDirSize(dataDir string) int64 {
 	return total
 }
 
-// startMetricsServer starts an HTTP server serving /metrics from reg. When ctx is
-// cancelled, the server is shut down gracefully.
-func startMetricsServer(ctx context.Context, reg *prometheus.Registry, addr string) {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	go func() {
-		_ = srv.ListenAndServe()
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
-
-// ReportBlockFinalized records that a block was finalized, the number of
-// transactions in that block, and the finalization latency.
 func (m *CryptosimMetrics) ReportBlockFinalized(transactionCount int64) {
 	if m == nil {
 		return
 	}
-	m.blocksFinalizedTotal.Inc()
-	m.transactionsProcessedTotal.Add(float64(transactionCount))
+	ctx := context.Background()
+	if m.blocksFinalizedTotal != nil {
+		m.blocksFinalizedTotal.Add(ctx, 1)
+	}
+	if m.transactionsProcessedTotal != nil {
+		m.transactionsProcessedTotal.Add(ctx, transactionCount)
+	}
 }
 
-// ReportDBCommit records that a database commit completed and the latency.
 func (m *CryptosimMetrics) ReportDBCommit() {
-	if m == nil {
+	if m == nil || m.dbCommitsTotal == nil {
 		return
 	}
-	m.dbCommitsTotal.Inc()
+	m.dbCommitsTotal.Add(context.Background(), 1)
 }
 
-// SetTotalNumberOfAccounts sets the total number of accounts and the hot/cold/dormant
-// breakdown (e.g., when loading from existing data or after block finalization).
 func (m *CryptosimMetrics) SetTotalNumberOfAccounts(total int64, hot int64, cold int64) {
 	if m == nil {
 		return
 	}
-	m.totalAccounts.Set(float64(total))
-	m.hotAccounts.Set(float64(hot))
-	m.coldAccounts.Set(float64(cold))
-	m.dormantAccounts.Set(float64(total - hot - cold))
+	ctx := context.Background()
+	if m.totalAccounts != nil {
+		m.totalAccounts.Record(ctx, total)
+	}
+	if m.hotAccounts != nil {
+		m.hotAccounts.Record(ctx, hot)
+	}
+	if m.coldAccounts != nil {
+		m.coldAccounts.Record(ctx, cold)
+	}
+	if m.dormantAccounts != nil {
+		m.dormantAccounts.Record(ctx, total-hot-cold)
+	}
 }
 
-// IncrementTotalNumberOfAccounts records that a new account was created.
-func (m *CryptosimMetrics) IncrementTotalNumberOfAccounts(cold bool) {
+// IncrementTotalNumberOfAccounts updates the account gauges after adding one account.
+// Pass the new totals: total, hot, cold. Dormant is derived as total - hot - cold.
+func (m *CryptosimMetrics) IncrementTotalNumberOfAccounts(total int64, hot int64, cold int64) {
 	if m == nil {
 		return
 	}
-	m.totalAccounts.Inc()
-	if cold {
-		m.coldAccounts.Inc()
-	} else {
-		m.dormantAccounts.Inc()
-	}
+	m.SetTotalNumberOfAccounts(total, hot, cold)
 }
 
-// SetTotalNumberOfERC20Contracts sets the total number of ERC20 contracts (e.g.,
-// when loading from existing data).
 func (m *CryptosimMetrics) SetTotalNumberOfERC20Contracts(total int64) {
-	if m == nil {
+	if m == nil || m.totalErc20Contracts == nil {
 		return
 	}
-	m.totalErc20Contracts.Set(float64(total))
+	m.totalErc20Contracts.Record(context.Background(), total)
 }
 
-// GetTransactionPhaseTimerInstance returns a new PhaseTimer from the transaction
-// phase timer factory. Each call returns an independent timer; use one per
-// transaction executor or thread.
 func (m *CryptosimMetrics) GetTransactionPhaseTimerInstance() *PhaseTimer {
 	if m == nil || m.transactionPhaseTimerFactory == nil {
 		return nil
@@ -413,9 +382,8 @@ func (m *CryptosimMetrics) GetTransactionPhaseTimerInstance() *PhaseTimer {
 	return m.transactionPhaseTimerFactory.Build()
 }
 
-// SetMainThreadPhase records a transition of the main thread to a new phase.
 func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
-	if m == nil {
+	if m == nil || m.mainThreadPhase == nil {
 		return
 	}
 	m.mainThreadPhase.SetPhase(phase)

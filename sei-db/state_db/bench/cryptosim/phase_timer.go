@@ -1,42 +1,47 @@
 package cryptosim
 
 import (
-	"fmt"
+	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
-// PhaseTimerFactory constructs shared Prometheus metrics and builds independent
+// PhaseTimerFactory constructs shared OTel metrics and builds independent
 // PhaseTimer instances. Use Build() to create a timer for each thread.
 type PhaseTimerFactory struct {
-	phaseDurationTotal *prometheus.CounterVec
-	phaseLatency       *prometheus.HistogramVec
+	phaseDurationTotal metric.Float64Counter
+	phaseLatency       metric.Float64Histogram
+	timerName          string
 }
 
-// NewPhaseTimerFactory creates a factory that registers metrics with the given
-// name prefix (e.g., "main_thread" produces main_thread_phase_duration_seconds_total).
-func NewPhaseTimerFactory(reg *prometheus.Registry, name string) *PhaseTimerFactory {
-	phaseDurationTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: fmt.Sprintf("%s_phase_duration_seconds_total", name),
-		Help: "Total seconds spent in each phase",
-	}, []string{"phase"})
-	phaseLatency := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    fmt.Sprintf("%s_phase_latency_seconds", name),
-		Help:    "Latency per phase (seconds); use for p99, p95, etc.",
-		Buckets: prometheus.ExponentialBucketsRange(0.001, 10, 12),
-	}, []string{"phase"})
-	reg.MustRegister(phaseDurationTotal, phaseLatency)
+// NewPhaseTimerFactory creates a factory that records to the given meter with the
+// specified timer name (e.g., "main_thread" or "transaction"). Metric names are
+// {timerName}_phase_duration_seconds_total and {timerName}_phase_latency_seconds
+// to match existing Grafana dashboards.
+func NewPhaseTimerFactory(meter metric.Meter, timerName string) *PhaseTimerFactory {
+	phaseDurationTotal, _ := meter.Float64Counter(
+		timerName+"_phase_duration_seconds_total",
+		metric.WithDescription("Total seconds spent in each phase"),
+		metric.WithUnit("s"),
+	)
+	phaseLatency, _ := meter.Float64Histogram(
+		timerName+"_phase_latency_seconds",
+		metric.WithDescription("Latency per phase (seconds); use for p99, p95, etc."),
+		metric.WithUnit("s"),
+	)
 	return &PhaseTimerFactory{
 		phaseDurationTotal: phaseDurationTotal,
 		phaseLatency:       phaseLatency,
+		timerName:          timerName,
 	}
 }
 
 // NewPhaseTimer creates a factory and builds a single PhaseTimer. Convenient when
 // only one timer is needed (e.g., for a single-threaded main loop).
-func NewPhaseTimer(reg *prometheus.Registry, name string) *PhaseTimer {
-	return NewPhaseTimerFactory(reg, name).Build()
+func NewPhaseTimer(meter metric.Meter, timerName string) *PhaseTimer {
+	return NewPhaseTimerFactory(meter, timerName).Build()
 }
 
 // Build returns a new PhaseTimer that records to this factory's metrics.
@@ -53,42 +58,26 @@ func (f *PhaseTimerFactory) Build() *PhaseTimer {
 // PhaseTimer records time spent in phases (e.g., "executing", "finalizing").
 // Call SetPhase when transitioning to a new phase; latency is calculated from the
 // previous transition. Not safe for concurrent use on a single instance.
-//
-// Grafana queries (substitute PREFIX with the name passed to NewPhaseTimer or NewPhaseTimerFactory):
-//
-// Rate, for pie chart or stacked timeseries (seconds per second):
-//
-//	rate(PREFIX_phase_duration_seconds_total[$__rate_interval])
-//
-// Average latency:
-//
-//	rate(PREFIX_phase_latency_seconds_sum[$__rate_interval]) /
-//		rate(PREFIX_phase_latency_seconds_count[$__rate_interval])
-//
-// Latency percentiles (p99, p95, p50). The phase label (executing, finalizing,
-// etc.) distinguishes series; add {phase="executing"} to filter:
-//
-//	histogram_quantile(0.99, rate(PREFIX_phase_latency_seconds_bucket[$__rate_interval]))
-//	histogram_quantile(0.95, rate(PREFIX_phase_latency_seconds_bucket[$__rate_interval]))
-//	histogram_quantile(0.50, rate(PREFIX_phase_latency_seconds_bucket[$__rate_interval]))
 type PhaseTimer struct {
-	phaseDurationTotal  *prometheus.CounterVec
-	phaseLatency        *prometheus.HistogramVec
+	phaseDurationTotal  metric.Float64Counter
+	phaseLatency        metric.Float64Histogram
 	lastPhase           string
 	lastPhaseChangeTime time.Time
 }
 
 // SetPhase records a transition to a new phase.
 func (p *PhaseTimer) SetPhase(phase string) {
-	if p == nil || phase == "" {
+	if p == nil || phase == "" || p.phaseDurationTotal == nil || p.phaseLatency == nil {
 		return
 	}
 	now := time.Now()
+	ctx := context.Background()
 	if p.lastPhase != "" {
 		latency := now.Sub(p.lastPhaseChangeTime)
 		seconds := latency.Seconds()
-		p.phaseDurationTotal.WithLabelValues(p.lastPhase).Add(seconds)
-		p.phaseLatency.WithLabelValues(p.lastPhase).Observe(seconds)
+		phaseAttr := attribute.String("phase", p.lastPhase)
+		p.phaseDurationTotal.Add(ctx, seconds, metric.WithAttributes(phaseAttr))
+		p.phaseLatency.Record(ctx, seconds, metric.WithAttributes(phaseAttr))
 	}
 	p.lastPhase = phase
 	p.lastPhaseChangeTime = now
@@ -96,14 +85,15 @@ func (p *PhaseTimer) SetPhase(phase string) {
 
 // Reset ends the current phase (capturing its metrics) and clears the phase state.
 func (p *PhaseTimer) Reset() {
-	if p == nil {
+	if p == nil || p.phaseDurationTotal == nil || p.phaseLatency == nil {
 		return
 	}
 	if p.lastPhase != "" {
 		latency := time.Since(p.lastPhaseChangeTime)
 		seconds := latency.Seconds()
-		p.phaseDurationTotal.WithLabelValues(p.lastPhase).Add(seconds)
-		p.phaseLatency.WithLabelValues(p.lastPhase).Observe(seconds)
+		phaseAttr := attribute.String("phase", p.lastPhase)
+		p.phaseDurationTotal.Add(context.Background(), seconds, metric.WithAttributes(phaseAttr))
+		p.phaseLatency.Record(context.Background(), seconds, metric.WithAttributes(phaseAttr))
 	}
 	p.lastPhase = ""
 }
