@@ -1965,13 +1965,20 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 // makeGigaDeliverTx returns an OCC-compatible deliverTx callback that captures the given
 // block cache, avoiding mutable state on App for cache lifecycle management.
 func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.RequestDeliverTxV2, sdk.Tx, [32]byte) abci.ResponseDeliverTx {
-	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (resp abci.ResponseDeliverTx) {
 		defer func() {
 			if r := recover(); r != nil {
 				// OCC abort panics are expected - the scheduler uses them to detect conflicts
-				// and reschedule transactions. Don't log these as errors.
-				if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
-					ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+				// and reschedule transactions. Re-panic to let the scheduler handle it.
+				if _, isOCCAbort := r.(occ.Abort); isOCCAbort {
+					panic(r)
+				}
+				// For non-OCC panics (e.g., nil deref from malformed protobuf), log and return
+				// an error response instead of swallowing the panic and returning Code=0.
+				ctx.Logger().Error("panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+				resp = abci.ResponseDeliverTx{
+					Code: sdkerrors.ErrPanic.ABCICode(),
+					Log:  fmt.Sprintf("panic recovered: %v", r),
 				}
 			}
 		}()
