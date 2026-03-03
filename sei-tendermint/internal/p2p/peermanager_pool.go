@@ -1,11 +1,16 @@
 package p2p
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
+	"slices"
+	"maps"
+	"cmp"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/ordered"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -24,30 +29,37 @@ func before(a, b utils.Option[time.Time]) bool {
 
 type poolConfig struct {
 	selfID   types.NodeID
+	maxOutbound utils.Option[int]
 	maxConns utils.Option[int]
 	maxAddrs utils.Option[int]
+}
+
+func (cfg *poolConfig) getMaxOutbound() utils.Option[int] {
+	if cfg.maxOutbound.IsPresent() { return cfg.maxOutbound }
+	return cfg.maxConns
 }
 
 // Dialing persistent peers: use config.persistentAddrs
 // Dialing regular peers: use config.bootstrapAddrs + pex of regular peers + pex of persistent peers
 type poolConn[C peerConn] struct {
-	conn utils.Option[C]
-	pexAddrs []NodeAddress 
-	dialing bool // connection can be dialing/connected/dead
+	conn C
+	pexAddrs []pNodeAddress 
 }
 
 type pool[C peerConn] struct {
 	poolConfig
-	outbound int
-	dialing int
-	connected int
-	conns    map[types.NodeID]*poolConn[C]
+	dialQueue chan pNodeAddress
+	// TODO: include bootstrapAddrs in makeDialQueue()
+	bootstrapAddrs []pNodeAddress
+	// TODO: rename to regularConns
+	conns utils.Watch[ordered.Map[pNodeID,*poolConn[C]]]
+	// TODO: add persistentConns
 }
 
 func newPool[C peerConn](cfg poolConfig) *pool[C] {
 	return &pool[C]{
 		poolConfig: cfg,
-		conns:      map[types.NodeID]*poolConn[C]{},
+		conns: utils.NewWatch(ordered.NewMap[pNodeID,*poolConn[C]]()), 
 	}
 }
 
@@ -76,54 +88,103 @@ var errTooMany = errors.New("too many addresses in the peer manager")
 
 // Sets pex addresses for the given peer.
 // Noop if the peer is not in the pool.
-// Returns an error iff the address could not be added.
-func (p *pool[C]) SetPexAddrs(id types.NodeID, addrs []NodeAddress) {
-	if c,ok := p.conns[id]; ok {
-		c.pexAddrs = addrs
+func (p *pool[C]) SetPexAddrs(id pNodeID, addrs []pNodeAddress) {
+	for conns := range p.conns.Lock() {
+		if c,ok := conns.Get(id); ok { c.pexAddrs = addrs }
 	}
 }
 
-func (p *pool[C]) DialFailed(addr NodeAddress) {
-	c,ok := p.conns[addr.NodeID]
-	if !ok || !c.dialing { return }
-	c.dialing = false
-	p.dialing -= 1
-	// TODO: record the failure time.
-}
-
-func (p *pool[C]) Evict(id types.NodeID) {
-	if conn, ok := p.getConn(id).Get(); ok {
-		conn.Close()
+func (p *pool[C]) Evict(id pNodeID) {
+	for conns := range p.conns.Lock() {
+		if c, ok := conns.Get(id); ok {
+			c.conn.Close()
+		}
 	}
 }
 
-
-func (p *pool[C]) getConn(id types.NodeID) utils.Option[C] {
-	if c,ok := p.conns[id]; ok {
-		return c.conn
-	}
-	return utils.None[C]()
+func (p *pool[C]) priorityThreshold(conns ordered.Map[pNodeID,*poolConn[C]]) uint64 {
+	inf := utils.Max[uint64]() 
+	m,ok := p.getMaxOutbound().Get()
+	if !ok { return inf }
+	id,_,ok := conns.GetAt(m)
+	if !ok { return inf }
+	return id.priority 
 }
 
-func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
-	// Round robin over addresses with priority>lowest(connections.priority), preferring with highest priority.
-	// lowest is counted over all connections, but up to max outbound (if there is <maxOutbound connections, then lowest(...) == -inf)
-	// Dial address will be provided by a background task of peermanager.
-// Candidates will be reevaluated after receiving from that task.
-	// Maintain a set of addresses of peers (grouped by NodeID), ordered by priority.
-	// Threshold changed -> see if there is sth in the collection above threshold.
-	// Address added above the threshold -> ditto
-	// NOTE that bootstrap peers are also included in this set. What about peerDB? We can include it as a dummy peer (old us).
-	// We snapshot ALL pexAddresses above threshold, dedupe, dial them in order
-	// After connecting:
-	// * If max outbound has been reached, prune outbound connection with lowest priority.
-	// * Otherwise if max connections has been reached, prune connection with lowest priority.
-	// * Otherwise just add the new connection.
-	// TODO: we should slow down dialing if there is maxOutbound outbound connections.
-	// TODO: should we slow down dialing if there is maxConn total connections? // Slow down churn
-	//   we should simulate process of having separate limits of inbound outbound with potentially overlapping pools.
-	//   In this case inbound connections should sometimes count as outbound connections, in case they were overriden.
-	return x.addr, true
+func (p *pool[C]) makeDialQueue(ctx context.Context) ([]pNodeAddress,error) {
+	// We rate-limit proportionally to the amount of work done,
+	// with a large factor (1ms) per address. For example with 100 connections, and
+	// max 100 pex addresses per connection: 100 * 100 * 1ms = 10s.
+	// This allows us to amortize the work done.
+	const delayPerWorkUnit = time.Millisecond
+	for {
+		workDone := 0
+		start := time.Now()
+		for conns,ctrl := range p.conns.Lock() {
+			t := p.priorityThreshold(conns)
+			addrs := map[pNodeAddress]struct{}{}
+			for _,c := range conns.All() {
+				for _,addr := range c.pexAddrs {
+					if _,ok := conns.Get(addr.pNodeID()); ok || addr.priority >= t { continue }
+					addrs[addr] = struct{}{}
+				}
+			}
+			workDone = len(addrs)
+			if q := slices.SortedFunc(maps.Keys(addrs),func(a,b pNodeAddress) int {
+				return cmp.Compare(a.priority,b.priority)
+			}); len(q)>0 {
+				return q,nil
+			}
+			// Wait for updates, since there is nothing to do otherwise.
+			if err:=ctrl.Wait(ctx); err!=nil {
+				return nil,err
+			}
+		}
+		// Amortize the work by sleeping.
+		// TODO: It is still possible that the returned addresses will be just filtered
+		// out after return, which would skip this amortization.
+		if err:=utils.SleepUntil(ctx,start.Add(delayPerWorkUnit * time.Duration(workDone))); err!=nil {
+			return nil,err
+		}
+	}
+}
+
+// TODO: initialize dialQueue with peerDB content.
+func (p *pool[C]) Run(ctx context.Context) error {
+	for {
+		// Construct a queue
+		q,err := p.makeDialQueue(ctx)
+		if err!=nil { return err }
+		// Feed it to dialers.
+		for _,addr := range q {
+			if err:=utils.Send(ctx,p.dialQueue,addr); err!=nil {
+				return err
+			}
+		}
+	}
+}
+
+func (p *pool[C]) canDial(id pNodeID) bool {
+	for conns := range p.conns.Lock() {
+		_,ok := conns.Get(id)
+		return !ok && p.priorityThreshold(conns) <= id.priority
+	}
+	panic("unreachable")
+}
+
+func (p *pool[C]) StartDial(ctx context.Context) (NodeAddress, error) {
+	// TODO: rate limit dialing here?.
+	for {
+		// What about concurrent dialing of the same peer?
+		// Even if we selected just 1 addr per NodeID,
+		// same address might be dialed twice in the current impl, since we
+		// regenerate the queue periodically.
+		addr,err := utils.Recv(ctx,p.dialQueue)
+		if err!=nil { return NodeAddress{},err }
+		if p.canDial(addr.pNodeID()) {
+			return addr.NodeAddress,nil
+		}
+	}
 }
 
 func (p *pool[C]) Connected(conn C) (err error) {
@@ -136,42 +197,49 @@ func (p *pool[C]) Connected(conn C) (err error) {
 	if info.ID == p.selfID {
 		return errors.New("connection to self")
 	}
-	if addr, ok := info.DialAddr.Get(); ok && p.dialing[addr.NodeID] == addr {
-		delete(p.dialing, addr.NodeID)
-	}
+	id := pNodeID{priority:0,NodeID:info.ID}
 	newIsOutbound := info.DialAddr.IsPresent()
-	if old, ok := p.conns[info.ID]; ok {
-		// * allow to override connections in the same direction.
-		// * inbound priority > outbound priority <=> peerID > selfID.
-		//   This resolves the situation when peers try to connect to each other
-		//   at the same time.
-		oldIsOutbound := old.conn.Info().DialAddr.IsPresent()
-		if oldIsOutbound != newIsOutbound && (info.ID < p.selfID) != newIsOutbound {
-			return fmt.Errorf("duplicate connection from peer %q", info.ID)
+	for conns := range p.conns.Lock() {
+		if old,ok := conns.Get(id); ok {
+			// * allow to override connections in the same direction.
+			// * inbound priority > outbound priority <=> peerID > selfID.
+			//   This resolves the situation when peers try to connect to each other
+			//   at the same time.
+			oldIsOutbound := old.conn.Info().DialAddr.IsPresent()
+			if oldIsOutbound != newIsOutbound && (info.ID < p.selfID) != newIsOutbound {
+				return fmt.Errorf("duplicate connection from peer %q", info.ID)
+			}
+			old.conn.Close()
+			conns.Set(id,&poolConn[C]{conn:conn})
+			return nil
 		}
-		old.conn.Close()
-		delete(p.conns, info.ID)
-		if oldIsOutbound {
-			p.outbound -= 1
+		if newIsOutbound {
+			// For outbound peers we require them to have high priority.
+			if p.priorityThreshold(conns) <= id.priority {
+				return fmt.Errorf("too low priority peer")
+			}
+		}	
+		if m, ok := p.maxConns.Get(); ok && conns.Len() >= m {
+			// If we are out of capacity, we need to drop peer with lowest priority
+			oldID,old,ok := conns.Max()
+			if !ok || oldID.priority <= id.priority {
+				return errors.New("too many connections")
+			}
+			old.conn.Close()
+			conns.Delete(oldID)
 		}
+		conns.Set(id,&poolConn[C]{conn:conn})
 	}
-	if m, ok := p.maxConns.Get(); ok && len(p.conns) >= m {
-		return errors.New("too many connections")
-	}
-	if newIsOutbound {
-		p.outbound += 1
-	}
-	p.conns[info.ID] = &poolConn[C]{conn:conn}
 	return nil
 }
 
 func (p *pool[C]) Disconnected(conn C) {
 	info := conn.Info()
-	if old, ok := p.conns[info.ID]; ok && old.conn == conn {
-		old.conn.Close()
-		delete(p.conns, info.ID)
-		if info.DialAddr.IsPresent() {
-			p.outbound -= 1
+	id := pNodeID{priority:0,NodeID:info.ID}
+	for conns := range p.conns.Lock() {
+		if old, ok := conns.Get(id); ok && old.conn == conn {
+			old.conn.Close()
+			conns.Delete(id)
 		}
 	}
 }
