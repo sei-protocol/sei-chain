@@ -1431,7 +1431,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					ctx.Logger().Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
+					logger.Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
 					result = &abci.ExecTxResult{
 						Code: sdkerrors.ErrPanic.ABCICode(),
 						Log:  fmt.Sprintf("panic recovered: %v", r),
@@ -1965,13 +1965,29 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 // makeGigaDeliverTx returns an OCC-compatible deliverTx callback that captures the given
 // block cache, avoiding mutable state on App for cache lifecycle management.
 func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.RequestDeliverTxV2, sdk.Tx, [32]byte) abci.ResponseDeliverTx {
-	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (resp abci.ResponseDeliverTx) {
 		defer func() {
 			if r := recover(); r != nil {
-				// OCC abort panics are expected - the scheduler uses them to detect conflicts
-				// and reschedule transactions. Don't log these as errors.
-				if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
-					logger.Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+				// Handle panics as v2 does: ErrOCCAbort, ErrOutOfGas, or ErrPanic
+				if abort, isOCCAbort := r.(occ.Abort); isOCCAbort {
+					resp = abci.ResponseDeliverTx{
+						Code: sdkerrors.ErrOCCAbort.ABCICode(),
+						Log:  fmt.Sprintf("occ abort occurred with dependent index %d and error: %v", abort.DependentTxIdx, abort.Err),
+					}
+					return
+				}
+				if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
+					resp = abci.ResponseDeliverTx{
+						Code: sdkerrors.ErrOutOfGas.ABCICode(),
+						Log:  fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+					}
+					return
+				}
+				// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
+				logger.Error("panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+				resp = abci.ResponseDeliverTx{
+					Code: sdkerrors.ErrPanic.ABCICode(),
+					Log:  fmt.Sprintf("recovered: %v\nstack:\n%v", r, string(debug.Stack())),
 				}
 			}
 		}()
