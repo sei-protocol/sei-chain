@@ -225,8 +225,6 @@ func txCommand() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
-	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
-	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
 }
 
 // newApp creates a new Cosmos SDK app

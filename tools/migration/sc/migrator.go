@@ -21,8 +21,8 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/tools/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/tools/utils"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -53,7 +53,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true)
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig)
 	for _, key := range utils.ModuleKeys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
