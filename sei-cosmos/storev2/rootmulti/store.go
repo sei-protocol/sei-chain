@@ -69,7 +69,6 @@ func NewStore(
 	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
-	migrateIavl bool,
 	gigaKeys []string,
 ) *Store {
 	// Use custom directory if specified, otherwise use homeDir
@@ -110,7 +109,7 @@ func NewStore(
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
 		scVersion, _ := scStore.GetLatestVersion()
-		if ssVersion <= 0 && scVersion > 0 && !migrateIavl {
+		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
