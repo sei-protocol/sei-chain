@@ -653,7 +653,7 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.ingestCount != nil {
-		pm.ingestCount.Add(ctx, int64(m.Ingest.Count), metric.WithAttributes(dbAttr))
+		pm.ingestCount.Add(ctx, uint64ToInt64Clamped(m.Ingest.Count), metric.WithAttributes(dbAttr))
 	}
 
 	if pm.flushCount != nil {
@@ -670,10 +670,11 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.flushNumInProgress.Record(ctx, m.Flush.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestCount != nil {
-		pm.flushAsIngestCount.Add(ctx, int64(m.Flush.AsIngestCount), metric.WithAttributes(dbAttr))
+		pm.flushAsIngestCount.Add(ctx, uint64ToInt64Clamped(m.Flush.AsIngestCount), metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestTableCount != nil {
-		pm.flushAsIngestTableCount.Add(ctx, int64(m.Flush.AsIngestTableCount), metric.WithAttributes(dbAttr))
+		pm.flushAsIngestTableCount.Add(ctx, uint64ToInt64Clamped(m.Flush.AsIngestTableCount),
+			metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestBytes != nil {
 		pm.flushAsIngestBytes.Add(ctx,
@@ -701,16 +702,16 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableFillFactor.Record(ctx, lm.FillFactor, attrs)
 		}
 		if pm.sstableVirtualCount != nil {
-			pm.sstableVirtualCount.Record(ctx, int64(lm.VirtualTablesCount), attrs)
+			pm.sstableVirtualCount.Record(ctx, uint64ToInt64Clamped(lm.VirtualTablesCount), attrs)
 		}
 		if pm.sstableVirtualSize != nil {
 			pm.sstableVirtualSize.Record(ctx, uint64ToInt64Clamped(lm.VirtualTablesSize), attrs)
 		}
 		if pm.compactionBytesRead != nil {
-			pm.compactionBytesRead.Add(ctx, int64(lm.TableBytesIn), attrs)
+			pm.compactionBytesRead.Add(ctx, uint64ToInt64Clamped(lm.TableBytesIn), attrs)
 		}
 		if pm.compactionBytesWritten != nil {
-			pm.compactionBytesWritten.Add(ctx, int64(lm.TableBytesCompacted), attrs)
+			pm.compactionBytesWritten.Add(ctx, uint64ToInt64Clamped(lm.TableBytesCompacted), attrs)
 		}
 		if pm.sstableBytesIngested != nil {
 			pm.sstableBytesIngested.Add(ctx, uint64ToInt64Clamped(lm.TableBytesIngested), attrs)
@@ -742,7 +743,7 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.memtableCount.Record(ctx, m.MemTable.Count, metric.WithAttributes(dbAttr))
 	}
 	if pm.memtableTotalSize != nil {
-		pm.memtableTotalSize.Record(ctx, int64(m.MemTable.Size), metric.WithAttributes(dbAttr))
+		pm.memtableTotalSize.Record(ctx, uint64ToInt64Clamped(m.MemTable.Size), metric.WithAttributes(dbAttr))
 	}
 	if pm.memtableZombieSize != nil {
 		pm.memtableZombieSize.Record(ctx,
@@ -753,7 +754,7 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.walSize != nil {
-		pm.walSize.Record(ctx, int64(m.WAL.Size), metric.WithAttributes(dbAttr))
+		pm.walSize.Record(ctx, uint64ToInt64Clamped(m.WAL.Size), metric.WithAttributes(dbAttr))
 	}
 	if pm.walFiles != nil {
 		pm.walFiles.Record(ctx, m.WAL.Files, metric.WithAttributes(dbAttr))
