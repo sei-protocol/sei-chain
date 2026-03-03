@@ -24,10 +24,12 @@ func MakeCrashHooksFromEnv(log dbLogger.Logger) *FaultHooks {
 
 	makeCrashFn := func(hookName string) func(blockNumber uint64) error {
 		return func(blockNumber uint64) error {
-			if rand.Float64() < crashProbability { //nolint:gosec
-				fmt.Fprintf(os.Stderr, "PARQUET_CRASH_TEST: crashing at hook=%s block=%d\n", hookName, blockNumber)
+			roll := rand.Float64() //nolint:gosec
+			if roll < crashProbability {
+				fmt.Fprintf(os.Stderr, "[DEBUG] [CRASH] hook=%s block=%d roll=%.6f threshold=%.6f — crashing now\n", hookName, blockNumber, roll, crashProbability)
 				os.Exit(1)
 			}
+			fmt.Printf("[DEBUG] hook=%s block=%d roll=%.6f threshold=%.6f — no crash\n", hookName, blockNumber, roll, crashProbability)
 			return nil
 		}
 	}
