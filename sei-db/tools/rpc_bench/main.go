@@ -119,11 +119,56 @@ func (m *benchMethod) call(endpoint string) (string, time.Duration, error) {
 	return m.name, lat, err
 }
 
+type storageSlot struct {
+	Address string
+	Slot    string
+}
+
 type BlockInfo struct {
 	Number       int64
 	Hash         string
 	Transactions []string
 	Addresses    []string
+}
+
+func discoverStorageSlots(endpoint string, txHashes []string, maxTxs int) []storageSlot {
+	if maxTxs <= 0 || len(txHashes) == 0 {
+		return nil
+	}
+	if maxTxs > len(txHashes) {
+		maxTxs = len(txHashes)
+	}
+
+	var slots []storageSlot
+	seen := make(map[string]bool)
+	tracer := "prestateTracer"
+
+	for i := 0; i < maxTxs; i++ {
+		resp, _, err := rpcCall(endpoint, "debug_traceTransaction", []interface{}{
+			txHashes[i],
+			map[string]string{"tracer": tracer},
+		})
+		if err != nil || resp == nil || resp.Error != nil {
+			continue
+		}
+
+		var prestate map[string]struct {
+			Storage map[string]json.RawMessage `json:"storage"`
+		}
+		if err := json.Unmarshal(resp.Result, &prestate); err != nil {
+			continue
+		}
+		for addr, acct := range prestate {
+			for slot := range acct.Storage {
+				key := addr + "|" + slot
+				if !seen[key] {
+					seen[key] = true
+					slots = append(slots, storageSlot{Address: addr, Slot: slot})
+				}
+			}
+		}
+	}
+	return slots
 }
 
 func getLatestBlockNumber(endpoint string) (int64, error) {
@@ -254,17 +299,19 @@ func printStats(title string, stats map[string]*LatencyStats) {
 
 func main() {
 	var (
-		endpoint    string
-		concurrency int
-		blockCount  int
-		requestsPer int
-		methodsFlag string
+		endpoint      string
+		concurrency   int
+		blockCount    int
+		requestsPer   int
+		methodsFlag   string
+		traceDiscover int
 	)
 	flag.StringVar(&endpoint, "endpoint", "", "RPC endpoint URL (required)")
 	flag.IntVar(&concurrency, "concurrency", 16, "number of concurrent workers")
 	flag.IntVar(&blockCount, "blocks", 20, "number of recent blocks to sample")
 	flag.IntVar(&requestsPer, "requests", 100, "requests per method per phase")
 	flag.StringVar(&methodsFlag, "methods", "", "comma-separated methods to run (default: all)")
+	flag.IntVar(&traceDiscover, "trace-discover", 5, "txs to trace for storage slot discovery (0 to disable)")
 	flag.Parse()
 
 	if endpoint == "" {
@@ -326,7 +373,16 @@ func main() {
 	fmt.Printf("Discovered %d blocks, %d transactions, %d unique addresses\n",
 		len(blocks), len(allTxHashes), len(allAddresses))
 
+	// Discover real storage slots from traced transactions
+	var allStorageSlots []storageSlot
+	if traceDiscover > 0 && len(allTxHashes) > 0 {
+		fmt.Printf("\n--- Discovering storage slots (tracing %d txs) ---\n", min(traceDiscover, len(allTxHashes)))
+		allStorageSlots = discoverStorageSlots(endpoint, allTxHashes, traceDiscover)
+		fmt.Printf("Discovered %d unique storage slots\n", len(allStorageSlots))
+	}
+
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	latestHex := fmt.Sprintf("0x%x", latestBlock)
 	randBlock := func() *BlockInfo { return blocks[rng.Intn(len(blocks))] }
 	randAddr := func() string { return allAddresses[rng.Intn(len(allAddresses))] }
 	randTxHash := func() string {
@@ -335,7 +391,13 @@ func main() {
 		}
 		return allTxHashes[rng.Intn(len(allTxHashes))]
 	}
-	latestHex := fmt.Sprintf("0x%x", latestBlock)
+	randStorageParams := func() []interface{} {
+		if len(allStorageSlots) > 0 {
+			s := allStorageSlots[rng.Intn(len(allStorageSlots))]
+			return []interface{}{s.Address, s.Slot, latestHex}
+		}
+		return []interface{}{randAddr(), fmt.Sprintf("0x%064x", rng.Intn(10)), latestHex}
+	}
 
 	// =========================================================================
 	// Method registry — add new methods here (one line each)
@@ -346,9 +408,7 @@ func main() {
 		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 25, false},
 		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
 		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
-		{"eth_getStorageAt", func() []interface{} {
-			return []interface{}{randAddr(), fmt.Sprintf("0x%064x", rng.Intn(10)), latestHex}
-		}, 25, false},
+		{"eth_getStorageAt", func() []interface{} { return randStorageParams() }, 25, false},
 	}
 
 	// Skip debug_traceTransaction if no txs discovered
