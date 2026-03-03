@@ -33,6 +33,7 @@ func (si *SnapshotImporter) Close() error {
 }
 
 func (si *SnapshotImporter) AddModule(name string) error {
+	si.currentModule = name
 	if si.cosmosImporter != nil {
 		return si.cosmosImporter.AddModule(name)
 	}
