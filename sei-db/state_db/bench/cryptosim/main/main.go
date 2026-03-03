@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -47,6 +48,23 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
 		}
 	}()
+
+	// Toggle suspend/resume on Enter when enabled
+	if config.EnableSuspension {
+		go func() {
+			scanner := bufio.NewScanner(os.Stdin)
+			suspended := false
+			for scanner.Scan() {
+				if suspended {
+					cs.Resume()
+					suspended = false
+				} else {
+					cs.Suspend()
+					suspended = true
+				}
+			}
+		}()
+	}
 
 	cs.BlockUntilHalted()
 

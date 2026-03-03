@@ -118,6 +118,10 @@ type CryptoSimConfig struct {
 	// How often (in seconds) to scrape background metrics (data dir size, process I/O).
 	// If 0, background metrics are disabled.
 	BackgroundMetricsScrapeInterval int
+
+	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
+	// If false, Enter has no effect.
+	EnableSuspension bool
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -153,6 +157,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
+		EnableSuspension:                  true,
 	}
 }
 

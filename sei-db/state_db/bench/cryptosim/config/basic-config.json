@@ -7,6 +7,7 @@
   "ConsoleUpdateIntervalSeconds": 1,
   "ConsoleUpdateIntervalTransactions": 1000000,
   "DataDir": "data",
+  "EnableSuspension": true,
   "Erc20ContractSize": 2048,
   "Erc20InteractionsPerAccount": 10,
   "Erc20StorageSlotSize": 32,
