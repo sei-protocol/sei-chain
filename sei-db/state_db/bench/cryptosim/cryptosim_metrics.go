@@ -232,16 +232,20 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 			curWriteCount := io.WriteCount
 			if initialized {
 				if curRead >= prevReadBytes && m.processReadBytesTotal != nil {
-					m.processReadBytesTotal.Add(ctx, int64(curRead-prevReadBytes))
+					delta := curRead - prevReadBytes
+					m.processReadBytesTotal.Add(ctx, uint64ToInt64Clamped(delta))
 				}
 				if curWrite >= prevWriteBytes && m.processWriteBytesTotal != nil {
-					m.processWriteBytesTotal.Add(ctx, int64(curWrite-prevWriteBytes))
+					delta := curWrite - prevWriteBytes
+					m.processWriteBytesTotal.Add(ctx, uint64ToInt64Clamped(delta))
 				}
 				if curReadCount >= prevReadCount && m.processReadCountTotal != nil {
-					m.processReadCountTotal.Add(ctx, int64(curReadCount-prevReadCount))
+					delta := curReadCount - prevReadCount
+					m.processReadCountTotal.Add(ctx, uint64ToInt64Clamped(delta))
 				}
 				if curWriteCount >= prevWriteCount && m.processWriteCountTotal != nil {
-					m.processWriteCountTotal.Add(ctx, int64(curWriteCount-prevWriteCount))
+					delta := curWriteCount - prevWriteCount
+					m.processWriteCountTotal.Add(ctx, uint64ToInt64Clamped(delta))
 				}
 			}
 			prevReadBytes, prevWriteBytes = curRead, curWrite
@@ -287,6 +291,14 @@ func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeco
 			}
 		}
 	}()
+}
+
+// uint64ToInt64Clamped converts a uint64 to int64, clamping to math.MaxInt64 to avoid overflow.
+func uint64ToInt64Clamped(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 func measureDataDirAvailableBytes(dataDir string) int64 {
