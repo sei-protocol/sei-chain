@@ -25,7 +25,7 @@ type CryptoSimConfig struct {
 	NumberOfHotAccounts int
 
 	// The minimum number of cold accounts that should be in the DB prior to the start of the benchmark.
-	// Cold accounts are occationally used, but not frequently.
+	// Cold accounts are occasionally used, but not frequently.
 	MinimumNumberOfColdAccounts int
 
 	// The minimum number of dormant accounts that should be in the DB prior to the start of the benchmark.

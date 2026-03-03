@@ -233,7 +233,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		lastLegalColdAccountID := d.highestSafeAccountIDInBlock + 1
 		firstLegalColdAccountID := lastLegalColdAccountID - d.numberOfColdAccounts
 
-		accountID := d.rand.Int64Range(int64(firstLegalColdAccountID), lastLegalColdAccountID)
+		accountID := d.rand.Int64Range(firstLegalColdAccountID, lastLegalColdAccountID)
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
 	}
