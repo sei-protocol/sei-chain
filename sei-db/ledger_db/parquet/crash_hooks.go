@@ -9,8 +9,8 @@ import (
 )
 
 // crashProbability is the probability that any given hook invocation triggers
-// a simulated crash. At 1/1000, all 5 hooks give roughly one crash every ~200 blocks.
-const crashProbability = 1.0 / 1000.0
+// a simulated crash. At 1/100, all 5 hooks give roughly one crash every ~20 blocks.
+const crashProbability = 1.0 / 100.0
 
 // MakeCrashHooksFromEnv returns crash-injection FaultHooks with all 5 hooks enabled.
 // Each hook independently samples at crashProbability per invocation.
