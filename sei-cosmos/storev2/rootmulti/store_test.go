@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -267,6 +268,18 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	require.Contains(t, resp.Log, "historical proof busy")
 }
 
+// TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock stress-tests that
+// CacheMultiStoreWithVersion does not deadlock with concurrent writers.
+//
+// The deadlock scenario (with the old re-entrant RLock bug):
+//  1. Reader goroutine calls CacheMultiStoreWithVersion, acquires RLock.
+//  2. Writer goroutine calls Lock, blocks — and marks the RWMutex as writer-pending.
+//  3. Reader calls CacheMultiStore which attempts a second RLock — this blocks
+//     because Go's RWMutex starves new readers when a writer is pending.
+//  4. Deadlock: reader holds RLock waiting for RLock, writer waits for reader's RLock.
+//
+// By racing many readers and writers concurrently we make it statistically
+// near-certain that a writer queues between the two RLock calls (in buggy code).
 func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
@@ -286,30 +299,55 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 	c1 := store.Commit(true)
 	require.Equal(t, int64(1), c1.Version)
 
-	// Spin up a goroutine that holds the write lock for a short period.
-	// With the old code (re-entrant RLock), a concurrent
-	// CacheMultiStoreWithVersion call would deadlock because the pending
-	// writer causes the second RLock to block.
-	writerReady := make(chan struct{})
-	writerDone := make(chan struct{})
-	go func() {
-		defer close(writerDone)
-		store.mtx.Lock()
-		close(writerReady)
-		time.Sleep(50 * time.Millisecond)
-		store.mtx.Unlock()
-	}()
+	const (
+		numReaders = 8
+		numWriters = 8
+		duration   = 200 * time.Millisecond
+	)
 
-	<-writerReady
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for i := 0; i < numReaders; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				// version=0 with SS disabled takes the else-if branch that
+				// previously called CacheMultiStore (re-entrant RLock).
+				cms, _ := store.CacheMultiStoreWithVersion(0)
+				_ = cms
+			}
+		}()
+	}
+
+	for i := 0; i < numWriters; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				store.mtx.Lock()
+				store.mtx.Unlock()
+			}
+		}()
+	}
 
 	done := make(chan struct{})
 	go func() {
-		defer close(done)
-		// version=0 with SS disabled takes the else-if branch that previously
-		// called the public CacheMultiStore (which re-acquired RLock).
-		cms, err := store.CacheMultiStoreWithVersion(0)
-		require.NoError(t, err)
-		require.NotNil(t, cms)
+		time.Sleep(duration)
+		close(stop)
+		wg.Wait()
+		close(done)
 	}()
 
 	require.Eventually(t, func() bool {
@@ -319,8 +357,8 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 		default:
 			return false
 		}
-	}, 3*time.Second, 10*time.Millisecond, "CacheMultiStoreWithVersion deadlocked on re-entrant RLock")
-	<-writerDone
+	}, 5*time.Second, 20*time.Millisecond,
+		"CacheMultiStoreWithVersion deadlocked with concurrent writers")
 }
 
 func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
