@@ -323,7 +323,7 @@
             "h": 16,
             "w": 12,
             "x": 0,
-            "y": 242
+            "y": 306
           },
           "id": 20,
           "options": {
@@ -426,7 +426,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 242
+            "y": 306
           },
           "id": 19,
           "options": {
@@ -557,7 +557,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 290
+            "y": 354
           },
           "id": 21,
           "options": {
@@ -652,7 +652,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 298
+            "y": 362
           },
           "id": 22,
           "options": {
@@ -783,7 +783,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 298
+            "y": 362
           },
           "id": 23,
           "options": {
@@ -914,7 +914,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 306
+            "y": 370
           },
           "id": 24,
           "options": {
@@ -1045,7 +1045,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 306
+            "y": 370
           },
           "id": 25,
           "options": {
@@ -1176,7 +1176,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 314
+            "y": 378
           },
           "id": 26,
           "options": {
@@ -1307,7 +1307,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 314
+            "y": 378
           },
           "id": 27,
           "options": {
@@ -1438,7 +1438,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 322
+            "y": 386
           },
           "id": 28,
           "options": {
@@ -1582,7 +1582,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 443
+            "y": 507
           },
           "id": 1,
           "options": {
@@ -1681,7 +1681,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 443
+            "y": 507
           },
           "id": 18,
           "options": {
@@ -1825,7 +1825,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 444
+            "y": 508
           },
           "id": 3,
           "options": {
@@ -1924,7 +1924,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 444
+            "y": 508
           },
           "id": 4,
           "options": {
@@ -2069,7 +2069,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 445
+            "y": 509
           },
           "id": 6,
           "options": {
@@ -2199,7 +2199,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 445
+            "y": 509
           },
           "id": 7,
           "options": {
@@ -2294,7 +2294,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 453
+            "y": 517
           },
           "id": 10,
           "options": {
@@ -2388,7 +2388,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 453
+            "y": 517
           },
           "id": 11,
           "options": {
@@ -2497,7 +2497,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 446
+            "y": 510
           },
           "id": 31,
           "options": {
@@ -2592,7 +2592,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 446
+            "y": 510
           },
           "id": 36,
           "options": {
@@ -2687,7 +2687,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 454
+            "y": 518
           },
           "id": 38,
           "options": {
@@ -2795,7 +2795,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 1055
+            "y": 1119
           },
           "id": 30,
           "options": {
@@ -2890,7 +2890,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 1055
+            "y": 1119
           },
           "id": 33,
           "options": {
@@ -2985,7 +2985,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 1095
+            "y": 1159
           },
           "id": 34,
           "options": {
@@ -3094,7 +3094,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 448
+            "y": 512
           },
           "id": 39,
           "options": {
@@ -3189,7 +3189,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 448
+            "y": 512
           },
           "id": 40,
           "options": {
@@ -3284,7 +3284,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 456
+            "y": 520
           },
           "id": 41,
           "options": {
@@ -3379,7 +3379,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 456
+            "y": 520
           },
           "id": 42,
           "options": {
@@ -3474,7 +3474,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 464
+            "y": 528
           },
           "id": 32,
           "options": {
@@ -3583,7 +3583,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 249
+            "y": 313
           },
           "id": 43,
           "options": {
@@ -3692,7 +3692,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 75
+            "y": 139
           },
           "id": 114,
           "options": {
@@ -3787,7 +3787,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 75
+            "y": 139
           },
           "id": 106,
           "options": {
@@ -3895,7 +3895,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 283
+            "y": 27
           },
           "id": 101,
           "options": {
@@ -3989,7 +3989,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 283
+            "y": 27
           },
           "id": 103,
           "options": {
@@ -4084,7 +4084,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 291
+            "y": 35
           },
           "id": 113,
           "options": {
@@ -4179,7 +4179,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 291
+            "y": 35
           },
           "id": 116,
           "options": {
@@ -4274,7 +4274,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 299
+            "y": 43
           },
           "id": 102,
           "options": {
@@ -4355,7 +4355,7 @@
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
-                  "mode": "normal"
+                  "mode": "none"
                 },
                 "thresholdsStyle": {
                   "mode": "off"
@@ -4384,7 +4384,7 @@
             "x": 0,
             "y": 28
           },
-          "id": 109,
+          "id": 127,
           "options": {
             "legend": {
               "calcs": [],
@@ -4402,13 +4402,13 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "pebble_sstable_count",
-              "legendFormat": "{{db}} L{{level}}",
+              "expr": "pebble_sstable_count{level=\"0\"}",
+              "legendFormat": "{{db}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "SSTable count by level",
+          "title": "SSTable count L0",
           "type": "timeseries"
         },
         {
@@ -4476,10 +4476,10 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 0,
-            "y": 36
+            "x": 12,
+            "y": 28
           },
-          "id": 112,
+          "id": 120,
           "options": {
             "legend": {
               "calcs": [],
@@ -4497,13 +4497,1147 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "pebble_sstable_total_size_bytes",
-              "legendFormat": "{{db}} L{{level}}",
+              "expr": "pebble_sstable_total_size_bytes{level=\"0\"}",
+              "legendFormat": "{{db}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "SSTable size by level",
+          "title": "SSTable size L0",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "id": 128,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"1\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L1",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "id": 121,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"1\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L1",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "id": 129,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"2\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L2",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 44
+          },
+          "id": 122,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"2\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L2",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 52
+          },
+          "id": 130,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"3\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L3",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 52
+          },
+          "id": 123,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"3\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L3",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 60
+          },
+          "id": 131,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"4\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L4",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 60
+          },
+          "id": 124,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"4\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L4",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 68
+          },
+          "id": 132,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"5\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L5",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 68
+          },
+          "id": 125,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"5\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L5",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 76
+          },
+          "id": 119,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_count{level=\"6\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable count L6",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 76
+          },
+          "id": 126,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "expr": "pebble_sstable_total_size_bytes{level=\"6\"}",
+              "legendFormat": "{{db}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "SSTable size L6",
           "type": "timeseries"
         }
       ],
@@ -4585,7 +5719,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 37
+            "y": 101
           },
           "id": 104,
           "options": {
@@ -4680,7 +5814,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 37
+            "y": 101
           },
           "id": 105,
           "options": {
@@ -4774,7 +5908,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 45
+            "y": 109
           },
           "id": 107,
           "options": {
@@ -4869,7 +6003,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 45
+            "y": 109
           },
           "id": 108,
           "options": {
@@ -4964,7 +6098,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 53
+            "y": 117
           },
           "id": 110,
           "options": {
@@ -5059,7 +6193,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 53
+            "y": 117
           },
           "id": 111,
           "options": {
@@ -5108,6 +6242,6 @@
   "timezone": "browser",
   "title": "CryptoSim",
   "uid": "adnqfm4",
-  "version": 10,
+  "version": 12,
   "weekStart": ""
 }
