@@ -1424,8 +1424,23 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			continue
 		}
 
-		// Execute EVM transaction through giga executor
-		result, execErr := app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
+		// Execute EVM transaction through giga executor with panic recovery
+		// (matches V2's recover behavior in legacyabci/deliver_tx.go)
+		var result *abci.ExecTxResult
+		var execErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					ctx.Logger().Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
+					result = &abci.ExecTxResult{
+						Code: sdkerrors.ErrPanic.ABCICode(),
+						Log:  fmt.Sprintf("panic recovered: %v", r),
+					}
+				}
+			}()
+			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
+		}()
+
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
