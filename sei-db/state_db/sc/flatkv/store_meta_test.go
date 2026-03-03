@@ -3,10 +3,11 @@ package flatkv
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -30,7 +31,7 @@ func TestLoadLocalMeta(t *testing.T) {
 
 		// Write metadata
 		original := &LocalMeta{CommittedVersion: 42}
-		err := db.Set(DBLocalMetaKey, MarshalLocalMeta(original), db_engine.WriteOptions{})
+		err := db.Set(DBLocalMetaKey, MarshalLocalMeta(original), types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Load it back
@@ -44,7 +45,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		defer db.Close()
 
 		// Write invalid data (wrong size)
-		err := db.Set(DBLocalMetaKey, []byte{0x01, 0x02}, db_engine.WriteOptions{})
+		err := db.Set(DBLocalMetaKey, []byte{0x01, 0x02}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should fail to load
@@ -141,7 +142,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set([]byte(MetaGlobalVersion), []byte{0x01}, db_engine.WriteOptions{})
+		err := s.metadataDB.Set([]byte(MetaGlobalVersion), []byte{0x01}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should return error

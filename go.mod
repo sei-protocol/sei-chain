@@ -28,8 +28,6 @@ require (
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/go-kit/kit v0.13.0
-	github.com/go-kit/log v0.2.1
-	github.com/go-logfmt/logfmt v0.6.0
 	github.com/go-playground/validator/v10 v10.11.1
 	github.com/gofrs/flock v0.13.0
 	github.com/gogo/gateway v1.1.0
@@ -115,6 +113,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/component-base v0.35.0
 	pgregory.net/rapid v1.2.0
+)
+
+require (
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 )
 
 require (
@@ -334,6 +337,7 @@ require (
 	github.com/securego/gosec/v2 v2.13.1 // indirect
 	github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
+	github.com/shirou/gopsutil/v3 v3.23.2
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sivchari/containedctx v1.0.2 // indirect
 	github.com/sivchari/nosnakecase v1.7.0 // indirect

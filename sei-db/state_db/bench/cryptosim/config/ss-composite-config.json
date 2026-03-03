@@ -1,0 +1,5 @@
+{
+  "Comment": "State store benchmark using composite SS with EVM sub-stores (dual write + EVM-first read).",
+  "Backend": "SSComposite",
+  "DataDir": "data"
+}

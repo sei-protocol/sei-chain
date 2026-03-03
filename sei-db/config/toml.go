@@ -65,15 +65,22 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 ###############################################################################
 
 [state-commit.flatkv]
-# Fsync controls whether data DB writes use fsync for durability.
-# When true (default): all data DB writes use Sync=true for maximum durability.
-# When false: data DBs use Sync=false for better performance.
-# WAL and metaDB always use sync writes regardless.
+# Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
+# WAL always uses NoSync (matching memiavl); crash recovery relies on
+# WAL catchup, which is idempotent. Default: false.
 fsync = {{ .StateCommit.FlatKVConfig.Fsync }}
 
 # AsyncWriteBuffer defines the size of the async write buffer for data DBs.
 # Set <= 0 for synchronous writes.
 async-write-buffer = {{ .StateCommit.FlatKVConfig.AsyncWriteBuffer }}
+
+# SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint is taken.
+# 0 disables auto-snapshots. Default: 10000.
+snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
+
+# SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
+# 0 = keep only the current snapshot. Default: 2.
+snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store

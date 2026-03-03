@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	db_engine "github.com/sei-protocol/sei-chain/sei-db/db_engine"
 )
 
 // Get returns the value for the given memiavl key.
@@ -100,6 +100,20 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 		return value, true
 
+	case evm.EVMKeyLegacy:
+		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
+			if pw.isDelete {
+				return nil, false
+			}
+			return pw.value, true
+		}
+
+		value, err := s.legacyDB.Get(keyBytes)
+		if err != nil {
+			return nil, false
+		}
+		return value, true
+
 	default:
 		return nil, false
 	}
@@ -116,8 +130,8 @@ func (s *CommitStore) Has(key []byte) bool {
 // IMPORTANT: Iterator only reads COMMITTED state from the underlying DBs.
 // Pending writes from ApplyChangeSets are NOT visible until after Commit().
 //
-// Current limitation: Only storage keys (0x03) are supported.
-// Account/code iteration will be added with state-sync support.
+// EXPERIMENTAL: not used in production; only storage keys (0x03) supported.
+// Interface may change when Exporter/state-sync is implemented.
 func (s *CommitStore) Iterator(start, end []byte) Iterator {
 	// Validate bounds: start must be < end
 	if start != nil && end != nil && bytes.Compare(start, end) >= 0 {
@@ -146,13 +160,16 @@ func (s *CommitStore) Iterator(start, end []byte) Iterator {
 //
 // IMPORTANT: Like Iterator(), this only reads COMMITTED state.
 // Pending writes are not visible until Commit().
+//
+// EXPERIMENTAL: not used in production; only storage keys supported.
+// Interface may change when Exporter/state-sync is implemented.
 func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	if len(prefix) == 0 {
 		return s.Iterator(nil, nil)
 	}
 
 	// Handle storage address prefix specially.
-	// ParseMemIAVLEVMKey requires full key length (prefix + addr + slot = 53 bytes),
+	// ParseEVMKey requires full key length (prefix + addr + slot = 53 bytes),
 	// but a storage prefix is only (prefix + addr = 21 bytes).
 	// Detect storage prefix: 0x03 || addr(20) = 21 bytes
 	statePrefix := evm.StateKeyPrefix()
@@ -162,9 +179,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 		// Internal key format: addr(20) || slot(32)
 		// For prefix scan: use addr(20) as prefix
 		addrBytes := prefix[len(statePrefix):]
-		internalEnd := PrefixEnd(addrBytes)
-
-		return s.newStoragePrefixIterator(addrBytes, internalEnd, prefix)
+		return s.newStoragePrefixIterator(addrBytes, prefix)
 	}
 
 	// Try parsing as full key
@@ -176,9 +191,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 
 	switch kind {
 	case evm.EVMKeyStorage:
-		// Full storage key as prefix (addr+slot): rare but supported
-		internalEnd := PrefixEnd(keyBytes)
-		return s.newStoragePrefixIterator(keyBytes, internalEnd, prefix)
+		return s.newStoragePrefixIterator(keyBytes, prefix)
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash, evm.EVMKeyCode:
 		return &emptyIterator{}
@@ -204,7 +217,7 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 	// Read from accountDB
 	value, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return AccountValue{}, nil // New account
 		}
 		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
@@ -215,19 +228,6 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
 	}
 	return av, nil
-}
-
-// getAccountValueFromDB loads AccountValue directly from DB (ignoring pending writes).
-// Used for LtHash computation to get the committed "old" value.
-func (s *CommitStore) getAccountValueFromDB(addr Address) (AccountValue, error) {
-	value, err := s.accountDB.Get(AccountKey(addr))
-	if err != nil {
-		if db_engine.IsNotFound(err) {
-			return AccountValue{}, nil
-		}
-		return AccountValue{}, err
-	}
-	return DecodeAccountValue(value)
 }
 
 // getStorageValue returns the storage value from pending writes or DB.
@@ -242,7 +242,7 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 	}
 	value, err := s.storageDB.Get(key)
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", key, err)
@@ -262,10 +262,30 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 	}
 	value, err := s.codeDB.Get(key)
 	if err != nil {
-		if db_engine.IsNotFound(err) {
+		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)
+	}
+	return value, nil
+}
+
+// getLegacyValue returns the legacy value from pending writes or DB.
+// Returns (nil, nil) if not found.
+// Returns (nil, error) if I/O error occurs.
+func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
+	if pw, ok := s.legacyWrites[string(key)]; ok {
+		if pw.isDelete {
+			return nil, nil
+		}
+		return pw.value, nil
+	}
+	value, err := s.legacyDB.Get(key)
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
 	}
 	return value, nil
 }

@@ -5,13 +5,16 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
 // and converts keys between internal and external (memiavl) formats.
+//
+// EXPERIMENTAL: not used in production; only storage keys supported.
+// Interface may change when Exporter/state-sync is implemented.
 type dbIterator struct {
-	iter   db_engine.Iterator
+	iter   types.KeyValueDBIterator
 	kind   evm.EVMKeyKind // key type for conversion
 	start  []byte         // external format start key
 	end    []byte         // external format end key
@@ -26,7 +29,7 @@ var (
 )
 
 // newDBIterator creates a new dbIterator for the given key kind.
-func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iterator {
+func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) Iterator {
 	// Convert external bounds to internal bounds
 	var internalStart, internalEnd []byte
 	startMatches := start == nil // nil start means unbounded
@@ -56,7 +59,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 		internalStart = metaKeyLowerBound()
 	}
 
-	iter, err := db.NewIter(&db_engine.IterOptions{
+	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalStart,
 		UpperBound: internalEnd,
 	})
@@ -73,7 +76,7 @@ func newDBIterator(db db_engine.DB, kind evm.EVMKeyKind, start, end []byte) Iter
 }
 
 // newDBPrefixIterator creates a new dbIterator for prefix scanning.
-func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
+func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
 	internalEnd := PrefixEnd(internalPrefix)
 
 	// Exclude metadata key (0x00)
@@ -81,7 +84,7 @@ func newDBPrefixIterator(db db_engine.DB, kind evm.EVMKeyKind, internalPrefix []
 		internalPrefix = metaKeyLowerBound()
 	}
 
-	iter, err := db.NewIter(&db_engine.IterOptions{
+	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalPrefix,
 		UpperBound: internalEnd,
 	})
@@ -181,10 +184,6 @@ func (it *dbIterator) Prev() bool {
 	return it.iter.Prev()
 }
 
-func (it *dbIterator) Kind() evm.EVMKeyKind {
-	return it.kind
-}
-
 func (it *dbIterator) Key() []byte {
 	if !it.Valid() {
 		return nil
@@ -206,12 +205,8 @@ func (s *CommitStore) newStorageIterator(start, end []byte) Iterator {
 	return newDBIterator(s.storageDB, evm.EVMKeyStorage, start, end)
 }
 
-func (s *CommitStore) newStoragePrefixIterator(internalPrefix, internalEnd []byte, memiavlPrefix []byte) Iterator {
+func (s *CommitStore) newStoragePrefixIterator(internalPrefix []byte, memiavlPrefix []byte) Iterator {
 	return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
-}
-
-func (s *CommitStore) newCodeIterator(start, end []byte) Iterator {
-	return newDBIterator(s.codeDB, evm.EVMKeyCode, start, end)
 }
 
 // emptyIterator is used when no data matches the query.
@@ -230,6 +225,5 @@ func (it *emptyIterator) SeekGE(key []byte) bool   { return false }
 func (it *emptyIterator) SeekLT(key []byte) bool   { return false }
 func (it *emptyIterator) Next() bool               { return false }
 func (it *emptyIterator) Prev() bool               { return false }
-func (it *emptyIterator) Kind() evm.EVMKeyKind     { return evm.EVMKeyUnknown }
 func (it *emptyIterator) Key() []byte              { return nil }
 func (it *emptyIterator) Value() []byte            { return nil }

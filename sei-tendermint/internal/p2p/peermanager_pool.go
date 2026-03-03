@@ -97,6 +97,7 @@ func (p *pool[C]) Evict(id types.NodeID) {
 	}
 }
 
+
 func (p *pool[C]) getConn(id types.NodeID) utils.Option[C] {
 	if c,ok := p.conns[id]; ok {
 		return c.conn
@@ -108,7 +109,7 @@ func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
 	// Round robin over addresses with priority>lowest(connections.priority), preferring with highest priority.
 	// lowest is counted over all connections, but up to max outbound (if there is <maxOutbound connections, then lowest(...) == -inf)
 	// Dial address will be provided by a background task of peermanager.
-	// Candidates will be reevaluated after receiving from that task.
+// Candidates will be reevaluated after receiving from that task.
 	// Maintain a set of addresses of peers (grouped by NodeID), ordered by priority.
 	// Threshold changed -> see if there is sth in the collection above threshold.
 	// Address added above the threshold -> ditto

@@ -328,6 +328,46 @@ func TestTruncateReplayWALReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "failed to truncate replay WAL")
 }
 
+func TestParquetCorruptFileRecoveryFromWAL(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x40")
+	addr := common.HexToAddress("0x500")
+	topic := common.HexToHash("0xdef0")
+	receipt := makeTestReceipt(txHash, 7, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	// Simulate crash: replace the last receipt parquet file with corrupt data
+	// (missing parquet footer / magic bytes). The WAL still has the entry.
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, receiptFiles)
+	lastFile := receiptFiles[len(receiptFiles)-1]
+	require.NoError(t, os.WriteFile(lastFile, []byte("corrupt"), 0o644))
+
+	// Reopen — should delete the corrupt file and recover from WAL.
+	// The file with the same name may be re-created by WAL replay (the
+	// receipt is at the same block number), which is expected.
+	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Receipt should be recovered via WAL replay.
+	got, err := store.GetReceiptFromStore(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+}
+
 // createMockParquetFile creates a minimal valid parquet file for testing
 func createMockParquetFile(t *testing.T, dir, name string) {
 	t.Helper()
