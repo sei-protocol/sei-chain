@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -27,9 +28,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	var legacyPairs []lthash.KVPairWithLastValue
 	// Account pairs are collected at the end after all account changes are processed
 
-	// Pre-capture account values so LtHash delta uses the correct baseline
-	// across multiple ApplyChangeSets calls before Commit.
-	oldAccountValues := make(map[string]AccountValue)
+	// Pre-capture raw encoded account bytes so LtHash delta uses the correct
+	// baseline across multiple ApplyChangeSets calls before Commit.
+	// nil means the account didn't exist (no phantom MixOut for new accounts).
+	oldAccountRawValues := make(map[string][]byte)
 
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
@@ -83,12 +85,20 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 				addrStr := string(addr[:])
 
-				if _, seen := oldAccountValues[addrStr]; !seen {
-					oldVal, err := s.getAccountValue(addr)
-					if err != nil {
-						return fmt.Errorf("failed to capture old account value: %w", err)
+				if _, seen := oldAccountRawValues[addrStr]; !seen {
+					if paw, ok := s.accountWrites[addrStr]; ok {
+						oldAccountRawValues[addrStr] = paw.value.Encode()
+					} else {
+						rawBytes, err := s.accountDB.Get(AccountKey(addr))
+						if err != nil {
+							if !errorutils.IsNotFound(err) {
+								return fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
+							}
+							oldAccountRawValues[addrStr] = nil
+						} else {
+							oldAccountRawValues[addrStr] = rawBytes
+						}
 					}
-					oldAccountValues[addrStr] = oldVal
 				}
 				paw := s.accountWrites[addrStr]
 				if paw == nil {
@@ -181,30 +191,18 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountValues))
-	for addrStr, oldAV := range oldAccountValues {
-		addr, ok := AddressFromBytes([]byte(addrStr))
+	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountRawValues))
+	for addrStr, oldRaw := range oldAccountRawValues {
+		paw, ok := s.accountWrites[addrStr]
 		if !ok {
-			return fmt.Errorf("invalid address in oldAccountValues: %x", addrStr)
-		}
-
-		oldValue := oldAV.Encode()
-
-		var newValue []byte
-		var isDelete bool
-		if paw, ok := s.accountWrites[addrStr]; ok {
-			newValue = paw.value.Encode()
-			isDelete = paw.isDelete
-		} else {
-			// No pending write means no change (shouldn't happen, but be safe)
 			continue
 		}
 
 		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
-			Key:       AccountKey(addr),
-			Value:     newValue,
-			LastValue: oldValue,
-			Delete:    isDelete,
+			Key:       AccountKey(paw.addr),
+			Value:     paw.value.Encode(),
+			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
+			Delete:    paw.isDelete,
 		})
 	}
 

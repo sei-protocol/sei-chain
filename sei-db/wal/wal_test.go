@@ -708,9 +708,10 @@ func TestBatchWriteWithMarshalFailure(t *testing.T) {
 
 	w, err := NewWAL(t.Context(), marshalBatchTest, unmarshalBatchTest, logger.NewNopLogger(), dir, config)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, w.Close()) })
+	t.Cleanup(func() { _ = w.Close() })
 
-	// Write 4 entries concurrently so they get batched. The second one will fail to marshal.
+	// Write 4 entries concurrently so they get batched. The "fail" entry will fail to marshal.
+	// A marshal failure is fatal: the WAL shuts down and all batched writes receive errors.
 	entries := []batchTestEntry{
 		{value: "ok1"},
 		{value: "fail"},
@@ -729,31 +730,26 @@ func TestBatchWriteWithMarshalFailure(t *testing.T) {
 	}
 	wg.Wait()
 
-	// The "fail" entry should have errored
+	// The "fail" entry should get the marshal error
 	require.Error(t, errs[1])
 	require.Contains(t, errs[1].Error(), "mock marshal failure")
 
-	// The successful entries should have no error
-	require.NoError(t, errs[0])
-	require.NoError(t, errs[2])
-	require.NoError(t, errs[3])
+	// Other entries may succeed (if batched before "fail") or get errors (if in the same batch as "fail").
+	// After the fatal error, the WAL is shut down.
 
-	// The WAL should contain exactly 3 entries (the successfully marshalled ones; "fail" is skipped)
-	lastOffset, err := w.LastOffset()
-	require.NoError(t, err)
-	require.Equal(t, uint64(3), lastOffset)
+	// WAL is shut down; subsequent operations fail
+	_, err = w.LastOffset()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "shut down")
 
-	// Goroutines may push in any order, so we collect the written values and verify we have ok1, ok2, ok3
-	written := make(map[string]bool)
-	for i := uint64(1); i <= 3; i++ {
-		e, err := w.ReadAt(i)
-		require.NoError(t, err)
-		written[e.value] = true
-	}
-	require.True(t, written["ok1"], "expected ok1 in WAL")
-	require.True(t, written["ok2"], "expected ok2 in WAL")
-	require.True(t, written["ok3"], "expected ok3 in WAL")
-	require.False(t, written["fail"], "fail should not be in WAL")
+	_, err = w.ReadAt(1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "shut down")
+
+	// Close returns the fatal error
+	closeErr := w.Close()
+	require.Error(t, closeErr)
+	require.Contains(t, closeErr.Error(), "mock marshal failure")
 }
 
 func TestMultipleCloseCalls(t *testing.T) {
