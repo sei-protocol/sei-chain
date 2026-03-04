@@ -1,6 +1,7 @@
 package wrappers
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -49,4 +50,8 @@ func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error)
 	store := c.base.GetChildStoreByName(EVMStoreName)
 	data = store.Get(key)
 	return data, data != nil, nil
+}
+
+func (c *compositeWrapper) GetPhaseTimer() *metrics.PhaseTimer {
+	return nil
 }

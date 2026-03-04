@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -16,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/zbiljic/go-filelock"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -38,6 +40,8 @@ const (
 	// Metadata DB keys
 	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
 	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
+
+	flatkvMeterName = "seidb_flatkv"
 )
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
@@ -93,6 +97,9 @@ type CommitStore struct {
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
+
+	// Used to track time spent in various phases of execution.
+	phaseTimer *metrics.PhaseTimer
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -108,6 +115,7 @@ func NewCommitStore(
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
+	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
 		ctx:               ctx,
@@ -122,6 +130,7 @@ func NewCommitStore(
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
+		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -437,4 +446,8 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 		}
 	}
 	return NewKVImporter(s, version), nil
+}
+
+func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {
+	return s.phaseTimer
 }

@@ -3,6 +3,7 @@ package wrappers
 import (
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -63,4 +64,8 @@ func (c *combinedWrapper) LoadVersion(version int64) error {
 
 func (c *combinedWrapper) Importer(version int64) (scTypes.Importer, error) {
 	return c.sc.Importer(version)
+}
+
+func (c *combinedWrapper) GetPhaseTimer() *metrics.PhaseTimer {
+	return nil
 }

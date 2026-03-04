@@ -19,6 +19,8 @@ import (
 // - codeDB: key=addr, value=bytecode
 // - legacyDB: key=full original key (with prefix), value=raw value
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+	s.phaseTimer.SetPhase("apply_change_sets_prepare")
+
 	// Save original changesets for changelog
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
@@ -191,6 +193,8 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
+	s.phaseTimer.SetPhase("apply_change_sets_collect_account_pairs")
+
 	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountRawValues))
 	for addrStr, oldRaw := range oldAccountRawValues {
 		paw, ok := s.accountWrites[addrStr]
@@ -206,6 +210,8 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		})
 	}
 
+	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
+
 	// Combine all pairs and update working LtHash
 	allPairs := append(storagePairs, accountPairs...)
 	allPairs = append(allPairs, codePairs...)
@@ -216,6 +222,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		s.workingLtHash = newLtHash
 	}
 
+	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
 }
 
@@ -227,6 +234,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	version := s.committedVersion + 1
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
+	s.phaseTimer.SetPhase("commit_write_changelog")
 	changelogEntry := proto.ChangelogEntry{
 		Version:    version,
 		Changesets: s.pendingChangeSets,
@@ -241,19 +249,23 @@ func (s *CommitStore) Commit() (int64, error) {
 	}
 
 	// Step 3: Update in-memory committed state
+	s.phaseTimer.SetPhase("commit_update_lt_hash")
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
 
 	// Step 4: Persist global metadata to metadata DB (always every block)
+	s.phaseTimer.SetPhase("commit_write_metadata")
 	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
 
 	// Step 5: Clear pending buffers
+	s.phaseTimer.SetPhase("commit_clear_pending_writes")
 	s.clearPendingWrites()
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
+		s.phaseTimer.SetPhase("commit_write_snapshot")
 		if err := s.WriteSnapshot(""); err != nil {
 			s.log.Error("auto snapshot failed", "version", version, "err", err)
 		}
@@ -264,6 +276,7 @@ func (s *CommitStore) Commit() (int64, error) {
 		s.tryTruncateWAL()
 	}
 
+	s.phaseTimer.SetPhase("commit_done")
 	s.log.Info("Committed version", "version", version)
 	return version, nil
 }
@@ -303,6 +316,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 	// Commit to accountDB
 	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
 	if len(s.accountWrites) > 0 || version > s.localMeta[accountDBDir].CommittedVersion {
+		s.phaseTimer.SetPhase("commit_account_db_prepare")
 		batch := s.accountDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -329,6 +343,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 			return fmt.Errorf("accountDB local meta set: %w", err)
 		}
 
+		s.phaseTimer.SetPhase("commit_account_db_commit")
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("accountDB commit: %w", err)
 		}
@@ -339,6 +354,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 	// Commit to codeDB
 	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
+		s.phaseTimer.SetPhase("commit_code_db_prepare")
 		batch := s.codeDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -362,6 +378,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 			return fmt.Errorf("codeDB local meta set: %w", err)
 		}
 
+		s.phaseTimer.SetPhase("commit_code_db_commit")
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("codeDB commit: %w", err)
 		}
@@ -372,6 +389,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 	// Commit to storageDB
 	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
+		s.phaseTimer.SetPhase("commit_storage_db_prepare")
 		batch := s.storageDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -395,6 +413,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 			return fmt.Errorf("storageDB local meta set: %w", err)
 		}
 
+		s.phaseTimer.SetPhase("commit_storage_db_commit")
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("storageDB commit: %w", err)
 		}
@@ -405,6 +424,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 	// Commit to legacyDB
 	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
+		s.phaseTimer.SetPhase("commit_legacy_db_prepare")
 		batch := s.legacyDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
@@ -427,6 +447,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 			return fmt.Errorf("legacyDB local meta set: %w", err)
 		}
 
+		s.phaseTimer.SetPhase("commit_legacy_db_commit")
 		if err := batch.Commit(syncOpt); err != nil {
 			return fmt.Errorf("legacyDB commit: %w", err)
 		}
