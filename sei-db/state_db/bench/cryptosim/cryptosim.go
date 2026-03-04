@@ -59,6 +59,11 @@ type CryptoSim struct {
 
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
+
+	// Send a boolean value to this channel to suspend/resume the benchmark. Sending "true" will suspend the
+	// benchmark, sending "false" will resume it. Suspending an already suspended benchmark will have no effect,
+	// and resuming an already resumed benchmark will likewise have no effect.
+	suspendChan chan bool
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -148,6 +153,7 @@ func NewCryptoSim(
 		database:                          database,
 		executors:                         executors,
 		metrics:                           metrics,
+		suspendChan:                       make(chan bool, 1),
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
@@ -320,36 +326,76 @@ func (c *CryptoSim) run() {
 				fmt.Printf("\nTransaction workload halted.\n")
 			}
 			return
+		case isSuspended := <-c.suspendChan:
+			if isSuspended {
+				c.suspend()
+			}
 		default:
+			c.handleNextCycle(haltTime)
+		}
+	}
+}
 
-			txn, err := BuildTransaction(c.dataGenerator)
-			if err != nil {
-				fmt.Printf("\nfailed to build transaction: %v\n", err)
-				c.cancel()
-				continue
+// Process the next benchmark cycle, creating a new transaction and executing it.
+func (c *CryptoSim) handleNextCycle(haltTime time.Time) {
+	txn, err := BuildTransaction(c.dataGenerator)
+	if err != nil {
+		fmt.Printf("\nfailed to build transaction: %v\n", err)
+		c.cancel()
+		return
+	}
+
+	c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
+	c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
+
+	finalized, err := c.database.MaybeFinalizeBlock(
+		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+	if err != nil {
+		fmt.Printf("error finalizing block: %v\n", err)
+		c.cancel()
+		return
+	}
+	if finalized {
+		c.dataGenerator.ReportAccountCounts()
+		c.dataGenerator.ReportFinalizeBlock()
+
+		if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
+			c.cancel()
+		}
+	}
+
+	c.database.IncrementTransactionCount()
+	c.generateConsoleReport(false)
+}
+
+// Suspends the benchmark. This method blocks until the benchmark is resumed or shut down.
+func (c *CryptoSim) suspend() {
+
+	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
+	if err != nil {
+		fmt.Printf("failed to finalize block: %v\n", err)
+		c.cancel()
+		return
+	}
+
+	fmt.Printf("Benchmark suspended.\n")
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case suspended := <-c.suspendChan:
+
+			if suspended {
+				break
 			}
 
-			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
-			c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
+			// Reset console metrics
+			c.database.ResetTransactionCount()
+			c.startTimestamp = time.Now()
 
-			finalized, err := c.database.MaybeFinalizeBlock(
-				c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
-			if err != nil {
-				fmt.Printf("error finalizing block: %v\n", err)
-				c.cancel()
-				continue
-			}
-			if finalized {
-				c.dataGenerator.ReportAccountCounts()
-				c.dataGenerator.ReportFinalizeBlock()
-
-				if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
-					c.cancel()
-				}
-			}
-
-			c.database.IncrementTransactionCount()
-			c.generateConsoleReport(false)
+			fmt.Printf("Benchmark resumed.\n")
+			return
 		}
 	}
 }
@@ -423,4 +469,26 @@ func (c *CryptoSim) BlockUntilHalted() {
 
 	// "reload" closeChan in case other goroutines are waiting on it.
 	c.closeChan <- struct{}{}
+}
+
+// Suspend the benchmark. Stops all transactional load. Calling this while the benchmark is
+// suspended will have no effect. Call Resume() to resume the benchmark.
+func (c *CryptoSim) Suspend() {
+	select {
+	case <-c.ctx.Done():
+		return
+	case c.suspendChan <- true:
+		return
+	}
+
+}
+
+// Resume the benchmark. Calling this while the benchmark is not suspended will have no effect.
+func (c *CryptoSim) Resume() {
+	select {
+	case <-c.ctx.Done():
+		return
+	case c.suspendChan <- false:
+		return
+	}
 }
