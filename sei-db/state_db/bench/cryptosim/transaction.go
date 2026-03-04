@@ -3,6 +3,8 @@ package cryptosim
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 // The data needed to execute a transaction.
@@ -115,7 +117,7 @@ func BuildTransaction(
 func (txn *transaction) Execute(
 	database *Database,
 	feeCollectionAddress []byte,
-	phaseTimer *PhaseTimer,
+	phaseTimer *metrics.PhaseTimer,
 ) error {
 
 	phaseTimer.SetPhase("read_erc20")

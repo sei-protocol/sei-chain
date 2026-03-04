@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sys/unix"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
@@ -40,8 +41,8 @@ type CryptosimMetrics struct {
 	processWriteCountTotal     metric.Int64Counter
 	uptimeSeconds              metric.Float64Gauge
 
-	mainThreadPhase              *PhaseTimer
-	transactionPhaseTimerFactory *PhaseTimerFactory
+	mainThreadPhase              *metrics.PhaseTimer
+	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
 }
 
 // NewCryptosimMetrics creates metrics for the cryptosim benchmark using the
@@ -55,7 +56,12 @@ type CryptosimMetrics struct {
 // https://ucum.org/ucum). Durations use "s" (seconds). Bytes use "By".
 // Counts use curly-brace annotations, e.g. "{count}" for generic counts or
 // more specific "{block}", "{transaction}", "{account}" to match what is measured.
-func NewCryptosimMetrics(ctx context.Context, config *CryptoSimConfig) *CryptosimMetrics {
+func NewCryptosimMetrics(
+	ctx context.Context,
+	dbPhaseTimer *metrics.PhaseTimer,
+	config *CryptoSimConfig,
+) *CryptosimMetrics {
+
 	meter := otel.Meter(cryptosimMeterName)
 
 	blocksFinalizedTotal, _ := meter.Int64Counter(
@@ -134,8 +140,12 @@ func NewCryptosimMetrics(ctx context.Context, config *CryptoSimConfig) *Cryptosi
 		metric.WithUnit("s"),
 	)
 
-	mainThreadPhase := NewPhaseTimer(meter, "main_thread")
-	transactionPhaseTimerFactory := NewPhaseTimerFactory(meter, "transaction")
+	mainThreadPhase := dbPhaseTimer
+	if mainThreadPhase == nil {
+		mainThreadPhase = metrics.NewPhaseTimer(meter, "seidb_main_thread")
+	}
+
+	transactionPhaseTimerFactory := metrics.NewPhaseTimerFactory(meter, "transaction")
 
 	m := &CryptosimMetrics{
 		ctx:                          ctx,
@@ -387,7 +397,7 @@ func (m *CryptosimMetrics) SetTotalNumberOfERC20Contracts(total int64) {
 	m.totalErc20Contracts.Record(context.Background(), total)
 }
 
-func (m *CryptosimMetrics) GetTransactionPhaseTimerInstance() *PhaseTimer {
+func (m *CryptosimMetrics) GetTransactionPhaseTimerInstance() *metrics.PhaseTimer {
 	if m == nil || m.transactionPhaseTimerFactory == nil {
 		return nil
 	}

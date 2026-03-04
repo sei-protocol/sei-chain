@@ -88,7 +88,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "expr": "rate(seidb_main_thread_phase_duration_seconds_total[$__rate_interval])",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"
@@ -183,7 +183,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "expr": "rate(seidb_main_thread_phase_duration_seconds_total[$__rate_interval])",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"
@@ -874,7 +874,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.99, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
               "legendFormat": "p99",
               "range": true,
               "refId": "A"
@@ -885,7 +885,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.95, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p95",
               "range": true,
@@ -897,7 +897,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.50, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"executing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p50",
               "range": true,
@@ -909,7 +909,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"executing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"executing\"}[$__rate_interval])",
+              "expr": "rate(seidb_main_thread_phase_latency_seconds_sum{phase=\"executing\"}[$__rate_interval]) / rate(seidb_main_thread_phase_latency_seconds_count{phase=\"executing\"}[$__rate_interval])",
               "instant": false,
               "legendFormat": "average",
               "range": true,
@@ -2129,7 +2129,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.99, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
               "legendFormat": "p99",
               "range": true,
               "refId": "A"
@@ -2140,7 +2140,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.95, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p95",
               "range": true,
@@ -2152,7 +2152,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.50, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"finalizing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p50",
               "range": true,
@@ -2164,7 +2164,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"finalizing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"finalizing\"}[$__rate_interval])",
+              "expr": "rate(seidb_main_thread_phase_latency_seconds_sum{phase=\"finalizing\"}[$__rate_interval]) / rate(seidb_main_thread_phase_latency_seconds_count{phase=\"finalizing\"}[$__rate_interval])",
               "instant": false,
               "legendFormat": "average",
               "range": true,
@@ -2372,7 +2372,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.99, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
               "legendFormat": "p99",
               "range": true,
               "refId": "A"
@@ -2383,7 +2383,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.95, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.95, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p95",
               "range": true,
@@ -2395,7 +2395,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.50, rate(main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
+              "expr": "histogram_quantile(0.50, rate(seidb_main_thread_phase_latency_seconds_bucket{phase=\"committing\"}[$__rate_interval]))",
               "instant": false,
               "legendFormat": "p50",
               "range": true,
@@ -2407,7 +2407,7 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(main_thread_phase_latency_seconds_sum{phase=\"committing\"}[$__rate_interval]) / rate(main_thread_phase_latency_seconds_count{phase=\"committing\"}[$__rate_interval])",
+              "expr": "rate(seidb_main_thread_phase_latency_seconds_sum{phase=\"committing\"}[$__rate_interval]) / rate(seidb_main_thread_phase_latency_seconds_count{phase=\"committing\"}[$__rate_interval])",
               "instant": false,
               "legendFormat": "average",
               "range": true,
