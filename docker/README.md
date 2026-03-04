@@ -28,7 +28,7 @@ make build-docker-node && make run-local-node
 
 **To start 4 node cluster**
 
-This will start a 4 node sei chain cluster as well as having the oracle price feeder run for each node.
+This will start a 4 node sei chain cluster.
 ```sh
 # If this is the first time or you want to rebuild the binary:
 make docker-cluster-start
