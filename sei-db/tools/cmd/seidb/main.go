@@ -25,7 +25,8 @@ func main() {
 		operations.PruneCmd(),
 		operations.DumpIAVLCmd(),
 		operations.StateSizeCmd(),
-		operations.ReplayChangelogCmd())
+		operations.ReplayChangelogCmd(),
+		operations.ScanEvmKeysCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
