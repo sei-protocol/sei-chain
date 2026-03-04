@@ -94,9 +94,6 @@ func NewCryptoSim(
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	metrics := NewCryptosimMetrics(ctx, config)
-	// Server start deferred until after DataGenerator loads DB state and sets gauges,
-	// avoiding rate() spikes when restarting with a preserved DB.
 
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
@@ -111,6 +108,10 @@ func NewCryptoSim(
 		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
+
+	metrics := NewCryptosimMetrics(ctx, db.GetPhaseTimer(), config)
+	// Server start deferred until after DataGenerator loads DB state and sets gauges,
+	// avoiding rate() spikes when restarting with a preserved DB.
 
 	fmt.Printf("Initializing random number generator.\n")
 	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
