@@ -478,6 +478,13 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		return fmt.Errorf("update current symlink: %w", err)
 	}
 
+	// Keep SNAPSHOT_BASE in sync so the next restart reuses the working dir
+	// instead of re-cloning from the snapshot and replaying the full WAL gap.
+	workDir := filepath.Join(dir, workingDirName)
+	if err := writeSnapshotBase(workDir, snapDir); err != nil {
+		s.log.Error("failed to update SNAPSHOT_BASE", "err", err)
+	}
+
 	s.pruneSnapshots(dir, version)
 
 	success = true
@@ -538,6 +545,12 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 
 	if err := updateCurrentSymlink(dir, snapshotName(baseVersion)); err != nil {
 		return fmt.Errorf("update current symlink for rollback: %w", err)
+	}
+
+	// Force a fresh working dir clone from the rollback snapshot: the
+	// current working dir may contain data beyond targetVersion.
+	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove SNAPSHOT_BASE for rollback: %w", err)
 	}
 
 	if err := s.open(); err != nil {
