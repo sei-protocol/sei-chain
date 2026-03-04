@@ -29,5 +29,6 @@
   "TransactionsPerBlock": 1024,
   "MaxRuntimeSeconds": 0,
   "TransactionMetricsSampleRate": 0.001,
-  "BackgroundMetricsScrapeInterval": 60
+  "BackgroundMetricsScrapeInterval": 60,
+  "BlockChannelCapacity": 8
 }

@@ -132,6 +132,9 @@ type CryptoSimConfig struct {
 	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
 	// If false, Enter has no effect.
 	EnableSuspension bool
+
+	// The capacity of the channel that holds blocks awaiting execution.
+	BlockChannelCapacity int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -170,6 +173,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
+		BlockChannelCapacity:              8,
 	}
 }
 
