@@ -452,21 +452,37 @@ func main() {
 	fmt.Printf("\n")
 
 	// =========================================================================
-	// Phase 1: Heavy methods — sequential (baseline latency)
+	// Phase 1: Per-block trace — one trace per discovered block, prints each result
 	// =========================================================================
-	for i := range allMethods {
-		m := &allMethods[i]
-		if !m.heavy {
-			continue
+	fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
+	fmt.Printf("  %-12s  %-6s  %s\n", "BLOCK", "TXS", "LATENCY")
+	fmt.Printf("  %-12s  %-6s  %s\n", "-----", "---", "-------")
+	perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
+	for _, b := range blocks {
+		hexNum := fmt.Sprintf("0x%x", b.Number)
+		resp, lat, err := rpcCall(endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
+		if err == nil && resp != nil && resp.Error != nil {
+			err = fmt.Errorf("rpc: %s", resp.Error.Message)
 		}
-		seqCount := min(requestsPer, len(blocks))
-		title := fmt.Sprintf("%s (sequential)", m.name)
-		fmt.Printf("\n--- %s ---\n", title)
-		s := runConcurrent(1, seqCount, func(_ int) (string, time.Duration, error) {
-			return m.call(endpoint)
-		})
-		printStats(title, s)
+		perBlockStats.Total++
+		perBlockStats.Latencies = append(perBlockStats.Latencies, lat)
+		errStr := ""
+		if err != nil {
+			perBlockStats.Errors++
+			errStr = fmt.Sprintf("  ERR: %v", err)
+		}
+		fmt.Printf("  %-12d  %-6d  %s%s\n", b.Number, len(b.Transactions), lat.Round(time.Millisecond), errStr)
 	}
+	perBlockStats.Duration = perBlockStats.Latencies[len(perBlockStats.Latencies)-1] // just for rps calc
+	for _, l := range perBlockStats.Latencies {
+		perBlockStats.Duration = max(perBlockStats.Duration, l)
+	}
+	totalTime := time.Duration(0)
+	for _, l := range perBlockStats.Latencies {
+		totalTime += l
+	}
+	perBlockStats.Duration = totalTime
+	printStats("Per-block trace summary", map[string]*LatencyStats{"debug_traceBlockByNumber": perBlockStats})
 
 	// =========================================================================
 	// Phase 2: Heavy methods — concurrent blast
