@@ -28,7 +28,12 @@ type pebbleDB struct {
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
-func Open(path string, opts types.OpenOptions) (_ types.KeyValueDB, err error) {
+func Open(
+	ctx context.Context,
+	path string,
+	opts types.OpenOptions,
+	enableMetrics bool,
+) (_ types.KeyValueDB, err error) {
 	// Validate options before allocating resources to avoid leaks on validation failure
 	var cmp *pebble.Comparer
 	if opts.Comparer != nil {
@@ -87,8 +92,10 @@ func Open(path string, opts types.OpenOptions) (_ types.KeyValueDB, err error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
+	ctx, cancel := context.WithCancel(ctx)
+	if enableMetrics {
+		metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
+	}
 
 	return &pebbleDB{db: db, metricsCancel: cancel}, nil
 }

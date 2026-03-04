@@ -29,14 +29,19 @@ type Config struct {
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Default: 2
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
+	// Default: true
+	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 }
 
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() Config {
 	return Config{
-		Fsync:              false,
-		AsyncWriteBuffer:   0,
-		SnapshotInterval:   DefaultSnapshotInterval,
-		SnapshotKeepRecent: DefaultSnapshotKeepRecent,
+		Fsync:               false,
+		AsyncWriteBuffer:    0,
+		SnapshotInterval:    DefaultSnapshotInterval,
+		SnapshotKeepRecent:  DefaultSnapshotKeepRecent,
+		EnablePebbleMetrics: true,
 	}
 }

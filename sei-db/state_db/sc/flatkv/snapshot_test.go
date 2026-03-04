@@ -253,7 +253,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works
-		db, err := pebbledb.Open(dbPath, types.OpenOptions{})
+		db, err := pebbledb.Open(t.Context(), dbPath, types.OpenOptions{}, false)
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -310,7 +310,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	db, err := pebbledb.Open(accountDBPath, types.OpenOptions{})
+	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false)
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
 	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))

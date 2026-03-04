@@ -1325,7 +1325,8 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableValueBlocksSize.Record(ctx, uint64ToInt64Clamped(lm.Additional.ValueBlocksSize), attrs)
 		}
 		if pm.sstableBytesWrittenDataBlocks != nil {
-			pm.sstableBytesWrittenDataBlocks.Add(ctx, uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks), attrs)
+			pm.sstableBytesWrittenDataBlocks.Add(ctx,
+				uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks), attrs)
 		}
 		if pm.sstableBytesWrittenValueBlocks != nil {
 			pm.sstableBytesWrittenValueBlocks.Add(ctx,

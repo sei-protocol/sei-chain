@@ -58,7 +58,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := pebbledb.Open(dir, types.OpenOptions{})
+	db, err := pebbledb.Open(t.Context(), dir, types.OpenOptions{}, false)
 	require.NoError(t, err)
 	return db
 }

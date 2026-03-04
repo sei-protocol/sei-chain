@@ -320,7 +320,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}()
 
 	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(np.path, seidbtypes.OpenOptions{})
+		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}
