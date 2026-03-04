@@ -167,7 +167,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		SetupUpdateIntervalCount:          100_000,
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
-		ExecutorQueueSize:                 64,
+		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
