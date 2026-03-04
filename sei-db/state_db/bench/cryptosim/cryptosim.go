@@ -165,7 +165,7 @@ func NewCryptoSim(
 
 	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
-	c.metrics.StartServer(config.MetricsAddr)
+	c.metrics.StartBackgroundSampling(c.startTimestamp)
 
 	go c.run()
 	return c, nil
