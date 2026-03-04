@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -75,8 +76,6 @@ func NewStore(
 		scDir = scConfig.Directory
 	}
 
-	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
-
 	maxInFlight := scConfig.HistoricalProofMaxInFlight
 	if maxInFlight <= 0 {
 		maxInFlight = 1
@@ -90,6 +89,8 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 
+	ctx := context.Background()
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,
