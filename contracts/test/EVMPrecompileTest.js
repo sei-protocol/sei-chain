@@ -311,15 +311,15 @@ describe("EVM Precompile Tester", function () {
             expect(error.message).to.include("No data for the twap calculation");
         });
 
-        it("Oracle precompile TWAP query should revert without feeder data", async function () {
+        it("Oracle precompile TWAP query should hard-fail without feeder data", async function () {
             let error;
             try {
                 await oracle.getOracleTwaps(3600);
             } catch (e) {
                 error = e;
             }
-            expect(error, "precompile twaps query should fail when no feeder is running").to.exist;
-            expect(error.message).to.include("execution reverted");
+            expect(error, "precompile twaps query should hard-fail when oracle is retired").to.exist;
+            expect(error.message).to.include("oracle precompile is retired");
         });
     });
 
