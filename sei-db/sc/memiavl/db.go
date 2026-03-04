@@ -91,6 +91,8 @@ type DB struct {
 	mtx sync.Mutex
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
+
+	evmKeyTracker *EvmKeyTracker
 }
 
 const (
@@ -275,6 +277,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		lastSnapshotTime:        lastSnapshotTime,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
+		evmKeyTracker:           NewEvmKeyTracker(),
 	}
 
 	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
@@ -582,6 +585,8 @@ func (db *DB) Commit() (version int64, _err error) {
 			return 0, err
 		}
 	}
+
+	db.evmKeyTracker.ProcessBlock(v, db.pendingLogEntry.Changesets)
 
 	db.pendingLogEntry = proto.ChangelogEntry{}
 
