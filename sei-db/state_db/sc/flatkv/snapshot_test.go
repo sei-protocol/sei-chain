@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1085,7 +1086,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	s := NewCommitStore(context.Background(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
@@ -1111,7 +1112,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
 	// so committedVersion should be 5 (from working dir metadata), not 2
 	// (from the snapshot). Catchup should replay 0 entries.
-	s2 := NewCommitStore(filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
 	defer s2.Close()
