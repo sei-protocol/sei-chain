@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net/http"
@@ -113,6 +114,23 @@ func run() error {
 
 	// Start metrics HTTP server after cryptosim setup (metrics are populated).
 	startMetricsServer(ctx, reg, config.MetricsAddr)
+
+	// Toggle suspend/resume on Enter when enabled
+	if config.EnableSuspension {
+		go func() {
+			scanner := bufio.NewScanner(os.Stdin)
+			suspended := false
+			for scanner.Scan() {
+				if suspended {
+					cs.Resume()
+					suspended = false
+				} else {
+					cs.Suspend()
+					suspended = true
+				}
+			}
+		}()
+	}
 
 	cs.BlockUntilHalted()
 
