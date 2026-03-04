@@ -54,6 +54,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config, logger log.Log
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
+	cfg.RPC.ListenAddress = "tcp://" + testFreeAddr(t)
 
 	ctx := t.Context()
 
@@ -64,26 +65,33 @@ func TestNodeStartStop(t *testing.T) {
 
 	n, ok := ns.(*nodeImpl)
 	require.True(t, ok)
+	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
+
+	started := false
 	t.Cleanup(func() {
+		if !started {
+			return
+		}
 		if n.IsRunning() {
 			n.Stop()
 		}
 		n.Wait()
 		require.False(t, n.IsRunning(), "node must shut down")
 	})
-	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
 
-	require.NoError(t, n.Start(ctx))
-	// wait for the node to produce a block
-	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	blocksSub, err := n.EventBus().SubscribeWithArgs(tctx, pubsub.SubscribeArgs{
-		ClientID: "node_test",
+	blocksSub, err := n.EventBus().SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
+		ClientID: "node_test_start_stop",
 		Query:    types.EventQueryNewBlock,
 		Limit:    1000,
 	})
 	require.NoError(t, err)
+
+	require.NoError(t, n.Start(ctx))
+	started = true
+
+	// wait for the node to produce a block
+	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	_, err = blocksSub.Next(tctx)
 	require.NoError(t, err, "waiting for event")
 }
