@@ -13,6 +13,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MONITOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DATASOURCE_CONFIG="${MONITOR_DIR}/config/grafana.yaml"
+DASHBOARD_PROVISIONING="${MONITOR_DIR}/config/grafana-dashboards.yaml"
+DASHBOARDS_DIR="${MONITOR_DIR}/dashboards"
 CONTAINER_NAME="sei-grafana"
 GRAFANA_PORT=3000
 PROMETHEUS_UI_PORT=9091
@@ -32,6 +34,12 @@ fi
 # Check that datasource config exists
 if [[ ! -f "${DATASOURCE_CONFIG}" ]]; then
 	echo "Error: Grafana datasource config not found at ${DATASOURCE_CONFIG}" >&2
+	exit 1
+fi
+
+# Check that dashboard provisioning config exists
+if [[ ! -f "${DASHBOARD_PROVISIONING}" ]]; then
+	echo "Error: Dashboard provisioning config not found at ${DASHBOARD_PROVISIONING}" >&2
 	exit 1
 fi
 
@@ -67,6 +75,8 @@ docker run -d \
 	${ADD_HOST_FLAG:+"$ADD_HOST_FLAG"} \
 	-p "${GRAFANA_PORT}:3000" \
 	-v "${DATASOURCE_CONFIG}:/etc/grafana/provisioning/datasources/grafana.yaml:ro" \
+	-v "${DASHBOARD_PROVISIONING}:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro" \
+	-v "${DASHBOARDS_DIR}:/var/lib/grafana/dashboards:ro" \
 	-e "GF_SECURITY_ADMIN_USER=admin" \
 	-e "GF_SECURITY_ADMIN_PASSWORD=admin" \
 	-e "GF_USERS_ALLOW_SIGN_UP=false" \
