@@ -218,6 +218,7 @@ func filterTransactions(
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
 ) []indexedMsg {
+	tCtx := time.Now()
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
 	startOfBlockNonce := make(map[string]uint64)
@@ -225,6 +226,8 @@ func filterTransactions(
 	latestCtx := ctxProvider(LatestCtxHeight)
 	ctx := ctxProvider(block.Block.Height)
 	prevCtx := ctxProvider(block.Block.Height - 1)
+	fmt.Printf("[DEBUG-FILTER] ctxProvider calls took %s height=%d\n", time.Since(tCtx), block.Block.Height)
+
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -239,7 +242,12 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
+				tCached := time.Now()
 				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+				elapsed := time.Since(tCached)
+				if elapsed > 100*time.Millisecond {
+					fmt.Printf("[DEBUG-FILTER] getOrSetCachedReceipt SLOW tx=%d hash=%s found=%v took %s height=%d\n", i, hash.Hex(), found, elapsed, block.Block.Height)
+				}
 				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
@@ -247,7 +255,12 @@ func filterTransactions(
 				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
 					// check if the transaction bumped nonce. If not, exclude it
 					if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
+						tNonce := time.Now()
 						startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+						nonceElapsed := time.Since(tNonce)
+						if nonceElapsed > 100*time.Millisecond {
+							fmt.Printf("[DEBUG-FILTER] GetNonce SLOW sender=%s took %s height=%d\n", sender.Hex(), nonceElapsed, block.Block.Height)
+						}
 					}
 					if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
 						continue

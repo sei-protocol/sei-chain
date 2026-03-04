@@ -3,6 +3,7 @@ package receipt
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -79,11 +80,19 @@ func (s *parquetReceiptStore) warmupReceipts() []ReceiptRecord {
 }
 
 func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+	t0 := time.Now()
 	result, err := s.store.GetReceiptByTxHash(ctx.Context(), txHash)
+	duckdbElapsed := time.Since(t0)
 	if err != nil {
+		if duckdbElapsed > 100*time.Millisecond {
+			fmt.Printf("[DEBUG-PARQUET] DuckDB query err took %s tx=%s\n", duckdbElapsed, txHash.Hex())
+		}
 		return nil, err
 	}
 	if result != nil {
+		if duckdbElapsed > 100*time.Millisecond {
+			fmt.Printf("[DEBUG-PARQUET] DuckDB query found took %s tx=%s\n", duckdbElapsed, txHash.Hex())
+		}
 		receipt := &types.Receipt{}
 		if err := receipt.Unmarshal(result.ReceiptBytes); err != nil {
 			return nil, err
@@ -91,9 +100,14 @@ func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*
 		return receipt, nil
 	}
 
+	t1 := time.Now()
 	store := ctx.KVStore(s.storeKey)
 	bz := store.Get(types.ReceiptKey(txHash))
+	kvElapsed := time.Since(t1)
 	if bz == nil {
+		if duckdbElapsed > 100*time.Millisecond || kvElapsed > 100*time.Millisecond {
+			fmt.Printf("[DEBUG-PARQUET] miss: DuckDB=%s KV=%s tx=%s\n", duckdbElapsed, kvElapsed, txHash.Hex())
+		}
 		return nil, ErrNotFound
 	}
 	var r types.Receipt

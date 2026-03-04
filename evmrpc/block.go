@@ -242,22 +242,29 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
 	// Get height from params
+	t0 := time.Now()
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[DEBUG-RECEIPTS] GetBlockNumberByNrOrHash took %s\n", time.Since(t0))
 
+	t1 := time.Now()
 	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[DEBUG-RECEIPTS] blockByNumber took %s height=%d\n", time.Since(t1), block.Block.Height)
 
 	// Get all tx hashes for the block
 	height := block.Block.Height
 
+	t2 := time.Now()
 	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace), a.cacheCreationMutex, a.globalBlockCache)
+	fmt.Printf("[DEBUG-RECEIPTS] getTxHashesFromBlock took %s height=%d txCount=%d\n", time.Since(t2), height, len(txHashes))
 
 	// Get tx receipts for all hashes in parallel
+	t3 := time.Now()
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
@@ -266,8 +273,10 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
+			tReceipt := time.Now()
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash.hash)
 			if err != nil {
+				fmt.Printf("[DEBUG-RECEIPTS]   GetReceipt[%d] err=%v took %s height=%d\n", i, err, time.Since(tReceipt), height)
 				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
 					mtx.Lock()
@@ -275,17 +284,21 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
+				fmt.Printf("[DEBUG-RECEIPTS]   GetReceipt[%d] ok took %s height=%d\n", i, time.Since(tReceipt), height)
+				tEncode := time.Now()
 				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
 					mtx.Unlock()
 				}
+				fmt.Printf("[DEBUG-RECEIPTS]   encodeReceipt[%d] took %s height=%d\n", i, time.Since(tEncode), height)
 				allReceipts[i] = encodedReceipt
 			}
 		}(i, hash)
 	}
 	wg.Wait()
+	fmt.Printf("[DEBUG-RECEIPTS] parallel receipts took %s height=%d\n", time.Since(t3), height)
 	compactReceipts := make([]map[string]interface{}, 0)
 	for _, r := range allReceipts {
 		if len(r) > 0 {

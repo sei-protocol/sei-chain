@@ -1,8 +1,10 @@
 package receipt
 
 import (
+	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -67,7 +69,13 @@ func (s *cachedReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*t
 	if receipt, ok := s.cache.GetReceipt(txHash); ok {
 		return receipt, nil
 	}
-	return s.backend.GetReceipt(ctx, txHash)
+	t0 := time.Now()
+	r, err := s.backend.GetReceipt(ctx, txHash)
+	elapsed := time.Since(t0)
+	if elapsed > 100*time.Millisecond {
+		fmt.Printf("[DEBUG-CACHE] ledger cache MISS, backend.GetReceipt took %s tx=%s height=%d\n", elapsed, txHash.Hex(), ctx.BlockHeight())
+	}
+	return r, err
 }
 
 func (s *cachedReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
