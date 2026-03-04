@@ -3,6 +3,7 @@ package ordered
 import (
 	"iter"
 	"github.com/tidwall/btree"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type Ordered[T any] interface {
@@ -21,6 +22,11 @@ type Map[K Ordered[K], V any] struct {
 func (m Map[K,V]) Get(k K) (V,bool) {
 	e,ok := m.m.Get(mapEntry[K,V]{k:k})
 	return e.v,ok
+}
+
+func (m Map[K,V]) GetOpt(k K) utils.Option[V] {
+	if v,ok := m.Get(k); ok { return utils.Some(v) }
+	return utils.None[V]()
 }
 
 func (m Map[K,V]) GetAt(i int) (K,V,bool) {
@@ -55,6 +61,8 @@ func (m Map[K,V]) PopMax() (K,V,bool) {
 }
 
 func (m Map[K,V]) Len() int { return m.m.Len() }
+
+func (m Map[K,V]) Clear() { m.m.Clear() }
 
 func NewMap[K Ordered[K], V any]() Map[K,V] {
 	return Map[K,V]{btree.NewBTreeGOptions(
