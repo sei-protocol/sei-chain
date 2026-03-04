@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -57,6 +58,7 @@ type pendingAccountWrite struct {
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
+	ctx    context.Context
 	log    logger.Logger
 	config Config
 	dbDir  string
@@ -97,12 +99,18 @@ var _ Store = (*CommitStore)(nil)
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
-func NewCommitStore(dbDir string, log logger.Logger, cfg Config) *CommitStore {
+func NewCommitStore(
+	ctx context.Context,
+	dbDir string,
+	log logger.Logger,
+	cfg Config,
+) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
 
 	return &CommitStore{
+		ctx:               ctx,
 		log:               log,
 		config:            cfg,
 		dbDir:             dbDir,
@@ -312,7 +320,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}()
 
 	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(np.path, seidbtypes.OpenOptions{})
+		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}

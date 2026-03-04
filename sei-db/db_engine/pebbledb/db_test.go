@@ -13,7 +13,7 @@ import (
 
 func TestDBGetSetDelete(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestDBGetSetDelete(t *testing.T) {
 
 func TestBatchAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestBatchAtomicWrite(t *testing.T) {
 
 func TestIteratorBounds(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestIteratorBounds(t *testing.T) {
 
 func TestIteratorPrev(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{Comparer: &cmp})
+	db, err := Open(t.Context(), dir, types.OpenOptions{Comparer: &cmp}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 
 func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Open(dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"})
+	_, err := Open(t.Context(), dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"}, false)
 	if err == nil {
 		t.Fatalf("expected error for invalid comparer type")
 	}
@@ -232,7 +232,7 @@ func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 
 func TestErrNotFoundConsistency(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 
 func TestGetReturnsCopy(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestGetReturnsCopy(t *testing.T) {
 
 func TestBatchLenResetDelete(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestFlush(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestFlush(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(dir, types.OpenOptions{})
+	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

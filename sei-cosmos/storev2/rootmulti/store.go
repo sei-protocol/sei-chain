@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -90,7 +91,8 @@ func NewStore(
 	if scConfig.HistoricalProofRateLimit > 0 {
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
-	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
+	ctx := context.Background()
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,
