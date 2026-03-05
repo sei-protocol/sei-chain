@@ -52,7 +52,7 @@ const (
 	suffixB = "_b.pb"
 )
 
-// WriteRawFile writes raw bytes to one of the A/B files for a given prefix.
+// WriteRawFile writes raw bytes to the A file for a given prefix.
 // Intended for tests that need to simulate corruption from outside the package.
 func WriteRawFile(dir, prefix string, data []byte) error {
 	return os.WriteFile(filepath.Join(dir, prefix+suffixA), data, 0600)

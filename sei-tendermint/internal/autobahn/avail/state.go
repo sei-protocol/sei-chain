@@ -686,10 +686,8 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 		if err := pers.blocks.DeleteBefore(batch.laneFirsts); err != nil {
 			return fmt.Errorf("block deleteBefore: %w", err)
 		}
-		if len(batch.commitQCs) > 0 {
-			if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
-				return fmt.Errorf("commitqc deleteBefore: %w", err)
-			}
+		if err := pers.commitQCs.DeleteBefore(batch.commitQCFirst); err != nil {
+			return fmt.Errorf("commitqc deleteBefore: %w", err)
 		}
 	}
 }

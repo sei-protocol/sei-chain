@@ -37,10 +37,10 @@
 //   - D, E receive TimeoutQC(5, 2), can now advance to (5, 3)
 //   - Everyone converges to the highest view
 //
-// # stateDir Configuration
+// # PersistentStateDir Configuration
 //
-// At config level, stateDir is an Option[string]. NewState creates a persister when
-// stateDir is Some(path). When None, no persister is created (persistence
+// At config level, PersistentStateDir is an Option[string]. NewState creates a persister when
+// it is Some(path). When None, no persister is created (persistence
 // disabled - DANGEROUS, may lead to SLASHING if the node restarts and double-votes;
 // only use for testing). When Some(path), the path must already exist and be
 // writable (verified by writing a temp file at startup); returns error otherwise.

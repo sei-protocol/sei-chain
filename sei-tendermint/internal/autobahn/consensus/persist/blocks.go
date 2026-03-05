@@ -123,6 +123,7 @@ func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposa
 // For lanes in laneFirsts, deletes files with block number below the map value.
 // For lanes NOT in laneFirsts (orphaned from a previous committee/epoch),
 // deletes all files — old blocks are not reusable after a committee change.
+// An empty/nil laneFirsts is a no-op (no committee info available to judge orphans).
 // Returns an error if the directory cannot be read; individual file removal
 // failures are logged but do not cause an error.
 func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
