@@ -1,6 +1,6 @@
 package flatcache
 
-import "github.com/sei-protocol/sei-chain/sei-iavl/proto"
+import "github.com/sei-protocol/sei-chain/sei-db/proto"
 
 // Cache describes a cache kapable of being used by a FlatKV store.
 type Cache interface {
@@ -16,6 +16,6 @@ type Cache interface {
 	// Delete deletes the value for the given key.
 	Delete(key []byte)
 
-	// BatchSet sets the values for a batch of keys.
-	BatchSet(entries []*proto.KVPair)
+	// BatchSet applies the given changesets to the cache.
+	BatchSet(cs []*proto.NamedChangeSet)
 }

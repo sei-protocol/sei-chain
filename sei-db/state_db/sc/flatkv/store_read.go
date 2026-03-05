@@ -7,6 +7,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // Get returns the value for the given memiavl key.
@@ -28,8 +29,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		// Read from storageDB
-		value, err := s.storageDB.Get(keyBytes)
+		// Read from cache (may fall through to storageDB if not found)
+		value, _, err := s.cache.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
@@ -61,8 +62,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return paw.value.CodeHash[:], true
 		}
 
-		// Read from accountDB
-		encoded, err := s.accountDB.Get(AccountKey(addr))
+		// Read from cache (may fall through to accountDB if not found)
+		encoded, _, err := s.cache.Get(AccountKey(addr))
 		if err != nil {
 			return nil, false
 		}
@@ -93,8 +94,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		// Read from codeDB
-		value, err := s.codeDB.Get(keyBytes)
+		// Read from cache (may fall through to codeDB if not found)
+		value, _, err := s.cache.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
@@ -108,7 +109,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		value, err := s.legacyDB.Get(keyBytes)
+		// Read from cache (may fall through to legacyDB if not found)
+		value, _, err := s.cache.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
@@ -117,6 +119,35 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// Read a value from the disk, ignoring pending writes and without interpreting data in any way.
+func (s *CommitStore) storageRead(key []byte) ([]byte, bool) {
+	kind, keyBytes := evm.ParseEVMKey(key)
+	if kind == evm.EVMKeyUnknown {
+		return nil, false
+	}
+
+	var db seidbtypes.KeyValueDB
+
+	switch kind {
+	case evm.EVMKeyStorage:
+		db = s.storageDB
+	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+		db = s.accountDB
+	case evm.EVMKeyCode:
+		db = s.codeDB
+	case evm.EVMKeyLegacy:
+		db = s.legacyDB
+	default:
+		return nil, false
+	}
+
+	value, err := db.Get(keyBytes)
+	if err != nil {
+		return nil, false // TODO why are we squelching errors here?
+	}
+	return value, true
 }
 
 // Has reports whether the given memiavl key exists.

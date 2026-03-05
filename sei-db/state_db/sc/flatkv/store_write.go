@@ -222,6 +222,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		s.workingLtHash = newLtHash
 	}
 
+	s.phaseTimer.SetPhase("update_cache")
+	s.cache.BatchSet(s.pendingChangeSets)
+
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
 }

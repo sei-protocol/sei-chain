@@ -209,7 +209,7 @@ func (s *shard) deleteUnlocked(key []byte) {
 }
 
 // RunGarbageCollection runs the garbage collection process.
-func (s *shard) RunGarbageCollection() {
+func (s *shard) RunGarbageCollection() { // TODO maybe just do this after each update?
 	s.lock.Lock()
 
 	for s.gcQueue.GetTotalSize() > s.maxSize {

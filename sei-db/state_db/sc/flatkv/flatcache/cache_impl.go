@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-iavl/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 var _ Cache = (*cache)(nil)
@@ -92,16 +93,18 @@ func NewCache(
 	return c, nil
 }
 
-func (c *cache) BatchSet(entries []*proto.KVPair) {
+func (c *cache) BatchSet(cs []*proto.NamedChangeSet) {
 
 	// First, sort entries by shard index.
 	// This allows us to set all values in a single shard with only a single lock acquisition.
-	shardMap := make(map[uint64][]*proto.KVPair)
-	for _, entry := range entries {
-		shardMap[c.shardManager.Shard(entry.Key)] = append(shardMap[c.shardManager.Shard(entry.Key)], entry)
+	shardMap := make(map[uint64][]*iavl.KVPair)
+	for _, ncs := range cs {
+		for _, entry := range ncs.Changeset.Pairs {
+			shardMap[c.shardManager.Shard(entry.Key)] = append(shardMap[c.shardManager.Shard(entry.Key)], entry)
+		}
 	}
 
-	// This is probably qutie fast, but if it isn't it can be parallelized.
+	// This is probably quite fast, but if it isn't it can be parallelized.
 	for shardIndex, shardEntries := range shardMap {
 		shard := c.shards[shardIndex]
 		shard.BatchSet(shardEntries)
