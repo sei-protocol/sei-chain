@@ -1,6 +1,3 @@
----
-globs: ["evmrpc/**", "x/evm/**"]
----
 # EVM Module Concepts
 
 ## Overview

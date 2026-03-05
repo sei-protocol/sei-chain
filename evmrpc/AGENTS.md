@@ -1,6 +1,3 @@
----
-globs: ["evmrpc/**"]
----
 # EVM RPC SPECS
 EVM RPCs live under `evmrpc/` folder.
 
