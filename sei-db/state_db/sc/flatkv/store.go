@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
@@ -241,19 +242,9 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	dir := s.flatkvDir()
 
-	var snapDir string
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(dir, targetVersion)
-		if err != nil {
-			return fmt.Errorf("seek snapshot for readonly: %w", err)
-		}
-		snapDir = filepath.Join(dir, snapshotName(baseVer))
-	} else {
-		var err error
-		snapDir, _, err = currentSnapshotDir(dir)
-		if err != nil {
-			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
-		}
+	snapDir, err := resolveSnapshotDirReadOnly(dir, targetVersion)
+	if err != nil {
+		return fmt.Errorf("resolve snapshot for readonly: %w", err)
 	}
 
 	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
@@ -418,9 +409,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.codeDB = nil
 			s.storageDB = nil
 			s.legacyDB = nil
-			if changelogRoot != "" {
-				s.changelog = nil
-			}
+			s.changelog = nil
 			s.localMeta = make(map[string]*LocalMeta)
 		}
 	}()
