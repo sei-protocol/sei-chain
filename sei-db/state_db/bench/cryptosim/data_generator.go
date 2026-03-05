@@ -14,6 +14,9 @@ const (
 	erc20IdCounterKey = "erc20IdCounterKey"
 )
 
+// Placeholder prefix for account keys.
+var accountKeyPrefix = []byte{0xff}
+
 // Generates random data for the benchmark. This is not a thread safe utility.
 type DataGenerator struct {
 	config *CryptoSimConfig
@@ -140,7 +143,7 @@ func (d *DataGenerator) CreateNewAccount(
 
 	// Use EVMKeyCode for account data (balance+padding); EVMKeyNonce only accepts 8-byte values.
 	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
+	address = buildAccountKey(addr)
 
 	isCold = d.rand.Float64() >= d.config.NewAccountDormancyProbability
 
@@ -214,7 +217,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		lastHotAccountID := d.config.NumberOfHotAccounts
 		accountID := d.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
+		return accountID, buildAccountKey(addr), false, nil
 	} else {
 
 		new := d.rand.Float64() < d.config.NewAccountProbability
@@ -234,7 +237,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 
 		accountID := d.rand.Int64Range(firstLegalColdAccountID, lastLegalColdAccountID)
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
+		return accountID, buildAccountKey(addr), false, nil
 	}
 }
 
@@ -292,4 +295,12 @@ func (d *DataGenerator) FeeCollectionAddress() []byte {
 // This method should be called after a block is finalized.
 func (d *DataGenerator) ReportFinalizeBlock() {
 	d.highestSafeAccountIDInBlock = d.nextAccountID - 1
+}
+
+// Builds an account key from the given key bytes.
+func buildAccountKey(keyBytes []byte) []byte {
+	result := make([]byte, 0, len(accountKeyPrefix)+len(keyBytes))
+	result = append(result, accountKeyPrefix...)
+	result = append(result, keyBytes...)
+	return result
 }
