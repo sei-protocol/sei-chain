@@ -12,9 +12,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	dbLogger "github.com/sei-protocol/sei-db/common/logger"
-	dbconfig "github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ledger_db/parquet"
+	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
