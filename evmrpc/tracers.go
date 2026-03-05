@@ -48,12 +48,18 @@ type DebugAPI struct {
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
 // It returns a function that must be called (typically with defer) to release the semaphore.
 // If the semaphore is nil (unlimited concurrency), it does nothing and returns a no-op release function.
-func (api *DebugAPI) acquireTraceSemaphore() func() {
+// The acquisition respects the context - if the context is cancelled or times out while waiting
+// for a slot, it returns an error instead of blocking indefinitely.
+func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) {
 	if api.traceCallSemaphore != nil {
-		api.traceCallSemaphore <- struct{}{}
-		return func() { <-api.traceCallSemaphore }
+		select {
+		case api.traceCallSemaphore <- struct{}{}:
+			return func() { <-api.traceCallSemaphore }, nil
+		case <-ctx.Done():
+			return func() {}, ctx.Err()
+		}
 	}
-	return func() {} // No-op if semaphore is not active
+	return func() {}, nil // No-op if semaphore is not active
 }
 
 type SeiDebugAPI struct {
@@ -144,11 +150,14 @@ func NewSeiDebugAPI(
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
@@ -173,11 +182,14 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 }
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx) // Use the embedded DebugAPI's semaphore
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
@@ -206,11 +218,14 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx) // Use the embedded DebugAPI's semaphore
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
@@ -287,11 +302,14 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
@@ -305,11 +323,14 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
@@ -318,11 +339,14 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	release, err := api.acquireTraceSemaphore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceCall", api.connectionType, startTime, returnErr)
