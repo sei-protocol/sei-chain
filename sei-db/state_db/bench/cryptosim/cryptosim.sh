@@ -11,8 +11,8 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 BINARY="${SCRIPT_DIR}/bin/cryptosim"
 
-# Build binary if needed.
-[[ ! -x "$BINARY" ]] && make -C "$SCRIPT_DIR" build
+# Build binary (no-op if already up to date; Go's build cache handles staleness).
+make -C "$SCRIPT_DIR" build
 
 # Run the benchmark.
 exec "$BINARY" "$@"

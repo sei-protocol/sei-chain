@@ -17,30 +17,6 @@ import (
 
 const pebbleMeterName = "seidb_pebble"
 
-// levelPrev holds previous cumulative values for per-level metrics.
-type levelPrev struct {
-	compactionBytesRead            int64
-	compactionBytesWritten         int64
-	sstableBytesIngested           int64
-	sstableBytesMoved              int64
-	sstableBytesRead               int64
-	sstableBytesFlushed            int64
-	sstableTablesCompacted         int64
-	sstableTablesFlushed           int64
-	sstableTablesIngested          int64
-	sstableTablesMoved             int64
-	sstableTablesDeleted           int64
-	sstableTablesExcised           int64
-	sstableBlobBytesReadEstimate   int64
-	sstableBlobBytesCompacted      int64
-	sstableBlobBytesFlushed        int64
-	sstableMultiLevelBytesInTop    int64
-	sstableMultiLevelBytesIn       int64
-	sstableMultiLevelBytesRead     int64
-	sstableBytesWrittenDataBlocks  int64
-	sstableBytesWrittenValueBlocks int64
-}
-
 // PebbleMetrics scrapes metrics from a Pebble DB and records them via OTel instruments.
 // Instrument names match sei-db/db_engine/pebbledb/mvcc for dashboard compatibility.
 // The databaseName is used as the "db" attribute on all recorded metrics.
@@ -216,7 +192,28 @@ type PebbleMetrics struct {
 	prevFileCacheMisses                 int64
 	prevCacheHits                       int64
 	prevCacheMisses                     int64
-	prevByLevel                         map[int]*levelPrev
+
+	// prev*ByLevel hold previous cumulative values per level (index = level).
+	prevCompactionBytesReadByLevel            []int64
+	prevCompactionBytesWrittenByLevel         []int64
+	prevSstableBytesIngestedByLevel           []int64
+	prevSstableBytesMovedByLevel              []int64
+	prevSstableBytesReadByLevel               []int64
+	prevSstableBytesFlushedByLevel            []int64
+	prevSstableTablesCompactedByLevel         []int64
+	prevSstableTablesFlushedByLevel           []int64
+	prevSstableTablesIngestedByLevel          []int64
+	prevSstableTablesMovedByLevel             []int64
+	prevSstableTablesDeletedByLevel           []int64
+	prevSstableTablesExcisedByLevel           []int64
+	prevSstableBlobBytesReadEstimateByLevel   []int64
+	prevSstableBlobBytesCompactedByLevel      []int64
+	prevSstableBlobBytesFlushedByLevel        []int64
+	prevSstableMultiLevelBytesInTopByLevel    []int64
+	prevSstableMultiLevelBytesInByLevel       []int64
+	prevSstableMultiLevelBytesReadByLevel     []int64
+	prevSstableBytesWrittenDataBlocksByLevel  []int64
+	prevSstableBytesWrittenValueBlocksByLevel []int64
 
 	walFailoverDirSwitchCount    metric.Int64Counter
 	walFailoverPrimaryDuration   metric.Float64Gauge
@@ -1389,17 +1386,33 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		}
 	}
 
-	if pm.prevByLevel == nil {
-		pm.prevByLevel = make(map[int]*levelPrev)
-	}
 	for level := 0; level < len(m.Levels); level++ {
 		lm := m.Levels[level]
 		levelAttr := attribute.Int("level", level)
 		attrs := metric.WithAttributes(dbAttr, levelAttr)
-		lp := pm.prevByLevel[level]
-		if lp == nil {
-			lp = &levelPrev{}
-			pm.prevByLevel[level] = lp
+
+		// Grow prev slices if needed.
+		for level >= len(pm.prevCompactionBytesReadByLevel) {
+			pm.prevCompactionBytesReadByLevel = append(pm.prevCompactionBytesReadByLevel, 0)
+			pm.prevCompactionBytesWrittenByLevel = append(pm.prevCompactionBytesWrittenByLevel, 0)
+			pm.prevSstableBytesIngestedByLevel = append(pm.prevSstableBytesIngestedByLevel, 0)
+			pm.prevSstableBytesMovedByLevel = append(pm.prevSstableBytesMovedByLevel, 0)
+			pm.prevSstableBytesReadByLevel = append(pm.prevSstableBytesReadByLevel, 0)
+			pm.prevSstableBytesFlushedByLevel = append(pm.prevSstableBytesFlushedByLevel, 0)
+			pm.prevSstableTablesCompactedByLevel = append(pm.prevSstableTablesCompactedByLevel, 0)
+			pm.prevSstableTablesFlushedByLevel = append(pm.prevSstableTablesFlushedByLevel, 0)
+			pm.prevSstableTablesIngestedByLevel = append(pm.prevSstableTablesIngestedByLevel, 0)
+			pm.prevSstableTablesMovedByLevel = append(pm.prevSstableTablesMovedByLevel, 0)
+			pm.prevSstableTablesDeletedByLevel = append(pm.prevSstableTablesDeletedByLevel, 0)
+			pm.prevSstableTablesExcisedByLevel = append(pm.prevSstableTablesExcisedByLevel, 0)
+			pm.prevSstableBlobBytesReadEstimateByLevel = append(pm.prevSstableBlobBytesReadEstimateByLevel, 0)
+			pm.prevSstableBlobBytesCompactedByLevel = append(pm.prevSstableBlobBytesCompactedByLevel, 0)
+			pm.prevSstableBlobBytesFlushedByLevel = append(pm.prevSstableBlobBytesFlushedByLevel, 0)
+			pm.prevSstableMultiLevelBytesInTopByLevel = append(pm.prevSstableMultiLevelBytesInTopByLevel, 0)
+			pm.prevSstableMultiLevelBytesInByLevel = append(pm.prevSstableMultiLevelBytesInByLevel, 0)
+			pm.prevSstableMultiLevelBytesReadByLevel = append(pm.prevSstableMultiLevelBytesReadByLevel, 0)
+			pm.prevSstableBytesWrittenDataBlocksByLevel = append(pm.prevSstableBytesWrittenDataBlocksByLevel, 0)
+			pm.prevSstableBytesWrittenValueBlocksByLevel = append(pm.prevSstableBytesWrittenValueBlocksByLevel, 0)
 		}
 
 		if pm.sstableCount != nil {
@@ -1425,80 +1438,80 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		}
 		if pm.compactionBytesRead != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesIn)
-			delta := curr - lp.compactionBytesRead
-			lp.compactionBytesRead = curr
+			delta := curr - pm.prevCompactionBytesReadByLevel[level]
+			pm.prevCompactionBytesReadByLevel[level] = curr
 			if delta > 0 {
 				pm.compactionBytesRead.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.compactionBytesWritten != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesCompacted)
-			delta := curr - lp.compactionBytesWritten
-			lp.compactionBytesWritten = curr
+			delta := curr - pm.prevCompactionBytesWrittenByLevel[level]
+			pm.prevCompactionBytesWrittenByLevel[level] = curr
 			if delta > 0 {
 				pm.compactionBytesWritten.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBytesIngested != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesIngested)
-			delta := curr - lp.sstableBytesIngested
-			lp.sstableBytesIngested = curr
+			delta := curr - pm.prevSstableBytesIngestedByLevel[level]
+			pm.prevSstableBytesIngestedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesIngested.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBytesMoved != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesMoved)
-			delta := curr - lp.sstableBytesMoved
-			lp.sstableBytesMoved = curr
+			delta := curr - pm.prevSstableBytesMovedByLevel[level]
+			pm.prevSstableBytesMovedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesMoved.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBytesRead != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesRead)
-			delta := curr - lp.sstableBytesRead
-			lp.sstableBytesRead = curr
+			delta := curr - pm.prevSstableBytesReadByLevel[level]
+			pm.prevSstableBytesReadByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesRead.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBytesFlushed != nil {
 			curr := uint64ToInt64Clamped(lm.TableBytesFlushed)
-			delta := curr - lp.sstableBytesFlushed
-			lp.sstableBytesFlushed = curr
+			delta := curr - pm.prevSstableBytesFlushedByLevel[level]
+			pm.prevSstableBytesFlushedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesFlushed.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableTablesCompacted != nil {
 			curr := uint64ToInt64Clamped(lm.TablesCompacted)
-			delta := curr - lp.sstableTablesCompacted
-			lp.sstableTablesCompacted = curr
+			delta := curr - pm.prevSstableTablesCompactedByLevel[level]
+			pm.prevSstableTablesCompactedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesCompacted.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableTablesFlushed != nil {
 			curr := uint64ToInt64Clamped(lm.TablesFlushed)
-			delta := curr - lp.sstableTablesFlushed
-			lp.sstableTablesFlushed = curr
+			delta := curr - pm.prevSstableTablesFlushedByLevel[level]
+			pm.prevSstableTablesFlushedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesFlushed.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableTablesIngested != nil {
 			curr := uint64ToInt64Clamped(lm.TablesIngested)
-			delta := curr - lp.sstableTablesIngested
-			lp.sstableTablesIngested = curr
+			delta := curr - pm.prevSstableTablesIngestedByLevel[level]
+			pm.prevSstableTablesIngestedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesIngested.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableTablesMoved != nil {
 			curr := uint64ToInt64Clamped(lm.TablesMoved)
-			delta := curr - lp.sstableTablesMoved
-			lp.sstableTablesMoved = curr
+			delta := curr - pm.prevSstableTablesMovedByLevel[level]
+			pm.prevSstableTablesMovedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesMoved.Add(ctx, delta, attrs)
 			}
@@ -1511,64 +1524,64 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		}
 		if pm.sstableTablesDeleted != nil {
 			curr := uint64ToInt64Clamped(lm.TablesDeleted)
-			delta := curr - lp.sstableTablesDeleted
-			lp.sstableTablesDeleted = curr
+			delta := curr - pm.prevSstableTablesDeletedByLevel[level]
+			pm.prevSstableTablesDeletedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesDeleted.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableTablesExcised != nil {
 			curr := uint64ToInt64Clamped(lm.TablesExcised)
-			delta := curr - lp.sstableTablesExcised
-			lp.sstableTablesExcised = curr
+			delta := curr - pm.prevSstableTablesExcisedByLevel[level]
+			pm.prevSstableTablesExcisedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableTablesExcised.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBlobBytesReadEstimate != nil {
 			curr := uint64ToInt64Clamped(lm.BlobBytesReadEstimate)
-			delta := curr - lp.sstableBlobBytesReadEstimate
-			lp.sstableBlobBytesReadEstimate = curr
+			delta := curr - pm.prevSstableBlobBytesReadEstimateByLevel[level]
+			pm.prevSstableBlobBytesReadEstimateByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBlobBytesReadEstimate.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBlobBytesCompacted != nil {
 			curr := uint64ToInt64Clamped(lm.BlobBytesCompacted)
-			delta := curr - lp.sstableBlobBytesCompacted
-			lp.sstableBlobBytesCompacted = curr
+			delta := curr - pm.prevSstableBlobBytesCompactedByLevel[level]
+			pm.prevSstableBlobBytesCompactedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBlobBytesCompacted.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBlobBytesFlushed != nil {
 			curr := uint64ToInt64Clamped(lm.BlobBytesFlushed)
-			delta := curr - lp.sstableBlobBytesFlushed
-			lp.sstableBlobBytesFlushed = curr
+			delta := curr - pm.prevSstableBlobBytesFlushedByLevel[level]
+			pm.prevSstableBlobBytesFlushedByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBlobBytesFlushed.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableMultiLevelBytesInTop != nil {
 			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesInTop)
-			delta := curr - lp.sstableMultiLevelBytesInTop
-			lp.sstableMultiLevelBytesInTop = curr
+			delta := curr - pm.prevSstableMultiLevelBytesInTopByLevel[level]
+			pm.prevSstableMultiLevelBytesInTopByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableMultiLevelBytesInTop.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableMultiLevelBytesIn != nil {
 			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesIn)
-			delta := curr - lp.sstableMultiLevelBytesIn
-			lp.sstableMultiLevelBytesIn = curr
+			delta := curr - pm.prevSstableMultiLevelBytesInByLevel[level]
+			pm.prevSstableMultiLevelBytesInByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableMultiLevelBytesIn.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableMultiLevelBytesRead != nil {
 			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesRead)
-			delta := curr - lp.sstableMultiLevelBytesRead
-			lp.sstableMultiLevelBytesRead = curr
+			delta := curr - pm.prevSstableMultiLevelBytesReadByLevel[level]
+			pm.prevSstableMultiLevelBytesReadByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableMultiLevelBytesRead.Add(ctx, delta, attrs)
 			}
@@ -1578,16 +1591,16 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		}
 		if pm.sstableBytesWrittenDataBlocks != nil {
 			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks)
-			delta := curr - lp.sstableBytesWrittenDataBlocks
-			lp.sstableBytesWrittenDataBlocks = curr
+			delta := curr - pm.prevSstableBytesWrittenDataBlocksByLevel[level]
+			pm.prevSstableBytesWrittenDataBlocksByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesWrittenDataBlocks.Add(ctx, delta, attrs)
 			}
 		}
 		if pm.sstableBytesWrittenValueBlocks != nil {
 			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenValueBlocks)
-			delta := curr - lp.sstableBytesWrittenValueBlocks
-			lp.sstableBytesWrittenValueBlocks = curr
+			delta := curr - pm.prevSstableBytesWrittenValueBlocksByLevel[level]
+			pm.prevSstableBytesWrittenValueBlocksByLevel[level] = curr
 			if delta > 0 {
 				pm.sstableBytesWrittenValueBlocks.Add(ctx, delta, attrs)
 			}
