@@ -74,7 +74,7 @@ func NewShard(readScheduler *readScheduler, maxSize int) (*shard, error) {
 }
 
 // Get returns the value for the given key, or (nil, false) if not found.
-func (s *shard) Get(key []byte) ([]byte, bool, error) {
+func (s *shard) Get(key []byte) ([]byte, bool) {
 	s.lock.Lock()
 
 	entry := s.getEntry(key)
@@ -85,18 +85,18 @@ func (s *shard) Get(key []byte) ([]byte, bool, error) {
 		value := entry.value
 		s.gcQueue.Touch(key)
 		s.lock.Unlock()
-		return value, true, nil
+		return value, true
 	case statusDeleted:
 		s.gcQueue.Touch(key)
 		s.lock.Unlock()
-		return nil, false, nil
+		return nil, false
 	case statusScheduled:
 		// Another goroutine initiated a read, wait for that read to finish.
 		valueChan := entry.valueChan
 		s.lock.Unlock()
 		value := <-valueChan
 		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil, nil
+		return value, value != nil
 	case statusUnknown:
 		// We are the first goroutine to read this value.
 		entry.status = statusScheduled
@@ -106,7 +106,7 @@ func (s *shard) Get(key []byte) ([]byte, bool, error) {
 		s.lock.Unlock()
 		value := <-valueChan
 		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil, nil
+		return value, value != nil
 	default:
 		panic(fmt.Sprintf("unexpected statustatus: %#v", entry.status))
 	}

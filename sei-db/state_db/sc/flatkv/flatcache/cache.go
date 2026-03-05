@@ -8,7 +8,7 @@ type Cache interface {
 	// TODO decide if we should support individual modifications
 
 	// Get returns the value for the given key, or (nil, false) if not found.
-	Get(key []byte) ([]byte, bool, error)
+	Get(key []byte) ([]byte, bool)
 
 	// Set sets the value for the given key.
 	Set(key []byte, value []byte)
