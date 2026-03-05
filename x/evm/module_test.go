@@ -119,6 +119,7 @@ func TestABCI(t *testing.T) {
 	msg := mockEVMTransactionMessage(t)
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
+	k.SetNonceBumped(ctx.WithTxIndex(0))
 	k.EndBlock(ctx, 0, 0)
 	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
