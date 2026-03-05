@@ -41,9 +41,6 @@ func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig
 		return nil, err
 	}
 
-	// Install crash injection hooks AFTER replay so they don't fire during startup recovery.
-	store.FaultHooks = parquet.MakeCrashHooksFromEnv(log)
-
 	return wrapper, nil
 }
 
