@@ -113,11 +113,6 @@ type RouterOptions struct {
 	// consider private and never gossip.
 	PrivatePeers []types.NodeID
 
-	// MaxPeers is the maximum number of peers to track address information about.
-	// When exceeded, unreachable peers will be deleted.
-	// Defaults to 128.
-	MaxPeers utils.Option[int]
-
 	// MaxConnected is the maximum number of connected peers (inbound and outbound).
 	// Persistent and unconditional connections are not counted towards this limit.
 	// Defaults to 64.
@@ -150,10 +145,6 @@ func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) 
 func (o *RouterOptions) maxConns() int   { return o.MaxConnected.Or(64) }
 func (o *RouterOptions) maxOutboundConns() int {
 	return min(o.maxConns(), o.MaxOutboundConnections.Or(10))
-}
-
-func (o *RouterOptions) maxPeers() int {
-	return o.MaxPeers.Or(128)
 }
 
 func (o *RouterOptions) peerStoreInterval() time.Duration {

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"time"
+	"crypto/sha256"
+	"crypto/rand"
+	"encoding/binary"
 	"slices"
 	"cmp"
 
@@ -24,10 +27,6 @@ type poolConfig struct {
 	MaxDials int
 	// Rate at which outbound connections are replaced with connections with higher priority.
 	UpgradeRate rate.Limit
-	// Addresses to dial once at the start.
-	InitialAddrs []NodeAddress
-	// Addresses to dial periodically.
-	BootstrapAddrs []NodeAddress
 }
 
 type pNodeID struct {
@@ -41,8 +40,6 @@ func (a pNodeID) Less(b pNodeID) bool {
 	}
 	return a.NodeID < b.NodeID
 }
-
-func prio(types.NodeID) pNodeID { panic("unimplemented") }
 
 type dialQueueEntry struct {
 	pNodeID
@@ -64,51 +61,26 @@ func (cs *poolInner[C]) Busy(id pNodeID) bool {
 	return false
 }
 
-type pexTable struct {
-	initial []NodeAddress
-	bootstrap []NodeAddress
-	bySender map[types.NodeID][]NodeAddress
-	cleared [][]NodeAddress
-}
-
-func (t *pexTable) Empty() bool {
-	return len(t.initial)==0 && len(t.bootstrap)==0 && len(t.bySender) == 0 && len(t.cleared) == 0
-}
-
-func (t *pexTable) Pop() [][]NodeAddress {
-	// If there are initial addresses, then return just them so that they are prioritized.
-	if len(t.initial)>0 {
-		out := utils.Slice(t.initial)
-		t.initial = nil
-		return out
-	}
-	// Otherwise just aggregate everything
-	out := t.cleared
-	if len(t.bootstrap)>0 {
-		out = append(out,t.bootstrap)
-	}
-	for _,addrs := range t.bySender {
-		out = append(out, addrs)
-	}
-	// Clear the table.
-	*t = pexTable{}
-	return out
-}
-
 type pool[C peerConn] struct {
+	withPriority func(types.NodeID) pNodeID
 	cfg *poolConfig
 	inner utils.Watch[*poolInner[C]]
-	pexAddrs utils.Watch[*pexTable]
 }
 
 func newPool[C peerConn](cfg *poolConfig) *pool[C] {
+	h := sha256.New()
+	var seed [32]byte
+	utils.OrPanic1(rand.Read(seed[:]))
+	utils.OrPanic1(h.Write(seed[:]))
 	return &pool[C]{
 		cfg: cfg,
 		inner: utils.NewWatch(&poolInner[C]{}), 
-		pexAddrs: utils.NewWatch(&pexTable{
-			initial:cfg.InitialAddrs,
-			bootstrap:cfg.BootstrapAddrs,
-		}),
+		withPriority: func(id types.NodeID) pNodeID {
+			return pNodeID{
+				priority: binary.LittleEndian.Uint64(h.Sum([]byte(id)[:8])),
+				NodeID: id,
+			}
+		},
 	}
 }
 
@@ -125,50 +97,30 @@ type peerConn interface {
 	Close()
 }
 
-// Sets pex addresses received from id. 
-func (p *pool[C]) SetPexAddrs(id types.NodeID, addrs []NodeAddress) {
-	for pexAddrs,ctrl := range p.pexAddrs.Lock() {
-		pexAddrs.bySender[id] = addrs
-		ctrl.Updated()
-	}
-}
-
-func (p *pool[C]) ClearPexAddrs(id types.NodeID) {
-	const maxClearedCache = 10
-	for pexAddrs := range p.pexAddrs.Lock() {
-		addrs,ok := pexAddrs.bySender[id]
-		if !ok { return }
-		delete(pexAddrs.bySender,id)
-		if len(pexAddrs.cleared) < maxClearedCache {
-			pexAddrs.cleared = append(pexAddrs.cleared, addrs)
-		}
-	}
-}
-
-func (p *pool[C]) Close(id types.NodeID) {
+func (p *pool[C]) Get(id types.NodeID) []C {
+	var out []C
 	for inner := range p.inner.Lock() {
-		if c, ok := inner.in[id]; ok { c.Close() }
-		if c, ok := inner.out.Get(prio(id)); ok { c.Close() }
+		if conn, ok := inner.in[id]; ok { out = append(out,conn) }
+		if conn, ok := inner.out.Get(p.withPriority(id)); ok { out = append(out,conn) }
 	}
+	return out
 }
 
-func (p *pool[C]) setDialQueue(addrs [][]NodeAddress) {
+func (p *pool[C]) SetDialQueue(addrs []NodeAddress) {
 	// Regroup addresses by ID.
 	byID := map[types.NodeID]map[NodeAddress]struct{}{}
-	for _,addrs := range addrs {
-		for _,addr := range addrs {
-			if _,ok := byID[addr.NodeID]; !ok {
-				byID[addr.NodeID] = map[NodeAddress]struct{}{}
-			}
-			byID[addr.NodeID][addr] = struct{}{}
+	for _,addr := range addrs {
+		if _,ok := byID[addr.NodeID]; !ok {
+			byID[addr.NodeID] = map[NodeAddress]struct{}{}
 		}
+		byID[addr.NodeID][addr] = struct{}{}
 	}
 	// Sort by priority.
 	q := make([]dialQueueEntry,0,len(byID))
 	for id,addrSet := range byID {
 		addrs := make([]NodeAddress,0,len(addrSet))
 		for addr,_ := range addrSet { addrs = append(addrs, addr) }
-		q = append(q,dialQueueEntry{prio(id),addrs})
+		q = append(q,dialQueueEntry{p.withPriority(id),addrs})
 	}
 	slices.SortFunc(q, func(a,b dialQueueEntry) int {
 		return -cmp.Compare(a.priority,b.priority)
@@ -258,7 +210,7 @@ func (p *pool[C]) Connected(conn C) (err error) {
 	for inner,ctrl := range p.inner.Lock() {
 		if info.DialAddr.IsPresent() {
 			delete(inner.dialing,info.ID)
-			if old,ok := inner.out.Set(prio(info.ID),conn); ok { old.Close() }
+			if old,ok := inner.out.Set(p.withPriority(info.ID),conn); ok { old.Close() }
 			for inner.out.Len() > p.cfg.MaxOut {
 				_,lowPrioConn,_ := inner.out.PopMin()
 				lowPrioConn.Close()
@@ -279,7 +231,7 @@ func (p *pool[C]) Connected(conn C) (err error) {
 func (p *pool[C]) Disconnected(conn C) {
 	info := conn.Info()
 	for inner,ctrl := range p.inner.Lock() {
-		pID := prio(info.ID)
+		pID := p.withPriority(info.ID)
 		if old, ok := inner.in[info.ID]; ok && old == conn {
 			old.Close()
 			delete(inner.in,info.ID)
@@ -327,4 +279,16 @@ func (p *pool[C]) Run(ctx context.Context) error {
 	})
 }
 
-
+func (p *pool[C]) State(id types.NodeID) string {
+	for inner := range p.inner.Lock() {
+		if _,ok := inner.dialing[id]; ok {
+			return "dialing"
+		}
+		_,in := inner.in[id]
+		_,out := inner.out.Get(p.withPriority(id))
+		if in || out {
+			return "ready,connected"
+		}
+	}
+	return ""
+}
