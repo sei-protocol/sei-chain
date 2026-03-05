@@ -802,6 +802,11 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.ErrorIs(t, err, errReadOnly)
 	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
+	_, err = ro.(*CommitStore).Importer(1)
+	require.ErrorIs(t, err, errReadOnly)
+
+	_, err = ro.LoadVersion(0, true)
+	require.ErrorIs(t, err, errReadOnly)
 }
 
 func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {

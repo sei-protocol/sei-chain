@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -166,6 +165,9 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
 
 	if readOnly {
+		if s.readOnly {
+			return nil, errReadOnly
+		}
 		return s.loadVersionReadOnly(targetVersion)
 	}
 
@@ -225,8 +227,11 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
 	ro := NewCommitStore(s.ctx, s.dbDir, s.log, s.config)
 
-	ro.readOnlyWorkDir = filepath.Join(ro.flatkvDir(),
-		readOnlyDirPrefix+strconv.FormatInt(time.Now().UnixNano(), 10))
+	workDir, err := os.MkdirTemp("", readOnlyDirPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("create readonly temp dir: %w", err)
+	}
+	ro.readOnlyWorkDir = workDir
 
 	defer func() {
 		if retErr != nil {
@@ -252,20 +257,9 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	dir := s.flatkvDir()
 
-	// Find the best snapshot <= targetVersion without touching the symlink.
-	var snapDir string
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(dir, targetVersion)
-		if err != nil {
-			return fmt.Errorf("seek snapshot for readonly: %w", err)
-		}
-		snapDir = filepath.Join(dir, snapshotName(baseVer))
-	} else {
-		var err error
-		snapDir, _, err = currentSnapshotDir(dir)
-		if err != nil {
-			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
-		}
+	snapDir, err := resolveSnapshotDirReadOnly(dir, targetVersion)
+	if err != nil {
+		return fmt.Errorf("resolve snapshot for readonly: %w", err)
 	}
 
 	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
@@ -431,9 +425,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.codeDB = nil
 			s.storageDB = nil
 			s.legacyDB = nil
-			if changelogRoot != "" {
-				s.changelog = nil
-			}
+			s.changelog = nil
 			s.localMeta = make(map[string]*LocalMeta)
 		}
 	}()
