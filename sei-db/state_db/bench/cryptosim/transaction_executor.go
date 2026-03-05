@@ -3,6 +3,8 @@ package cryptosim
 import (
 	"context"
 	"log"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 type TransactionExecutor struct {
@@ -19,7 +21,7 @@ type TransactionExecutor struct {
 	workChan chan any
 
 	// Used to time the execution of transactions.
-	phaseTimer *PhaseTimer
+	phaseTimer *metrics.PhaseTimer
 }
 
 // A request to flush the transaction executor.
@@ -84,7 +86,7 @@ func (e *TransactionExecutor) mainLoop() {
 			switch request := request.(type) {
 			case *transaction:
 
-				var phaseTimer *PhaseTimer
+				var phaseTimer *metrics.PhaseTimer
 				if request.ShouldCaptureMetrics() {
 					phaseTimer = e.phaseTimer
 				}

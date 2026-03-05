@@ -1,4 +1,4 @@
-package cryptosim
+package metrics
 
 import (
 	"context"
