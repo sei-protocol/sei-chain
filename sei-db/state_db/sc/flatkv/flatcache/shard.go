@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
@@ -70,11 +71,14 @@ func NewShard(readScheduler *readScheduler, maxSize int) (*shard, error) {
 	return &shard{
 		readScheduler: readScheduler,
 		lock:          sync.Mutex{},
+		data:          make(map[string]*shardEntry),
+		gcQueue:       NewLRUQueue(),
+		maxSize:       maxSize,
 	}, nil
 }
 
 // Get returns the value for the given key, or (nil, false) if not found.
-func (s *shard) Get(key []byte) ([]byte, bool) {
+func (s *shard) Get(key []byte) ([]byte, bool, error) {
 	s.lock.Lock()
 
 	entry := s.getEntry(key)
@@ -85,30 +89,39 @@ func (s *shard) Get(key []byte) ([]byte, bool) {
 		value := entry.value
 		s.gcQueue.Touch(key)
 		s.lock.Unlock()
-		return value, true
+		return value, true, nil
 	case statusDeleted:
 		s.gcQueue.Touch(key)
 		s.lock.Unlock()
-		return nil, false
+		return nil, false, nil
 	case statusScheduled:
 		// Another goroutine initiated a read, wait for that read to finish.
 		valueChan := entry.valueChan
 		s.lock.Unlock()
-		value := <-valueChan
+		value, err := utils.InterruptiblePull(s.ctx, valueChan)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+		}
 		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil
+		return value, value != nil, nil
 	case statusUnknown:
 		// We are the first goroutine to read this value.
 		entry.status = statusScheduled
 		valueChan := make(chan []byte, 1)
 		entry.valueChan = valueChan
-		s.readScheduler.ScheduleRead(key, entry)
 		s.lock.Unlock()
-		value := <-valueChan
+		err := s.readScheduler.ScheduleRead(key, entry)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
+		}
+		value, err := utils.InterruptiblePull(s.ctx, valueChan)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+		}
 		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil
+		return value, value != nil, nil
 	default:
-		panic(fmt.Sprintf("unexpected statustatus: %#v", entry.status))
+		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
 	}
 }
 
@@ -116,14 +129,19 @@ func (s *shard) Get(key []byte) ([]byte, bool) {
 func (se *shardEntry) InjectValue(key []byte, value []byte) {
 	se.shard.lock.Lock()
 
-	if value == nil {
-		se.status = statusDeleted
-	} else {
-		se.status = statusAvailable
-		se.value = value
+	if se.status == statusScheduled {
+		// In the time since the read was scheduled, nobody has written to this entry,
+		// so safe to overwrite the value.
+		if value == nil {
+			se.status = statusDeleted
+			se.value = nil
+			se.shard.gcQueue.Push(key, len(key))
+		} else {
+			se.status = statusAvailable
+			se.value = value
+			se.shard.gcQueue.Push(key, len(key)+len(value))
+		}
 	}
-
-	se.shard.gcQueue.Push(key, len(key)+len(value))
 
 	se.shard.lock.Unlock()
 

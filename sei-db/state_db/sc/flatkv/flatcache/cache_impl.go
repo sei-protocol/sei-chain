@@ -3,6 +3,7 @@ package flatcache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
@@ -11,6 +12,8 @@ var _ Cache = (*cache)(nil)
 
 // A standard implementation of a flatcache.
 type cache struct {
+	ctx context.Context
+
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
 
@@ -19,6 +22,9 @@ type cache struct {
 
 	// A scheduler for asyncronous reads.
 	readScheduler *readScheduler
+
+	// The interval at which to run garbage collection.
+	garbageCollectionInterval time.Duration
 }
 
 // Creates a new Cache.
@@ -34,6 +40,8 @@ func NewCache(
 	readWorkerCount int,
 	// The max size of the read queue.
 	readQueueSize int,
+	// The interval at which to run garbage collection.
+	garbageCollectionInterval time.Duration,
 ) (Cache, error) {
 	if shardCount <= 0 || (shardCount&(shardCount-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
@@ -68,45 +76,82 @@ func NewCache(
 		}
 	}
 
-	return &cache{
+	c := &cache{
+		ctx:           ctx,
 		shardManager:  shardManager,
 		shards:        shards,
 		readScheduler: readScheduler,
-	}, nil
+	}
+
+	go c.runGarbageCollection()
+
+	return c, nil
 }
 
-func (f *cache) BatchSet(entries []*proto.KVPair) {
+func (c *cache) BatchSet(entries []*proto.KVPair) {
 
 	// First, sort entries by shard index.
 	// This allows us to set all values in a single shard with only a single lock acquisition.
 	shardMap := make(map[uint64][]*proto.KVPair)
 	for _, entry := range entries {
-		shardMap[f.shardManager.Shard(entry.Key)] = append(shardMap[f.shardManager.Shard(entry.Key)], entry)
+		shardMap[c.shardManager.Shard(entry.Key)] = append(shardMap[c.shardManager.Shard(entry.Key)], entry)
 	}
 
 	// This is probably qutie fast, but if it isn't it can be parallelized.
 	for shardIndex, shardEntries := range shardMap {
-		shard := f.shards[shardIndex]
+		shard := c.shards[shardIndex]
 		shard.BatchSet(shardEntries)
 	}
 }
 
-func (f *cache) Delete(key []byte) {
-	shardIndex := f.shardManager.Shard(key)
-	shard := f.shards[shardIndex]
+func (c *cache) Delete(key []byte) {
+	shardIndex := c.shardManager.Shard(key)
+	shard := c.shards[shardIndex]
 	shard.Delete(key)
 }
 
-func (f *cache) Get(key []byte) ([]byte, bool) {
-	shardIndex := f.shardManager.Shard(key)
-	shard := f.shards[shardIndex]
-	return shard.Get(key)
+func (c *cache) Get(key []byte) ([]byte, bool, error) {
+	shardIndex := c.shardManager.Shard(key)
+	shard := c.shards[shardIndex]
+
+	value, ok, err := shard.Get(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	return value, ok, nil
 }
 
-func (f *cache) Set(key []byte, value []byte) {
-	shardIndex := f.shardManager.Shard(key)
-	shard := f.shards[shardIndex]
+func (c *cache) Set(key []byte, value []byte) {
+	shardIndex := c.shardManager.Shard(key)
+	shard := c.shards[shardIndex]
 	shard.Set(key, value)
+}
+
+// TODO add GC metrics
+
+// Periodically runs garbage collection in the background.
+func (c *cache) runGarbageCollection() {
+
+	// Spread out work evenly across all shards, so that we visit each shard roughly once per interval.
+	gcSubInterval := c.garbageCollectionInterval / time.Duration(len(c.shards))
+	ticker := time.NewTicker(gcSubInterval)
+	defer ticker.Stop()
+
+	nextShardIndex := 0
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			shardIndex := nextShardIndex
+			nextShardIndex = (nextShardIndex + 1) % len(c.shards)
+			c.shards[shardIndex].RunGarbageCollection()
+		}
+	}
 }
 
 // TODO create a warming mechanism
