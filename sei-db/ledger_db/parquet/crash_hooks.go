@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"os"
 
-	dbLogger "github.com/sei-protocol/sei-db/common/logger"
+	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
 // crashProbability is the probability that any given hook invocation triggers
@@ -18,6 +18,10 @@ const crashProbability = 1.0 / 1000.0
 // These hooks are installed only AFTER WAL replay completes on startup, so crash
 // injection never fires during recovery (which would create an infinite restart loop).
 func MakeCrashHooksFromEnv(log dbLogger.Logger) *FaultHooks {
+	if os.Getenv("PARQUET_CRASH_TEST") == "" {
+		return nil
+	}
+
 	if log != nil {
 		log.Info("parquet crash testing enabled: rate=1/1000 hook=\"all\"")
 	}
