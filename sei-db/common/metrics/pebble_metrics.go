@@ -1177,6 +1177,17 @@ func uint64ToInt64Clamped(v uint64) int64 {
 	return int64(v)
 }
 
+// addDelta computes the difference between current and prev, updates prev to current,
+// and adds the positive delta to the counter. Used to convert cumulative scraped
+// values into rate/counter increments.
+func addDelta(ctx context.Context, counter metric.Int64Counter, current int64, prev *int64, opts ...metric.AddOption) {
+	delta := current - *prev
+	*prev = current
+	if delta > 0 {
+		counter.Add(ctx, delta, opts...)
+	}
+}
+
 // recordFromPebble fetches the current metrics from the Pebble DB via Metrics(), then
 // records compaction, flush, level, memtable, WAL, and cache metrics with the configured
 // database name as the "db" attribute.
@@ -1188,11 +1199,8 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	dbAttr := attribute.String("db", pm.databaseName)
 
 	if pm.compactionCount != nil {
-		delta := m.Compact.Count - pm.prevCompactionCount
-		pm.prevCompactionCount = m.Compact.Count
-		if delta > 0 {
-			pm.compactionCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionCount, int64(m.Compact.Count),
+			&pm.prevCompactionCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDuration != nil {
 		pm.compactionDuration.Record(ctx, m.Compact.Duration.Seconds(), metric.WithAttributes(dbAttr))
@@ -1208,102 +1216,60 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.compactionNumInProgress.Record(ctx, m.Compact.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCancelledCount != nil {
-		delta := m.Compact.CancelledCount - pm.prevCompactionCancelledCount
-		pm.prevCompactionCancelledCount = m.Compact.CancelledCount
-		if delta > 0 {
-			pm.compactionCancelledCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionCancelledCount, int64(m.Compact.CancelledCount),
+			&pm.prevCompactionCancelledCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCancelledBytes != nil {
-		delta := m.Compact.CancelledBytes - pm.prevCompactionCancelledBytes
-		pm.prevCompactionCancelledBytes = m.Compact.CancelledBytes
-		if delta > 0 {
-			pm.compactionCancelledBytes.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionCancelledBytes, int64(m.Compact.CancelledBytes),
+			&pm.prevCompactionCancelledBytes, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionFailedCount != nil {
-		delta := m.Compact.FailedCount - pm.prevCompactionFailedCount
-		pm.prevCompactionFailedCount = m.Compact.FailedCount
-		if delta > 0 {
-			pm.compactionFailedCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionFailedCount, int64(m.Compact.FailedCount),
+			&pm.prevCompactionFailedCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDefaultCount != nil {
-		delta := m.Compact.DefaultCount - pm.prevCompactionDefaultCount
-		pm.prevCompactionDefaultCount = m.Compact.DefaultCount
-		if delta > 0 {
-			pm.compactionDefaultCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionDefaultCount, int64(m.Compact.DefaultCount),
+			&pm.prevCompactionDefaultCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDeleteOnlyCount != nil {
-		delta := m.Compact.DeleteOnlyCount - pm.prevCompactionDeleteOnlyCount
-		pm.prevCompactionDeleteOnlyCount = m.Compact.DeleteOnlyCount
-		if delta > 0 {
-			pm.compactionDeleteOnlyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionDeleteOnlyCount, int64(m.Compact.DeleteOnlyCount),
+			&pm.prevCompactionDeleteOnlyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionElisionOnlyCount != nil {
-		delta := m.Compact.ElisionOnlyCount - pm.prevCompactionElisionOnlyCount
-		pm.prevCompactionElisionOnlyCount = m.Compact.ElisionOnlyCount
-		if delta > 0 {
-			pm.compactionElisionOnlyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionElisionOnlyCount, int64(m.Compact.ElisionOnlyCount),
+			&pm.prevCompactionElisionOnlyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCopyCount != nil {
-		delta := m.Compact.CopyCount - pm.prevCompactionCopyCount
-		pm.prevCompactionCopyCount = m.Compact.CopyCount
-		if delta > 0 {
-			pm.compactionCopyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionCopyCount, int64(m.Compact.CopyCount),
+			&pm.prevCompactionCopyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionMoveCount != nil {
-		delta := m.Compact.MoveCount - pm.prevCompactionMoveCount
-		pm.prevCompactionMoveCount = m.Compact.MoveCount
-		if delta > 0 {
-			pm.compactionMoveCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionMoveCount, int64(m.Compact.MoveCount),
+			&pm.prevCompactionMoveCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionReadCount != nil {
-		delta := m.Compact.ReadCount - pm.prevCompactionReadCount
-		pm.prevCompactionReadCount = m.Compact.ReadCount
-		if delta > 0 {
-			pm.compactionReadCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionReadCount, int64(m.Compact.ReadCount),
+			&pm.prevCompactionReadCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionTombstoneDensityCount != nil {
-		delta := m.Compact.TombstoneDensityCount - pm.prevCompactionTombstoneDensityCount
-		pm.prevCompactionTombstoneDensityCount = m.Compact.TombstoneDensityCount
-		if delta > 0 {
-			pm.compactionTombstoneDensityCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionTombstoneDensityCount, int64(m.Compact.TombstoneDensityCount),
+			&pm.prevCompactionTombstoneDensityCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionRewriteCount != nil {
-		delta := m.Compact.RewriteCount - pm.prevCompactionRewriteCount
-		pm.prevCompactionRewriteCount = m.Compact.RewriteCount
-		if delta > 0 {
-			pm.compactionRewriteCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionRewriteCount, int64(m.Compact.RewriteCount),
+			&pm.prevCompactionRewriteCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionMultiLevelCount != nil {
-		delta := m.Compact.MultiLevelCount - pm.prevCompactionMultiLevelCount
-		pm.prevCompactionMultiLevelCount = m.Compact.MultiLevelCount
-		if delta > 0 {
-			pm.compactionMultiLevelCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionMultiLevelCount, int64(m.Compact.MultiLevelCount),
+			&pm.prevCompactionMultiLevelCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionBlobFileRewriteCount != nil {
-		delta := m.Compact.BlobFileRewriteCount - pm.prevCompactionBlobFileRewriteCount
-		pm.prevCompactionBlobFileRewriteCount = m.Compact.BlobFileRewriteCount
-		if delta > 0 {
-			pm.compactionBlobFileRewriteCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionBlobFileRewriteCount, int64(m.Compact.BlobFileRewriteCount),
+			&pm.prevCompactionBlobFileRewriteCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCounterLevelCount != nil {
-		delta := m.Compact.CounterLevelCount - pm.prevCompactionCounterLevelCount
-		pm.prevCompactionCounterLevelCount = m.Compact.CounterLevelCount
-		if delta > 0 {
-			pm.compactionCounterLevelCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.compactionCounterLevelCount, int64(m.Compact.CounterLevelCount),
+			&pm.prevCompactionCounterLevelCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionNumProblemSpans != nil {
 		pm.compactionNumProblemSpans.Record(ctx, int64(m.Compact.NumProblemSpans), metric.WithAttributes(dbAttr))
@@ -1313,58 +1279,35 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.ingestCount != nil {
-		curr := uint64ToInt64Clamped(m.Ingest.Count)
-		delta := curr - pm.prevIngestCount
-		pm.prevIngestCount = curr
-		if delta > 0 {
-			pm.ingestCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.ingestCount, uint64ToInt64Clamped(m.Ingest.Count),
+			&pm.prevIngestCount, metric.WithAttributes(dbAttr))
 	}
 
 	if pm.flushCount != nil {
-		delta := m.Flush.Count - pm.prevFlushCount
-		pm.prevFlushCount = m.Flush.Count
-		if delta > 0 {
-			pm.flushCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.flushCount, int64(m.Flush.Count), &pm.prevFlushCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushDuration != nil {
 		pm.flushDuration.Record(ctx,
 			m.Flush.WriteThroughput.WorkDuration.Seconds(), metric.WithAttributes(dbAttr))
 	}
 	if pm.flushBytesWritten != nil {
-		delta := m.Flush.WriteThroughput.Bytes - pm.prevFlushBytesWritten
-		pm.prevFlushBytesWritten = m.Flush.WriteThroughput.Bytes
-		if delta > 0 {
-			pm.flushBytesWritten.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.flushBytesWritten, int64(m.Flush.WriteThroughput.Bytes),
+			&pm.prevFlushBytesWritten, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushNumInProgress != nil {
 		pm.flushNumInProgress.Record(ctx, m.Flush.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestCount != nil {
-		curr := uint64ToInt64Clamped(m.Flush.AsIngestCount)
-		delta := curr - pm.prevFlushAsIngestCount
-		pm.prevFlushAsIngestCount = curr
-		if delta > 0 {
-			pm.flushAsIngestCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.flushAsIngestCount, uint64ToInt64Clamped(m.Flush.AsIngestCount),
+			&pm.prevFlushAsIngestCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestTableCount != nil {
-		curr := uint64ToInt64Clamped(m.Flush.AsIngestTableCount)
-		delta := curr - pm.prevFlushAsIngestTableCount
-		pm.prevFlushAsIngestTableCount = curr
-		if delta > 0 {
-			pm.flushAsIngestTableCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.flushAsIngestTableCount, uint64ToInt64Clamped(m.Flush.AsIngestTableCount),
+			&pm.prevFlushAsIngestTableCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestBytes != nil {
-		curr := uint64ToInt64Clamped(m.Flush.AsIngestBytes)
-		delta := curr - pm.prevFlushAsIngestBytes
-		pm.prevFlushAsIngestBytes = curr
-		if delta > 0 {
-			pm.flushAsIngestBytes.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.flushAsIngestBytes, uint64ToInt64Clamped(m.Flush.AsIngestBytes),
+			&pm.prevFlushAsIngestBytes, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushIdleDuration != nil {
 		pm.flushIdleDuration.Record(ctx,
@@ -1372,18 +1315,10 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.filterHits != nil {
-		delta := m.Filter.Hits - pm.prevFilterHits
-		pm.prevFilterHits = m.Filter.Hits
-		if delta > 0 {
-			pm.filterHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.filterHits, int64(m.Filter.Hits), &pm.prevFilterHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.filterMisses != nil {
-		delta := m.Filter.Misses - pm.prevFilterMisses
-		pm.prevFilterMisses = m.Filter.Misses
-		if delta > 0 {
-			pm.filterMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.filterMisses, int64(m.Filter.Misses), &pm.prevFilterMisses, metric.WithAttributes(dbAttr))
 	}
 
 	for level := 0; level < len(m.Levels); level++ {
@@ -1437,84 +1372,44 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableVirtualSize.Record(ctx, uint64ToInt64Clamped(lm.VirtualTablesSize), attrs)
 		}
 		if pm.compactionBytesRead != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesIn)
-			delta := curr - pm.prevCompactionBytesReadByLevel[level]
-			pm.prevCompactionBytesReadByLevel[level] = curr
-			if delta > 0 {
-				pm.compactionBytesRead.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.compactionBytesRead, uint64ToInt64Clamped(lm.TableBytesIn),
+				&pm.prevCompactionBytesReadByLevel[level], attrs)
 		}
 		if pm.compactionBytesWritten != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesCompacted)
-			delta := curr - pm.prevCompactionBytesWrittenByLevel[level]
-			pm.prevCompactionBytesWrittenByLevel[level] = curr
-			if delta > 0 {
-				pm.compactionBytesWritten.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.compactionBytesWritten, uint64ToInt64Clamped(lm.TableBytesCompacted),
+				&pm.prevCompactionBytesWrittenByLevel[level], attrs)
 		}
 		if pm.sstableBytesIngested != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesIngested)
-			delta := curr - pm.prevSstableBytesIngestedByLevel[level]
-			pm.prevSstableBytesIngestedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesIngested.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesIngested, uint64ToInt64Clamped(lm.TableBytesIngested),
+				&pm.prevSstableBytesIngestedByLevel[level], attrs)
 		}
 		if pm.sstableBytesMoved != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesMoved)
-			delta := curr - pm.prevSstableBytesMovedByLevel[level]
-			pm.prevSstableBytesMovedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesMoved.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesMoved, uint64ToInt64Clamped(lm.TableBytesMoved),
+				&pm.prevSstableBytesMovedByLevel[level], attrs)
 		}
 		if pm.sstableBytesRead != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesRead)
-			delta := curr - pm.prevSstableBytesReadByLevel[level]
-			pm.prevSstableBytesReadByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesRead.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesRead, uint64ToInt64Clamped(lm.TableBytesRead),
+				&pm.prevSstableBytesReadByLevel[level], attrs)
 		}
 		if pm.sstableBytesFlushed != nil {
-			curr := uint64ToInt64Clamped(lm.TableBytesFlushed)
-			delta := curr - pm.prevSstableBytesFlushedByLevel[level]
-			pm.prevSstableBytesFlushedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesFlushed.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesFlushed, uint64ToInt64Clamped(lm.TableBytesFlushed),
+				&pm.prevSstableBytesFlushedByLevel[level], attrs)
 		}
 		if pm.sstableTablesCompacted != nil {
-			curr := uint64ToInt64Clamped(lm.TablesCompacted)
-			delta := curr - pm.prevSstableTablesCompactedByLevel[level]
-			pm.prevSstableTablesCompactedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesCompacted.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesCompacted, uint64ToInt64Clamped(lm.TablesCompacted),
+				&pm.prevSstableTablesCompactedByLevel[level], attrs)
 		}
 		if pm.sstableTablesFlushed != nil {
-			curr := uint64ToInt64Clamped(lm.TablesFlushed)
-			delta := curr - pm.prevSstableTablesFlushedByLevel[level]
-			pm.prevSstableTablesFlushedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesFlushed.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesFlushed, uint64ToInt64Clamped(lm.TablesFlushed),
+				&pm.prevSstableTablesFlushedByLevel[level], attrs)
 		}
 		if pm.sstableTablesIngested != nil {
-			curr := uint64ToInt64Clamped(lm.TablesIngested)
-			delta := curr - pm.prevSstableTablesIngestedByLevel[level]
-			pm.prevSstableTablesIngestedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesIngested.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesIngested, uint64ToInt64Clamped(lm.TablesIngested),
+				&pm.prevSstableTablesIngestedByLevel[level], attrs)
 		}
 		if pm.sstableTablesMoved != nil {
-			curr := uint64ToInt64Clamped(lm.TablesMoved)
-			delta := curr - pm.prevSstableTablesMovedByLevel[level]
-			pm.prevSstableTablesMovedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesMoved.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesMoved, uint64ToInt64Clamped(lm.TablesMoved),
+				&pm.prevSstableTablesMovedByLevel[level], attrs)
 		}
 		if pm.sstableCompensatedFillFactor != nil {
 			pm.sstableCompensatedFillFactor.Record(ctx, lm.CompensatedFillFactor, attrs)
@@ -1523,87 +1418,49 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableEstimatedReferencesSize.Record(ctx, uint64ToInt64Clamped(lm.EstimatedReferencesSize), attrs)
 		}
 		if pm.sstableTablesDeleted != nil {
-			curr := uint64ToInt64Clamped(lm.TablesDeleted)
-			delta := curr - pm.prevSstableTablesDeletedByLevel[level]
-			pm.prevSstableTablesDeletedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesDeleted.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesDeleted, uint64ToInt64Clamped(lm.TablesDeleted),
+				&pm.prevSstableTablesDeletedByLevel[level], attrs)
 		}
 		if pm.sstableTablesExcised != nil {
-			curr := uint64ToInt64Clamped(lm.TablesExcised)
-			delta := curr - pm.prevSstableTablesExcisedByLevel[level]
-			pm.prevSstableTablesExcisedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableTablesExcised.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableTablesExcised, uint64ToInt64Clamped(lm.TablesExcised),
+				&pm.prevSstableTablesExcisedByLevel[level], attrs)
 		}
 		if pm.sstableBlobBytesReadEstimate != nil {
-			curr := uint64ToInt64Clamped(lm.BlobBytesReadEstimate)
-			delta := curr - pm.prevSstableBlobBytesReadEstimateByLevel[level]
-			pm.prevSstableBlobBytesReadEstimateByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBlobBytesReadEstimate.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBlobBytesReadEstimate, uint64ToInt64Clamped(lm.BlobBytesReadEstimate),
+				&pm.prevSstableBlobBytesReadEstimateByLevel[level], attrs)
 		}
 		if pm.sstableBlobBytesCompacted != nil {
-			curr := uint64ToInt64Clamped(lm.BlobBytesCompacted)
-			delta := curr - pm.prevSstableBlobBytesCompactedByLevel[level]
-			pm.prevSstableBlobBytesCompactedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBlobBytesCompacted.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBlobBytesCompacted, uint64ToInt64Clamped(lm.BlobBytesCompacted),
+				&pm.prevSstableBlobBytesCompactedByLevel[level], attrs)
 		}
 		if pm.sstableBlobBytesFlushed != nil {
-			curr := uint64ToInt64Clamped(lm.BlobBytesFlushed)
-			delta := curr - pm.prevSstableBlobBytesFlushedByLevel[level]
-			pm.prevSstableBlobBytesFlushedByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBlobBytesFlushed.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBlobBytesFlushed, uint64ToInt64Clamped(lm.BlobBytesFlushed),
+				&pm.prevSstableBlobBytesFlushedByLevel[level], attrs)
 		}
 		if pm.sstableMultiLevelBytesInTop != nil {
-			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesInTop)
-			delta := curr - pm.prevSstableMultiLevelBytesInTopByLevel[level]
-			pm.prevSstableMultiLevelBytesInTopByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableMultiLevelBytesInTop.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableMultiLevelBytesInTop, uint64ToInt64Clamped(lm.MultiLevel.TableBytesInTop),
+				&pm.prevSstableMultiLevelBytesInTopByLevel[level], attrs)
 		}
 		if pm.sstableMultiLevelBytesIn != nil {
-			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesIn)
-			delta := curr - pm.prevSstableMultiLevelBytesInByLevel[level]
-			pm.prevSstableMultiLevelBytesInByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableMultiLevelBytesIn.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableMultiLevelBytesIn, uint64ToInt64Clamped(lm.MultiLevel.TableBytesIn),
+				&pm.prevSstableMultiLevelBytesInByLevel[level], attrs)
 		}
 		if pm.sstableMultiLevelBytesRead != nil {
-			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesRead)
-			delta := curr - pm.prevSstableMultiLevelBytesReadByLevel[level]
-			pm.prevSstableMultiLevelBytesReadByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableMultiLevelBytesRead.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableMultiLevelBytesRead, uint64ToInt64Clamped(lm.MultiLevel.TableBytesRead),
+				&pm.prevSstableMultiLevelBytesReadByLevel[level], attrs)
 		}
 		if pm.sstableValueBlocksSize != nil {
 			pm.sstableValueBlocksSize.Record(ctx, uint64ToInt64Clamped(lm.Additional.ValueBlocksSize), attrs)
 		}
 		if pm.sstableBytesWrittenDataBlocks != nil {
-			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks)
-			delta := curr - pm.prevSstableBytesWrittenDataBlocksByLevel[level]
-			pm.prevSstableBytesWrittenDataBlocksByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesWrittenDataBlocks.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesWrittenDataBlocks,
+				uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks),
+				&pm.prevSstableBytesWrittenDataBlocksByLevel[level], attrs)
 		}
 		if pm.sstableBytesWrittenValueBlocks != nil {
-			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenValueBlocks)
-			delta := curr - pm.prevSstableBytesWrittenValueBlocksByLevel[level]
-			pm.prevSstableBytesWrittenValueBlocksByLevel[level] = curr
-			if delta > 0 {
-				pm.sstableBytesWrittenValueBlocks.Add(ctx, delta, attrs)
-			}
+			addDelta(ctx, pm.sstableBytesWrittenValueBlocks,
+				uint64ToInt64Clamped(lm.Additional.BytesWrittenValueBlocks),
+				&pm.prevSstableBytesWrittenValueBlocksByLevel[level], attrs)
 		}
 	}
 
@@ -1638,20 +1495,12 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.walPhysicalSize.Record(ctx, uint64ToInt64Clamped(m.WAL.PhysicalSize), metric.WithAttributes(dbAttr))
 	}
 	if pm.walBytesIn != nil {
-		curr := uint64ToInt64Clamped(m.WAL.BytesIn)
-		delta := curr - pm.prevWalBytesIn
-		pm.prevWalBytesIn = curr
-		if delta > 0 {
-			pm.walBytesIn.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.walBytesIn,
+			uint64ToInt64Clamped(m.WAL.BytesIn), &pm.prevWalBytesIn, metric.WithAttributes(dbAttr))
 	}
 	if pm.walBytesWritten != nil {
-		curr := uint64ToInt64Clamped(m.WAL.BytesWritten)
-		delta := curr - pm.prevWalBytesWritten
-		pm.prevWalBytesWritten = curr
-		if delta > 0 {
-			pm.walBytesWritten.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.walBytesWritten, uint64ToInt64Clamped(m.WAL.BytesWritten),
+			&pm.prevWalBytesWritten, metric.WithAttributes(dbAttr))
 	}
 
 	if pm.tableObsoleteSize != nil {
@@ -1795,25 +1644,15 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.fileCacheBlobFileCount.Record(ctx, m.FileCache.BlobFileCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.fileCacheHits != nil {
-		delta := m.FileCache.Hits - pm.prevFileCacheHits
-		pm.prevFileCacheHits = m.FileCache.Hits
-		if delta > 0 {
-			pm.fileCacheHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.fileCacheHits, int64(m.FileCache.Hits), &pm.prevFileCacheHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.fileCacheMisses != nil {
-		delta := m.FileCache.Misses - pm.prevFileCacheMisses
-		pm.prevFileCacheMisses = m.FileCache.Misses
-		if delta > 0 {
-			pm.fileCacheMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.fileCacheMisses,
+			int64(m.FileCache.Misses), &pm.prevFileCacheMisses, metric.WithAttributes(dbAttr))
 	}
 	if pm.walFailoverDirSwitchCount != nil {
-		delta := m.WAL.Failover.DirSwitchCount - pm.prevWalFailoverDirSwitchCount
-		pm.prevWalFailoverDirSwitchCount = m.WAL.Failover.DirSwitchCount
-		if delta > 0 {
-			pm.walFailoverDirSwitchCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.walFailoverDirSwitchCount, int64(m.WAL.Failover.DirSwitchCount),
+			&pm.prevWalFailoverDirSwitchCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.walFailoverPrimaryDuration != nil {
 		pm.walFailoverPrimaryDuration.Record(ctx,
@@ -1846,32 +1685,20 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			uint64ToInt64Clamped(m.Keys.TombstoneCount), metric.WithAttributes(dbAttr))
 	}
 	if pm.keysMissizedTombstonesCount != nil {
-		curr := uint64ToInt64Clamped(m.Keys.MissizedTombstonesCount)
-		delta := curr - pm.prevKeysMissizedTombstonesCount
-		pm.prevKeysMissizedTombstonesCount = curr
-		if delta > 0 {
-			pm.keysMissizedTombstonesCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.keysMissizedTombstonesCount, uint64ToInt64Clamped(m.Keys.MissizedTombstonesCount),
+			&pm.prevKeysMissizedTombstonesCount, metric.WithAttributes(dbAttr))
 	}
 
 	if pm.snapshotCount != nil {
 		pm.snapshotCount.Record(ctx, int64(m.Snapshots.Count), metric.WithAttributes(dbAttr))
 	}
 	if pm.snapshotPinnedKeys != nil {
-		curr := uint64ToInt64Clamped(m.Snapshots.PinnedKeys)
-		delta := curr - pm.prevSnapshotPinnedKeys
-		pm.prevSnapshotPinnedKeys = curr
-		if delta > 0 {
-			pm.snapshotPinnedKeys.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.snapshotPinnedKeys, uint64ToInt64Clamped(m.Snapshots.PinnedKeys),
+			&pm.prevSnapshotPinnedKeys, metric.WithAttributes(dbAttr))
 	}
 	if pm.snapshotPinnedSize != nil {
-		curr := uint64ToInt64Clamped(m.Snapshots.PinnedSize)
-		delta := curr - pm.prevSnapshotPinnedSize
-		pm.prevSnapshotPinnedSize = curr
-		if delta > 0 {
-			pm.snapshotPinnedSize.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.snapshotPinnedSize, uint64ToInt64Clamped(m.Snapshots.PinnedSize),
+			&pm.prevSnapshotPinnedSize, metric.WithAttributes(dbAttr))
 	}
 	if pm.snapshotEarliestSeqNum != nil {
 		pm.snapshotEarliestSeqNum.Record(ctx,
@@ -1892,18 +1719,10 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.cacheHits != nil {
-		delta := m.BlockCache.Hits - pm.prevCacheHits
-		pm.prevCacheHits = m.BlockCache.Hits
-		if delta > 0 {
-			pm.cacheHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.cacheHits, int64(m.BlockCache.Hits), &pm.prevCacheHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.cacheMisses != nil {
-		delta := m.BlockCache.Misses - pm.prevCacheMisses
-		pm.prevCacheMisses = m.BlockCache.Misses
-		if delta > 0 {
-			pm.cacheMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
-		}
+		addDelta(ctx, pm.cacheMisses, int64(m.BlockCache.Misses), &pm.prevCacheMisses, metric.WithAttributes(dbAttr))
 	}
 	if pm.cacheSize != nil {
 		pm.cacheSize.Record(ctx, m.BlockCache.Size, metric.WithAttributes(dbAttr))
