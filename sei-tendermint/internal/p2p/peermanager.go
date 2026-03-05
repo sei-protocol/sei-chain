@@ -14,13 +14,11 @@ import (
 type connSet[C peerConn] = im.Map[types.NodeID, C]
 
 type peerManagerInner[C peerConn] struct {
-	options      *RouterOptions
-	isPersistent map[types.NodeID]bool
+	
 	// sum of regular and persistent connection sets.
 	conns utils.AtomicSend[connSet[C]]
 
-	regular    *pool[C]
-	persistent *pool[C]
+	
 }
 
 var errPersistentPeerAddr = errors.New("cannot add a persistent peer address to the regular address pool")
@@ -109,10 +107,10 @@ type peerManager[C peerConn] struct {
 	options         *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	isPrivate       map[types.NodeID]bool
-	// Receiver of the inner.conns. It is copyable and allows accessing connections
-	// without taking lock on inner.
-	conns utils.AtomicRecv[connSet[C]]
-	inner utils.Watch[*peerManagerInner[C]]
+	isPersistent    map[types.NodeID]bool
+	conns           utils.Mutex[utils.AtomicSend[connSet[C]]]
+	regular         *pool[C]
+	persistent      *pool[C]
 }
 
 func (p *peerManager[C]) LogState() {

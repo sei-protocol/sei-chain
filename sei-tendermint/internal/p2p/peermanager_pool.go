@@ -3,71 +3,88 @@ package p2p
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
+	"slices"
+	"cmp"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/ordered"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"golang.org/x/time/rate"
 )
-
-// None = -inf (i.e. beginning of time)
-func before(a, b utils.Option[time.Time]) bool {
-	bt, ok := b.Get()
-	if !ok {
-		return false
-	}
-	at, ok := a.Get()
-	if !ok {
-		return true
-	}
-	return at.Before(bt)
-}
 
 type poolConfig struct {
 	selfID types.NodeID
-	maxOut utils.Option[int]
-	maxIn  utils.Option[int]
-	minLifetime time.Duration
-	bootstrapAddrs []pNodeAddress
+	// Maximal number of inbound connections.
+	maxIn  int
+	// Maximal number of outbound connections. 
+	maxOut int
+	// Maximal number of concurrent dials.
+	maxDials int
+	// Rate at which peers are dialed when when we have less than maxOut connections.
+	dialRate rate.Limit
+	// Rate at which outbound connections are replaced with connections with higher priority.
+	upgradeRate rate.Limit
+	// Addresses to dial once at the start.
+	initialAddrs []NodeAddress
+	// Addresses to dial periodically.
+	bootstrapAddrs []NodeAddress
 }
 
-type poolDial struct {
-	connectedAt utils.Option[time.Time]
+type pNodeID struct {
+	priority uint64
+	types.NodeID
+}
+
+func (a pNodeID) Less(b pNodeID) bool {
+	if a.priority!=b.priority {
+		return a.priority<b.priority
+	}
+	return a.NodeID < b.NodeID
+}
+
+func prio(types.NodeID) pNodeID { panic("unimplemented") }
+
+type dialQueueEntry struct {
+	pNodeID
+	addrs []NodeAddress
 }
 
 type poolConns[C peerConn] struct {
-	conns map[pNodeID]C
-	dial ordered.Map[pNodeID,*poolDial]
+	in map[types.NodeID]C
+	out ordered.Map[pNodeID,C]
+	dialing map[types.NodeID]struct{}
+	dialQueue []dialQueueEntry
+	upgradePermit bool
 }
 
 func (cs *poolConns[C]) Busy(id pNodeID) bool {
-	if _,ok := cs.conns[id]; ok { return true }
-	if _,ok := cs.dial.Get(id); ok { return true }
+	if _,ok := cs.in[id.NodeID]; ok { return true }
+	if _,ok := cs.out.Get(id); ok { return true }
+	if _,ok := cs.dialing[id.NodeID]; ok { return true }
 	return false
 }
+type pexTable = map[types.NodeID][]NodeAddress
 
 type pool[C peerConn] struct {
 	poolConfig
-	// TODO: include bootstrapAddrs in makeDialQueue()
-	// TODO: rename to regularConns
-	// TODO: add persistentConns
 	conns utils.Watch[*poolConns[C]]
-	
-	pexAddrs utils.Watch[ordered.Map[pNodeID,[]pNodeAddress]]
-	dialQueue utils.Watch[*[][]pNodeAddress]
+	pexAddrs utils.Watch[*pexTable]
 }
 
 func newPool[C peerConn](cfg poolConfig) *pool[C] {
-	return &pool[C]{
+	p := &pool[C]{
 		poolConfig: cfg,
 		conns: utils.NewWatch(&poolConns[C]{}), 
+		pexAddrs: utils.NewWatch(&pexTable{}),
 	}
+	p.setDialQueue(pexTable{ cfg.selfID: cfg.initialAddrs })
+	return p
 }
 
 type peerConnInfo struct {
-	ID       pNodeID
+	ID       types.NodeID
 	Channels ChannelIDSet
 	DialAddr utils.Option[NodeAddress]
 	SelfAddr utils.Option[NodeAddress]
@@ -80,108 +97,118 @@ type peerConn interface {
 }
 
 // Pushes pex addresses received from id. 
-func (p *pool[C]) PushPexAddrs(id pNodeID, addrs []pNodeAddress) {
+func (p *pool[C]) PushPexAddrs(id types.NodeID, addrs []NodeAddress) {
 	for pexAddrs,ctrl := range p.pexAddrs.Lock() {
-		pexAddrs.Set(id,addrs)
-		if m,ok := p.maxConns.Get(); ok && pexAddrs.Len()>m {
-			pexAddrs.PopMax()	
-		}
+		(*pexAddrs)[id] = addrs
+		// TODO: we only keep data for existing connections,
+		// the question is how we shall prune pexAddrs for disconnected peers
+		// to prevent exponential blowup of pexAddrs size.
+		// - inbound conn pexAddrs should be pruned immediately - we didn't ask for it.
+		// - outbound conn pexAddrs can be pruned when a new dial occurs. 
 		ctrl.Updated()
 	}
 }
 
-func (p *pool[C]) Evict(id pNodeID) {
+
+func (p *pool[C]) Evict(id types.NodeID) {
 	for conns := range p.conns.Lock() {
-		if c, ok := conns.conns[id]; ok {
-			c.Close()
-		}
+		if c, ok := conns.in[id]; ok { c.Close() }
+		if c, ok := conns.out.Get(prio(id)); ok { c.Close() }
 	}
 }
 
-// TODO: out.GetAt(m)<priority => dial
-func (p *pool[C]) SetDialing(id pNodeID) bool {
-	maxOutbound := p.getMaxOutbound()
-	if maxOutbound==utils.Some(0) { return false }
-	// Try to set dialing status.
-	for conns,ctrl := range p.conns.Lock() {
-		if conns.Busy(id) {
-			return false
-		}
-		if m,ok := maxOutbound.Get(); ok {
-			if oldID,oldDial,ok := conns.dial.GetAt(int(m-1)); ok {
-				if oldID.priority <= id.priority {
-					return false
-				}
-				if t,ok := oldDial.connectedAt.Get(); !ok || t.Add(p.minLifetime).After(time.Now()) {
-					return false
-				}
+func (p *pool[C]) setDialQueue(addrsBySender pexTable) {
+	// Regroup addresses by ID.
+	addrsByID := map[types.NodeID]map[NodeAddress]struct{}{}
+	for _,addrs := range addrsBySender {
+		for _,addr := range addrs {
+			if _,ok := addrsByID[addr.NodeID]; !ok {
+				addrsByID[addr.NodeID] = map[NodeAddress]struct{}{}
 			}
+			addrsByID[addr.NodeID][addr] = struct{}{}
 		}
-		conns.dial.Set(id,&poolDial{})
+	}
+	// Sort by priority.
+	q := make([]dialQueueEntry,0,len(addrsByID))
+	for id,addrSet := range addrsByID {
+		addrs := make([]NodeAddress,0,len(addrSet))
+		for addr,_ := range addrSet { addrs = append(addrs, addr) }
+		q = append(q,dialQueueEntry{prio(id),addrs})
+	}
+	slices.SortFunc(q, func(a,b dialQueueEntry) int {
+		return -cmp.Compare(a.priority,b.priority)
+	})
+	// Set the queue.
+	for conns,ctrl := range p.conns.Lock() {
+		conns.dialQueue = q
 		ctrl.Updated()
 	}
-	return true	
 }
 
-func (p *pool[C]) Run(ctx context.Context, initialQueue []pNodeAddress) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if len(p.bootstrapAddrs)>0 {
-			s.Spawn(func() error {
-				const bootstrapInterval = 10 * time.Second
-				for {
-					for pexAddrs,ctrl := range p.pexAddrs.Lock() {
-						// We use selfID as a placeholder to keep bootstrapAddrs and initialQueue.
-						// This is not very elegant.
-						pexAddrs.Set(pNodeID{priority:0,NodeID:p.selfID},p.bootstrapAddrs)
-						ctrl.Updated()
-					}
-					if err:=utils.Sleep(ctx,bootstrapInterval); err!=nil {
-						return err
-					}
-				}
-			})
+func (conns *poolConns[C]) TryStartDial(p *pool[C]) ([]NodeAddress,bool) {
+	switch {
+	case p.maxOut==0 || len(conns.dialing) < p.maxDials: return nil,false
+	case conns.out.Len()+len(conns.dialing)<p.maxOut: // Try to find address to dial.
+	case conns.upgradePermit && conns.out.Len()==p.maxOut: // Try to find address to upgrade.
+	default: return nil,false
+	}
+	// Drop already-connected peers from the queue.
+	for len(conns.dialQueue)>0 && conns.Busy(conns.dialQueue[0].pNodeID) {
+		conns.dialQueue = conns.dialQueue[1:]
+	}
+	if len(conns.dialQueue)==0 {
+		return nil,false
+	}
+	// Check if the highest prio peer from the queue can be dialed.
+	e := conns.dialQueue[0]
+	conns.dialQueue = conns.dialQueue[1:]
+	if id,_,ok := conns.out.GetAt(p.maxOut-1); ok {
+		if id.priority >= e.priority {
+			conns.dialQueue = nil
+			return nil,false
 		}
-		
-		q := map[types.NodeID][]pNodeAddress{}
-		for _,addr := range initialQueue {
-			id := addr.NodeID
-			q[id] = append(q[id],addr)
-		}
-		for {
-			// TODO: sort q by piority
-			for dialQueue,ctrl := range p.dialQueue.Lock() {
-				// Fill the queue
-				*dialQueue = q
-				ctrl.Updated()
-				// Wait for it to be emptied.
-				if err:=ctrl.WaitUntil(ctx,func() bool { return len(*dialQueue)==0 }); err!=nil { return err }
-			}
+		conns.upgradePermit = false
+	}
+	// Set as dialing.
+	conns.dialing[e.NodeID] = struct{}{}
+	return e.addrs,true
+}
 
-			// Repopulate the queue.
-			clear(q)
-			for pexAddrs,ctrl := range p.pexAddrs.Lock() {
-				if err:=ctrl.WaitUntil(ctx,func() bool { return pexAddrs.Len()>0 }); err!=nil {
-					return err
+func (p *pool[C]) StartDial(ctx context.Context) ([]NodeAddress,error) {
+	for {
+		// Try to start dial until success, or until queue is empty.
+		for conns,ctrl := range p.conns.Lock() {
+			for {
+				addrs,ok := conns.TryStartDial(p)
+				if ok {
+					ctrl.Updated()
+					return addrs,nil
 				}
-				for _,addrs := range pexAddrs.All() {
-					for _,addr := range addrs {
-						id := addr.NodeID 
-						q[id] = append(q[id],addr)
-					}
+				if len(conns.dialQueue)==0 { break }
+				if err:=ctrl.Wait(ctx); err!=nil {
+					return nil,err
 				}
-				pexAddrs.Clear()
 			}
 		}
-	})
+		// Refill the queue.
+		// TODO(gprusak): wrap the whole call into an async mutex, so that there is no race condition on refilling the queue.
+		addrsBySender := map[types.NodeID][]NodeAddress{}
+		for pexAddrs,ctrl := range p.pexAddrs.Lock() {
+			if err:=ctrl.WaitUntil(ctx,func() bool { return len(*pexAddrs)>0 }); err!=nil {
+				return nil, err
+			}
+			// TODO(gprusak): trim pexAddrs to maxIn+maxOut 
+			addrsBySender,*pexAddrs = addrsBySender,*pexAddrs
+		}
+		p.setDialQueue(addrsBySender)
+	}
 }
 
-func getOpt[K comparable, V any](m map[K]V,k K) utils.Option[V] {
-	if v,ok := m[k]; ok { return utils.Some(v) }
-	return utils.None[V]()
-}
-
-func (p *pool[C]) StartDial(ctx context.Context) ([]pNodeAddress, error) {
-	return utils.Recv(ctx,p.dialQueue)
+func (p *pool[C]) DialFailed(id types.NodeID) {
+	for conns,ctrl := range p.conns.Lock() {
+		delete(conns.dialing,id)
+		ctrl.Updated()
+	}
 }
 
 func (p *pool[C]) Connected(conn C) (err error) {
@@ -191,51 +218,90 @@ func (p *pool[C]) Connected(conn C) (err error) {
 		}
 	}()
 	info := conn.Info()
-	if info.ID.NodeID == p.selfID {
+	if info.ID == p.selfID {
 		return errors.New("connection to self")
 	}
-	for conns := range p.conns.Lock() {
-		_,newIsOutbound := info.DialAddr.Get()
-		if newIsOutbound {
-			dial,ok := conns.dial.Get(info.ID)
-			if !ok {
-				return fmt.Errorf("unexpected outbound connection")
+	for conns,ctrl := range p.conns.Lock() {
+		_,out := info.DialAddr.Get()
+		if out {
+			delete(conns.dialing,info.ID)
+			if old,ok := conns.out.Set(prio(info.ID),conn); ok { old.Close() }
+			for conns.out.Len() > p.maxOut {
+				_,lowPrioConn,_ := conns.out.PopMin()
+				lowPrioConn.Close()
 			}
-			dial.connectedAt = utils.Some(time.Now())
-		}
-		// If there is already a connection, then it is inbound.
-		if old,ok := conns.conns[info.ID]; ok {
-			// * allow to override connections in the same direction.
-			// * inbound priority > outbound priority <=> peerID > selfID.
-			//   This resolves the situation when peers try to connect to each other
-			//   at the same time.
-			_,oldIsOutbound := conns.dial.Get(info.ID)
-			if oldIsOutbound != newIsOutbound && (info.ID.NodeID < p.selfID) != newIsOutbound {
-				return fmt.Errorf("duplicate connection from peer %q", info.ID)
-			}
-			old.Close()
-			conns.conns[info.ID] = conn
-			if newIsOutbound {
-				conns.dial.Delete(info.ID)
-			}
+			ctrl.Updated()
 			return nil
 		}
-		// TODO: here we cannot verify the outbound connections limit.
-		if m, ok := p.maxConns.Get(); ok && len(conns.conns) >= m {
+		if old,ok := conns.in[info.ID]; ok {
+			old.Close()
+		} else if len(conns.in)>=p.maxIn {
 			return errors.New("too many connections")
 		}
-		conns.conns[info.ID] = conn 
+		conns.in[info.ID] = conn 
+		ctrl.Updated()
 	}
 	return nil
 }
 
 func (p *pool[C]) Disconnected(conn C) {
 	info := conn.Info()
-	for conns := range p.conns.Lock() {
-		if old, ok := conns.conns[info.ID]; ok && old == conn {
+	shouldClearPex := false
+	for conns,ctrl := range p.conns.Lock() {
+		pID := prio(info.ID)
+		if old, ok := conns.in[info.ID]; ok && old == conn {
 			old.Close()
-			delete(conns.conns,info.ID)
-			conns.dial.Delete(info.ID)
+			delete(conns.in,info.ID)
+			// We clear the pex iff conn is inbound and is the only connection
+			// from the given peer that we have.
+			// This is to prevent pexTable from being flooded by data from outbound connections.
+			shouldClearPex = conns.out.GetOpt(pID).IsPresent()
+			ctrl.Updated()
+		}
+		if old, ok := conns.out.Get(pID); ok && old == conn {
+			old.Close()
+			conns.out.Delete(pID)
+			ctrl.Updated()
+		}
+	}
+	if shouldClearPex {
+		for pexAddrs := range p.pexAddrs.Lock() {
+			delete(*pexAddrs,info.ID)
 		}
 	}
 }
+
+func (p *pool[C]) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// Run upgrade limiter.
+		s.Spawn(func() error {
+			limiter := rate.NewLimiter(p.upgradeRate,1)
+			for {
+				if err := limiter.Wait(ctx); err!=nil { return err }
+				for conns,ctrl := range p.conns.Lock() {
+					if err:=ctrl.WaitUntil(ctx,func() bool { return !conns.upgradePermit }); err!=nil { return err }
+					conns.upgradePermit = true
+					ctrl.Updated()
+				}
+			}
+		})
+
+		if len(p.bootstrapAddrs)>0 {
+			// Task feeding bootstrap addresses periodically.
+			s.Spawn(func() error {
+				const bootstrapInterval = 10 * time.Second
+				for {
+					// We use selfID as a placeholder to keep bootstrapAddrs and initialQueue.
+					// This is not very elegant.
+					p.PushPexAddrs(p.selfID, p.bootstrapAddrs)
+					if err:=utils.Sleep(ctx,bootstrapInterval); err!=nil {
+						return err
+					}
+				}
+			})
+		}
+		return nil
+	})
+}
+
+
