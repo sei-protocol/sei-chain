@@ -232,7 +232,7 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if i.View() != view || i.TimeoutVote.IsPresent() {
 			return nil
 		}
-		// Use the highest PrepareQC between the current view's and the one
+		// Attach the highest PrepareQC between the current view's and the one
 		// inherited from the TimeoutQC that justified entering this view.
 		// Without this, consecutive timeouts (e.g. offline leader) would lose
 		// the lock and allow a conflicting proposal to be committed.
