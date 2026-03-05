@@ -68,11 +68,11 @@ require (
 	github.com/prometheus/common v0.66.1
 	github.com/rakyll/statik v0.1.7
 	github.com/rs/cors v1.11.1
-	github.com/rs/zerolog v1.34.0
 	github.com/sasha-s/go-deadlock v0.3.5
 	github.com/sei-protocol/goutils v0.0.2
 	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
 	github.com/sei-protocol/sei-tm-db v0.0.5
+	github.com/sei-protocol/seilog v0.0.1
 	github.com/snikch/goodman v0.0.0-20171125024755-10e37e294daa
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
