@@ -3,8 +3,11 @@
 package composite
 
 import (
+	"context"
 	"fmt"
 	"math"
+
+	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
@@ -43,6 +46,7 @@ type CompositeCommitStore struct {
 // Note: The store is NOT opened yet. Call LoadVersion to open and initialize the DBs.
 // This matches the memiavl.NewCommitStore pattern.
 func NewCompositeCommitStore(
+	ctx context.Context,
 	homeDir string,
 	logger logger.Logger,
 	cfg config.StateCommitConfig,
@@ -60,7 +64,8 @@ func NewCompositeCommitStore(
 	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
-		store.evmCommitter = flatkv.NewCommitStore(homeDir, logger, cfg.FlatKVConfig)
+		flatkvPath := filepath.Join(homeDir, "data", "flatkv")
+		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, logger, cfg.FlatKVConfig)
 	}
 
 	return store

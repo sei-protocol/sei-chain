@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -15,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/zbiljic/go-filelock"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -37,6 +40,8 @@ const (
 	// Metadata DB keys
 	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
 	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
+
+	flatkvMeterName = "seidb_flatkv"
 )
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
@@ -57,9 +62,10 @@ type pendingAccountWrite struct {
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
-	log     logger.Logger
-	config  Config
-	homeDir string
+	ctx    context.Context
+	log    logger.Logger
+	config Config
+	dbDir  string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
@@ -91,21 +97,31 @@ type CommitStore struct {
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
+
+	// Used to track time spent in various phases of execution.
+	phaseTimer *metrics.PhaseTimer
 }
 
 var _ Store = (*CommitStore)(nil)
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
-func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore {
+func NewCommitStore(
+	ctx context.Context,
+	dbDir string,
+	log logger.Logger,
+	cfg Config,
+) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
+	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
+		ctx:               ctx,
 		log:               log,
 		config:            cfg,
-		homeDir:           homeDir,
+		dbDir:             dbDir,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
@@ -114,11 +130,12 @@ func NewCommitStore(homeDir string, log logger.Logger, cfg Config) *CommitStore 
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
+		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return filepath.Join(s.homeDir, flatkvRootDir)
+	return s.dbDir
 }
 
 // LoadVersion loads the specified version of the database.
@@ -312,7 +329,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}()
 
 	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(np.path, seidbtypes.OpenOptions{})
+		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}
@@ -421,5 +438,16 @@ func (s *CommitStore) RootHash() []byte {
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	// rootmulti.Restore closes the store before creating an importer.
+	// Reopen the DBs so the importer can write data.
+	if s.isClosed() {
+		if err := s.open(); err != nil {
+			return nil, fmt.Errorf("reopen store for import: %w", err)
+		}
+	}
 	return NewKVImporter(s, version), nil
+}
+
+func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {
+	return s.phaseTimer
 }

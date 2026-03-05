@@ -3,6 +3,7 @@ package flatkv
 import (
 	"io"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -72,6 +73,10 @@ type Store interface {
 
 	// Importer load data from snapshot to the database
 	Importer(version int64) (types.Importer, error)
+
+	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
+	// integration with external phases of execution.
+	GetPhaseTimer() *metrics.PhaseTimer
 
 	io.Closer
 }

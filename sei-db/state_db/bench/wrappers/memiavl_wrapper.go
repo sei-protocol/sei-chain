@@ -1,6 +1,7 @@
 package wrappers
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -53,4 +54,8 @@ func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	store := m.base.GetChildStoreByName(EVMStoreName)
 	data = store.Get(key)
 	return data, data != nil, nil
+}
+
+func (m *memIAVLWrapper) GetPhaseTimer() *metrics.PhaseTimer {
+	return nil
 }

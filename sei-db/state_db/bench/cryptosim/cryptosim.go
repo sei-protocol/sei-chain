@@ -56,6 +56,14 @@ type CryptoSim struct {
 
 	// The index of the next executor to receive a transaction.
 	nextExecutorIndex int
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
+
+	// Send a boolean value to this channel to suspend/resume the benchmark. Sending "true" will suspend the
+	// benchmark, sending "false" will resume it. Suspending an already suspended benchmark will have no effect,
+	// and resuming an already resumed benchmark will likewise have no effect.
+	suspendChan chan bool
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -68,17 +76,42 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Ensure that we at least 1 cold account and at least 1 hot account. Additionally, make sure
+	// that the number of dormant accounts is at least as large as 2x the number of transactions per block.
+	// This simplifies boundary condition checking when selecting random account IDs.
+	if config.MinimumNumberOfColdAccounts < 1 {
+		// Eliminates edge case where we want a random cold account, but there are no cold accounts.
+		config.MinimumNumberOfColdAccounts = 1
+	}
+	if config.NumberOfHotAccounts < 1 {
+		// Eliminates edge case where we want a random hot account, but there are no hot accounts.
+		config.NumberOfHotAccounts = 1
+	}
+	if config.MinimumNumberOfDormantAccounts < 2*config.TransactionsPerBlock {
+		// Simplifies cold account selection before a block is committed if we have a very
+		// small number of total accounts.
+		config.MinimumNumberOfDormantAccounts = 2 * config.TransactionsPerBlock
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
 
-	db, err := wrappers.NewDBImpl(config.Backend, dataDir)
+	db, err := wrappers.NewDBImpl(ctx, config.Backend, dataDir)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
+
+	metrics := NewCryptosimMetrics(ctx, db.GetPhaseTimer(), config)
+	// Server start deferred until after DataGenerator loads DB state and sets gauges,
+	// avoiding rate() spikes when restarting with a preserved DB.
 
 	fmt.Printf("Initializing random number generator.\n")
 	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
@@ -87,11 +120,9 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	ctx, cancel := context.WithCancel(ctx)
+	database := NewDatabase(config, db, metrics)
 
-	database := NewDatabase(config, db)
-
-	dataGenerator, err := NewDataGenerator(config, database, rand)
+	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
 		cancel()
 		if closeErr := db.Close(); closeErr != nil {
@@ -99,7 +130,6 @@ func NewCryptoSim(
 		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
-
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1
@@ -109,7 +139,7 @@ func NewCryptoSim(
 	executors := make([]*TransactionExecutor, threadCount)
 	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
-			ctx, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize)
+			ctx, cancel, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
 
 	c := &CryptoSim{
@@ -123,6 +153,8 @@ func NewCryptoSim(
 		dataGenerator:                     dataGenerator,
 		database:                          database,
 		executors:                         executors,
+		metrics:                           metrics,
+		suspendChan:                       make(chan bool, 1),
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
@@ -134,6 +166,7 @@ func NewCryptoSim(
 
 	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
+	c.metrics.StartBackgroundSampling(c.startTimestamp)
 
 	go c.run()
 	return c, nil
@@ -154,26 +187,26 @@ func (c *CryptoSim) setup() error {
 
 // Prepopulate the database with the minimum number of accounts.
 func (c *CryptoSim) setupAccounts() error {
-	// Ensure that we at least have as many accounts as the hot set + 2. This simplifies logic elsewhere.
-	if c.config.MinimumNumberOfAccounts < c.config.HotAccountSetSize+2 {
-		c.config.MinimumNumberOfAccounts = c.config.HotAccountSetSize + 2
-	}
 
-	if c.dataGenerator.NextAccountID() >= int64(c.config.MinimumNumberOfAccounts) {
+	requiredNumberOfAccounts := c.config.NumberOfHotAccounts +
+		c.config.MinimumNumberOfColdAccounts +
+		c.config.MinimumNumberOfDormantAccounts
+
+	if c.dataGenerator.NextAccountID() >= int64(requiredNumberOfAccounts) {
 		return nil
 	}
 
 	fmt.Printf("Benchmark is configured to run with a minimum of %s accounts. Creating %s new accounts.\n",
-		int64Commas(int64(c.config.MinimumNumberOfAccounts)),
-		int64Commas(int64(c.config.MinimumNumberOfAccounts)-c.dataGenerator.NextAccountID()))
+		int64Commas(int64(requiredNumberOfAccounts)),
+		int64Commas(int64(requiredNumberOfAccounts)-c.dataGenerator.NextAccountID()))
 
-	for c.dataGenerator.NextAccountID() < int64(c.config.MinimumNumberOfAccounts) {
+	for c.dataGenerator.NextAccountID() < int64(requiredNumberOfAccounts) {
 		if c.ctx.Err() != nil {
 			fmt.Printf("benchmark aborted during account creation\n")
 			break
 		}
 
-		_, _, err := c.dataGenerator.CreateNewAccount(c.config.PaddedAccountSize, true)
+		_, _, _, err := c.dataGenerator.CreateNewAccount(c.config.PaddedAccountSize, true)
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
@@ -184,24 +217,26 @@ func (c *CryptoSim) setupAccounts() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 		if finalized {
+			c.dataGenerator.ReportAccountCounts()
 			c.dataGenerator.ReportFinalizeBlock()
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
 			fmt.Printf("Created %s of %s accounts.      \r",
-				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 		}
 	}
 	if c.dataGenerator.NextAccountID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
 	fmt.Printf("Created %s of %s accounts.      \n",
-		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(c.config.MinimumNumberOfAccounts)))
+		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 
 	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
+	c.dataGenerator.ReportAccountCounts()
 	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
@@ -245,6 +280,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 		if finalized {
 			c.dataGenerator.ReportFinalizeBlock()
+			c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -266,6 +302,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 	c.dataGenerator.ReportFinalizeBlock()
+	c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()))
@@ -280,6 +317,8 @@ func (c *CryptoSim) run() {
 
 	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds) * time.Second)
 
+	c.metrics.SetMainThreadPhase("executing")
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -288,32 +327,76 @@ func (c *CryptoSim) run() {
 				fmt.Printf("\nTransaction workload halted.\n")
 			}
 			return
+		case isSuspended := <-c.suspendChan:
+			if isSuspended {
+				c.suspend()
+			}
 		default:
+			c.handleNextCycle(haltTime)
+		}
+	}
+}
 
-			txn, err := BuildTransaction(c.dataGenerator)
-			if err != nil {
-				fmt.Printf("\nfailed to build transaction: %v\n", err)
-				continue
+// Process the next benchmark cycle, creating a new transaction and executing it.
+func (c *CryptoSim) handleNextCycle(haltTime time.Time) {
+	txn, err := BuildTransaction(c.dataGenerator)
+	if err != nil {
+		fmt.Printf("\nfailed to build transaction: %v\n", err)
+		c.cancel()
+		return
+	}
+
+	c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
+	c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
+
+	finalized, err := c.database.MaybeFinalizeBlock(
+		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+	if err != nil {
+		fmt.Printf("error finalizing block: %v\n", err)
+		c.cancel()
+		return
+	}
+	if finalized {
+		c.dataGenerator.ReportAccountCounts()
+		c.dataGenerator.ReportFinalizeBlock()
+
+		if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
+			c.cancel()
+		}
+	}
+
+	c.database.IncrementTransactionCount()
+	c.generateConsoleReport(false)
+}
+
+// Suspends the benchmark. This method blocks until the benchmark is resumed or shut down.
+func (c *CryptoSim) suspend() {
+
+	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
+	if err != nil {
+		fmt.Printf("failed to finalize block: %v\n", err)
+		c.cancel()
+		return
+	}
+
+	fmt.Printf("Benchmark suspended.\n")
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case suspended := <-c.suspendChan:
+
+			if suspended {
+				break
 			}
 
-			c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
-			c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
+			// Reset console metrics
+			c.database.ResetTransactionCount()
+			c.startTimestamp = time.Now()
 
-			finalized, err := c.database.MaybeFinalizeBlock(
-				c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
-			if err != nil {
-				fmt.Printf("error finalizing block: %v\n", err)
-			}
-			if finalized {
-				c.dataGenerator.ReportFinalizeBlock()
-
-				if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
-					c.cancel()
-				}
-			}
-
-			c.database.IncrementTransactionCount()
-			c.generateConsoleReport(false)
+			fmt.Printf("Benchmark resumed.\n")
+			return
 		}
 	}
 }
@@ -387,4 +470,26 @@ func (c *CryptoSim) BlockUntilHalted() {
 
 	// "reload" closeChan in case other goroutines are waiting on it.
 	c.closeChan <- struct{}{}
+}
+
+// Suspend the benchmark. Stops all transactional load. Calling this while the benchmark is
+// suspended will have no effect. Call Resume() to resume the benchmark.
+func (c *CryptoSim) Suspend() {
+	select {
+	case <-c.ctx.Done():
+		return
+	case c.suspendChan <- true:
+		return
+	}
+
+}
+
+// Resume the benchmark. Calling this while the benchmark is not suspended will have no effect.
+func (c *CryptoSim) Resume() {
+	select {
+	case <-c.ctx.Done():
+		return
+	case c.suspendChan <- false:
+		return
+	}
 }

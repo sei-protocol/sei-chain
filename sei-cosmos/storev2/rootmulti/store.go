@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -69,7 +70,6 @@ func NewStore(
 	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
-	migrateIavl bool,
 	gigaKeys []string,
 ) *Store {
 	// Use custom directory if specified, otherwise use homeDir
@@ -91,7 +91,8 @@ func NewStore(
 	if scConfig.HistoricalProofRateLimit > 0 {
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
-	scStore := composite.NewCompositeCommitStore(scDir, logger, scConfig)
+	ctx := context.Background()
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,
@@ -110,7 +111,7 @@ func NewStore(
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
 		scVersion, _ := scStore.GetLatestVersion()
-		if ssVersion <= 0 && scVersion > 0 && !migrateIavl {
+		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
@@ -252,6 +253,11 @@ func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
+	return rs.cacheMultiStoreLocked()
+}
+
+// cacheMultiStoreLocked must be called with rs.mtx held (at least RLock).
+func (rs *Store) cacheMultiStoreLocked() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range rs.ckvStores {
 		store := types.KVStore(v)
@@ -285,7 +291,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		// Only serve from SC when query latest version and SS not enabled
-		return rs.CacheMultiStore(), nil
+		return rs.cacheMultiStoreLocked(), nil
 	} else {
 		return nil, fmt.Errorf("unable to load historical state with SS disabled for version: %d", version)
 	}

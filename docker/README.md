@@ -52,6 +52,22 @@ docker ps -a
 docker exec -it [container_name] /bin/bash
 ```
 
+## Prometheus / Grafana (monitornode)
+
+To run local Prometheus and Grafana containers for metrics visualization:
+
+```sh
+./docker/monitornode/scripts/start-prometheus.sh
+./docker/monitornode/scripts/start-grafana.sh
+```
+
+Grafana UI: http://localhost:3000 (login: admin / admin). To stop:
+
+```sh
+./docker/monitornode/scripts/stop-prometheus.sh
+./docker/monitornode/scripts/stop-grafana.sh
+```
+
 ## State Sync RPC Node
 
 Requirement: Follow the above steps to start a 4 node docker cluster before starting any state sync node

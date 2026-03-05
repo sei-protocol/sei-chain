@@ -40,11 +40,11 @@ func (k *Keeper) GetCodeHash(ctx sdk.Context, addr common.Address) common.Hash {
 	store := k.PrefixStore(ctx, types.CodeHashKeyPrefix)
 	bz := store.Get(addr[:])
 	if bz == nil {
-		// per Ethereum behavior, if an address has no code or balance, return Hash(0)
-		if k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr)).Cmp(utils.Big0) == 0 {
+		// per Ethereum behavior, if an address has no code, balance, or nonce, return Hash(0)
+		if k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr)).Cmp(utils.Big0) == 0 && k.GetNonce(ctx, addr) == 0 {
 			return common.Hash{}
 		}
-		// if an address has no code but some balance, return EmptyCodeHash
+		// if an address has no code but has balance or nonce, return EmptyCodeHash
 		return ethtypes.EmptyCodeHash
 	}
 	return common.BytesToHash(bz)
