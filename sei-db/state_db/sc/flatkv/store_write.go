@@ -3,6 +3,7 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
@@ -281,19 +282,23 @@ func (s *CommitStore) Commit() (int64, error) {
 	return version, nil
 }
 
-// flushAllDBs flushes all data DBs to ensure data is on disk.
+// flushAllDBs flushes all DBs in parallel.
 func (s *CommitStore) flushAllDBs() error {
-	if err := s.accountDB.Flush(); err != nil {
-		return fmt.Errorf("accountDB flush: %w", err)
+	errs := make([]error, 4)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
+		go func(idx int, db types.KeyValueDB) {
+			defer wg.Done()
+			errs[idx] = db.Flush()
+		}(i, db)
 	}
-	if err := s.codeDB.Flush(); err != nil {
-		return fmt.Errorf("codeDB flush: %w", err)
-	}
-	if err := s.storageDB.Flush(); err != nil {
-		return fmt.Errorf("storageDB flush: %w", err)
-	}
-	if err := s.legacyDB.Flush(); err != nil {
-		return fmt.Errorf("legacyDB flush: %w", err)
+	wg.Wait()
+	names := [4]string{"accountDB", "codeDB", "storageDB", "legacyDB"}
+	for i, err := range errs {
+		if err != nil {
+			return fmt.Errorf("%s flush: %w", names[i], err)
+		}
 	}
 	return nil
 }
@@ -309,9 +314,16 @@ func (s *CommitStore) clearPendingWrites() {
 
 // commitBatches commits pending writes to their respective DBs atomically.
 // Each DB batch includes LocalMeta update for crash recovery.
+// Batches are built serially, then committed in parallel.
 // Also called by catchup to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
+
+	type pendingCommit struct {
+		dbDir string
+		batch types.Batch
+	}
+	var pending []pendingCommit
 
 	// Commit to accountDB
 	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
@@ -342,14 +354,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("accountDB local meta set: %w", err)
 		}
-
-		s.phaseTimer.SetPhase("commit_account_db_commit")
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("accountDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.localMeta[accountDBDir] = newLocalMeta
+		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
 
 	// Commit to codeDB
@@ -377,14 +382,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("codeDB local meta set: %w", err)
 		}
-
-		s.phaseTimer.SetPhase("commit_code_db_commit")
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("codeDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.localMeta[codeDBDir] = newLocalMeta
+		pending = append(pending, pendingCommit{codeDBDir, batch})
 	}
 
 	// Commit to storageDB
@@ -412,14 +410,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("storageDB local meta set: %w", err)
 		}
-
-		s.phaseTimer.SetPhase("commit_storage_db_commit")
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("storageDB commit: %w", err)
-		}
-
-		// Update in-memory local meta after successful commit
-		s.localMeta[storageDBDir] = newLocalMeta
+		pending = append(pending, pendingCommit{storageDBDir, batch})
 	}
 
 	// Commit to legacyDB
@@ -446,14 +437,36 @@ func (s *CommitStore) commitBatches(version int64) error {
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("legacyDB local meta set: %w", err)
 		}
-
-		s.phaseTimer.SetPhase("commit_legacy_db_commit")
-		if err := batch.Commit(syncOpt); err != nil {
-			return fmt.Errorf("legacyDB commit: %w", err)
-		}
-
-		s.localMeta[legacyDBDir] = newLocalMeta
+		pending = append(pending, pendingCommit{legacyDBDir, batch})
 	}
 
+	if len(pending) == 0 {
+		return nil
+	}
+
+	// Commit all batches in parallel.
+	s.phaseTimer.SetPhase("commit_batches_parallel")
+	errs := make([]error, len(pending))
+	var wg sync.WaitGroup
+	wg.Add(len(pending))
+	for i, p := range pending {
+		go func(idx int, b types.Batch) {
+			defer wg.Done()
+			errs[idx] = b.Commit(syncOpt)
+		}(i, p.batch)
+	}
+	wg.Wait()
+
+	for i, p := range pending {
+		if errs[i] != nil {
+			return fmt.Errorf("%s commit: %w", p.dbDir, errs[i])
+		}
+	}
+
+	// Update in-memory local meta after all commits succeed
+	newLocalMeta := &LocalMeta{CommittedVersion: version}
+	for _, p := range pending {
+		s.localMeta[p.dbDir] = newLocalMeta
+	}
 	return nil
 }
