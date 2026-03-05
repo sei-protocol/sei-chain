@@ -1199,7 +1199,7 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	dbAttr := attribute.String("db", pm.databaseName)
 
 	if pm.compactionCount != nil {
-		addDelta(ctx, pm.compactionCount, int64(m.Compact.Count),
+		addDelta(ctx, pm.compactionCount, m.Compact.Count,
 			&pm.prevCompactionCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDuration != nil {
@@ -1216,59 +1216,59 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.compactionNumInProgress.Record(ctx, m.Compact.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCancelledCount != nil {
-		addDelta(ctx, pm.compactionCancelledCount, int64(m.Compact.CancelledCount),
+		addDelta(ctx, pm.compactionCancelledCount, m.Compact.CancelledCount,
 			&pm.prevCompactionCancelledCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCancelledBytes != nil {
-		addDelta(ctx, pm.compactionCancelledBytes, int64(m.Compact.CancelledBytes),
+		addDelta(ctx, pm.compactionCancelledBytes, m.Compact.CancelledBytes,
 			&pm.prevCompactionCancelledBytes, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionFailedCount != nil {
-		addDelta(ctx, pm.compactionFailedCount, int64(m.Compact.FailedCount),
+		addDelta(ctx, pm.compactionFailedCount, m.Compact.FailedCount,
 			&pm.prevCompactionFailedCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDefaultCount != nil {
-		addDelta(ctx, pm.compactionDefaultCount, int64(m.Compact.DefaultCount),
+		addDelta(ctx, pm.compactionDefaultCount, m.Compact.DefaultCount,
 			&pm.prevCompactionDefaultCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionDeleteOnlyCount != nil {
-		addDelta(ctx, pm.compactionDeleteOnlyCount, int64(m.Compact.DeleteOnlyCount),
+		addDelta(ctx, pm.compactionDeleteOnlyCount, m.Compact.DeleteOnlyCount,
 			&pm.prevCompactionDeleteOnlyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionElisionOnlyCount != nil {
-		addDelta(ctx, pm.compactionElisionOnlyCount, int64(m.Compact.ElisionOnlyCount),
+		addDelta(ctx, pm.compactionElisionOnlyCount, m.Compact.ElisionOnlyCount,
 			&pm.prevCompactionElisionOnlyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCopyCount != nil {
-		addDelta(ctx, pm.compactionCopyCount, int64(m.Compact.CopyCount),
+		addDelta(ctx, pm.compactionCopyCount, m.Compact.CopyCount,
 			&pm.prevCompactionCopyCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionMoveCount != nil {
-		addDelta(ctx, pm.compactionMoveCount, int64(m.Compact.MoveCount),
+		addDelta(ctx, pm.compactionMoveCount, m.Compact.MoveCount,
 			&pm.prevCompactionMoveCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionReadCount != nil {
-		addDelta(ctx, pm.compactionReadCount, int64(m.Compact.ReadCount),
+		addDelta(ctx, pm.compactionReadCount, m.Compact.ReadCount,
 			&pm.prevCompactionReadCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionTombstoneDensityCount != nil {
-		addDelta(ctx, pm.compactionTombstoneDensityCount, int64(m.Compact.TombstoneDensityCount),
+		addDelta(ctx, pm.compactionTombstoneDensityCount, m.Compact.TombstoneDensityCount,
 			&pm.prevCompactionTombstoneDensityCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionRewriteCount != nil {
-		addDelta(ctx, pm.compactionRewriteCount, int64(m.Compact.RewriteCount),
+		addDelta(ctx, pm.compactionRewriteCount, m.Compact.RewriteCount,
 			&pm.prevCompactionRewriteCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionMultiLevelCount != nil {
-		addDelta(ctx, pm.compactionMultiLevelCount, int64(m.Compact.MultiLevelCount),
+		addDelta(ctx, pm.compactionMultiLevelCount, m.Compact.MultiLevelCount,
 			&pm.prevCompactionMultiLevelCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionBlobFileRewriteCount != nil {
-		addDelta(ctx, pm.compactionBlobFileRewriteCount, int64(m.Compact.BlobFileRewriteCount),
+		addDelta(ctx, pm.compactionBlobFileRewriteCount, m.Compact.BlobFileRewriteCount,
 			&pm.prevCompactionBlobFileRewriteCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCounterLevelCount != nil {
-		addDelta(ctx, pm.compactionCounterLevelCount, int64(m.Compact.CounterLevelCount),
+		addDelta(ctx, pm.compactionCounterLevelCount, m.Compact.CounterLevelCount,
 			&pm.prevCompactionCounterLevelCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionNumProblemSpans != nil {
@@ -1284,14 +1284,14 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.flushCount != nil {
-		addDelta(ctx, pm.flushCount, int64(m.Flush.Count), &pm.prevFlushCount, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.flushCount, m.Flush.Count, &pm.prevFlushCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushDuration != nil {
 		pm.flushDuration.Record(ctx,
 			m.Flush.WriteThroughput.WorkDuration.Seconds(), metric.WithAttributes(dbAttr))
 	}
 	if pm.flushBytesWritten != nil {
-		addDelta(ctx, pm.flushBytesWritten, int64(m.Flush.WriteThroughput.Bytes),
+		addDelta(ctx, pm.flushBytesWritten, m.Flush.WriteThroughput.Bytes,
 			&pm.prevFlushBytesWritten, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushNumInProgress != nil {
@@ -1315,10 +1315,10 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.filterHits != nil {
-		addDelta(ctx, pm.filterHits, int64(m.Filter.Hits), &pm.prevFilterHits, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.filterHits, m.Filter.Hits, &pm.prevFilterHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.filterMisses != nil {
-		addDelta(ctx, pm.filterMisses, int64(m.Filter.Misses), &pm.prevFilterMisses, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.filterMisses, m.Filter.Misses, &pm.prevFilterMisses, metric.WithAttributes(dbAttr))
 	}
 
 	for level := 0; level < len(m.Levels); level++ {
@@ -1644,14 +1644,14 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.fileCacheBlobFileCount.Record(ctx, m.FileCache.BlobFileCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.fileCacheHits != nil {
-		addDelta(ctx, pm.fileCacheHits, int64(m.FileCache.Hits), &pm.prevFileCacheHits, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.fileCacheHits, m.FileCache.Hits, &pm.prevFileCacheHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.fileCacheMisses != nil {
 		addDelta(ctx, pm.fileCacheMisses,
-			int64(m.FileCache.Misses), &pm.prevFileCacheMisses, metric.WithAttributes(dbAttr))
+			m.FileCache.Misses, &pm.prevFileCacheMisses, metric.WithAttributes(dbAttr))
 	}
 	if pm.walFailoverDirSwitchCount != nil {
-		addDelta(ctx, pm.walFailoverDirSwitchCount, int64(m.WAL.Failover.DirSwitchCount),
+		addDelta(ctx, pm.walFailoverDirSwitchCount, m.WAL.Failover.DirSwitchCount,
 			&pm.prevWalFailoverDirSwitchCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.walFailoverPrimaryDuration != nil {
@@ -1719,10 +1719,10 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.cacheHits != nil {
-		addDelta(ctx, pm.cacheHits, int64(m.BlockCache.Hits), &pm.prevCacheHits, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.cacheHits, m.BlockCache.Hits, &pm.prevCacheHits, metric.WithAttributes(dbAttr))
 	}
 	if pm.cacheMisses != nil {
-		addDelta(ctx, pm.cacheMisses, int64(m.BlockCache.Misses), &pm.prevCacheMisses, metric.WithAttributes(dbAttr))
+		addDelta(ctx, pm.cacheMisses, m.BlockCache.Misses, &pm.prevCacheMisses, metric.WithAttributes(dbAttr))
 	}
 	if pm.cacheSize != nil {
 		pm.cacheSize.Record(ctx, m.BlockCache.Size, metric.WithAttributes(dbAttr))
