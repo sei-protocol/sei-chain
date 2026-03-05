@@ -282,7 +282,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	return version, nil
 }
 
-// flushAllDBs flushes all data DBs in parallel.
+// flushAllDBs flushes all DBs in parallel.
 func (s *CommitStore) flushAllDBs() error {
 	errs := make([]error, 4)
 	var wg sync.WaitGroup
