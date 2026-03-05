@@ -1,10 +1,13 @@
 package avail
 
 import (
-	"github.com/rs/zerolog/log"
+	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "avail")
 
 type appVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.AppVote]
@@ -27,7 +30,7 @@ func (av appVotes) pushVote(c *types.Committee, vote *types.Signed[*types.AppVot
 	av.byKey[k] = vote
 	av.byHash[vote.Hash()] = append(av.byHash[vote.Hash()], vote)
 	if len(av.byKey) == c.AppQuorum() && len(av.byHash) > 1 {
-		log.Error().Uint64("n", uint64(vote.Msg().Proposal().GlobalNumber())).Msg("appHash mismatch")
+		logger.Error("appHash missmatch", slog.Uint64("n", uint64(vote.Msg().Proposal().GlobalNumber())))
 	}
 	if vs := av.byHash[vote.Hash()]; len(vs) == c.AppQuorum() {
 		return types.NewAppQC(vs), true
