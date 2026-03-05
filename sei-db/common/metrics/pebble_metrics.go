@@ -17,6 +17,30 @@ import (
 
 const pebbleMeterName = "seidb_pebble"
 
+// levelPrev holds previous cumulative values for per-level metrics.
+type levelPrev struct {
+	compactionBytesRead            int64
+	compactionBytesWritten         int64
+	sstableBytesIngested           int64
+	sstableBytesMoved              int64
+	sstableBytesRead               int64
+	sstableBytesFlushed            int64
+	sstableTablesCompacted         int64
+	sstableTablesFlushed           int64
+	sstableTablesIngested          int64
+	sstableTablesMoved             int64
+	sstableTablesDeleted           int64
+	sstableTablesExcised           int64
+	sstableBlobBytesReadEstimate   int64
+	sstableBlobBytesCompacted      int64
+	sstableBlobBytesFlushed        int64
+	sstableMultiLevelBytesInTop    int64
+	sstableMultiLevelBytesIn       int64
+	sstableMultiLevelBytesRead     int64
+	sstableBytesWrittenDataBlocks  int64
+	sstableBytesWrittenValueBlocks int64
+}
+
 // PebbleMetrics scrapes metrics from a Pebble DB and records them via OTel instruments.
 // Instrument names match sei-db/db_engine/pebbledb/mvcc for dashboard compatibility.
 // The databaseName is used as the "db" attribute on all recorded metrics.
@@ -157,6 +181,42 @@ type PebbleMetrics struct {
 	fileCacheBlobFileCount metric.Int64Gauge
 	fileCacheHits          metric.Int64Counter
 	fileCacheMisses        metric.Int64Counter
+
+	// prev* track last scraped cumulative values so we Add(delta) not Add(total).
+	prevCompactionCount                 int64
+	prevCompactionCancelledCount        int64
+	prevCompactionCancelledBytes        int64
+	prevCompactionFailedCount           int64
+	prevCompactionDefaultCount          int64
+	prevCompactionDeleteOnlyCount       int64
+	prevCompactionElisionOnlyCount      int64
+	prevCompactionCopyCount             int64
+	prevCompactionMoveCount             int64
+	prevCompactionReadCount             int64
+	prevCompactionTombstoneDensityCount int64
+	prevCompactionRewriteCount          int64
+	prevCompactionMultiLevelCount       int64
+	prevCompactionBlobFileRewriteCount  int64
+	prevCompactionCounterLevelCount     int64
+	prevIngestCount                     int64
+	prevFlushCount                      int64
+	prevFlushBytesWritten               int64
+	prevFlushAsIngestCount              int64
+	prevFlushAsIngestTableCount         int64
+	prevFlushAsIngestBytes              int64
+	prevFilterHits                      int64
+	prevFilterMisses                    int64
+	prevWalBytesIn                      int64
+	prevWalBytesWritten                 int64
+	prevWalFailoverDirSwitchCount       int64
+	prevKeysMissizedTombstonesCount     int64
+	prevSnapshotPinnedKeys              int64
+	prevSnapshotPinnedSize              int64
+	prevFileCacheHits                   int64
+	prevFileCacheMisses                 int64
+	prevCacheHits                       int64
+	prevCacheMisses                     int64
+	prevByLevel                         map[int]*levelPrev
 
 	walFailoverDirSwitchCount    metric.Int64Counter
 	walFailoverPrimaryDuration   metric.Float64Gauge
@@ -1131,7 +1191,11 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	dbAttr := attribute.String("db", pm.databaseName)
 
 	if pm.compactionCount != nil {
-		pm.compactionCount.Add(ctx, m.Compact.Count, metric.WithAttributes(dbAttr))
+		delta := m.Compact.Count - pm.prevCompactionCount
+		pm.prevCompactionCount = m.Compact.Count
+		if delta > 0 {
+			pm.compactionCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionDuration != nil {
 		pm.compactionDuration.Record(ctx, m.Compact.Duration.Seconds(), metric.WithAttributes(dbAttr))
@@ -1147,46 +1211,102 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.compactionNumInProgress.Record(ctx, m.Compact.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.compactionCancelledCount != nil {
-		pm.compactionCancelledCount.Add(ctx, m.Compact.CancelledCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.CancelledCount - pm.prevCompactionCancelledCount
+		pm.prevCompactionCancelledCount = m.Compact.CancelledCount
+		if delta > 0 {
+			pm.compactionCancelledCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionCancelledBytes != nil {
-		pm.compactionCancelledBytes.Add(ctx, m.Compact.CancelledBytes, metric.WithAttributes(dbAttr))
+		delta := m.Compact.CancelledBytes - pm.prevCompactionCancelledBytes
+		pm.prevCompactionCancelledBytes = m.Compact.CancelledBytes
+		if delta > 0 {
+			pm.compactionCancelledBytes.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionFailedCount != nil {
-		pm.compactionFailedCount.Add(ctx, m.Compact.FailedCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.FailedCount - pm.prevCompactionFailedCount
+		pm.prevCompactionFailedCount = m.Compact.FailedCount
+		if delta > 0 {
+			pm.compactionFailedCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionDefaultCount != nil {
-		pm.compactionDefaultCount.Add(ctx, m.Compact.DefaultCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.DefaultCount - pm.prevCompactionDefaultCount
+		pm.prevCompactionDefaultCount = m.Compact.DefaultCount
+		if delta > 0 {
+			pm.compactionDefaultCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionDeleteOnlyCount != nil {
-		pm.compactionDeleteOnlyCount.Add(ctx, m.Compact.DeleteOnlyCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.DeleteOnlyCount - pm.prevCompactionDeleteOnlyCount
+		pm.prevCompactionDeleteOnlyCount = m.Compact.DeleteOnlyCount
+		if delta > 0 {
+			pm.compactionDeleteOnlyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionElisionOnlyCount != nil {
-		pm.compactionElisionOnlyCount.Add(ctx, m.Compact.ElisionOnlyCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.ElisionOnlyCount - pm.prevCompactionElisionOnlyCount
+		pm.prevCompactionElisionOnlyCount = m.Compact.ElisionOnlyCount
+		if delta > 0 {
+			pm.compactionElisionOnlyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionCopyCount != nil {
-		pm.compactionCopyCount.Add(ctx, m.Compact.CopyCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.CopyCount - pm.prevCompactionCopyCount
+		pm.prevCompactionCopyCount = m.Compact.CopyCount
+		if delta > 0 {
+			pm.compactionCopyCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionMoveCount != nil {
-		pm.compactionMoveCount.Add(ctx, m.Compact.MoveCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.MoveCount - pm.prevCompactionMoveCount
+		pm.prevCompactionMoveCount = m.Compact.MoveCount
+		if delta > 0 {
+			pm.compactionMoveCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionReadCount != nil {
-		pm.compactionReadCount.Add(ctx, m.Compact.ReadCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.ReadCount - pm.prevCompactionReadCount
+		pm.prevCompactionReadCount = m.Compact.ReadCount
+		if delta > 0 {
+			pm.compactionReadCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionTombstoneDensityCount != nil {
-		pm.compactionTombstoneDensityCount.Add(ctx, m.Compact.TombstoneDensityCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.TombstoneDensityCount - pm.prevCompactionTombstoneDensityCount
+		pm.prevCompactionTombstoneDensityCount = m.Compact.TombstoneDensityCount
+		if delta > 0 {
+			pm.compactionTombstoneDensityCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionRewriteCount != nil {
-		pm.compactionRewriteCount.Add(ctx, m.Compact.RewriteCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.RewriteCount - pm.prevCompactionRewriteCount
+		pm.prevCompactionRewriteCount = m.Compact.RewriteCount
+		if delta > 0 {
+			pm.compactionRewriteCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionMultiLevelCount != nil {
-		pm.compactionMultiLevelCount.Add(ctx, m.Compact.MultiLevelCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.MultiLevelCount - pm.prevCompactionMultiLevelCount
+		pm.prevCompactionMultiLevelCount = m.Compact.MultiLevelCount
+		if delta > 0 {
+			pm.compactionMultiLevelCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionBlobFileRewriteCount != nil {
-		pm.compactionBlobFileRewriteCount.Add(ctx, m.Compact.BlobFileRewriteCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.BlobFileRewriteCount - pm.prevCompactionBlobFileRewriteCount
+		pm.prevCompactionBlobFileRewriteCount = m.Compact.BlobFileRewriteCount
+		if delta > 0 {
+			pm.compactionBlobFileRewriteCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionCounterLevelCount != nil {
-		pm.compactionCounterLevelCount.Add(ctx, m.Compact.CounterLevelCount, metric.WithAttributes(dbAttr))
+		delta := m.Compact.CounterLevelCount - pm.prevCompactionCounterLevelCount
+		pm.prevCompactionCounterLevelCount = m.Compact.CounterLevelCount
+		if delta > 0 {
+			pm.compactionCounterLevelCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.compactionNumProblemSpans != nil {
 		pm.compactionNumProblemSpans.Record(ctx, int64(m.Compact.NumProblemSpans), metric.WithAttributes(dbAttr))
@@ -1196,32 +1316,58 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.ingestCount != nil {
-		pm.ingestCount.Add(ctx, uint64ToInt64Clamped(m.Ingest.Count), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Ingest.Count)
+		delta := curr - pm.prevIngestCount
+		pm.prevIngestCount = curr
+		if delta > 0 {
+			pm.ingestCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 
 	if pm.flushCount != nil {
-		pm.flushCount.Add(ctx, m.Flush.Count, metric.WithAttributes(dbAttr))
+		delta := m.Flush.Count - pm.prevFlushCount
+		pm.prevFlushCount = m.Flush.Count
+		if delta > 0 {
+			pm.flushCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.flushDuration != nil {
 		pm.flushDuration.Record(ctx,
 			m.Flush.WriteThroughput.WorkDuration.Seconds(), metric.WithAttributes(dbAttr))
 	}
 	if pm.flushBytesWritten != nil {
-		pm.flushBytesWritten.Add(ctx, m.Flush.WriteThroughput.Bytes, metric.WithAttributes(dbAttr))
+		delta := m.Flush.WriteThroughput.Bytes - pm.prevFlushBytesWritten
+		pm.prevFlushBytesWritten = m.Flush.WriteThroughput.Bytes
+		if delta > 0 {
+			pm.flushBytesWritten.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.flushNumInProgress != nil {
 		pm.flushNumInProgress.Record(ctx, m.Flush.NumInProgress, metric.WithAttributes(dbAttr))
 	}
 	if pm.flushAsIngestCount != nil {
-		pm.flushAsIngestCount.Add(ctx, uint64ToInt64Clamped(m.Flush.AsIngestCount), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Flush.AsIngestCount)
+		delta := curr - pm.prevFlushAsIngestCount
+		pm.prevFlushAsIngestCount = curr
+		if delta > 0 {
+			pm.flushAsIngestCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.flushAsIngestTableCount != nil {
-		pm.flushAsIngestTableCount.Add(ctx, uint64ToInt64Clamped(m.Flush.AsIngestTableCount),
-			metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Flush.AsIngestTableCount)
+		delta := curr - pm.prevFlushAsIngestTableCount
+		pm.prevFlushAsIngestTableCount = curr
+		if delta > 0 {
+			pm.flushAsIngestTableCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.flushAsIngestBytes != nil {
-		pm.flushAsIngestBytes.Add(ctx,
-			uint64ToInt64Clamped(m.Flush.AsIngestBytes), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Flush.AsIngestBytes)
+		delta := curr - pm.prevFlushAsIngestBytes
+		pm.prevFlushAsIngestBytes = curr
+		if delta > 0 {
+			pm.flushAsIngestBytes.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.flushIdleDuration != nil {
 		pm.flushIdleDuration.Record(ctx,
@@ -1229,16 +1375,32 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.filterHits != nil {
-		pm.filterHits.Add(ctx, m.Filter.Hits, metric.WithAttributes(dbAttr))
+		delta := m.Filter.Hits - pm.prevFilterHits
+		pm.prevFilterHits = m.Filter.Hits
+		if delta > 0 {
+			pm.filterHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.filterMisses != nil {
-		pm.filterMisses.Add(ctx, m.Filter.Misses, metric.WithAttributes(dbAttr))
+		delta := m.Filter.Misses - pm.prevFilterMisses
+		pm.prevFilterMisses = m.Filter.Misses
+		if delta > 0 {
+			pm.filterMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 
+	if pm.prevByLevel == nil {
+		pm.prevByLevel = make(map[int]*levelPrev)
+	}
 	for level := 0; level < len(m.Levels); level++ {
 		lm := m.Levels[level]
 		levelAttr := attribute.Int("level", level)
 		attrs := metric.WithAttributes(dbAttr, levelAttr)
+		lp := pm.prevByLevel[level]
+		if lp == nil {
+			lp = &levelPrev{}
+			pm.prevByLevel[level] = lp
+		}
 
 		if pm.sstableCount != nil {
 			pm.sstableCount.Record(ctx, lm.TablesCount, attrs)
@@ -1262,34 +1424,84 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableVirtualSize.Record(ctx, uint64ToInt64Clamped(lm.VirtualTablesSize), attrs)
 		}
 		if pm.compactionBytesRead != nil {
-			pm.compactionBytesRead.Add(ctx, uint64ToInt64Clamped(lm.TableBytesIn), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesIn)
+			delta := curr - lp.compactionBytesRead
+			lp.compactionBytesRead = curr
+			if delta > 0 {
+				pm.compactionBytesRead.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.compactionBytesWritten != nil {
-			pm.compactionBytesWritten.Add(ctx, uint64ToInt64Clamped(lm.TableBytesCompacted), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesCompacted)
+			delta := curr - lp.compactionBytesWritten
+			lp.compactionBytesWritten = curr
+			if delta > 0 {
+				pm.compactionBytesWritten.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBytesIngested != nil {
-			pm.sstableBytesIngested.Add(ctx, uint64ToInt64Clamped(lm.TableBytesIngested), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesIngested)
+			delta := curr - lp.sstableBytesIngested
+			lp.sstableBytesIngested = curr
+			if delta > 0 {
+				pm.sstableBytesIngested.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBytesMoved != nil {
-			pm.sstableBytesMoved.Add(ctx, uint64ToInt64Clamped(lm.TableBytesMoved), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesMoved)
+			delta := curr - lp.sstableBytesMoved
+			lp.sstableBytesMoved = curr
+			if delta > 0 {
+				pm.sstableBytesMoved.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBytesRead != nil {
-			pm.sstableBytesRead.Add(ctx, uint64ToInt64Clamped(lm.TableBytesRead), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesRead)
+			delta := curr - lp.sstableBytesRead
+			lp.sstableBytesRead = curr
+			if delta > 0 {
+				pm.sstableBytesRead.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBytesFlushed != nil {
-			pm.sstableBytesFlushed.Add(ctx, uint64ToInt64Clamped(lm.TableBytesFlushed), attrs)
+			curr := uint64ToInt64Clamped(lm.TableBytesFlushed)
+			delta := curr - lp.sstableBytesFlushed
+			lp.sstableBytesFlushed = curr
+			if delta > 0 {
+				pm.sstableBytesFlushed.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableTablesCompacted != nil {
-			pm.sstableTablesCompacted.Add(ctx, uint64ToInt64Clamped(lm.TablesCompacted), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesCompacted)
+			delta := curr - lp.sstableTablesCompacted
+			lp.sstableTablesCompacted = curr
+			if delta > 0 {
+				pm.sstableTablesCompacted.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableTablesFlushed != nil {
-			pm.sstableTablesFlushed.Add(ctx, uint64ToInt64Clamped(lm.TablesFlushed), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesFlushed)
+			delta := curr - lp.sstableTablesFlushed
+			lp.sstableTablesFlushed = curr
+			if delta > 0 {
+				pm.sstableTablesFlushed.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableTablesIngested != nil {
-			pm.sstableTablesIngested.Add(ctx, uint64ToInt64Clamped(lm.TablesIngested), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesIngested)
+			delta := curr - lp.sstableTablesIngested
+			lp.sstableTablesIngested = curr
+			if delta > 0 {
+				pm.sstableTablesIngested.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableTablesMoved != nil {
-			pm.sstableTablesMoved.Add(ctx, uint64ToInt64Clamped(lm.TablesMoved), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesMoved)
+			delta := curr - lp.sstableTablesMoved
+			lp.sstableTablesMoved = curr
+			if delta > 0 {
+				pm.sstableTablesMoved.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableCompensatedFillFactor != nil {
 			pm.sstableCompensatedFillFactor.Record(ctx, lm.CompensatedFillFactor, attrs)
@@ -1298,39 +1510,87 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			pm.sstableEstimatedReferencesSize.Record(ctx, uint64ToInt64Clamped(lm.EstimatedReferencesSize), attrs)
 		}
 		if pm.sstableTablesDeleted != nil {
-			pm.sstableTablesDeleted.Add(ctx, uint64ToInt64Clamped(lm.TablesDeleted), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesDeleted)
+			delta := curr - lp.sstableTablesDeleted
+			lp.sstableTablesDeleted = curr
+			if delta > 0 {
+				pm.sstableTablesDeleted.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableTablesExcised != nil {
-			pm.sstableTablesExcised.Add(ctx, uint64ToInt64Clamped(lm.TablesExcised), attrs)
+			curr := uint64ToInt64Clamped(lm.TablesExcised)
+			delta := curr - lp.sstableTablesExcised
+			lp.sstableTablesExcised = curr
+			if delta > 0 {
+				pm.sstableTablesExcised.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBlobBytesReadEstimate != nil {
-			pm.sstableBlobBytesReadEstimate.Add(ctx, uint64ToInt64Clamped(lm.BlobBytesReadEstimate), attrs)
+			curr := uint64ToInt64Clamped(lm.BlobBytesReadEstimate)
+			delta := curr - lp.sstableBlobBytesReadEstimate
+			lp.sstableBlobBytesReadEstimate = curr
+			if delta > 0 {
+				pm.sstableBlobBytesReadEstimate.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBlobBytesCompacted != nil {
-			pm.sstableBlobBytesCompacted.Add(ctx, uint64ToInt64Clamped(lm.BlobBytesCompacted), attrs)
+			curr := uint64ToInt64Clamped(lm.BlobBytesCompacted)
+			delta := curr - lp.sstableBlobBytesCompacted
+			lp.sstableBlobBytesCompacted = curr
+			if delta > 0 {
+				pm.sstableBlobBytesCompacted.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBlobBytesFlushed != nil {
-			pm.sstableBlobBytesFlushed.Add(ctx, uint64ToInt64Clamped(lm.BlobBytesFlushed), attrs)
+			curr := uint64ToInt64Clamped(lm.BlobBytesFlushed)
+			delta := curr - lp.sstableBlobBytesFlushed
+			lp.sstableBlobBytesFlushed = curr
+			if delta > 0 {
+				pm.sstableBlobBytesFlushed.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableMultiLevelBytesInTop != nil {
-			pm.sstableMultiLevelBytesInTop.Add(ctx, uint64ToInt64Clamped(lm.MultiLevel.TableBytesInTop), attrs)
+			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesInTop)
+			delta := curr - lp.sstableMultiLevelBytesInTop
+			lp.sstableMultiLevelBytesInTop = curr
+			if delta > 0 {
+				pm.sstableMultiLevelBytesInTop.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableMultiLevelBytesIn != nil {
-			pm.sstableMultiLevelBytesIn.Add(ctx, uint64ToInt64Clamped(lm.MultiLevel.TableBytesIn), attrs)
+			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesIn)
+			delta := curr - lp.sstableMultiLevelBytesIn
+			lp.sstableMultiLevelBytesIn = curr
+			if delta > 0 {
+				pm.sstableMultiLevelBytesIn.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableMultiLevelBytesRead != nil {
-			pm.sstableMultiLevelBytesRead.Add(ctx, uint64ToInt64Clamped(lm.MultiLevel.TableBytesRead), attrs)
+			curr := uint64ToInt64Clamped(lm.MultiLevel.TableBytesRead)
+			delta := curr - lp.sstableMultiLevelBytesRead
+			lp.sstableMultiLevelBytesRead = curr
+			if delta > 0 {
+				pm.sstableMultiLevelBytesRead.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableValueBlocksSize != nil {
 			pm.sstableValueBlocksSize.Record(ctx, uint64ToInt64Clamped(lm.Additional.ValueBlocksSize), attrs)
 		}
 		if pm.sstableBytesWrittenDataBlocks != nil {
-			pm.sstableBytesWrittenDataBlocks.Add(ctx,
-				uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks), attrs)
+			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenDataBlocks)
+			delta := curr - lp.sstableBytesWrittenDataBlocks
+			lp.sstableBytesWrittenDataBlocks = curr
+			if delta > 0 {
+				pm.sstableBytesWrittenDataBlocks.Add(ctx, delta, attrs)
+			}
 		}
 		if pm.sstableBytesWrittenValueBlocks != nil {
-			pm.sstableBytesWrittenValueBlocks.Add(ctx,
-				uint64ToInt64Clamped(lm.Additional.BytesWrittenValueBlocks), attrs)
+			curr := uint64ToInt64Clamped(lm.Additional.BytesWrittenValueBlocks)
+			delta := curr - lp.sstableBytesWrittenValueBlocks
+			lp.sstableBytesWrittenValueBlocks = curr
+			if delta > 0 {
+				pm.sstableBytesWrittenValueBlocks.Add(ctx, delta, attrs)
+			}
 		}
 	}
 
@@ -1365,10 +1625,20 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.walPhysicalSize.Record(ctx, uint64ToInt64Clamped(m.WAL.PhysicalSize), metric.WithAttributes(dbAttr))
 	}
 	if pm.walBytesIn != nil {
-		pm.walBytesIn.Add(ctx, uint64ToInt64Clamped(m.WAL.BytesIn), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.WAL.BytesIn)
+		delta := curr - pm.prevWalBytesIn
+		pm.prevWalBytesIn = curr
+		if delta > 0 {
+			pm.walBytesIn.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.walBytesWritten != nil {
-		pm.walBytesWritten.Add(ctx, uint64ToInt64Clamped(m.WAL.BytesWritten), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.WAL.BytesWritten)
+		delta := curr - pm.prevWalBytesWritten
+		pm.prevWalBytesWritten = curr
+		if delta > 0 {
+			pm.walBytesWritten.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 
 	if pm.tableObsoleteSize != nil {
@@ -1512,13 +1782,25 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 		pm.fileCacheBlobFileCount.Record(ctx, m.FileCache.BlobFileCount, metric.WithAttributes(dbAttr))
 	}
 	if pm.fileCacheHits != nil {
-		pm.fileCacheHits.Add(ctx, m.FileCache.Hits, metric.WithAttributes(dbAttr))
+		delta := m.FileCache.Hits - pm.prevFileCacheHits
+		pm.prevFileCacheHits = m.FileCache.Hits
+		if delta > 0 {
+			pm.fileCacheHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.fileCacheMisses != nil {
-		pm.fileCacheMisses.Add(ctx, m.FileCache.Misses, metric.WithAttributes(dbAttr))
+		delta := m.FileCache.Misses - pm.prevFileCacheMisses
+		pm.prevFileCacheMisses = m.FileCache.Misses
+		if delta > 0 {
+			pm.fileCacheMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.walFailoverDirSwitchCount != nil {
-		pm.walFailoverDirSwitchCount.Add(ctx, m.WAL.Failover.DirSwitchCount, metric.WithAttributes(dbAttr))
+		delta := m.WAL.Failover.DirSwitchCount - pm.prevWalFailoverDirSwitchCount
+		pm.prevWalFailoverDirSwitchCount = m.WAL.Failover.DirSwitchCount
+		if delta > 0 {
+			pm.walFailoverDirSwitchCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.walFailoverPrimaryDuration != nil {
 		pm.walFailoverPrimaryDuration.Record(ctx,
@@ -1551,20 +1833,32 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 			uint64ToInt64Clamped(m.Keys.TombstoneCount), metric.WithAttributes(dbAttr))
 	}
 	if pm.keysMissizedTombstonesCount != nil {
-		pm.keysMissizedTombstonesCount.Add(ctx,
-			uint64ToInt64Clamped(m.Keys.MissizedTombstonesCount), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Keys.MissizedTombstonesCount)
+		delta := curr - pm.prevKeysMissizedTombstonesCount
+		pm.prevKeysMissizedTombstonesCount = curr
+		if delta > 0 {
+			pm.keysMissizedTombstonesCount.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 
 	if pm.snapshotCount != nil {
 		pm.snapshotCount.Record(ctx, int64(m.Snapshots.Count), metric.WithAttributes(dbAttr))
 	}
 	if pm.snapshotPinnedKeys != nil {
-		pm.snapshotPinnedKeys.Add(ctx,
-			uint64ToInt64Clamped(m.Snapshots.PinnedKeys), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Snapshots.PinnedKeys)
+		delta := curr - pm.prevSnapshotPinnedKeys
+		pm.prevSnapshotPinnedKeys = curr
+		if delta > 0 {
+			pm.snapshotPinnedKeys.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.snapshotPinnedSize != nil {
-		pm.snapshotPinnedSize.Add(ctx,
-			uint64ToInt64Clamped(m.Snapshots.PinnedSize), metric.WithAttributes(dbAttr))
+		curr := uint64ToInt64Clamped(m.Snapshots.PinnedSize)
+		delta := curr - pm.prevSnapshotPinnedSize
+		pm.prevSnapshotPinnedSize = curr
+		if delta > 0 {
+			pm.snapshotPinnedSize.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.snapshotEarliestSeqNum != nil {
 		pm.snapshotEarliestSeqNum.Record(ctx,
@@ -1585,10 +1879,18 @@ func (pm *PebbleMetrics) recordFromPebble(ctx context.Context) {
 	}
 
 	if pm.cacheHits != nil {
-		pm.cacheHits.Add(ctx, m.BlockCache.Hits, metric.WithAttributes(dbAttr))
+		delta := m.BlockCache.Hits - pm.prevCacheHits
+		pm.prevCacheHits = m.BlockCache.Hits
+		if delta > 0 {
+			pm.cacheHits.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.cacheMisses != nil {
-		pm.cacheMisses.Add(ctx, m.BlockCache.Misses, metric.WithAttributes(dbAttr))
+		delta := m.BlockCache.Misses - pm.prevCacheMisses
+		pm.prevCacheMisses = m.BlockCache.Misses
+		if delta > 0 {
+			pm.cacheMisses.Add(ctx, delta, metric.WithAttributes(dbAttr))
+		}
 	}
 	if pm.cacheSize != nil {
 		pm.cacheSize.Record(ctx, m.BlockCache.Size, metric.WithAttributes(dbAttr))
