@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "consensus")
 
 // Persisted state file prefix.
 const innerFile = "inner"
@@ -35,7 +36,7 @@ func newInner(data utils.Option[[]byte], committee *types.Committee) (inner, err
 		return inner{}, err
 	}
 
-	log.Info().Str("state", innerProtoConv.Encode(&persisted).String()).Msg("restored consensus state")
+	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
 	return inner{persistedInner: persisted}, nil
 }
