@@ -60,6 +60,9 @@ func NewCache(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create shard manager: %w", err)
 	}
+	if garbageCollectionInterval <= 0 {
+		return nil, fmt.Errorf("garbageCollectionInterval must be greater than 0")
+	}
 
 	readScheduler := NewReadScheduler(ctx, readFunc, readWorkerCount, readQueueSize)
 
@@ -70,7 +73,7 @@ func NewCache(
 
 	shards := make([]*shard, shardCount)
 	for i := 0; i < shardCount; i++ {
-		shards[i], err = NewShard(readScheduler, sizePerShard)
+		shards[i], err = NewShard(ctx, readScheduler, sizePerShard)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -138,6 +141,10 @@ func (c *cache) runGarbageCollection() {
 
 	// Spread out work evenly across all shards, so that we visit each shard roughly once per interval.
 	gcSubInterval := c.garbageCollectionInterval / time.Duration(len(c.shards))
+	if gcSubInterval == 0 {
+		// technically possible if the number of shards is very large and the interval is very small
+		gcSubInterval = 1
+	}
 	ticker := time.NewTicker(gcSubInterval)
 	defer ticker.Stop()
 
