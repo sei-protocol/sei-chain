@@ -232,7 +232,17 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if i.View() != view || i.TimeoutVote.IsPresent() {
 			return nil
 		}
-		v := types.NewFullTimeoutVote(s.cfg.Key, view, i.PrepareQC)
+		// Use the highest PrepareQC between the current view's and the one
+		// inherited from the TimeoutQC that justified entering this view.
+		// Without this, consecutive timeouts (e.g. offline leader) would lose
+		// the lock and allow a conflicting proposal to be committed.
+		pqc := i.PrepareQC
+		if tqc, ok := i.TimeoutQC.Get(); ok {
+			if inherited := tqc.LatestPrepareQC(); types.NextViewOpt(pqc).Less(types.NextViewOpt(inherited)) {
+				pqc = inherited
+			}
+		}
+		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc)
 		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
 	}
