@@ -367,7 +367,11 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
 	}
 
-	c.database.FinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID(), false)
+	if err := c.database.FinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID(), false); err != nil {
+		fmt.Printf("failed to finalize block: %v\n", err)
+		c.cancel()
+		return
+	}
 	blk.ReportBlockMetrcs()
 }
 
