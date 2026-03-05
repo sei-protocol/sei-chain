@@ -62,13 +62,14 @@ type shardEntry struct {
 }
 
 // Creates a new Shard.
-func NewShard(readScheduler *readScheduler, maxSize int) (*shard, error) {
+func NewShard(ctx context.Context, readScheduler *readScheduler, maxSize int) (*shard, error) {
 
 	if maxSize <= 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
 	return &shard{
+		ctx:           ctx,
 		readScheduler: readScheduler,
 		lock:          sync.Mutex{},
 		data:          make(map[string]*shardEntry),

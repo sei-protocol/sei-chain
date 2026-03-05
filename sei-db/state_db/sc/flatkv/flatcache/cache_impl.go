@@ -77,10 +77,11 @@ func NewCache(
 	}
 
 	c := &cache{
-		ctx:           ctx,
-		shardManager:  shardManager,
-		shards:        shards,
-		readScheduler: readScheduler,
+		ctx:                       ctx,
+		shardManager:              shardManager,
+		shards:                    shards,
+		readScheduler:             readScheduler,
+		garbageCollectionInterval: garbageCollectionInterval,
 	}
 
 	go c.runGarbageCollection()
