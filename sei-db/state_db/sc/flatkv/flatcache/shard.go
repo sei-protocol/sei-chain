@@ -20,8 +20,14 @@ type shard struct {
 	// The data in the shard.
 	data map[string]*shardEntry
 
+	// Organizes data for garbage collection.
+	gcQueue *lruQueue
+
 	// A scheduler for asyncronous reads.
 	readScheduler *readScheduler
+
+	// The maximum size of this cache, in bytes.
+	maxSize int
 }
 
 // The status of a value in the cache.
@@ -55,11 +61,16 @@ type shardEntry struct {
 }
 
 // Creates a new Shard.
-func NewShard(readScheduler *readScheduler) *shard {
+func NewShard(readScheduler *readScheduler, maxSize int) (*shard, error) {
+
+	if maxSize <= 0 {
+		return nil, fmt.Errorf("maxSize must be greater than 0")
+	}
+
 	return &shard{
 		readScheduler: readScheduler,
 		lock:          sync.Mutex{},
-	}
+	}, nil
 }
 
 // Get returns the value for the given key, or (nil, false) if not found.
@@ -72,9 +83,11 @@ func (s *shard) Get(key []byte) ([]byte, bool, error) {
 
 	case statusAvailable:
 		value := entry.value
+		s.gcQueue.Touch(key)
 		s.lock.Unlock()
 		return value, true, nil
 	case statusDeleted:
+		s.gcQueue.Touch(key)
 		s.lock.Unlock()
 		return nil, false, nil
 	case statusScheduled:
@@ -100,7 +113,7 @@ func (s *shard) Get(key []byte) ([]byte, bool, error) {
 }
 
 // This method is called by the read scheduler when a value becomes available.
-func (se *shardEntry) InjectValue(value []byte) {
+func (se *shardEntry) InjectValue(key []byte, value []byte) {
 	se.shard.lock.Lock()
 
 	if value == nil {
@@ -110,13 +123,15 @@ func (se *shardEntry) InjectValue(value []byte) {
 		se.value = value
 	}
 
+	se.shard.gcQueue.Push(key, len(key)+len(value))
+
 	se.shard.lock.Unlock()
-	
+
 	se.valueChan <- value
 }
 
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
-// when this method is hcalled.
+// when this method is called.
 func (s *shard) getEntry(key []byte) *shardEntry {
 	entry, ok := s.data[string(key)]
 	if !ok {
@@ -125,37 +140,63 @@ func (s *shard) getEntry(key []byte) *shardEntry {
 			status: statusUnknown,
 		}
 		s.data[string(key)] = entry
-
-		// TODO register with GC queue
 	}
-
 	return entry
 }
 
-// GetPrevious returns the value for the given key, or (nil, false) if not found.
-// This will only return a value that is different than the current value returned by Get()
-// if the cache is dirty, i.e. if there is data that has not yet been flushed down into the underlying storage.
-// In the case where the cache is not dirty, this method will return the same value as Get().
-func (s *shard) GetPrevious(key []byte) ([]byte, bool, error) {
-	panic("unimplemented")
+// Set sets the value for the given key.
+func (s *shard) Set(key []byte, value []byte) {
+	s.lock.Lock()
+	s.setUnlocked(key, value)
+	s.lock.Unlock()
 }
 
-// Set sets the value for the given key.
-func (s *shard) Set(key []byte, value []byte) error {
-	panic("unimplemented")
+// Set a value. Caller is required to hold the lock.
+func (s *shard) setUnlocked(key []byte, value []byte) {
+	entry := s.getEntry(key)
+	entry.status = statusAvailable
+	entry.value = value
+
+	s.gcQueue.Push(key, len(key)+len(value))
 }
 
 // BatchSet sets the values for a batch of keys.
-func (s *shard) BatchSet(entries []*proto.KVPair) error {
-	panic("unimplemented")
+func (s *shard) BatchSet(entries []*proto.KVPair) {
+	s.lock.Lock()
+	for _, entry := range entries {
+		if entry.Delete {
+			s.deleteUnlocked(entry.Key)
+		} else {
+			s.setUnlocked(entry.Key, entry.Value)
+		}
+	}
+	s.lock.Unlock()
 }
 
 // Delete deletes the value for the given key.
-func (s *shard) Delete(key []byte) error {
-	panic("unimplemented")
+func (s *shard) Delete(key []byte) {
+	s.lock.Lock()
+	s.deleteUnlocked(key)
+	s.lock.Unlock()
+}
+
+// Delete a value. Caller is required to hold the lock.
+func (s *shard) deleteUnlocked(key []byte) {
+	entry := s.getEntry(key)
+	entry.status = statusDeleted
+	entry.value = nil
+
+	s.gcQueue.Push(key, len(key))
 }
 
 // RunGarbageCollection runs the garbage collection process.
-func (s *shard) RunGarbageCollection() error {
-	panic("unimplemented")
+func (s *shard) RunGarbageCollection() {
+	s.lock.Lock()
+
+	for s.gcQueue.GetTotalSize() > s.maxSize {
+		next := s.gcQueue.PopLeastRecentlyUsed()
+		delete(s.data, string(next)) // TODO use unsafe copy
+	}
+
+	s.lock.Unlock()
 }

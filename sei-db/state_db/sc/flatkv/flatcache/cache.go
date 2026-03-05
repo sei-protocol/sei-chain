@@ -10,18 +10,12 @@ type Cache interface {
 	// Get returns the value for the given key, or (nil, false) if not found.
 	Get(key []byte) ([]byte, bool, error)
 
-	// GetPrevious returns the value for the given key, or (nil, false) if not found.
-	// This will only return a value that is different than the current value returned by Get()
-	// if the cache is dirty, i.e. if there is data that has not yet been flushed down into the underlying storage.
-	// In the case where the cache is not dirty, this method will return the same value as Get().
-	GetPrevious(key []byte) ([]byte, bool, error)
-
 	// Set sets the value for the given key.
-	Set(key []byte, value []byte) error
+	Set(key []byte, value []byte)
 
 	// Delete deletes the value for the given key.
-	Delete(key []byte) error
+	Delete(key []byte)
 
 	// BatchSet sets the values for a batch of keys.
-	BatchSet(entries []*proto.KVPair) error
+	BatchSet(entries []*proto.KVPair)
 }
