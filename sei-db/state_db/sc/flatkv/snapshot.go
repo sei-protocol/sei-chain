@@ -379,7 +379,10 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	// be at the flat location or might have been moved in a prior attempt.
 	var version int64
 	metaPath := filepath.Join(flatkvDir, metadataDir)
-	tmpMeta, err := pebbledb.Open(s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics, s.readPool)
+	gb := 1024 * 1024 * 1024
+	// TODO don't hardcode the cache sizes!
+	tmpMeta, err := pebbledb.Open(
+		s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics, s.readPool, gb/2, gb/2)
 	if err == nil {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()
