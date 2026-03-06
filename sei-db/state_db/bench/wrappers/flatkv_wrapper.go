@@ -41,7 +41,7 @@ func (f *flatKVWrapper) Commit() (int64, error) {
 }
 
 func (f *flatKVWrapper) LoadVersion(version int64) error {
-	_, err := f.base.LoadVersion(version)
+	_, err := f.base.LoadVersion(version, false)
 	return err
 }
 
