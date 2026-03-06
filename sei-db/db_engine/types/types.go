@@ -33,11 +33,26 @@ type OpenOptions struct {
 	Comparer any
 }
 
+// BatchGetResult describes the result of a single key lookup within a BatchGet call.
+type BatchGetResult struct {
+	// The value for the given key.
+	Value []byte
+	// If true, the key was found.
+	Found bool
+	// The error, if any, that occurred during the read.
+	Error error
+}
+
 // KeyValueDB is a low-level KV engine contract (business-agnostic).
 //
 // Get returns a value copy (safe to use after the call returns).
-type KeyValueDB interface {
+type KeyValueDB interface { // TODO document other methods, split this into a stand alone file maybe
 	Get(key []byte) (value []byte, err error)
+	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
+	// map with the results.
+	//
+	// It is not thread safe to read or mutate the map while this method is running.
+	BatchGet(keys map[string]BatchGetResult)
 	Set(key, value []byte, opts WriteOptions) error
 	Delete(key []byte, opts WriteOptions) error
 

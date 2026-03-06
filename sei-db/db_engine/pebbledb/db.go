@@ -153,6 +153,10 @@ func (p *pebbleDB) Get(key []byte) ([]byte, error) {
 	return val, nil
 }
 
+func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) {
+	p.cache.BatchGet(keys)
+}
+
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
 	// TODO batch set!
 	p.cache.Set(key, value)

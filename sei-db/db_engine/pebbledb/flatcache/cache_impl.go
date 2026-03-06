@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 var _ Cache = (*cache)(nil)
@@ -110,25 +112,25 @@ func (c *cache) BatchSet(updates []CacheUpdate) {
 	wg.Wait()
 }
 
-func (c *cache) BatchGet(keys map[string]BatchGetResult) {
-	work := make(map[uint64]map[string]BatchGetResult)
+func (c *cache) BatchGet(keys map[string]types.BatchGetResult) {
+	work := make(map[uint64]map[string]types.BatchGetResult)
 	for key := range keys {
 		idx := c.shardManager.Shard([]byte(key))
 		if work[idx] == nil {
-			work[idx] = make(map[string]BatchGetResult)
+			work[idx] = make(map[string]types.BatchGetResult)
 		}
-		work[idx][key] = BatchGetResult{}
+		work[idx][key] = types.BatchGetResult{}
 	}
 
 	var wg sync.WaitGroup // TODO use a pool here
 	for shardIndex, subMap := range work {
 		wg.Add(1)
-		go func(shardIndex uint64, subMap map[string]BatchGetResult) {
+		go func(shardIndex uint64, subMap map[string]types.BatchGetResult) {
 			defer wg.Done()
 			err := c.shards[shardIndex].BatchGet(subMap)
 			if err != nil {
 				for key := range subMap {
-					subMap[key] = BatchGetResult{Error: err}
+					subMap[key] = types.BatchGetResult{Error: err}
 				}
 			}
 		}(shardIndex, subMap)

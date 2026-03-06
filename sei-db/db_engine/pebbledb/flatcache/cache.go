@@ -1,5 +1,7 @@
 package flatcache // TODO rename the flatcache package!
 
+import "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+
 // CacheUpdate describes a single key-value mutation to apply to the cache.
 type CacheUpdate struct {
 	// The key to update.
@@ -9,16 +11,6 @@ type CacheUpdate struct {
 	// If true, the key will be deleted.
 	// If false, the key will be set to the given value.
 	IsDelete bool
-}
-
-// BatchGetResult describes the result of a batch read operation.
-type BatchGetResult struct {
-	// The value for the given key.
-	Value []byte
-	// If true, the key was found.
-	Found bool
-	// The error, if any, that occurred during the read.
-	Error error
 }
 
 // Cache describes a cache kapable of being used by a FlatKV store.
@@ -40,7 +32,7 @@ type Cache interface {
 	// map with the results.
 	//
 	// It is not thread safe to read or mutate the map while this method is running.
-	BatchGet(keys map[string]BatchGetResult)
+	BatchGet(keys map[string]types.BatchGetResult)
 
 	// Set sets the value for the given key.
 	Set(key []byte, value []byte)

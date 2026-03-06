@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // TODO unsafe byte-> string conversion maybe?
@@ -177,7 +178,7 @@ type pendingRead struct {
 }
 
 // BatchGet reads a batch of keys from the shard. Results are written into the provided map.
-func (s *shard) BatchGet(keys map[string]BatchGetResult) error {
+func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 	pending := make([]pendingRead, 0, len(keys))
 
 	s.lock.Lock()
@@ -186,9 +187,9 @@ func (s *shard) BatchGet(keys map[string]BatchGetResult) error {
 
 		switch entry.status {
 		case statusAvailable:
-			keys[key] = BatchGetResult{Value: entry.value, Found: true}
+			keys[key] = types.BatchGetResult{Value: entry.value, Found: true}
 		case statusDeleted:
-			keys[key] = BatchGetResult{Found: false}
+			keys[key] = types.BatchGetResult{Found: false}
 		case statusScheduled:
 			pending = append(pending, pendingRead{
 				key:       key,
@@ -229,7 +230,7 @@ func (s *shard) BatchGet(keys map[string]BatchGetResult) error {
 		pending[i].valueChan <- value
 		pending[i].value = value
 
-		keys[pending[i].key] = BatchGetResult{Value: value, Found: value != nil}
+		keys[pending[i].key] = types.BatchGetResult{Value: value, Found: value != nil}
 	}
 
 	if len(pending) > 0 {
