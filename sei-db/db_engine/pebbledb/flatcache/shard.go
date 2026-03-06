@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // TODO unsafe byte-> string conversion maybe?
@@ -184,13 +183,13 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 }
 
 // BatchSet sets the values for a batch of keys.
-func (s *shard) BatchSet(entries []*proto.KVPair) {
+func (s *shard) BatchSet(entries []CacheUpdate) {
 	s.lock.Lock()
-	for _, entry := range entries {
-		if entry.Delete {
-			s.deleteUnlocked(entry.Key)
+	for i := range entries {
+		if entries[i].IsDelete {
+			s.deleteUnlocked(entries[i].Key)
 		} else {
-			s.setUnlocked(entry.Key, entry.Value)
+			s.setUnlocked(entries[i].Key, entries[i].Value)
 		}
 	}
 	s.lock.Unlock()

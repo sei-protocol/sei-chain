@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 var _ Cache = (*cache)(nil)
@@ -94,24 +91,20 @@ func NewCache(
 	return c, nil
 }
 
-func (c *cache) BatchSet(cs []*proto.NamedChangeSet) {
-
-	// First, sort entries by shard index.
-	// This allows us to set all values in a single shard with only a single lock acquisition.
-	shardMap := make(map[uint64][]*iavl.KVPair)
-	for _, ncs := range cs {
-		for _, entry := range ncs.Changeset.Pairs {
-			shardMap[c.shardManager.Shard(entry.Key)] = append(shardMap[c.shardManager.Shard(entry.Key)], entry)
-		}
+func (c *cache) BatchSet(updates []CacheUpdate) {
+	// Sort entries by shard index so each shard is locked only once.
+	shardMap := make(map[uint64][]CacheUpdate)
+	for i := range updates {
+		idx := c.shardManager.Shard(updates[i].Key)
+		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup // TODO use a pool here
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
-		go func(shardIndex uint64, shardEntries []*iavl.KVPair) {
+		go func(shardIndex uint64, shardEntries []CacheUpdate) {
 			defer wg.Done()
-			shard := c.shards[shardIndex]
-			shard.BatchSet(shardEntries)
+			c.shards[shardIndex].BatchSet(shardEntries)
 		}(shardIndex, shardEntries)
 	}
 	wg.Wait()

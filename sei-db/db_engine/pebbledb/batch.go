@@ -6,12 +6,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-type pendingCacheWrite struct {
-	key      []byte
-	value    []byte
-	isDelete bool
-}
-
 // pebbleBatch wraps a Pebble batch for atomic writes.
 // Important: Callers must call Close() after Commit() to release batch resources,
 // even if Commit() succeeds. Failure to Close() will leak memory.
@@ -20,7 +14,7 @@ type pebbleBatch struct {
 	cache flatcache.Cache
 
 	// Writes are tracked so the cache can be updated after a successful commit.
-	pendingCacheWrites []pendingCacheWrite
+	pendingCacheUpdates []flatcache.CacheUpdate
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
@@ -34,17 +28,17 @@ func (p *pebbleDB) NewBatch() types.Batch {
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
-	pb.pendingCacheWrites = append(pb.pendingCacheWrites, pendingCacheWrite{
-		key:   key,
-		value: value,
+	pb.pendingCacheUpdates = append(pb.pendingCacheUpdates, flatcache.CacheUpdate{
+		Key:   key,
+		Value: value,
 	})
 	return pb.b.Set(key, value, nil)
 }
 
 func (pb *pebbleBatch) Delete(key []byte) error {
-	pb.pendingCacheWrites = append(pb.pendingCacheWrites, pendingCacheWrite{
-		key:      key,
-		isDelete: true,
+	pb.pendingCacheUpdates = append(pb.pendingCacheUpdates, flatcache.CacheUpdate{
+		Key:      key,
+		IsDelete: true,
 	})
 	return pb.b.Delete(key, nil)
 }
@@ -54,14 +48,8 @@ func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	if err != nil {
 		return err
 	}
-	for _, w := range pb.pendingCacheWrites {
-		if w.isDelete {
-			pb.cache.Delete(w.key)
-		} else {
-			pb.cache.Set(w.key, w.value)
-		}
-	}
-	pb.pendingCacheWrites = nil
+	pb.cache.BatchSet(pb.pendingCacheUpdates)
+	pb.pendingCacheUpdates = nil
 	return nil
 }
 
@@ -71,7 +59,7 @@ func (pb *pebbleBatch) Len() int {
 
 func (pb *pebbleBatch) Reset() {
 	pb.b.Reset()
-	pb.pendingCacheWrites = nil
+	pb.pendingCacheUpdates = nil
 }
 
 func (pb *pebbleBatch) Close() error {

@@ -1,6 +1,15 @@
 package flatcache // TODO rename the flatcache package!
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+// CacheUpdate describes a single key-value mutation to apply to the cache.
+type CacheUpdate struct {
+	// The key to update.
+	Key []byte
+	// The value to set. If nil, the key will be deleted.
+	Value []byte
+	// If true, the key will be deleted.
+	// If false, the key will be set to the given value.
+	IsDelete bool
+}
 
 // Cache describes a cache kapable of being used by a FlatKV store.
 type Cache interface {
@@ -23,6 +32,6 @@ type Cache interface {
 	// Delete deletes the value for the given key.
 	Delete(key []byte)
 
-	// BatchSet applies the given changesets to the cache.
-	BatchSet(cs []*proto.NamedChangeSet)
+	// BatchSet applies the given updates to the cache.
+	BatchSet(updates []CacheUpdate)
 }
