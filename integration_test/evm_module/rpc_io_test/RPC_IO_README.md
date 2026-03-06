@@ -272,7 +272,7 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 | **Endpoints with at least one pass** | ~60                                                                                                                         |
 | **Missing / untested endpoints**    | None in this suite. Every method folder under `testdata/` is exercised; skips and failures are per-test, not per-endpoint. |
 
-**Why 71 → 70 endpoints?** Earlier documentation sometimes referred to **71** endpoints. The difference is **eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`—it was removed or is tracked separately as a Sei-specific extension—so the current suite has **70** endpoint folders. The previous "~60" in this table was an underestimate; the actual count is **70**.
+**Why 71 → 70 endpoints?** Earlier documentation sometimes referred to **71** endpoints. The difference is **eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed,so the current suite has **70** endpoint folders.
 
 
 *Results are from a single local run; re-run `evm_rpc_tests.sh` to refresh.*
