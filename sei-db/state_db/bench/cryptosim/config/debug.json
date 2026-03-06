@@ -1,0 +1,7 @@
+{
+    "Comment": "For locally testing/debugging the benchmark or related code.",
+    "DataDir": "data",
+    "DeleteDataDirOnStartup": true,
+    "DeleteDataDirOnShutdown": true
+}
+

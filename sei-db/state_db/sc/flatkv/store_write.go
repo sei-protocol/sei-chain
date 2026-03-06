@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -20,6 +19,11 @@ import (
 // - codeDB: key=addr, value=bytecode
 // - legacyDB: key=full original key (with prefix), value=raw value
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
+
+	// Batch read all old values from DBs in parallel.
+	storageOld, accountOld, codeOld, legacyOld := s.batchReadOldValues(cs)
+
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 
 	// Save original changesets for changelog
@@ -52,14 +56,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			// Route to appropriate DB based on key type
 			switch kind {
 			case evm.EVMKeyStorage:
-				// Get old value for LtHash
-				oldValue, err := s.getStorageValue(keyBytes)
-				if err != nil {
-					return fmt.Errorf("failed to get storage value: %w", err)
-				}
-
 				// Storage: keyBytes = addr(20) || slot(32)
 				keyStr := string(keyBytes)
+				oldValue := storageOld[keyStr].Value
+
 				if pair.Delete {
 					s.storageWrites[keyStr] = &pendingKVWrite{
 						key:      keyBytes,
@@ -87,27 +87,27 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
 				}
 				addrStr := string(addr[:])
+				addrKey := string(AccountKey(addr))
 
 				if _, seen := oldAccountRawValues[addrStr]; !seen {
-					if paw, ok := s.accountWrites[addrStr]; ok {
-						oldAccountRawValues[addrStr] = paw.value.Encode()
+					result := accountOld[addrKey]
+					if result.Found {
+						oldAccountRawValues[addrStr] = result.Value
 					} else {
-						rawBytes, err := s.accountDB.Get(AccountKey(addr))
-						if err != nil {
-							if !errorutils.IsNotFound(err) {
-								return fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
-							}
-							oldAccountRawValues[addrStr] = nil
-						} else {
-							oldAccountRawValues[addrStr] = rawBytes
-						}
+						oldAccountRawValues[addrStr] = nil
 					}
 				}
+
 				paw := s.accountWrites[addrStr]
 				if paw == nil {
-					existingValue, err := s.getAccountValue(addr)
-					if err != nil {
-						return fmt.Errorf("failed to load existing account value: %w", err)
+					var existingValue AccountValue
+					result := accountOld[addrKey]
+					if result.Found && result.Value != nil {
+						av, err := DecodeAccountValue(result.Value)
+						if err != nil {
+							return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
+						}
+						existingValue = av
 					}
 					paw = &pendingAccountWrite{
 						addr:  addr,
@@ -137,14 +137,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 
 			case evm.EVMKeyCode:
-				// Get old value for LtHash
-				oldValue, err := s.getCodeValue(keyBytes)
-				if err != nil {
-					return fmt.Errorf("failed to get code value: %w", err)
-				}
-
 				// Code: keyBytes = addr(20) - per x/evm/types/keys.go
 				keyStr := string(keyBytes)
+				oldValue := codeOld[keyStr].Value
+
 				if pair.Delete {
 					s.codeWrites[keyStr] = &pendingKVWrite{
 						key:      keyBytes,
@@ -166,12 +162,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				})
 
 			case evm.EVMKeyLegacy:
-				oldValue, err := s.getLegacyValue(keyBytes)
-				if err != nil {
-					return fmt.Errorf("failed to get legacy value: %w", err)
-				}
-
 				keyStr := string(keyBytes)
+				oldValue := legacyOld[keyStr].Value
+
 				if pair.Delete {
 					s.legacyWrites[keyStr] = &pendingKVWrite{
 						key:      keyBytes,
@@ -469,4 +462,73 @@ func (s *CommitStore) commitBatches(version int64) error {
 		s.localMeta[p.dbDir] = newLocalMeta
 	}
 	return nil
+}
+
+// batchReadOldValues scans all changeset pairs and issues parallel BatchGet
+// calls across the four data DBs. Returns one result map per DB.
+func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
+	storageOld map[string]types.BatchGetResult,
+	accountOld map[string]types.BatchGetResult,
+	codeOld map[string]types.BatchGetResult,
+	legacyOld map[string]types.BatchGetResult,
+) {
+	storageOld = make(map[string]types.BatchGetResult)
+	accountOld = make(map[string]types.BatchGetResult)
+	codeOld = make(map[string]types.BatchGetResult)
+	legacyOld = make(map[string]types.BatchGetResult)
+
+	for _, namedCS := range cs {
+		if namedCS.Changeset.Pairs == nil {
+			continue
+		}
+		for _, pair := range namedCS.Changeset.Pairs {
+			kind, keyBytes := evm.ParseEVMKey(pair.Key)
+			switch kind {
+			case evm.EVMKeyStorage:
+				storageOld[string(keyBytes)] = types.BatchGetResult{}
+			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+				addr, ok := AddressFromBytes(keyBytes)
+				if !ok {
+					continue
+				}
+				accountOld[string(AccountKey(addr))] = types.BatchGetResult{}
+			case evm.EVMKeyCode:
+				codeOld[string(keyBytes)] = types.BatchGetResult{}
+			case evm.EVMKeyLegacy:
+				legacyOld[string(keyBytes)] = types.BatchGetResult{}
+			}
+		}
+	}
+
+	var wg sync.WaitGroup
+	if len(storageOld) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.storageDB.BatchGet(storageOld)
+		}()
+	}
+	if len(accountOld) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.accountDB.BatchGet(accountOld)
+		}()
+	}
+	if len(codeOld) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.codeDB.BatchGet(codeOld)
+		}()
+	}
+	if len(legacyOld) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.legacyDB.BatchGet(legacyOld)
+		}()
+	}
+	wg.Wait()
+	return
 }

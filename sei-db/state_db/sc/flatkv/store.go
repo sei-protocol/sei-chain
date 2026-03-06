@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -100,6 +101,9 @@ type CommitStore struct {
 
 	// Used to track time spent in various phases of execution.
 	phaseTimer *metrics.PhaseTimer
+
+	// A work pool for reading from the DB.
+	readPool *utils.WorkPool
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -117,6 +121,8 @@ func NewCommitStore(
 	}
 	meter := otel.Meter(flatkvMeterName)
 
+	readPool := utils.NewWorkPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
+
 	return &CommitStore{
 		ctx:               ctx,
 		log:               log,
@@ -131,6 +137,7 @@ func NewCommitStore(
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
 		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		readPool:          readPool,
 	}
 }
 
@@ -328,8 +335,15 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 		}
 	}()
 
-	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
+	openDB := func(np namedPath, cacheSize int, pageCacheSize int) (seidbtypes.KeyValueDB, error) {
+		db, err := pebbledb.Open(
+			s.ctx,
+			np.path,
+			seidbtypes.OpenOptions{},
+			s.config.EnablePebbleMetrics,
+			s.readPool,
+			cacheSize,
+			pageCacheSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}
@@ -337,20 +351,23 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 		return db, nil
 	}
 
+	// TODO don't hardcode the cache sizes!
+	gb := 1024 * 1024 * 1024
+
 	var err error
-	if s.accountDB, err = openDB(dbPaths[0]); err != nil {
+	if s.accountDB, err = openDB(dbPaths[0], gb/2, gb/2); err != nil {
 		return err
 	}
-	if s.codeDB, err = openDB(dbPaths[1]); err != nil {
+	if s.codeDB, err = openDB(dbPaths[1], gb/2, gb/2); err != nil {
 		return err
 	}
-	if s.storageDB, err = openDB(dbPaths[2]); err != nil {
+	if s.storageDB, err = openDB(dbPaths[2], gb*4, gb/2); err != nil {
 		return err
 	}
-	if s.legacyDB, err = openDB(dbPaths[3]); err != nil {
+	if s.legacyDB, err = openDB(dbPaths[3], gb/2, gb/2); err != nil {
 		return err
 	}
-	if s.metadataDB, err = openDB(dbPaths[4]); err != nil {
+	if s.metadataDB, err = openDB(dbPaths[4], gb/2, gb/2); err != nil {
 		return err
 	}
 
