@@ -107,7 +107,23 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 
 	startOff := firstOff
 	if s.committedVersion > 0 {
-		if off, err := s.walOffsetForVersion(s.committedVersion + 1); err == nil && off > startOff {
+		off, err := s.walOffsetForVersion(s.committedVersion + 1)
+		if err != nil {
+			// committedVersion+1 not found in WAL. Check whether we are
+			// already caught up by reading the last WAL entry's version.
+			lastVer, verErr := s.walVersionAtOffset(lastOff)
+			if verErr != nil {
+				return fmt.Errorf("catchup: read last WAL version: %w", verErr)
+			}
+			if s.committedVersion >= lastVer {
+				return nil
+			}
+			// committedVersion is behind the WAL but the next version
+			// doesn't exist (gap). Fall through to scan from firstOff;
+			// the callback skips already-committed entries.
+			s.log.Info("FlatKV catchup: scanning from WAL start due to version gap",
+				"committedVersion", s.committedVersion, "lastWALVersion", lastVer)
+		} else if off > startOff {
 			if off > lastOff {
 				return nil
 			}
