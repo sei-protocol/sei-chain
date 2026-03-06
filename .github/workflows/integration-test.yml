@@ -108,6 +108,13 @@ jobs:
             ]
           },
           {
+            name: "EVM Module (Parquet)",
+            env: "RECEIPT_STORE_BACKEND=parquet",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_tests.sh",
+            ]
+          },
+          {
             name: "EVM Interoperability",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
