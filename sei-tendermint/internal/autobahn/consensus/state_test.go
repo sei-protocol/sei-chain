@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 // newTestState creates a State for testing with no persistence and a long
@@ -27,15 +29,6 @@ func newTestState(t *testing.T, keys []types.SecretKey) *State {
 	}, dataState)
 	require.NoError(t, err)
 	return s
-}
-
-// startRunOutputs launches runOutputs in the background and returns
-// a context that is cancelled when the test finishes.
-func startRunOutputs(t *testing.T, s *State) context.Context {
-	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-	go s.runOutputs(ctx)
-	return ctx
 }
 
 // makeTimeoutQC creates a TimeoutQC at the given view where all keys
@@ -68,29 +61,50 @@ func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := types.GenCommittee(rng, 3)
 	s := newTestState(t, keys)
-	ctx := startRunOutputs(t, s)
 
-	require.NoError(t, s.voteTimeout(ctx, types.View{Index: 0, Number: 0}))
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-	tv, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	require.False(t, testTimeoutVotePrepareQC(tv).IsPresent())
+		if err := s.voteTimeout(ctx, types.View{Index: 0, Number: 0}); err != nil {
+			return fmt.Errorf("voteTimeout: %w", err)
+		}
+		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present")
+		}
+		if testTimeoutVotePrepareQC(tv).IsPresent() {
+			return fmt.Errorf("PrepareQC should not be present")
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := types.GenCommittee(rng, 3)
 	s := newTestState(t, keys)
-	ctx := startRunOutputs(t, s)
 
-	pqc := makePrepareQC(keys, types.GenProposalAt(rng, types.View{Index: 0, Number: 0}))
-	require.NoError(t, s.pushPrepareQC(ctx, pqc))
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-	require.NoError(t, s.voteTimeout(ctx, types.View{Index: 0, Number: 0}))
-
-	tv, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	require.True(t, testTimeoutVotePrepareQC(tv).IsPresent())
+		pqc := makePrepareQC(keys, types.GenProposalAt(rng, types.View{Index: 0, Number: 0}))
+		if err := s.pushPrepareQC(ctx, pqc); err != nil {
+			return fmt.Errorf("pushPrepareQC: %w", err)
+		}
+		if err := s.voteTimeout(ctx, types.View{Index: 0, Number: 0}); err != nil {
+			return fmt.Errorf("voteTimeout: %w", err)
+		}
+		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present")
+		}
+		if !testTimeoutVotePrepareQC(tv).IsPresent() {
+			return fmt.Errorf("PrepareQC should be present")
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC is the core safety test:
@@ -99,37 +113,55 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := types.GenCommittee(rng, 3)
 	s := newTestState(t, keys)
-	ctx := startRunOutputs(t, s)
 
-	// View (0, 0): push PrepareQC for proposal P.
-	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
-	require.NoError(t, s.pushPrepareQC(ctx, pqc0))
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-	// Timeout at (0, 0) — all votes carry pqc0.
-	tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
-	require.NoError(t, s.pushTimeoutQC(ctx, tqc0))
+		// View (0, 0): push PrepareQC for proposal P.
+		view0 := types.View{Index: 0, Number: 0}
+		pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
+			return fmt.Errorf("pushPrepareQC: %w", err)
+		}
 
-	// Now at (0, 1). PrepareQC was cleared; voteTimeout must inherit it.
-	view1 := types.View{Index: 0, Number: 1}
-	require.NoError(t, s.voteTimeout(ctx, view1))
+		// Timeout at (0, 0) — all votes carry pqc0.
+		tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
+		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
+			return fmt.Errorf("pushTimeoutQC(tqc0): %w", err)
+		}
 
-	tv1, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	require.True(t, testTimeoutVotePrepareQC(tv1).IsPresent(),
-		"PrepareQC must be inherited from TimeoutQC")
+		// Now at (0, 1). PrepareQC was cleared; voteTimeout must inherit it.
+		view1 := types.View{Index: 0, Number: 1}
+		if err := s.voteTimeout(ctx, view1); err != nil {
+			return fmt.Errorf("voteTimeout(view1): %w", err)
+		}
+		tv1, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present at view1")
+		}
+		if !testTimeoutVotePrepareQC(tv1).IsPresent() {
+			return fmt.Errorf("PrepareQC must be inherited from TimeoutQC")
+		}
 
-	// Chain through a second timeout to prove it propagates indefinitely.
-	tqc1 := makeTimeoutQC(keys, view1, testTimeoutVotePrepareQC(tv1))
-	require.NoError(t, s.pushTimeoutQC(ctx, tqc1))
-
-	view2 := types.View{Index: 0, Number: 2}
-	require.NoError(t, s.voteTimeout(ctx, view2))
-
-	tv2, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	require.True(t, testTimeoutVotePrepareQC(tv2).IsPresent(),
-		"PrepareQC must survive a third consecutive timeout")
+		// Chain through a second timeout to prove it propagates indefinitely.
+		tqc1 := makeTimeoutQC(keys, view1, testTimeoutVotePrepareQC(tv1))
+		if err := s.pushTimeoutQC(ctx, tqc1); err != nil {
+			return fmt.Errorf("pushTimeoutQC(tqc1): %w", err)
+		}
+		view2 := types.View{Index: 0, Number: 2}
+		if err := s.voteTimeout(ctx, view2); err != nil {
+			return fmt.Errorf("voteTimeout(view2): %w", err)
+		}
+		tv2, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present at view2")
+		}
+		if !testTimeoutVotePrepareQC(tv2).IsPresent() {
+			return fmt.Errorf("PrepareQC must survive a third consecutive timeout")
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited verifies that when
@@ -139,31 +171,48 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := types.GenCommittee(rng, 3)
 	s := newTestState(t, keys)
-	ctx := startRunOutputs(t, s)
 
-	// View (0, 0): PrepareQC for P.
-	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
-	require.NoError(t, s.pushPrepareQC(ctx, pqc0))
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-	// Timeout at (0, 0) → advance to (0, 1).
-	tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
-	require.NoError(t, s.pushTimeoutQC(ctx, tqc0))
+		// View (0, 0): PrepareQC for P.
+		view0 := types.View{Index: 0, Number: 0}
+		pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
+			return fmt.Errorf("pushPrepareQC(pqc0): %w", err)
+		}
 
-	// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
-	view1 := types.View{Index: 0, Number: 1}
-	pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
-	require.NoError(t, s.pushPrepareQC(ctx, pqc1))
+		// Timeout at (0, 0) → advance to (0, 1).
+		tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
+		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
+			return fmt.Errorf("pushTimeoutQC: %w", err)
+		}
 
-	require.NoError(t, s.voteTimeout(ctx, view1))
+		// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
+		view1 := types.View{Index: 0, Number: 1}
+		pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
+		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
+			return fmt.Errorf("pushPrepareQC(pqc1): %w", err)
+		}
 
-	tv, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	gotPQC := testTimeoutVotePrepareQC(tv)
-	require.True(t, gotPQC.IsPresent())
-	pqc, _ := gotPQC.Get()
-	require.Equal(t, view1, pqc.Proposal().View(),
-		"should use current view PrepareQC, not the older inherited one")
+		if err := s.voteTimeout(ctx, view1); err != nil {
+			return fmt.Errorf("voteTimeout: %w", err)
+		}
+		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present")
+		}
+		gotPQC := testTimeoutVotePrepareQC(tv)
+		if !gotPQC.IsPresent() {
+			return fmt.Errorf("PrepareQC should be present")
+		}
+		pqc, _ := gotPQC.Get()
+		if pqc.Proposal().View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone verifies that when
@@ -173,25 +222,40 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := types.GenCommittee(rng, 3)
 	s := newTestState(t, keys)
-	ctx := startRunOutputs(t, s)
 
-	// Timeout at (0, 0) without PrepareQC.
-	view0 := types.View{Index: 0, Number: 0}
-	tqc0 := makeTimeoutQC(keys, view0, utils.None[*types.PrepareQC]())
-	require.NoError(t, s.pushTimeoutQC(ctx, tqc0))
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-	// Fresh PrepareQC at (0, 1).
-	view1 := types.View{Index: 0, Number: 1}
-	pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
-	require.NoError(t, s.pushPrepareQC(ctx, pqc1))
+		// Timeout at (0, 0) without PrepareQC.
+		view0 := types.View{Index: 0, Number: 0}
+		tqc0 := makeTimeoutQC(keys, view0, utils.None[*types.PrepareQC]())
+		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
+			return fmt.Errorf("pushTimeoutQC: %w", err)
+		}
 
-	require.NoError(t, s.voteTimeout(ctx, view1))
+		// Fresh PrepareQC at (0, 1).
+		view1 := types.View{Index: 0, Number: 1}
+		pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
+		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
+			return fmt.Errorf("pushPrepareQC: %w", err)
+		}
 
-	tv, ok := s.innerRecv.Load().TimeoutVote.Get()
-	require.True(t, ok)
-	gotPQC := testTimeoutVotePrepareQC(tv)
-	require.True(t, gotPQC.IsPresent())
-	pqc, _ := gotPQC.Get()
-	require.Equal(t, view1, pqc.Proposal().View(),
-		"should use current view PrepareQC when TimeoutQC has none")
+		if err := s.voteTimeout(ctx, view1); err != nil {
+			return fmt.Errorf("voteTimeout: %w", err)
+		}
+		tv, ok := s.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present")
+		}
+		gotPQC := testTimeoutVotePrepareQC(tv)
+		if !gotPQC.IsPresent() {
+			return fmt.Errorf("PrepareQC should be present")
+		}
+		pqc, _ := gotPQC.Get()
+		if pqc.Proposal().View() != view1 {
+			return fmt.Errorf("expected PrepareQC at view %v, got %v", view1, pqc.Proposal().View())
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
