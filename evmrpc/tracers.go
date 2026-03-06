@@ -53,6 +53,14 @@ func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) 
 	if api.traceCallSemaphore != nil {
 		select {
 		case api.traceCallSemaphore <- struct{}{}:
+			// If cancellation won the race at the same time as semaphore acquisition,
+			// release the slot and surface the context error.
+			select {
+			case <-ctx.Done():
+				<-api.traceCallSemaphore
+				return func() {}, ctx.Err()
+			default:
+			}
 			return func() { <-api.traceCallSemaphore }, nil
 		case <-ctx.Done():
 			return func() {}, ctx.Err()
