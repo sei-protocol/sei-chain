@@ -1,4 +1,4 @@
-package flatcache
+package flatcache // TODO rename the flatcache package!
 
 import "github.com/sei-protocol/sei-chain/sei-db/proto"
 

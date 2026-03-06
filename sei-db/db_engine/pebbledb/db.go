@@ -14,6 +14,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/flatcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -23,6 +24,7 @@ const metricsScrapeInterval = 10 * time.Second
 type pebbleDB struct {
 	db            *pebble.DB
 	metricsCancel context.CancelFunc
+	cache         flatcache.Cache
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -44,11 +46,12 @@ func Open(
 		}
 	}
 
-	cache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
-	defer cache.Unref()
+	// Internal pebbleDB cache, used to cache pages in memory. // TODO verify accuracy of this statement
+	pebbleCache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
+	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
-		Cache:    cache,
+		Cache:    pebbleCache,
 		Comparer: cmp,
 		// FormatMajorVersion is pinned to a specific version to prevent accidental
 		// breaking changes when updating the pebble dependency. Using FormatNewest
@@ -92,33 +95,73 @@ func Open(
 		return nil, err
 	}
 
+	readFunction := func(key []byte) []byte { // TODO error handling!
+		val, closer, err := db.Get(key)
+		if err != nil {
+			return nil
+		}
+		cloned := bytes.Clone(val)
+		_ = closer.Close()
+		return cloned
+	}
+
+	// A high level cache per key.
+	cache, err := flatcache.NewCache(
+		ctx,
+		readFunction,
+		8,
+		1024*1024*1024,
+		20,
+		64,
+		10*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create flatcache: %w", err)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	if enableMetrics {
 		metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
 	}
 
-	return &pebbleDB{db: db, metricsCancel: cancel}, nil
+	return &pebbleDB{
+		db:            db,
+		metricsCancel: cancel,
+		cache:         cache,
+	}, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
-	// Pebble returns a zero-copy view plus a closer; we copy and close internally.
-	val, closer, err := p.db.Get(key)
+	// // Pebble returns a zero-copy view plus a closer; we copy and close internally.
+	// val, closer, err := p.db.Get(key)
+	// if err != nil {
+	// 	if errors.Is(err, pebble.ErrNotFound) {
+	// 		return nil, errorutils.ErrNotFound
+	// 	}
+	// 	return nil, err
+	// }
+	// cloned := bytes.Clone(val)
+	// _ = closer.Close()
+
+	val, found, err := p.cache.Get(key, true)
 	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, errorutils.ErrNotFound
-		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
-	cloned := bytes.Clone(val)
-	_ = closer.Close()
-	return cloned, nil
+	if !found {
+		return nil, errorutils.ErrNotFound
+	}
+
+	return val, nil
 }
 
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
+	// TODO batch set!
+	p.cache.Set(key, value)
 	return p.db.Set(key, value, toPebbleWriteOpts(opts))
 }
 
 func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
+	// TODO batch delete!
+	p.cache.Delete(key)
 	return p.db.Delete(key, toPebbleWriteOpts(opts))
 }
 

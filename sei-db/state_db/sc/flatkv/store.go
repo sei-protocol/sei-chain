@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/flatcache"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -75,9 +74,6 @@ type CommitStore struct {
 	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
 	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
 
-	// TODO consider having one cache per DB
-	cache flatcache.Cache
-
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
 
@@ -121,7 +117,7 @@ func NewCommitStore(
 	}
 	meter := otel.Meter(flatkvMeterName)
 
-	s := &CommitStore{
+	return &CommitStore{
 		ctx:               ctx,
 		log:               log,
 		config:            cfg,
@@ -136,31 +132,6 @@ func NewCommitStore(
 		workingLtHash:     lthash.New(),
 		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
-
-	readFunction := func(key []byte) []byte { // TODO maybe change signature
-		value, found := s.storageRead(key)
-		if !found {
-			return nil
-		}
-		return value
-	}
-
-	// TODO use config
-	cache, err := flatcache.NewCache(
-		ctx,
-		readFunction,
-		1024,
-		1024*1024*1024,
-		20,
-		8,
-		10*time.Second)
-	if err != nil {
-		panic(fmt.Errorf("failed to create cache: %w", err)) // TODO
-	}
-
-	s.cache = cache
-
-	return s
 }
 
 func (s *CommitStore) flatkvDir() string {

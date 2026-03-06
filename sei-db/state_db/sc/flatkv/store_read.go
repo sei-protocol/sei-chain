@@ -7,7 +7,6 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // Get returns the value for the given memiavl key.
@@ -29,12 +28,12 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		// Read from cache (may fall through to storageDB if not found)
-		value, found, err := s.cache.Get(key, true)
+		// Read from storageDB
+		value, err := s.storageDB.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, found
+		return value, true
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 		// Account data: keyBytes = addr(20)
@@ -62,10 +61,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return paw.value.CodeHash[:], true
 		}
 
-		// Read from accountDB directly. The cache cannot be used for accounts
-		// because BatchSet stores raw nonce/codehash values individually, but
-		// accountDB stores merged AccountValue records.
-		encoded, err := s.accountDB.Get(keyBytes) // TODO: figure out how to fix this!!!
+		// Read from accountDB
+		encoded, err := s.accountDB.Get(AccountKey(addr))
 		if err != nil {
 			return nil, false
 		}
@@ -96,12 +93,12 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		// Read from cache (may fall through to codeDB if not found)
-		value, found, err := s.cache.Get(key, true)
+		// Read from codeDB
+		value, err := s.codeDB.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, found
+		return value, true
 
 	case evm.EVMKeyLegacy:
 		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
@@ -111,45 +108,15 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return pw.value, true
 		}
 
-		// Read from cache (may fall through to legacyDB if not found)
-		value, found, err := s.cache.Get(key, true)
+		value, err := s.legacyDB.Get(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, found
+		return value, true
 
 	default:
 		return nil, false
 	}
-}
-
-// Read a value from the disk, ignoring pending writes and without interpreting data in any way.
-func (s *CommitStore) storageRead(key []byte) ([]byte, bool) {
-	kind, keyBytes := evm.ParseEVMKey(key)
-	if kind == evm.EVMKeyUnknown {
-		return nil, false
-	}
-
-	var db seidbtypes.KeyValueDB
-
-	switch kind {
-	case evm.EVMKeyStorage:
-		db = s.storageDB
-	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-		db = s.accountDB
-	case evm.EVMKeyCode:
-		db = s.codeDB
-	case evm.EVMKeyLegacy:
-		db = s.legacyDB
-	default:
-		return nil, false
-	}
-
-	value, err := db.Get(keyBytes)
-	if err != nil {
-		return nil, false // TODO why are we squelching errors here?
-	}
-	return value, true
 }
 
 // Has reports whether the given memiavl key exists.
