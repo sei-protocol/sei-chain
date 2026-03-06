@@ -242,9 +242,19 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	dir := s.flatkvDir()
 
-	snapDir, err := resolveSnapshotDirReadOnly(dir, targetVersion)
-	if err != nil {
-		return fmt.Errorf("resolve snapshot for readonly: %w", err)
+	var snapDir string
+	if targetVersion > 0 {
+		baseVer, err := seekSnapshot(dir, targetVersion)
+		if err != nil {
+			return fmt.Errorf("seek snapshot for readonly: %w", err)
+		}
+		snapDir = filepath.Join(dir, snapshotName(baseVer))
+	} else {
+		var err error
+		snapDir, _, err = currentSnapshotDir(dir)
+		if err != nil {
+			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
+		}
 	}
 
 	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {

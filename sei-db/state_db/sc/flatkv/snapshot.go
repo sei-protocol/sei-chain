@@ -111,43 +111,6 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 	return found, nil
 }
 
-// resolveSnapshotDirReadOnly finds the snapshot directory for a readonly open
-// without creating directories, symlinks, or performing migrations.
-//
-// When targetVersion > 0 it seeks the highest snapshot <= targetVersion.
-// When targetVersion == 0 it tries the current symlink first, then falls back
-// to the highest existing snapshot directory. This handles crash-recovery
-// states (orphaned snapshots with no current symlink) that the writable
-// resolveSnapshotDir would repair.
-func resolveSnapshotDirReadOnly(root string, targetVersion int64) (string, error) {
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(root, targetVersion)
-		if err != nil {
-			return "", fmt.Errorf("seek snapshot: %w", err)
-		}
-		return filepath.Join(root, snapshotName(baseVer)), nil
-	}
-
-	snapDir, _, err := currentSnapshotDir(root)
-	if err == nil {
-		return snapDir, nil
-	}
-	if !os.IsNotExist(err) {
-		return "", fmt.Errorf("read current symlink: %w", err)
-	}
-
-	var latestSnap int64 = -1
-	_ = traverseSnapshots(root, false, func(v int64) (bool, error) {
-		latestSnap = v
-		return true, nil
-	})
-	if latestSnap >= 0 {
-		return filepath.Join(root, snapshotName(latestSnap)), nil
-	}
-
-	return "", fmt.Errorf("no snapshot found and DB not initialized")
-}
-
 // traverseSnapshots iterates snapshot directories in the given order.
 // ascending=true  -> lowest version first
 // ascending=false -> highest version first
@@ -224,10 +187,7 @@ func removeTmpDirs(dir string) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !e.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix) {
+		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
 			_ = os.RemoveAll(filepath.Join(dir, name))
 		}
 	}

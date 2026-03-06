@@ -70,7 +70,6 @@ func (s *CommitStore) closeDBsOnly() error {
 }
 
 // Close closes all database instances and releases the file lock.
-// For readonly stores it also removes the temporary working directory.
 func (s *CommitStore) Close() error {
 	err := s.closeDBsOnly()
 
