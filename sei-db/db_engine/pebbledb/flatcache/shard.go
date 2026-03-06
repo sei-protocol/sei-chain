@@ -114,7 +114,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		valueChan := make(chan []byte, 1)
 		entry.valueChan = valueChan
 		s.lock.Unlock()
-		err := s.readScheduler.ScheduleRead(key, entry)
+		err := s.readScheduler.ScheduleRead(key, entry, false)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
 		}
@@ -164,6 +164,100 @@ func (s *shard) getEntry(key []byte) *shardEntry {
 		s.data[string(key)] = entry
 	}
 	return entry
+}
+
+// Tracks a key whose value is not yet available and must be waited on.
+type pendingRead struct {
+	key           string
+	entry         *shardEntry
+	valueChan     chan []byte
+	needsSchedule bool
+	// Populated after the read completes, used by bulkInjectValues.
+	value []byte
+}
+
+// BatchGet reads a batch of keys from the shard. Results are written into the provided map.
+func (s *shard) BatchGet(keys map[string]BatchGetResult) error {
+	pending := make([]pendingRead, 0, len(keys))
+
+	s.lock.Lock()
+	for key := range keys {
+		entry := s.getEntry([]byte(key))
+
+		switch entry.status {
+		case statusAvailable:
+			keys[key] = BatchGetResult{Value: entry.value, Found: true}
+		case statusDeleted:
+			keys[key] = BatchGetResult{Found: false}
+		case statusScheduled:
+			pending = append(pending, pendingRead{
+				key:       key,
+				entry:     entry,
+				valueChan: entry.valueChan,
+			})
+		case statusUnknown:
+			entry.status = statusScheduled
+			valueChan := make(chan []byte, 1)
+			entry.valueChan = valueChan
+			pending = append(pending, pendingRead{
+				key:           key,
+				entry:         entry,
+				valueChan:     valueChan,
+				needsSchedule: true,
+			})
+		default:
+			s.lock.Unlock()
+			panic(fmt.Sprintf("unexpected status: %#v", entry.status))
+		}
+	}
+	s.lock.Unlock()
+
+	for i := range pending {
+		if pending[i].needsSchedule {
+			err := s.readScheduler.ScheduleRead([]byte(pending[i].key), pending[i].entry, true)
+			if err != nil {
+				return fmt.Errorf("failed to schedule read: %w", err)
+			}
+		}
+	}
+
+	for i := range pending {
+		value, err := utils.InterruptiblePull(s.ctx, pending[i].valueChan)
+		if err != nil {
+			return fmt.Errorf("failed to pull value from channel: %w", err)
+		}
+		pending[i].valueChan <- value
+		pending[i].value = value
+
+		keys[pending[i].key] = BatchGetResult{Value: value, Found: value != nil}
+	}
+
+	if len(pending) > 0 {
+		go s.bulkInjectValues(pending)
+	}
+
+	return nil
+}
+
+// Applies deferred cache updates for a batch of reads under a single lock acquisition.
+func (s *shard) bulkInjectValues(reads []pendingRead) {
+	s.lock.Lock()
+	for i := range reads {
+		entry := reads[i].entry
+		if entry.status != statusScheduled {
+			continue
+		}
+		if reads[i].value == nil {
+			entry.status = statusDeleted
+			entry.value = nil
+			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key))
+		} else {
+			entry.status = statusAvailable
+			entry.value = reads[i].value
+			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key)+len(reads[i].value))
+		}
+	}
+	s.lock.Unlock()
 }
 
 // Set sets the value for the given key.

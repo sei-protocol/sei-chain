@@ -110,6 +110,38 @@ func (c *cache) BatchSet(updates []CacheUpdate) {
 	wg.Wait()
 }
 
+func (c *cache) BatchGet(keys map[string]BatchGetResult) {
+	work := make(map[uint64]map[string]BatchGetResult)
+	for key := range keys {
+		idx := c.shardManager.Shard([]byte(key))
+		if work[idx] == nil {
+			work[idx] = make(map[string]BatchGetResult)
+		}
+		work[idx][key] = BatchGetResult{}
+	}
+
+	var wg sync.WaitGroup // TODO use a pool here
+	for shardIndex, subMap := range work {
+		wg.Add(1)
+		go func(shardIndex uint64, subMap map[string]BatchGetResult) {
+			defer wg.Done()
+			err := c.shards[shardIndex].BatchGet(subMap)
+			if err != nil {
+				for key := range subMap {
+					subMap[key] = BatchGetResult{Error: err}
+				}
+			}
+		}(shardIndex, subMap)
+	}
+	wg.Wait()
+
+	for _, subMap := range work {
+		for key, result := range subMap {
+			keys[key] = result
+		}
+	}
+}
+
 func (c *cache) Delete(key []byte) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]

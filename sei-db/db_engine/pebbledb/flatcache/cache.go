@@ -11,6 +11,16 @@ type CacheUpdate struct {
 	IsDelete bool
 }
 
+// BatchGetResult describes the result of a batch read operation.
+type BatchGetResult struct {
+	// The value for the given key.
+	Value []byte
+	// If true, the key was found.
+	Found bool
+	// The error, if any, that occurred during the read.
+	Error error
+}
+
 // Cache describes a cache kapable of being used by a FlatKV store.
 type Cache interface {
 
@@ -25,6 +35,12 @@ type Cache interface {
 		// since it requires non-zero overhead to do so with little benefit.
 		updateLru bool,
 	) ([]byte, bool, error)
+
+	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
+	// map with the results.
+	//
+	// It is not thread safe to read or mutate the map while this method is running.
+	BatchGet(keys map[string]BatchGetResult)
 
 	// Set sets the value for the given key.
 	Set(key []byte, value []byte)

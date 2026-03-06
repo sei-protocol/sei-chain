@@ -19,6 +19,11 @@ type readRequest struct {
 
 	// The entry to write the result to.
 	entry *shardEntry
+
+	// If true, the worker will send the value directly to entry.valueChan
+	// without calling InjectValue (which acquires the shard lock).
+	// Used by BatchGet to defer cache updates to a single bulk operation.
+	skipInject bool
 }
 
 // Creates a new ReadScheduler.
@@ -45,12 +50,14 @@ func NewReadScheduler(
 
 // ScheduleRead schedules a read for the given key within the given shard.
 // This method returns immediately, and the read is performed asynchronously.
-// When eventually completed, the read result is inserted into the provided shard entry
-func (r *readScheduler) ScheduleRead(key []byte, entry *shardEntry) error {
+// When eventually completed, the read result is inserted into the provided shard entry.
+// If skipInject is true, the worker sends the value directly to entry.valueChan
+// without calling InjectValue.
+func (r *readScheduler) ScheduleRead(key []byte, entry *shardEntry, skipInject bool) error {
 	select {
 	case <-r.ctx.Done():
 		return fmt.Errorf("context done")
-	case r.requestChan <- &readRequest{key: key, entry: entry}:
+	case r.requestChan <- &readRequest{key: key, entry: entry, skipInject: skipInject}:
 		return nil
 	}
 }
@@ -63,7 +70,11 @@ func (r *readScheduler) readWorker() {
 			return
 		case request := <-r.requestChan:
 			value := r.readFunc(request.key)
-			request.entry.InjectValue(request.key, value)
+			if request.skipInject {
+				request.entry.valueChan <- value
+			} else {
+				request.entry.InjectValue(request.key, value)
+			}
 		}
 	}
 }
