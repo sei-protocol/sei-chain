@@ -25,7 +25,6 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	// Save original changesets for changelog
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	// Collect LtHash pairs per DB (using internal key format)

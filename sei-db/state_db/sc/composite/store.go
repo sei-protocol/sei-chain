@@ -81,10 +81,8 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	return cs.cosmosCommitter.SetInitialVersion(initialVersion)
 }
 
-// LoadVersion loads the specified version of the database.
-// Being used for two scenarios:
-// ReadOnly: Either for state sync or for historical proof
-// Writable: Opened during initialization for root multistore
+// LoadVersion opens the database at the given version (0 = latest).
+// When readOnly is true an isolated composite store is returned.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
 	cosmosSC, err := cs.cosmosCommitter.LoadVersion(targetVersion, readOnly)
 	if err != nil {
@@ -96,7 +94,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 	}
 
-	// Read only mode should return a new SC
 	if readOnly {
 		newStore := &CompositeCommitStore{
 			logger:          cs.logger,
@@ -116,9 +113,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 	}
 
 	cs.cosmosCommitter = cosmosCommitter
-	// Load evmCommitter if initialized (nil when WriteMode is CosmosOnlyWrite).
-	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
-	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
 	if cs.evmCommitter != nil {
 		_, err := cs.evmCommitter.LoadVersion(targetVersion, false)
 		if err != nil {

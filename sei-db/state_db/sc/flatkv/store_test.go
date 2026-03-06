@@ -825,7 +825,6 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	// Parent continues to commit while readonly is open.
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
 	commitAndCheck(t, s)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{3}, false)}))
@@ -833,7 +832,6 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 
 	require.Equal(t, int64(3), s.Version())
 
-	// Readonly should still see version-1 data.
 	require.Equal(t, int64(1), ro.Version())
 	got, found := ro.Get(key)
 	require.True(t, found)
@@ -888,11 +886,9 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
 	commitAndCheck(t, s)
 
-	// Attempt to load a version that doesn't exist.
 	_, err = s.LoadVersion(999, true)
 	require.Error(t, err)
 
-	// Parent should still work normally.
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
 	v, err := s.Commit()
 	require.NoError(t, err)
