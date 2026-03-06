@@ -259,3 +259,76 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestVoteTimeoutPrepareQC_PersistedRestart verifies that after a restart,
+// voteTimeout still inherits the PrepareQC from the persisted TimeoutQC.
+func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
+	rng := utils.TestRng()
+	_, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	makeCfg := func() *Config {
+		return &Config{
+			Key:                keys[0],
+			ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+			PersistentStateDir: utils.Some(dir),
+		}
+	}
+	makeDataState := func() *data.State {
+		return data.NewState(
+			&data.Config{Committee: testCommittee(keys...)},
+			utils.None[data.BlockStore](),
+		)
+	}
+
+	view0 := types.View{Index: 0, Number: 0}
+	pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+
+	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
+	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		s, err := NewState(makeCfg(), makeDataState())
+		if err != nil {
+			return fmt.Errorf("NewState: %w", err)
+		}
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
+
+		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
+			return fmt.Errorf("pushPrepareQC: %w", err)
+		}
+		tqc0 := makeTimeoutQC(keys, view0, utils.Some(pqc0))
+		if err := s.pushTimeoutQC(ctx, tqc0); err != nil {
+			return fmt.Errorf("pushTimeoutQC: %w", err)
+		}
+		// Wait until runOutputs has processed the state change (and persisted it).
+		if _, err := s.myView.Wait(ctx, func(vs types.ViewSpec) bool {
+			return vs.TimeoutQC.IsPresent()
+		}); err != nil {
+			return fmt.Errorf("wait for persist: %w", err)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	// Session 2: restart from persisted state, verify PrepareQC inheritance.
+	err = scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
+		s2, err := NewState(makeCfg(), makeDataState())
+		if err != nil {
+			return fmt.Errorf("NewState (restart): %w", err)
+		}
+		sc.SpawnBg(func() error { return utils.IgnoreCancel(s2.Run(ctx)) })
+
+		view1 := types.View{Index: 0, Number: 1}
+		if err := s2.voteTimeout(ctx, view1); err != nil {
+			return fmt.Errorf("voteTimeout: %w", err)
+		}
+		tv, ok := s2.innerRecv.Load().TimeoutVote.Get()
+		if !ok {
+			return fmt.Errorf("TimeoutVote not present after restart")
+		}
+		if !testTimeoutVotePrepareQC(tv).IsPresent() {
+			return fmt.Errorf("PrepareQC must be inherited from persisted TimeoutQC after restart")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
