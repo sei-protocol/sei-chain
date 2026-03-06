@@ -31,6 +31,8 @@ const (
 	IsPanicCacheTTL  = 1 * time.Minute
 )
 
+var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
+
 type DebugAPI struct {
 	tracersAPI         *tracers.API
 	tmClient           rpcclient.Client
@@ -48,29 +50,29 @@ type DebugAPI struct {
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
 // It returns a function that must be called (typically with defer) to release the semaphore.
 // If the semaphore is nil (unlimited concurrency), it does nothing and returns a no-op release function.
-// The acquisition respects the provided context so callers do not block forever waiting for a slot.
+// The acquisition respects cancellation and fails fast if all trace slots are in use.
 func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) {
 	if api.traceCallSemaphore != nil {
 		select {
 		case api.traceCallSemaphore <- struct{}{}:
 			// If cancellation won the race at the same time as semaphore acquisition,
 			// release the slot and surface the context error.
-			select {
-			case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
 				<-api.traceCallSemaphore
-				return func() {}, ctx.Err()
-			default:
+				return func() {}, err
 			}
 			return func() { <-api.traceCallSemaphore }, nil
 		case <-ctx.Done():
 			return func() {}, ctx.Err()
+		default:
+			return func() {}, errTraceConcurrencyLimit
 		}
 	}
 	return func() {}, nil // No-op if semaphore is not active
 }
 
-// prepareTraceContext ensures trace requests spend their timeout budget on both queue wait
-// and execution, and it returns a cleanup function that releases all acquired resources.
+// prepareTraceContext creates the trace timeout context and acquires a trace slot if one
+// is immediately available, returning a cleanup function for acquired resources.
 func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, func(), error) {
 	traceCtx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	release, err := api.acquireTraceSemaphore(traceCtx)

@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrepareTraceContextTimesOutWhileWaitingForSemaphore(t *testing.T) {
+func TestPrepareTraceContextFailsFastWhenSemaphoreIsFull(t *testing.T) {
 	t.Parallel()
 
 	api := &DebugAPI{
 		traceCallSemaphore: make(chan struct{}, 1),
-		traceTimeout:       20 * time.Millisecond,
+		traceTimeout:       time.Second,
 	}
 
 	release, err := api.acquireTraceSemaphore(context.Background())
@@ -26,9 +26,8 @@ func TestPrepareTraceContextTimesOutWhileWaitingForSemaphore(t *testing.T) {
 
 	require.Nil(t, traceCtx)
 	require.Nil(t, done)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.GreaterOrEqual(t, elapsed, api.traceTimeout)
-	require.Less(t, elapsed, 500*time.Millisecond)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+	require.Less(t, elapsed, 100*time.Millisecond)
 }
 
 func TestPrepareTraceContextReleasesSemaphoreOnCleanup(t *testing.T) {
