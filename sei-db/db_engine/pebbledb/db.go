@@ -110,7 +110,7 @@ func Open(
 		ctx,
 		readFunction,
 		8,
-		1024*1024*1024,
+		1024*1024*1024*8, // 8GB TODO configure this differently for each db instance!
 		20,
 		64,
 		10*time.Second)
