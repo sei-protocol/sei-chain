@@ -1,24 +1,9 @@
+FROM golang:1.25.6-bookworm AS go-dist
+
 FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
-RUN set -eux; \
-    GO_TARBALL="go1.25.6.linux-amd64.tar.gz"; \
-    GO_URL="https://go.dev/dl/${GO_TARBALL}"; \
-    GO_TARBALL_PATH="/tmp/${GO_TARBALL}"; \
-    for attempt in 1 2 3 4 5; do \
-      curl -fSL --retry 5 --retry-delay 2 --retry-all-errors "${GO_URL}" -o "${GO_TARBALL_PATH}"; \
-      if tar -tzf "${GO_TARBALL_PATH}" > /dev/null 2>&1; then \
-        break; \
-      fi; \
-      rm -f "${GO_TARBALL_PATH}"; \
-      if [ "${attempt}" -eq 5 ]; then \
-        echo "failed to download a valid Go tarball after retries"; \
-        exit 1; \
-      fi; \
-      sleep 2; \
-    done; \
-    tar -xzf "${GO_TARBALL_PATH}" -C /usr/local/; \
-    rm -f "${GO_TARBALL_PATH}"
+COPY --from=go-dist /usr/local/go /usr/local/go
 RUN curl -L https://foundry.paradigm.xyz | bash
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
 RUN /root/.foundry/bin/foundryup
