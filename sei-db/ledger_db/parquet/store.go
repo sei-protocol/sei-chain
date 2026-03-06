@@ -57,11 +57,11 @@ type ReceiptInput struct {
 // the corresponding point in the write path; returning a non-nil error
 // aborts the operation and propagates the error to the caller.
 type FaultHooks struct {
-	AfterWALWrite    func(blockNumber uint64) error // after WAL writes, before parquet apply
-	BeforeFlush      func(blockNumber uint64) error // before writing buffers to parquet
-	AfterFlush       func(blockNumber uint64) error // after parquet flush, before buffer clear
+	AfterWALWrite     func(blockNumber uint64) error // after WAL writes, before parquet apply
+	BeforeFlush       func(blockNumber uint64) error // before writing buffers to parquet
+	AfterFlush        func(blockNumber uint64) error // after parquet flush, before buffer clear
 	AfterCloseWriters func(blockNumber uint64) error // during rotation, after closing old writers
-	AfterWALClear    func(blockNumber uint64) error // during rotation, after WAL truncation
+	AfterWALClear     func(blockNumber uint64) error // during rotation, after WAL truncation
 }
 
 // Store is the parquet-based receipt store.
