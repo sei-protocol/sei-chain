@@ -46,6 +46,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagRSBackend:
+		return config.DefaultReceiptStoreConfig().Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSWriteMode:
@@ -61,8 +63,10 @@ func TestNewDefaultConfig(t *testing.T) {
 	appOpts := TestSeiDBAppOpts{}
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
+	receiptConfig := parseReceiptConfigs(appOpts)
 	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
+	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
 }
 
 type mapAppOpts map[string]interface{}
@@ -84,4 +88,18 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
 	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}
+
+func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
+	receiptConfig := parseReceiptConfigs(mapAppOpts{})
+	assert.Equal(t, config.DefaultReceiptStoreConfig(), receiptConfig)
+}
+
+func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
+	receiptConfig := parseReceiptConfigs(mapAppOpts{
+		FlagRSBackend: "parquet",
+	})
+	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
 }
