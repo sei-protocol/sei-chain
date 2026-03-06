@@ -23,6 +23,7 @@ type EVMKeeper interface {
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	GetCodeSize(sdk.Context, common.Address) int
 	GetState(sdk.Context, common.Address, common.Hash) common.Hash
+	GetCommittedState(sdk.Context, common.Address, common.Hash) common.Hash
 	SetState(sdk.Context, common.Address, common.Hash, common.Hash)
 	AccountKeeper() *authkeeper.AccountKeeper
 	GetFeeCollectorAddress(sdk.Context) (common.Address, error)
@@ -30,4 +31,5 @@ type EVMKeeper interface {
 	SetNonce(sdk.Context, common.Address, uint64)
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	UpgradeKeeper() *upgradekeeper.Keeper
+	ShouldUseRegularStore() bool
 }
