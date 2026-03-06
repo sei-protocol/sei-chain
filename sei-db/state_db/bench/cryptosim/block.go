@@ -74,7 +74,7 @@ func (b *block) SetBlockAccountStats(
 
 // This method should be called after a block is finished executing and finalized.
 // Reports metrics about the block.
-func (b *block) ReportBlockMetrcs() {
+func (b *block) ReportBlockMetrics() {
 	b.metrics.SetTotalNumberOfAccounts(b.nextAccountID, int64(b.config.NumberOfHotAccounts), b.numberOfColdAccounts)
 }
 

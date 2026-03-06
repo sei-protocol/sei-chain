@@ -246,6 +246,9 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.BackgroundMetricsScrapeInterval < 0 {
 		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
 	}
+	if c.BlockChannelCapacity < 1 {
+		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
 
 	return nil
 }

@@ -67,6 +67,14 @@ type CryptoSim struct {
 	// benchmark, sending "false" will resume it. Suspending an already suspended benchmark will have no effect,
 	// and resuming an already resumed benchmark will likewise have no effect.
 	suspendChan chan bool
+
+	// The most recent block that has been processed.
+	mostRecentBlock *block
+
+	// The next ERC20 contract ID to be used when creating a new ERC20 contract.
+	// This is fixed after initial setup is complete, since we don't currently simulate
+	// the creation of new ERC20 contracts during the benchmark.
+	nextERC20ContractID int64
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -316,6 +324,8 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()))
 
+	c.nextERC20ContractID = c.dataGenerator.NextErc20ContractID()
+
 	return nil
 }
 
@@ -358,11 +368,12 @@ func (c *CryptoSim) run() {
 
 // Execute and finalize the next block.
 func (c *CryptoSim) handleNextBlock(blk *block) {
+	c.mostRecentBlock = blk
 	c.metrics.SetMainThreadPhase("send_to_executors")
 
 	c.database.IncrementTransactionCount(blk.TransactionCount())
 
-	for _, txn := range blk.transactions {
+	for txn := range blk.Iterator() {
 		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
 		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
 	}
@@ -372,17 +383,19 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 		c.cancel()
 		return
 	}
-	blk.ReportBlockMetrcs()
+	blk.ReportBlockMetrics()
 }
 
 // Suspends the benchmark. This method blocks until the benchmark is resumed or shut down.
 func (c *CryptoSim) suspend() {
 
-	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
-	if err != nil {
-		fmt.Printf("failed to finalize block: %v\n", err)
-		c.cancel()
-		return
+	if c.mostRecentBlock != nil {
+		err := c.database.FinalizeBlock(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID, true)
+		if err != nil {
+			fmt.Printf("failed to finalize block: %v\n", err)
+			c.cancel()
+			return
+		}
 	}
 
 	fmt.Printf("Benchmark suspended.\n")
@@ -410,9 +423,16 @@ func (c *CryptoSim) suspend() {
 
 // Clean up the benchmark and release any resources.
 func (c *CryptoSim) teardown() {
-	err := c.database.Close(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
-	if err != nil {
-		fmt.Printf("failed to close database: %v\n", err)
+	if c.mostRecentBlock == nil {
+		err := c.database.CloseWithoutFinalizing()
+		if err != nil {
+			fmt.Printf("failed to close database: %v\n", err)
+		}
+	} else {
+		err := c.database.Close(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID)
+		if err != nil {
+			fmt.Printf("failed to close database: %v\n", err)
+		}
 	}
 
 	c.dataGenerator.Close()

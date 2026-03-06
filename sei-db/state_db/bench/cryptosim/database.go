@@ -206,6 +206,17 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 	return nil
 }
 
+// Close the database and release any resources without finalizing the last batch.
+func (d *Database) CloseWithoutFinalizing() error {
+	fmt.Printf("Closing database.\n")
+	err := d.db.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+
+	return nil
+}
+
 // Set the function that flushes the executors. This setter is required to break a circular dependency.
 func (d *Database) SetFlushFunc(flushFunc func()) {
 	d.flushFunc = flushFunc
