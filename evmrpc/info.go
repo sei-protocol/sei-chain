@@ -292,7 +292,8 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		// okay to get from latest since receipt is immutable
 		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
-			return nil, err
+			// tx doesn't have a receipt because of nonce mismatch
+			continue
 		}
 		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
 		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {

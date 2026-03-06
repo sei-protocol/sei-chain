@@ -101,6 +101,9 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		txHash := common.BytesToHash(deferredInfo.TxHash)
 		if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
+			if !k.GetNonceBumped(ctx, deferredInfo.TxIndex) {
+				continue
+			}
 			_ = k.SetTransientReceipt(ctx, txHash, &types.Receipt{
 				TxHashHex:        txHash.Hex(),
 				TransactionIndex: deferredInfo.TxIndex,

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
@@ -31,7 +32,8 @@ type GlobalBlockNumber uint64
 type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
 
 // Bytes converts the BlockHeaderHash to a byte slice.
-func (h BlockHeaderHash) Bytes() []byte { return h[:] }
+func (h BlockHeaderHash) Bytes() []byte  { return h[:] }
+func (h BlockHeaderHash) String() string { return hex.EncodeToString(h.Bytes()) }
 
 func ParseBlockHeaderHash(bytes []byte) (BlockHeaderHash, error) {
 	h, err := hashable.ParseHash[*pb.BlockHeader](bytes)
