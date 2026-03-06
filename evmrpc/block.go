@@ -342,7 +342,11 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
-			receipt, _ := k.GetReceipt(latestCtx, hash)
+			receipt, err := k.GetReceipt(latestCtx, hash)
+			if err != nil {
+				// tx doesn't have a receipt because of nonce mismatch
+				continue
+			}
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {

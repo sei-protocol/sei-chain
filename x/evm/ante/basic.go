@@ -34,6 +34,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 				// bump nonce if it is for some reason not incremented (e.g. ante failure)
 				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
 					gl.k.SetNonce(callCtx, msg.Derived.SenderEVMAddr, startingNonce+1)
+					gl.k.SetNonceBumped(callCtx)
 				}
 			})
 		}
