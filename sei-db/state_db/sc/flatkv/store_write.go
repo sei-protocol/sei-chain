@@ -53,7 +53,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			switch kind {
 			case evm.EVMKeyStorage:
 				// Get old value for LtHash
-				oldValue, err := s.getStorageValue(keyBytes)
+				oldValue, _, err := s.cache.Get(keyBytes, false)
 				if err != nil {
 					return fmt.Errorf("failed to get storage value: %w", err)
 				}
@@ -105,7 +105,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				}
 				paw := s.accountWrites[addrStr]
 				if paw == nil {
-					existingValue, err := s.getAccountValue(addr)
+					existingValue, err := s.getAccountValue(addr) // TODO  not using cache
 					if err != nil {
 						return fmt.Errorf("failed to load existing account value: %w", err)
 					}
@@ -138,7 +138,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 			case evm.EVMKeyCode:
 				// Get old value for LtHash
-				oldValue, err := s.getCodeValue(keyBytes)
+				oldValue, _, err := s.cache.Get(keyBytes, false)
 				if err != nil {
 					return fmt.Errorf("failed to get code value: %w", err)
 				}
@@ -166,7 +166,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				})
 
 			case evm.EVMKeyLegacy:
-				oldValue, err := s.getLegacyValue(keyBytes)
+				oldValue, _, err := s.cache.Get(keyBytes, false)
 				if err != nil {
 					return fmt.Errorf("failed to get legacy value: %w", err)
 				}

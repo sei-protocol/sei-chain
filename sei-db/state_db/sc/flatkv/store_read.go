@@ -30,7 +30,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to storageDB if not found)
-		value, found, err := s.cache.Get(key)
+		value, found, err := s.cache.Get(key, true)
 		if err != nil {
 			return nil, false
 		}
@@ -97,7 +97,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to codeDB if not found)
-		value, found, err := s.cache.Get(key)
+		value, found, err := s.cache.Get(key, true)
 		if err != nil {
 			return nil, false
 		}
@@ -112,7 +112,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to legacyDB if not found)
-		value, found, err := s.cache.Get(key)
+		value, found, err := s.cache.Get(key, true)
 		if err != nil {
 			return nil, false
 		}

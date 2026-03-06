@@ -79,7 +79,7 @@ func NewShard(ctx context.Context, readScheduler *readScheduler, maxSize int) (*
 }
 
 // Get returns the value for the given key, or (nil, false) if not found.
-func (s *shard) Get(key []byte) ([]byte, bool, error) {
+func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	s.lock.Lock()
 
 	entry := s.getEntry(key)
@@ -88,11 +88,15 @@ func (s *shard) Get(key []byte) ([]byte, bool, error) {
 
 	case statusAvailable:
 		value := entry.value
-		s.gcQueue.Touch(key)
+		if updateLru {
+			s.gcQueue.Touch(key)
+		}
 		s.lock.Unlock()
 		return value, true, nil
 	case statusDeleted:
-		s.gcQueue.Touch(key)
+		if updateLru {
+			s.gcQueue.Touch(key)
+		}
 		s.lock.Unlock()
 		return nil, false, nil
 	case statusScheduled:

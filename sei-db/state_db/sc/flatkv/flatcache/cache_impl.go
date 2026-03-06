@@ -123,11 +123,11 @@ func (c *cache) Delete(key []byte) {
 	shard.Delete(key)
 }
 
-func (c *cache) Get(key []byte) ([]byte, bool, error) {
+func (c *cache) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
-	value, ok, err := shard.Get(key)
+	value, ok, err := shard.Get(key, updateLru)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
 	}
