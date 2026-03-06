@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/rs/zerolog/log"
+	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -281,12 +280,11 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		if q.first < q.next {
 			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
-				log.Error().
-					Stringer("lane", h.Lane()).
-					Uint64("block", uint64(h.BlockNumber())).
-					Hex("got", h.ParentHash().Bytes()).
-					Hex("want", prevHash.Bytes()).
-					Msg("parent hash mismatch (producer equivocation)")
+				logger.Error("parent hash mismatch (producer equivocation)",
+					"lane", h.Lane(),
+					slog.Uint64("block", uint64(h.BlockNumber())),
+					"got", h.ParentHash(),
+					"want", prevHash)
 				return nil
 			}
 		}

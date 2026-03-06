@@ -15,8 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/debug"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -40,7 +38,18 @@ import (
 // a command's Context.
 const ServerContextKey = sdk.ContextKey("server.context")
 
-var ErrShouldRestart = errors.New("node should be restarted")
+var (
+	ErrShouldRestart = errors.New("node should be restarted")
+	logger           tmlog.Logger
+)
+
+func init() {
+	var err error
+	logger, err = tmlog.NewDefaultLogger(tmlog.LogFormatPlain, tmlog.LogLevelInfo)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize logger: %v", err))
+	}
+}
 
 // server context
 type Context struct {
@@ -62,7 +71,7 @@ func NewDefaultContext() *Context {
 	return NewContext(
 		viper.New(),
 		tmcfg.DefaultConfig(),
-		ZeroLogWrapper{log.Logger},
+		logger,
 	)
 }
 
@@ -176,27 +185,20 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 		return err
 	}
 
-	var logWriter io.Writer
 	logLvlFormat := serverCtx.Viper.GetString(flags.FlagLogFormat)
 	if logLvlFormat == "" {
 		logLvlFormat = serverCtx.Config.LogFormat
-	}
-	if strings.ToLower(logLvlFormat) == tmlog.LogFormatPlain {
-		logWriter = zerolog.ConsoleWriter{Out: os.Stderr}
-	} else {
-		logWriter = os.Stderr
 	}
 
 	logLvlStr := serverCtx.Viper.GetString(flags.FlagLogLevel)
 	if logLvlStr == "" {
 		logLvlStr = serverCtx.Config.LogLevel
 	}
-	logLvl, err := zerolog.ParseLevel(logLvlStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse log level (%s): %w", logLvlStr, err)
-	}
 
-	serverCtx.Logger = ZeroLogWrapper{zerolog.New(logWriter).Level(logLvl).With().Timestamp().Logger()}
+	serverCtx.Logger, err = tmlog.NewDefaultLogger(logLvlFormat, logLvlStr)
+	if err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
 
 	return SetCmdServerContext(cmd, serverCtx)
 }
