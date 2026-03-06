@@ -4,9 +4,19 @@ FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
 COPY --from=go-dist /usr/local/go /usr/local/go
-RUN curl -L https://foundry.paradigm.xyz | bash
+RUN set -eux; \
+    curl -fsSL https://foundry.paradigm.xyz | bash; \
+    for attempt in 1 2 3 4 5; do \
+      if /root/.foundry/bin/foundryup; then \
+        break; \
+      fi; \
+      if [ "${attempt}" -eq 5 ]; then \
+        echo "foundryup failed after retries"; \
+        exit 1; \
+      fi; \
+      sleep 2; \
+    done
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
-RUN /root/.foundry/bin/foundryup
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
     chmod -R a+rwX /root
