@@ -256,13 +256,13 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 ### Summary
 
 
-| Metric          | Count |
-| --------------- | ----- |
-| **Total tests** | 162   |
-| **Passed**      | 133   |
-| **Failed**      | 29    |
-| **Skipped**     | 0     |
-| **Pass rate**   | 82.1% |
+| Metric          | Previous run | Latest run |
+| --------------- | ------------ | ---------- |
+| **Total tests** | 255          | 162        |
+| **Passed**      | 157          | 133        |
+| **Failed**      | 98           | 29         |
+| **Skipped**     | 0            | 0          |
+| **Pass rate**   | 61.6%        | 82.1%      |
 
 
 
