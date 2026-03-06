@@ -3,6 +3,7 @@ package flatcache
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -104,11 +105,16 @@ func (c *cache) BatchSet(cs []*proto.NamedChangeSet) {
 		}
 	}
 
-	// This is probably quite fast, but if it isn't it can be parallelized.
+	wg := sync.WaitGroup{}
 	for shardIndex, shardEntries := range shardMap {
-		shard := c.shards[shardIndex]
-		shard.BatchSet(shardEntries)
+		wg.Add(1)
+		go func(shardIndex uint64, shardEntries []*iavl.KVPair) {
+			defer wg.Done()
+			shard := c.shards[shardIndex]
+			shard.BatchSet(shardEntries)
+		}(shardIndex, shardEntries)
 	}
+	wg.Wait()
 }
 
 func (c *cache) Delete(key []byte) {

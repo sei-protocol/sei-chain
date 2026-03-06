@@ -132,6 +132,12 @@ type CryptoSimConfig struct {
 	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
 	// If false, Enter has no effect.
 	EnableSuspension bool
+
+	// If true, the data directory will be deleted on startup if it exists.
+	DeleteDataDirOnStartup bool
+
+	// If true, the data directory will be deleted on a clean shutdown.
+	DeleteDataDirOnShutdown bool
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -170,6 +176,8 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
+		DeleteDataDirOnStartup:            false,
+		DeleteDataDirOnShutdown:           false,
 	}
 }
 

@@ -152,7 +152,7 @@ func NewCommitStore(
 		1024,
 		1024*1024*1024,
 		20,
-		1024,
+		8,
 		10*time.Second)
 	if err != nil {
 		panic(fmt.Errorf("failed to create cache: %w", err)) // TODO

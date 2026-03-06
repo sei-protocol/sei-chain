@@ -30,11 +30,11 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to storageDB if not found)
-		value, _, err := s.cache.Get(keyBytes)
+		value, found, err := s.cache.Get(key)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, found
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 		// Account data: keyBytes = addr(20)
@@ -62,8 +62,10 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return paw.value.CodeHash[:], true
 		}
 
-		// Read from cache (may fall through to accountDB if not found)
-		encoded, _, err := s.cache.Get(AccountKey(addr))
+		// Read from accountDB directly. The cache cannot be used for accounts
+		// because BatchSet stores raw nonce/codehash values individually, but
+		// accountDB stores merged AccountValue records.
+		encoded, err := s.accountDB.Get(keyBytes) // TODO: figure out how to fix this!!!
 		if err != nil {
 			return nil, false
 		}
@@ -95,11 +97,11 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to codeDB if not found)
-		value, _, err := s.cache.Get(keyBytes)
+		value, found, err := s.cache.Get(key)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, found
 
 	case evm.EVMKeyLegacy:
 		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
@@ -110,11 +112,11 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Read from cache (may fall through to legacyDB if not found)
-		value, _, err := s.cache.Get(keyBytes)
+		value, found, err := s.cache.Get(key)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, found
 
 	default:
 		return nil, false

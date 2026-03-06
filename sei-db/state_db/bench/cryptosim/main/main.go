@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -89,6 +90,18 @@ func run() error {
 	}
 	fmt.Printf("%s\n", configString)
 
+	if config.DeleteDataDirOnStartup {
+		resolved, err := filepath.Abs(config.DataDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve data directory: %w", err)
+		}
+		fmt.Printf("Deleting data directory: %s\n", resolved)
+		err = os.RemoveAll(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to delete data directory: %w", err)
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -133,6 +146,18 @@ func run() error {
 	}
 
 	cs.BlockUntilHalted()
+
+	if config.DeleteDataDirOnShutdown {
+		resolved, err := filepath.Abs(config.DataDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve data directory: %w", err)
+		}
+		fmt.Printf("Deleting data directory: %s\n", resolved)
+		err = os.RemoveAll(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to delete data directory: %w", err)
+		}
+	}
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package flatcache
 
 import (
+	"encoding/binary"
 	"errors"
 	"hash/maphash"
 	"sync"
@@ -36,12 +37,17 @@ func NewShardManager(numShards uint64) (*shardManager, error) {
 // Shard returns a shard index in [0, numShards).
 // addr should be the raw address bytes (e.g., 20-byte ETH address).
 func (s *shardManager) Shard(addr []byte) uint64 {
-	h := s.pool.Get().(*maphash.Hash)
-	h.SetSeed(s.seed)
-	h.Reset()
-	_, _ = h.Write(addr)
-	x := h.Sum64()
-	s.pool.Put(h)
 
+	// Temporary to measure impact of hash function
+	x := binary.BigEndian.Uint64(addr)
 	return x & s.mask
+
+	// h := s.pool.Get().(*maphash.Hash)
+	// h.SetSeed(s.seed)
+	// h.Reset()
+	// _, _ = h.Write(addr)
+	// x := h.Sum64()
+	// s.pool.Put(h)
+
+	// return x & s.mask
 }
