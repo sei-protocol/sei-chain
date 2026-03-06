@@ -14,6 +14,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/flatcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -29,12 +30,18 @@ type pebbleDB struct {
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
+// TODO create a config struct for this!
+
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
 func Open(
 	ctx context.Context,
 	path string,
 	opts types.OpenOptions,
 	enableMetrics bool,
+	// A work pool for reading from the DB.
+	readPool *utils.WorkPool,
+	cacheSize int,
+	pageCacheSize int,
 ) (_ types.KeyValueDB, err error) {
 	// Validate options before allocating resources to avoid leaks on validation failure
 	var cmp *pebble.Comparer
@@ -47,7 +54,7 @@ func Open(
 	}
 
 	// Internal pebbleDB cache, used to cache pages in memory. // TODO verify accuracy of this statement
-	pebbleCache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
+	pebbleCache := pebble.NewCache(int64(pageCacheSize))
 	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
@@ -110,9 +117,8 @@ func Open(
 		ctx,
 		readFunction,
 		8,
-		1024*1024*1024*8, // 8GB TODO configure this differently for each db instance!
-		20,
-		64,
+		cacheSize,
+		readPool,
 		10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create flatcache: %w", err)

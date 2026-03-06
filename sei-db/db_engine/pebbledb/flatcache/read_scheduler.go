@@ -73,7 +73,7 @@ func (r *readScheduler) readWorker() {
 			if request.skipInject {
 				request.entry.valueChan <- value
 			} else {
-				request.entry.InjectValue(request.key, value)
+				request.entry.injectValue(request.key, value)
 			}
 		}
 	}

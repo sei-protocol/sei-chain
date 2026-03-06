@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -21,8 +22,8 @@ type cache struct {
 	// The shards in the cache.
 	shards []*shard
 
-	// A scheduler for asyncronous reads.
-	readScheduler *readScheduler
+	// A pool for asyncronous reads.
+	readPool *utils.WorkPool
 
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration
@@ -37,10 +38,8 @@ func NewCache(
 	shardCount int,
 	// The maximum size of the cache, in bytes.
 	maxSize int,
-	// The number of background goroutines to read values from the database.
-	readWorkerCount int,
-	// The max size of the read queue.
-	readQueueSize int,
+	// A work pool for reading from the DB.
+	readPool *utils.WorkPool,
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration,
 ) (Cache, error) {
@@ -49,12 +48,6 @@ func NewCache(
 	}
 	if maxSize <= 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
-	}
-	if readWorkerCount <= 0 {
-		return nil, fmt.Errorf("readWorkerCount must be greater than 0")
-	}
-	if readQueueSize <= 0 {
-		return nil, fmt.Errorf("readQueueSize must be greater than 0")
 	}
 
 	shardManager, err := NewShardManager(uint64(shardCount))
@@ -65,8 +58,6 @@ func NewCache(
 		return nil, fmt.Errorf("garbageCollectionInterval must be greater than 0")
 	}
 
-	readScheduler := NewReadScheduler(ctx, readFunc, readWorkerCount, readQueueSize)
-
 	sizePerShard := maxSize / shardCount
 	if sizePerShard <= 0 {
 		return nil, fmt.Errorf("maxSize must be greater than shardCount")
@@ -74,7 +65,7 @@ func NewCache(
 
 	shards := make([]*shard, shardCount)
 	for i := 0; i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readScheduler, sizePerShard)
+		shards[i], err = NewShard(ctx, readPool, readFunc, sizePerShard)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -84,7 +75,7 @@ func NewCache(
 		ctx:                       ctx,
 		shardManager:              shardManager,
 		shards:                    shards,
-		readScheduler:             readScheduler,
+		readPool:                  readPool,
 		garbageCollectionInterval: garbageCollectionInterval,
 	}
 

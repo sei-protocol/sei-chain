@@ -24,8 +24,11 @@ type shard struct {
 	// Organizes data for garbage collection.
 	gcQueue *lruQueue
 
-	// A scheduler for asyncronous reads.
-	readScheduler *readScheduler
+	// A pool for asyncronous reads.
+	readPool *utils.WorkPool
+
+	// A function that reads a value from the database.
+	readFunc func(key []byte) []byte
 
 	// The maximum size of this cache, in bytes.
 	maxSize int
@@ -62,19 +65,25 @@ type shardEntry struct {
 }
 
 // Creates a new Shard.
-func NewShard(ctx context.Context, readScheduler *readScheduler, maxSize int) (*shard, error) {
+func NewShard(
+	ctx context.Context,
+	readPool *utils.WorkPool,
+	readFunc func(key []byte) []byte,
+	maxSize int,
+) (*shard, error) {
 
 	if maxSize <= 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
 	return &shard{
-		ctx:           ctx,
-		readScheduler: readScheduler,
-		lock:          sync.Mutex{},
-		data:          make(map[string]*shardEntry),
-		gcQueue:       NewLRUQueue(),
-		maxSize:       maxSize,
+		ctx:      ctx,
+		readPool: readPool,
+		readFunc: readFunc,
+		lock:     sync.Mutex{},
+		data:     make(map[string]*shardEntry),
+		gcQueue:  NewLRUQueue(),
+		maxSize:  maxSize,
 	}, nil
 }
 
@@ -115,7 +124,10 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		valueChan := make(chan []byte, 1)
 		entry.valueChan = valueChan
 		s.lock.Unlock()
-		err := s.readScheduler.ScheduleRead(key, entry, false)
+		err := s.readPool.Submit(s.ctx, func() {
+			value := s.readFunc(key)
+			entry.injectValue(key, value)
+		})
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
 		}
@@ -131,7 +143,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 }
 
 // This method is called by the read scheduler when a value becomes available.
-func (se *shardEntry) InjectValue(key []byte, value []byte) {
+func (se *shardEntry) injectValue(key []byte, value []byte) {
 	se.shard.lock.Lock()
 
 	if se.status == statusScheduled {
@@ -215,7 +227,12 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 
 	for i := range pending {
 		if pending[i].needsSchedule {
-			err := s.readScheduler.ScheduleRead([]byte(pending[i].key), pending[i].entry, true)
+			p := &pending[i]
+			err := s.readPool.Submit(s.ctx, func() {
+				value := s.readFunc([]byte(p.key))
+				p.entry.valueChan <- value
+				// Intentionally do not call injectValue here, we want to defer the update to a single bulk operation.
+			})
 			if err != nil {
 				return fmt.Errorf("failed to schedule read: %w", err)
 			}
