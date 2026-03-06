@@ -438,6 +438,7 @@ func initAppConfig() (string, interface{}) {
 	customAppTemplate := serverconfig.ManualConfigTemplate +
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
+		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################

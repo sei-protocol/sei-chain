@@ -7,8 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type TestSeiDBAppOpts struct {
-}
+type TestSeiDBAppOpts struct{}
 
 func (t TestSeiDBAppOpts) Get(s string) interface{} {
 	switch s {
@@ -44,6 +43,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return config.DefaultStateStoreConfig().PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return config.DefaultStateStoreConfig().ImportNumWorkers
+	case FlagRSBackend:
+		return config.DefaultReceiptStoreConfig().Backend
 	}
 	return nil
 }
@@ -53,6 +54,28 @@ func TestNewDefaultConfig(t *testing.T) {
 	appOpts := TestSeiDBAppOpts{}
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
+	receiptConfig := parseReceiptConfigs(appOpts)
 	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
+	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
+}
+
+type mapAppOpts map[string]interface{}
+
+func (m mapAppOpts) Get(s string) interface{} {
+	return m[s]
+}
+
+func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
+	receiptConfig := parseReceiptConfigs(mapAppOpts{})
+	assert.Equal(t, config.DefaultReceiptStoreConfig(), receiptConfig)
+}
+
+func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
+	receiptConfig := parseReceiptConfigs(mapAppOpts{
+		FlagRSBackend: "parquet",
+	})
+	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
 }

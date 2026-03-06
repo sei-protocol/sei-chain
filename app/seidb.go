@@ -35,6 +35,9 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// Receipt store configs
+	FlagRSBackend = "receipt-store.rs-backend"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 	FlagMigrateIAVL      = "migrate-iavl"
@@ -104,6 +107,14 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	return ssConfig
+}
+
+func parseReceiptConfigs(appOpts servertypes.AppOptions) config.ReceiptStoreConfig {
+	receiptConfig := config.DefaultReceiptStoreConfig()
+	if backend := cast.ToString(appOpts.Get(FlagRSBackend)); backend != "" {
+		receiptConfig.Backend = backend
+	}
+	return receiptConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {

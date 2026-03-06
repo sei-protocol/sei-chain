@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -144,6 +146,7 @@ func TestInitModeConfiguration(t *testing.T) {
 
 			// Build custom template with all sections
 			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
+				seidbconfig.ReceiptStoreConfigTemplate +
 				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
 
 			srvconfig.SetConfigTemplate(customAppTemplate)
@@ -162,8 +165,29 @@ func TestInitModeConfiguration(t *testing.T) {
 			if tt.validateApp != nil {
 				tt.validateApp(t, configDir)
 			}
+
+			v := viper.New()
+			v.SetConfigFile(appTomlPath)
+			err = v.ReadInConfig()
+			require.NoError(t, err)
+			require.Equal(t, "pebbledb", v.GetString("receipt-store.rs-backend"))
 		})
 	}
+}
+
+func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, customAppConfig)
+	require.NoError(t, err)
+
+	output := buf.String()
+	require.Contains(t, output, "[receipt-store]")
+	require.Contains(t, output, `rs-backend = "pebbledb"`)
 }
 
 // TestInitModeFlag verifies the mode flag validation

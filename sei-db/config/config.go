@@ -117,8 +117,8 @@ type ReceiptStoreConfig struct {
 	// default to empty
 	DBDirectory string `mapstructure:"db-directory"`
 
-	// Backend defines the backend database used for receipt-store
-	// Supported backends: pebbledb, rocksdb
+	// Backend defines the backend database used for receipt-store.
+	// Supported backends: pebbledb (aka pebble), parquet
 	// defaults to pebbledb
 	Backend string `mapstructure:"backend"`
 
