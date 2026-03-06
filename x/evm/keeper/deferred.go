@@ -67,6 +67,18 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
 }
 
+func (k *Keeper) SetNonceBumped(ctx sdk.Context) {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex())) //nolint:gosec
+	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.NonceBumpPrefix).Set(key, []byte{1})
+}
+
+func (k *Keeper) GetNonceBumped(ctx sdk.Context, txIndex uint32) bool {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(txIndex))
+	return prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.NonceBumpPrefix).Has(key)
+}
+
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (*types.DeferredInfo, bool) {
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex())) //nolint:gosec
