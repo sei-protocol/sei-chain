@@ -48,7 +48,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -226,7 +225,7 @@ func loadPersisted(dir string, prefix string) (*pb.PersistedWrapper, error) {
 			continue
 		}
 		if errors.Is(fe.err, ErrCorrupt) {
-			log.Warn().Str("file", fe.file).Err(fe.err).Msg("corrupt state file")
+			logger.Warn("corrupt state file", "file", fe.file, "err", fe.err)
 			continue
 		}
 		return nil, fmt.Errorf("load %s: %w", fe.file, fe.err)
