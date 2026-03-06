@@ -40,6 +40,9 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// Receipt store configs
+	FlagRSBackend = "receipt-store.rs-backend"
+
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
 	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
@@ -160,6 +163,14 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 		ssConfig.ReadMode = parsedRM
 	}
 	return ssConfig
+}
+
+func parseReceiptConfigs(appOpts servertypes.AppOptions) config.ReceiptStoreConfig {
+	receiptConfig := config.DefaultReceiptStoreConfig()
+	if backend := cast.ToString(appOpts.Get(FlagRSBackend)); backend != "" {
+		receiptConfig.Backend = backend
+	}
+	return receiptConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {

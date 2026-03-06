@@ -118,7 +118,6 @@ import (
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
@@ -679,7 +678,7 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
+	receiptConfig := parseReceiptConfigs(appOpts)
 	receiptConfig.DBDirectory = receiptStorePath
 	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	if app.receiptStore == nil {
