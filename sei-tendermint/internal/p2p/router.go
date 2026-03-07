@@ -73,17 +73,19 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
-	peerDB, err := newPeerDB(db, options.maxPeers())
+	peerDB, err := newPeerDB(db, min(options.MaxInbound,100)+min(options.MaxOutbound,100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
+	var initialAddrs []NodeAddress
 	for addr := range peerDB.All() {
-		if err := peerManager.AddAddrs(utils.Slice(addr)); err != nil {
+		if err := addr.Validate(); err!=nil {
 			logger.Error("peerDB: bad address", "addr", addr.String(), "err", err)
 		}
+		initialAddrs = append(initialAddrs,addr)
 	}
+	selfID := privKey.Public().NodeID()
+	peerManager := newPeerManager[*ConnV2](logger, selfID, options, initialAddrs)
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -103,15 +105,6 @@ func NewRouter(
 	return router, nil
 }
 
-// PeerRatio returns the ratio of peer addresses stored to the maximum size.
-func (r *Router) PeerRatio() float64 {
-	m, ok := r.options.MaxConnected.Get()
-	if !ok || m == 0 {
-		return 0
-	}
-	return float64(r.peerManager.Conns().Len()) / float64(m)
-}
-
 func (r *Router) Endpoint() Endpoint {
 	return r.options.Endpoint
 }
@@ -121,8 +114,8 @@ func (r *Router) WaitForStart(ctx context.Context) error {
 	return err
 }
 
-func (r *Router) AddAddrs(addrs []NodeAddress) error {
-	return r.peerManager.AddAddrs(addrs)
+func (r *Router) AddAddrs(sender types.NodeID, addrs []NodeAddress) error {
+	return r.peerManager.PushPex(sender, addrs)
 }
 
 func (r *Router) Subscribe() *PeerUpdatesRecv {
@@ -130,7 +123,7 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 }
 
 func (r *Router) Connected(id types.NodeID) bool {
-	_, ok := r.peerManager.Conns().Get(id)
+	_, ok := GetAny(r.peerManager.Conns(),id)
 	return ok
 }
 
@@ -263,66 +256,67 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 func (r *Router) dialPeersRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxDials())
-		// Separate routine for dialing persistent/regular peers.
-		for _, persistentPeer := range utils.Slice(true, false) {
+		for {
+			if err := limiter.Wait(ctx); err != nil {
+				return err
+			}
+			addrs, err := r.peerManager.StartDial(ctx)
+			if err != nil {
+				return err
+			}
+			id := addrs[0].NodeID
 			s.Spawn(func() error {
-				for {
-					if err := limiter.Wait(ctx); err != nil {
-						return err
-					}
-					addr, err := r.peerManager.StartDial(ctx, persistentPeer)
+				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					tcpConn, err := r.dial(ctx, addrs)
 					if err != nil {
-						return err
+						r.peerManager.DialFailed(id)
+						return fmt.Errorf("r.dial(): %w", err)
 					}
-					s.Spawn(func() error {
-						err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-							tcpConn, err := r.dial(ctx, addr)
-							if err != nil {
-								r.peerManager.DialFailed(addr)
-								return fmt.Errorf("r.dial(): %w", err)
-							}
-							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-							var hConn *handshakedConn
-							var info types.NodeInfo
-							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
-								var err error
-								hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
-									SelfAddr:          r.options.SelfAddress,
-									SeiGigaConnection: false,
-								})
-								if err != nil {
-									return fmt.Errorf("handshake(): %w", err)
-								}
-								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
-									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
-								}
-								if r.options.PexOnHandshake {
-									if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
-										return fmt.Errorf("r.AddAddrs(): %w", err)
-									}
-								}
-								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
-								if err != nil {
-									return fmt.Errorf("exchangeNodeInfo(): %w", err)
-								}
-								return nil
-							})
-							if err != nil {
-								r.peerManager.DialFailed(addr)
-								return err
-							}
-							if err := r.runConn(ctx, hConn, info, utils.Some(addr)); err != nil {
-								return fmt.Errorf("r.runConn(): %w", err)
-							}
-							return nil
+					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+					var hConn *handshakedConn
+					var info types.NodeInfo
+					err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
+						var err error
+						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
+							SelfAddr:          r.options.SelfAddress,
+							SeiGigaConnection: false,
 						})
-						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
+						if err != nil {
+							return fmt.Errorf("handshake(): %w", err)
+						}
+						if got := hConn.msg.NodeAuth.Key().NodeID(); got != id {
+							return fmt.Errorf("peer NodeID = %v, want %v", got, id)
+						}
+						if r.options.PexOnHandshake {
+							// Since the connection is not established yet, the handshake pex data
+							// will end up in a bounded cache, rather than main index. That's fine because
+							// we use the handshake pex data only for a local search,
+							// which is not supposed to be exhaustive.
+							if err := r.AddAddrs(id,hConn.msg.PexAddrs); err != nil {
+								return fmt.Errorf("r.AddAddrs(): %w", err)
+							}
+						}
+						info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+						if err != nil {
+							return fmt.Errorf("exchangeNodeInfo(): %w", err)
+						}
 						return nil
 					})
-				}
+					if err != nil {
+						r.peerManager.DialFailed(id)
+						return err
+					}
+					dialAddrRaw := hConn.conn.RemoteAddr()
+					dialAddr := NodeAddress{NodeID:id, Hostname:dialAddrRaw.Addr().String(), Port:dialAddrRaw.Port()}
+					if err := r.runConn(ctx, hConn, info, utils.Some(dialAddr)); err != nil {
+						return fmt.Errorf("r.runConn(): %w", err)
+					}
+					return nil
+				})
+				r.logger.Error("r.runConn(outbound)", "id", id, "err", err)
+				return nil
 			})
 		}
-		return nil
 	})
 }
 
@@ -373,7 +367,7 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err error) {
+func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err error) {
 	defer func() {
 		success := "true"
 		if err != nil {
@@ -388,16 +382,16 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		defer cancel()
 	}
 
-	r.logger.Debug("dialing peer address", "peer", addr)
-	endpoints, err := addr.Resolve(resolveCtx)
-	if err != nil {
-		return tcp.Conn{}, fmt.Errorf("address.Resolve(): %w", err)
+	endpointSet := map[Endpoint]struct{}{}
+	// TODO(gprusak): resolve all addresses in parallel.
+	for _,addr := range addrs { 
+		endpoints, err := addr.Resolve(resolveCtx)
+		r.logger.Info("address.Resolve() failed","addr",addr,"err",err)
+		if len(endpoints)>0 {
+			endpointSet[endpoints[0]] = struct{}{}
+		}
 	}
-	if len(endpoints) == 0 {
-		return tcp.Conn{}, fmt.Errorf("address %q did not resolve to any endpoints", addr)
-	}
-
-	for _, endpoint := range endpoints {
+	for endpoint,_ := range endpointSet {
 		dialCtx := ctx
 		if d, ok := r.options.DialTimeout.Get(); ok {
 			var cancel context.CancelFunc
@@ -409,10 +403,8 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		}
 		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
 		if err != nil {
-			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return c, nil
 	}
 	return tcp.Conn{}, errors.New("all endpoints failed")
