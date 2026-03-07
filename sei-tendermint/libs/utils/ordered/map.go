@@ -24,6 +24,7 @@ func (m Map[K,V]) Get(k K) (V,bool) { return unpackV(m.m.Get(mapEntry[K,V]{k:k})
 func (m Map[K,V]) GetAt(i int) (K,V,bool) { return unpack(m.m.GetAt(i)) }
 func (m Map[K,V]) Set(k K, v V) (V,bool) { return unpackV(m.m.Set(mapEntry[K,V]{k:k,v:v})) }
 func (m Map[K,V]) Delete(k K) (V,bool) { return unpackV(m.m.Delete(mapEntry[K,V]{k:k})) }
+func (m Map[K,V]) DeleteAt(i int) (K,V,bool) { return unpack(m.m.DeleteAt(i)) }
 func (m Map[K,V]) Min() (K,V,bool) { return unpack(m.m.Min()) }
 func (m Map[K,V]) Max() (K,V,bool) { return unpack(m.m.Max()) }
 func (m Map[K,V]) PopMin() (K,V,bool) { return unpack(m.m.PopMin()) }

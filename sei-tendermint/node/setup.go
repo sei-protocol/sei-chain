@@ -115,7 +115,7 @@ func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logg
 	case config.ModeFull:
 		logger.Info("This node is a fullnode")
 	case config.ModeValidator:
-		k := pubKey.OrPanic()
+		k := pubKey.OrPanic("validator node is missing key")
 		addr := k.Address()
 		// Log whether this node is a validator or an observer
 		if state.Validators.HasAddress(addr) {

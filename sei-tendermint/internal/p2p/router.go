@@ -73,7 +73,7 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	peerDB, err := newPeerDB(db, options.maxConns())
+	peerDB, err := newPeerDB(db, min(options.MaxInbound,100)+min(options.MaxOutbound,100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
@@ -103,15 +103,6 @@ func NewRouter(
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router, nil
-}
-
-// PeerRatio returns the ratio of peer addresses stored to the maximum size.
-func (r *Router) PeerRatio() float64 {
-	m, ok := r.options.MaxConnected.Get()
-	if !ok || m == 0 {
-		return 0
-	}
-	return float64(r.peerManager.Conns().Len()) / float64(m)
 }
 
 func (r *Router) Endpoint() Endpoint {
@@ -297,9 +288,11 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							return fmt.Errorf("peer NodeID = %v, want %v", got, id)
 						}
 						if r.options.PexOnHandshake {
-							// TODO(gprusak): currently peerManager expects connection to be established before pexaddrs can be added,
-							// which is not necesarily true due the 2nd handshake phase.
-							if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
+							// Since the connection is not established yet, the handshake pex data
+							// will end up in a bounded cache, rather than main index. That's fine because
+							// we use the handshake pex data only for a local search,
+							// which is not supposed to be exhaustive.
+							if err := r.AddAddrs(id,hConn.msg.PexAddrs); err != nil {
 								return fmt.Errorf("r.AddAddrs(): %w", err)
 							}
 						}

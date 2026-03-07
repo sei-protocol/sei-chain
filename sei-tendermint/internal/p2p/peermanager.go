@@ -54,8 +54,6 @@ type peerManager[C peerConn] struct {
 	conns           utils.AtomicRecv[connSet[C]]
 }
 
-// TODO: check if router will behave sanely with duplicate connections.
-// Note that the only tasks notified about ANY change to pools status are the dialing tasks.
 func (p *peerManager[C]) LogState() {
 	for inner := range p.inner.Lock() {
 		p.logger.Info("p2p connections",
@@ -123,6 +121,7 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 			},
 		}),
 	}
+	inner.regular.PushExtraPex(initialAddrs)
 	return &peerManager[C]{
 		selfID: selfID,
 		logger:          logger,
@@ -151,10 +150,13 @@ func (m *peerManager[C]) PushPex(sender types.NodeID, addrs []NodeAddress) error
 		}
 	}
 	for inner,ctrl := range m.inner.Lock() {
-		if _,ok := GetAny(inner.conns.Load(), sender); !ok {
-			return nil
+		// pex data is indexed by senders which are connected peers.
+		// Other pex data is restricted to a small unindexed cache.
+		var msender utils.Option[types.NodeID]
+		if _,ok := GetAny(inner.conns.Load(), sender); ok {
+			msender = utils.Some(sender)
 		}
-		inner.regular.PushPex(sender,addrs)
+		inner.regular.PushPex(msender,addrs)
 		ctrl.Updated()
 	}
 	return nil
@@ -210,26 +212,20 @@ func (m *peerManager[C]) Connected(conn C) error {
 	for inner,ctrl := range m.inner.Lock() {
 		// Notify the pool.
 		pool := inner.poolByID(id.NodeID)
-		if err:=pool.Connect(id); err!=nil {
+		toDisconnect,err:=pool.Connect(id)
+		if err!=nil {
 			conn.Close()
 			return err
 		}
 		// Update the connection set.
 		conns := inner.conns.Load()
-		if old,ok := conns.Get(id); ok { old.Close() }
-		conns = conns.Set(id,conn)
-		
-		// Check if pool wants to disconnect some peer.
-		if id,ok := pool.TryDisconnect(); ok {
-			conn,ok := conns.Get(id)
-			if !ok { panic("pool/connection set mismatch") }
-			conn.Close()
-			conns = conns.Delete(id)
-			if _,ok := GetAny(conns,id.NodeID); !ok {
-				inner.regular.ClearPex(id.NodeID)	
-			}
+		// Check if pool requested a disconnect.
+		if toDisconnect,ok := toDisconnect.Get(); ok {
+			conns.GetOpt(toDisconnect).OrPanic("pool/connection set mismatch").Close()
+			conns = conns.Delete(toDisconnect)
 		}
-		inner.conns.Store(conns)
+		// Insert new connection.
+		inner.conns.Store(conns.Set(id,conn))
 		ctrl.Updated()
 	}
 	return nil

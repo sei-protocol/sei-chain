@@ -85,44 +85,36 @@ func newPoolManager(cfg *poolConfig) *poolManager {
 }
 
 type pexTable struct {
-	initial []NodeAddress
 	bySender map[types.NodeID][]NodeAddress
-	cleared [][]NodeAddress
+	extra [][]NodeAddress
 }
 
-func (t *pexTable) Empty() bool {
-	return len(t.initial)==0 && len(t.bySender) == 0 && len(t.cleared) == 0
+func (t *pexTable) empty() bool {
+	return len(t.bySender) == 0 && len(t.extra) == 0
 }
 
-func (t *pexTable) Pop() [][]NodeAddress {
-	// If there are initial addresses, then return just them so that they are prioritized.
-	if len(t.initial)>0 {
-		out := utils.Slice(t.initial)
-		t.initial = nil
-		return out
-	}
-	// Otherwise just aggregate everything
-	out := t.cleared
+func (t *pexTable) pop() [][]NodeAddress {
+	out := t.extra
 	for _,addrs := range t.bySender {
 		out = append(out, addrs)
 	}
-	// Clear the table.
 	*t = pexTable{}
 	return out
 }
 
-func (p *poolManager) PushPex(sender types.NodeID, addrs []NodeAddress) {
-	p.pex.bySender[sender] = append([]NodeAddress(nil),addrs...)
+func (p *poolManager) PushPex(sender utils.Option[types.NodeID], addrs []NodeAddress) {
+	if sender,ok := sender.Get(); ok {
+		p.pex.bySender[sender] = append([]NodeAddress(nil),addrs...)
+		return
+	}
+	const maxExtra = 10
+	if len(p.pex.extra)<maxExtra {
+		p.pex.extra = append(p.pex.extra,append([]NodeAddress(nil),addrs...))
+	}
 }
 
-func (p *poolManager) ClearPex(sender types.NodeID) {
-	const maxClearedCache = 10
-	addrs,ok := p.pex.bySender[sender]
-	if !ok { return }
-	delete(p.pex.bySender, sender)
-	if len(addrs)>0 && len(p.pex.cleared) < maxClearedCache {
-		p.pex.cleared = append(p.pex.cleared, addrs)
-	}
+func (p *poolManager) ClearSenderPex(sender types.NodeID) {
+	delete(p.pex.bySender,sender)
 }
 
 // Pops the highest priority peer from the dialing dialQueue.
@@ -143,12 +135,12 @@ func (p *poolManager) pop() (dialQueueEntry,bool) {
 			p.dialQueue = p.dialQueue[1:]
 			return e,true
 		}
-		if p.pex.Empty() {
+		if p.pex.empty() {
 			return dialQueueEntry{},false
 		}
 		// Regroup addresses by ID.
 		byID := map[types.NodeID]map[NodeAddress]struct{}{}
-		for _,addrs := range p.pex.Pop() {
+		for _,addrs := range p.pex.pop() {
 			done := map[types.NodeID]bool{}
 			for _,addr := range addrs {
 				// Accept at most 1 address per NodeID from each pex sender.
@@ -251,20 +243,42 @@ func (p *poolManager) DialFailed(id types.NodeID) error {
 
 var errUnexpectedPeer = errors.New("unexpected peer")
 var errTooManyPeers = errors.New("too many peers")
+var errNotInPool = errors.New("peer does not belong to the pool")
 
-func (p *poolManager) Connect(id connID) error {
+// Connect registers a new connection.
+// Returns an error if the connection was rejected.
+// May disconnect another peer (returned in result) a fit the new one.
+// In particular result may be equal to id, in which case the old connection
+// under the same id needs to be disconnected.
+func (p *poolManager) Connect(id connID) (utils.Option[connID],error) {
+	none := utils.None[connID]()	
 	if id.outbound {
-		pID := p.withPriority(id.NodeID)
-		if _,ok := p.out.Get(pID); ok { return nil } 
-		if _,ok := p.dialing[id.NodeID]; !ok { return errUnexpectedPeer }
+		// Make sure that the peer was expected. 
+		if _,ok := p.dialing[id.NodeID]; !ok { return none,errUnexpectedPeer }
 		delete(p.dialing,id.NodeID)
-		if _,ok := p.out.Set(pID,struct{}{}); ok { return nil }
+		// Insert the peer.
+		pID := p.withPriority(id.NodeID)
+		p.out.Set(pID,struct{}{})
+		// Find a peer to disconnect.
+		if toDisconnect,_,ok := p.out.DeleteAt(p.cfg.MaxOut); ok {
+			// This should never happen, because of how the algorithm works:
+			// we only dial peers that we know that will be accepted.
+			if toDisconnect.NodeID==id.NodeID {
+				panic("BUG: dialed a peer with too low priority")
+			}
+			return utils.Some(connID{NodeID:toDisconnect.NodeID,outbound:true}),nil
+		}
+		return none,nil
 	} else {
-		if _,ok := p.in[id.NodeID]; ok { return nil }
-		if len(p.in)>=p.cfg.MaxIn { return errTooManyPeers }
+		// It is fine if new inbound connection overrides the old one.
+		if _,ok := p.in[id.NodeID]; ok { return utils.Some(id),nil }
+		// Check the inbound limit.
+		if len(p.in)>=p.cfg.MaxIn { return none,errTooManyPeers }
+		// Check if this is peer from our pool.
+		if !p.cfg.InPool(id.NodeID) { return none,errNotInPool }
 		p.in[id.NodeID] = struct{}{} 
+		return none,nil
 	}
-	return nil
 }
 
 type connID struct {
@@ -280,13 +294,4 @@ func (p *poolManager) Disconnect(id connID) error {
 		delete(p.in,id.NodeID)
 	}
 	return nil
-}
-
-func (p *poolManager) TryDisconnect() (connID,bool) {
-	if p.out.Len() <= p.cfg.MaxOut {
-		return connID{},false
-	}
-	id,_,ok := p.out.PopMin()
-	if !ok { panic("PopMin() failed on nonempty map") }
-	return connID{NodeID: id.NodeID, outbound: true},true
 }
