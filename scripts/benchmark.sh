@@ -77,12 +77,12 @@ else
   make install-bench
 fi
 # initialize chain with chain ID and add the first key
-~/go/bin/seid init demo --chain-id sei-chain --overwrite
-~/go/bin/seid keys add $keyname --keyring-backend test
+seid init demo --chain-id sei-chain --overwrite
+seid keys add $keyname --keyring-backend test
 # add the key as a genesis account with massive balances of several different tokens
-~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
+seid add-genesis-account $(seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
 # gentx for account
-~/go/bin/seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
+seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
 # add validator information to genesis file
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
@@ -94,7 +94,7 @@ echo "Creating Accounts"
 # create 10 test accounts + fund them
 python3  loadtest/scripts/populate_genesis_accounts.py 20 loc
 
-~/go/bin/seid collect-gentxs
+seid collect-gentxs
 # update some params in genesis file for easier use of the chain localls (make gov props faster)
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="60s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="30s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
@@ -208,7 +208,7 @@ else
   exit 1
 fi
 
-~/go/bin/seid config keyring-backend test
+seid config keyring-backend test
 
 # start the chain with log tracing
 # Benchmark mode is enabled via build tag, no --benchmark flag needed
@@ -222,8 +222,8 @@ echo "============================================================"
 echo ""
 if [ "$DEBUG" = true ]; then
   # Debug mode: print all output
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH seid start --chain-id sei-chain
 else
   # Normal mode: filter to benchmark-related output only
-  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH ~/go/bin/seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
+  BENCHMARK_CONFIG=$BENCHMARK_CONFIG BENCHMARK_TXS_PER_BATCH=$BENCHMARK_TXS_PER_BATCH seid start --chain-id sei-chain 2>&1 | grep -E "(benchmark|Benchmark|deployed|transitioning)"
 fi

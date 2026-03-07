@@ -50,12 +50,12 @@ else
     make install
 fi
 # initialize chain with chain ID and add the first key
-~/go/bin/seid init demo --chain-id sei-chain --overwrite
-~/go/bin/seid keys add $keyname --keyring-backend test
+seid init demo --chain-id sei-chain --overwrite
+seid keys add $keyname --keyring-backend test
 # add the key as a genesis account with massive balances of several different tokens
-~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
+seid add-genesis-account $(seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
 # gentx for account
-~/go/bin/seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
+seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
 # add validator information to genesis file
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
@@ -67,7 +67,7 @@ echo "Creating Accounts"
 # create 10 test accounts + fund them
 python3  loadtest/scripts/populate_genesis_accounts.py 20 loc
 
-~/go/bin/seid collect-gentxs
+seid collect-gentxs
 # update some params in genesis file for easier use of the chain localls (make gov props faster)
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="60s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="30s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
@@ -176,7 +176,7 @@ else
   exit 1
 fi
 
-~/go/bin/seid config keyring-backend test
+seid config keyring-backend test
 
 if [ $NO_RUN = 1 ]; then
   echo "No run flag set, exiting without starting the chain"
@@ -184,4 +184,4 @@ if [ $NO_RUN = 1 ]; then
 fi
 
 # start the chain with log tracing
-GORACE="log_path=/tmp/race/seid_race" ~/go/bin/seid start --trace --chain-id sei-chain
+GORACE="log_path=/tmp/race/seid_race" seid start --trace --chain-id sei-chain
