@@ -1,13 +1,15 @@
-package utils
+package threading
 
 import (
 	"context"
 	"fmt"
 )
 
-// WorkPool is a pool of workers that can be used to execute tasks concurrently.
+var _ Pool = (*pool)(nil)
+
+// pool is a pool of workers that can be used to execute tasks concurrently.
 // More efficient than spawning large numbers of short lived goroutines.
-type WorkPool struct {
+type pool struct {
 	ctx       context.Context
 	workQueue chan func()
 }
@@ -16,7 +18,7 @@ type WorkPool struct {
 // TODO unit test before merging!
 
 // Create a new work pool.
-func NewWorkPool(
+func NewPool(
 	// The work pool shuts down when the context is done.
 	ctx context.Context,
 	// The name of the work pool. Used for metrics.
@@ -25,10 +27,10 @@ func NewWorkPool(
 	workers int,
 	// The size of the work queue. Once full, Submit will block until a slot is available.
 	queueSize int,
-) *WorkPool {
+) Pool {
 
 	workQueue := make(chan func(), queueSize)
-	workPool := &WorkPool{
+	workPool := &pool{
 		ctx:       ctx,
 		workQueue: workQueue,
 	}
@@ -49,7 +51,7 @@ func NewWorkPool(
 // Submit submits a task to the work pool. This method does not block until the task is executed.
 //
 // If wp is nil, the task is executed asynchronously in a one-off goroutine.
-func (wp *WorkPool) Submit(ctx context.Context, task func()) (err error) {
+func (wp *pool) Submit(ctx context.Context, task func()) (err error) {
 	if wp == nil {
 		go task()
 		return nil
@@ -70,7 +72,7 @@ func (wp *WorkPool) Submit(ctx context.Context, task func()) (err error) {
 	}
 }
 
-func (wp *WorkPool) worker() {
+func (wp *pool) worker() {
 	for task := range wp.workQueue {
 		task()
 	}

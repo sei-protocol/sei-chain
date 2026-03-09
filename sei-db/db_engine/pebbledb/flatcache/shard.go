@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -25,7 +25,7 @@ type shard struct {
 	gcQueue *lruQueue
 
 	// A pool for asyncronous reads.
-	readPool *utils.WorkPool
+	readPool threading.Pool
 
 	// A function that reads a value from the database.
 	readFunc func(key []byte) []byte
@@ -67,7 +67,7 @@ type shardEntry struct {
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
-	readPool *utils.WorkPool,
+	readPool threading.Pool,
 	readFunc func(key []byte) []byte,
 	maxSize int,
 ) (*shard, error) {
@@ -112,7 +112,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		// Another goroutine initiated a read, wait for that read to finish.
 		valueChan := entry.valueChan
 		s.lock.Unlock()
-		value, err := utils.InterruptiblePull(s.ctx, valueChan)
+		value, err := threading.InterruptiblePull(s.ctx, valueChan)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
@@ -131,7 +131,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
 		}
-		value, err := utils.InterruptiblePull(s.ctx, valueChan)
+		value, err := threading.InterruptiblePull(s.ctx, valueChan)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
@@ -240,7 +240,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 	}
 
 	for i := range pending {
-		value, err := utils.InterruptiblePull(s.ctx, pending[i].valueChan)
+		value, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
 		if err != nil {
 			return fmt.Errorf("failed to pull value from channel: %w", err)
 		}

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -23,7 +23,7 @@ type cache struct {
 	shards []*shard
 
 	// A pool for asyncronous reads.
-	readPool *utils.WorkPool
+	readPool threading.Pool
 
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration
@@ -39,7 +39,7 @@ func NewCache(
 	// The maximum size of the cache, in bytes.
 	maxSize int,
 	// A work pool for reading from the DB.
-	readPool *utils.WorkPool,
+	readPool threading.Pool,
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration,
 ) (Cache, error) {

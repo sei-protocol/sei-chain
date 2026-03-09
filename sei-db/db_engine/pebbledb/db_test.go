@@ -8,14 +8,14 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 func TestDBGetSetDelete(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -54,7 +54,7 @@ func TestDBGetSetDelete(t *testing.T) {
 
 func TestBatchAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -94,7 +94,7 @@ func TestBatchAtomicWrite(t *testing.T) {
 
 func TestIteratorBounds(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -129,7 +129,7 @@ func TestIteratorBounds(t *testing.T) {
 
 func TestIteratorPrev(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -195,7 +195,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{Comparer: &cmp}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -231,7 +231,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 
 func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	_, err := Open(t.Context(), dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"},
 		false, pool, unit.MB*8, unit.MB*8)
 	if err == nil {
@@ -241,7 +241,7 @@ func TestOpenOptionsComparerTypeCheck(t *testing.T) {
 
 func TestErrNotFoundConsistency(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -267,7 +267,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 
 func TestGetReturnsCopy(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -298,7 +298,7 @@ func TestGetReturnsCopy(t *testing.T) {
 
 func TestBatchLenResetDelete(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -355,7 +355,7 @@ func TestBatchLenResetDelete(t *testing.T) {
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -393,7 +393,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestFlush(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -422,7 +422,7 @@ func TestFlush(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	pool := utils.NewWorkPool(t.Context(), "test", 1, 64)
+	pool := threading.NewPool(t.Context(), "test", 1, 64)
 	db, err := Open(t.Context(), dir, types.OpenOptions{}, false, pool, unit.MB*8, unit.MB*8)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

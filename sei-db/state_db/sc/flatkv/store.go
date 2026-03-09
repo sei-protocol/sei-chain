@@ -10,8 +10,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -104,7 +104,7 @@ type CommitStore struct {
 	phaseTimer *metrics.PhaseTimer
 
 	// A work pool for reading from the DB.
-	readPool *utils.WorkPool
+	readPool threading.Pool
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -122,7 +122,7 @@ func NewCommitStore(
 	}
 	meter := otel.Meter(flatkvMeterName)
 
-	readPool := utils.NewWorkPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
+	readPool := threading.NewPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
 
 	return &CommitStore{
 		ctx:               ctx,

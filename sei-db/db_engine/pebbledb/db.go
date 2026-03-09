@@ -14,7 +14,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/flatcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -39,7 +39,7 @@ func Open(
 	opts types.OpenOptions,
 	enableMetrics bool,
 	// A work pool for reading from the DB.
-	readPool *utils.WorkPool,
+	readPool threading.Pool,
 	cacheSize int,
 	pageCacheSize int,
 ) (_ types.KeyValueDB, err error) {

@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/wal"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
 
 // The size of internal channel buffers if the provided buffer size is less than 1.
@@ -176,7 +176,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		errChan: errChan,
 	}
 
-	err := utils.InterruptiblePush(walLog.ctx, walLog.writeChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.writeChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push write request: %w", err)
 	}
@@ -186,7 +186,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		return nil
 	}
 
-	err, pullErr := utils.InterruptiblePull(walLog.ctx, errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull write error: %w", pullErr)
 	}
@@ -346,12 +346,12 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 		errChan: make(chan error, 1),
 	}
 
-	err := utils.InterruptiblePush(walLog.ctx, walLog.truncateChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.truncateChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push truncate request: %w", err)
 	}
 
-	err, pullErr := utils.InterruptiblePull(walLog.ctx, req.errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, req.errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull truncate error: %w", pullErr)
 	}
@@ -506,7 +506,7 @@ func (walLog *WAL[T]) drain() {
 // Shut down the WAL. Sends a close request to the main loop so in-flight writes (and other work)
 // can complete before teardown. Idempotent.
 func (walLog *WAL[T]) Close() error {
-	_ = utils.InterruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
+	_ = threading.InterruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
 	// If error is non-nil then this is not the first call to Close(), no problem since Close() is idempotent
 
 	err := <-walLog.closeErrChan
