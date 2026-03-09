@@ -103,10 +103,14 @@ type CommitStore struct {
 	// Used to track time spent in various phases of execution.
 	phaseTimer *metrics.PhaseTimer
 
-	// A work pool for reading from the DB.
+	// A work pool for reading from the DBs.
+	//
+	// Uses a fixed-size pool.
 	readPool threading.Pool
 
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	//
+	// Uses an elasticly-sized pool, so it is safe to submit tasks that have dependencies on other tasks in the pool.
 	miscPool threading.Pool
 }
 
@@ -126,7 +130,7 @@ func NewCommitStore(
 	meter := otel.Meter(flatkvMeterName)
 
 	readPool := threading.NewFixedPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
-	miscPool := threading.NewFixedPool(ctx, "flatkv-misc", 20, 1024) // TODO this should be configurable!
+	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", 20)
 
 	return &CommitStore{
 		ctx:               ctx,

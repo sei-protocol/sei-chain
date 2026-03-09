@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -128,12 +129,14 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				} else {
 					if kind == evm.EVMKeyNonce {
 						if len(pair.Value) != NonceLen {
-							return fmt.Errorf("invalid nonce value length: got %d, expected %d", len(pair.Value), NonceLen)
+							return fmt.Errorf("invalid nonce value length: got %d, expected %d",
+								len(pair.Value), NonceLen)
 						}
 						paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
 					} else {
 						if len(pair.Value) != CodeHashLen {
-							return fmt.Errorf("invalid codehash value length: got %d, expected %d", len(pair.Value), CodeHashLen)
+							return fmt.Errorf("invalid codehash value length: got %d, expected %d",
+								len(pair.Value), CodeHashLen)
 						}
 						copy(paw.value.CodeHash[:], pair.Value)
 					}
@@ -284,10 +287,13 @@ func (s *CommitStore) flushAllDBs() error {
 	var wg sync.WaitGroup
 	wg.Add(4)
 	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
-		go func(idx int, db types.KeyValueDB) {
-			defer wg.Done()
-			errs[idx] = db.Flush()
-		}(i, db)
+		err := s.miscPool.Submit(s.ctx, func() {
+			errs[i] = db.Flush()
+			wg.Done()
+		})
+		if err != nil {
+			return fmt.Errorf("failed to submit flush: %w", err)
+		}
 	}
 	wg.Wait()
 	names := [4]string{"accountDB", "codeDB", "storageDB", "legacyDB"}
@@ -446,10 +452,13 @@ func (s *CommitStore) commitBatches(version int64) error {
 	var wg sync.WaitGroup
 	wg.Add(len(pending))
 	for i, p := range pending {
-		go func(idx int, b types.Batch) {
-			defer wg.Done()
-			errs[idx] = b.Commit(syncOpt)
-		}(i, p.batch)
+		err := s.miscPool.Submit(s.ctx, func() {
+			errs[i] = p.batch.Commit(syncOpt)
+			wg.Done()
+		})
+		if err != nil {
+			return fmt.Errorf("failed to submit commit: %w", err)
+		}
 	}
 	wg.Wait()
 
@@ -508,56 +517,56 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	var wg sync.WaitGroup
 	if len(storageOld) > 0 {
 		wg.Add(1)
-		go func() {
+		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
 			storageErr = s.storageDB.BatchGet(storageOld)
-		}()
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to submit batch get: %w", err)
+			return
+		}
 	}
 
 	var accountErr error
 	if len(accountOld) > 0 {
 		wg.Add(1)
-		go func() {
+		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
 			accountErr = s.accountDB.BatchGet(accountOld)
-		}()
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to submit batch get: %w", err)
+			return
+		}
 	}
 	var codeErr error
 	if len(codeOld) > 0 {
 		wg.Add(1)
-		go func() {
+		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
 			codeErr = s.codeDB.BatchGet(codeOld)
-		}()
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to submit batch get: %w", err)
+			return
+		}
 	}
 
 	var legacyErr error
 	if len(legacyOld) > 0 {
 		wg.Add(1)
-		go func() {
+		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
 			legacyErr = s.legacyDB.BatchGet(legacyOld)
-		}()
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to submit batch get: %w", err)
+			return
+		}
 	}
 
 	wg.Wait()
+	err = errors.Join(storageErr, accountErr, codeErr, legacyErr)
 
-	if storageErr != nil || accountErr != nil || codeErr != nil || legacyErr != nil {
-		errString := ""
-		if storageErr != nil {
-			errString += fmt.Sprintf(", storageDB: %s\n", storageErr.Error())
-		}
-		if accountErr != nil {
-			errString += fmt.Sprintf(", accountDB: %s\n", accountErr.Error())
-		}
-		if codeErr != nil {
-			errString += fmt.Sprintf(", codeDB: %s\n", codeErr.Error())
-		}
-		if legacyErr != nil {
-			errString += fmt.Sprintf(", legacyDB: %s\n", legacyErr.Error())
-		}
-		err = fmt.Errorf("batch get: %s", errString)
-		return
-	}
 	return
 }

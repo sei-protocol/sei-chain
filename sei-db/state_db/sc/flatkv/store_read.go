@@ -3,9 +3,7 @@ package flatkv
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
 
@@ -199,93 +197,4 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	default:
 		return &emptyIterator{}
 	}
-}
-
-// =============================================================================
-// Internal Getters (used by ApplyChangeSets for LtHash computation)
-// =============================================================================
-
-// getAccountValue loads AccountValue from pending writes or DB.
-// Returns zero AccountValue if not found (new account).
-// Returns error if existing data is corrupted (decode fails) or I/O error occurs.
-func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
-	// Check pending writes first
-	if paw, ok := s.accountWrites[string(addr[:])]; ok {
-		return paw.value, nil
-	}
-
-	// Read from accountDB
-	value, err := s.accountDB.Get(AccountKey(addr))
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return AccountValue{}, nil // New account
-		}
-		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
-	}
-
-	av, err := DecodeAccountValue(value)
-	if err != nil {
-		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
-	}
-	return av, nil
-}
-
-// getStorageValue returns the storage value from pending writes or DB.
-// Returns (nil, nil) if not found.
-// Returns (nil, error) if I/O error occurs.
-func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
-	if pw, ok := s.storageWrites[string(key)]; ok {
-		if pw.isDelete {
-			return nil, nil
-		}
-		return pw.value, nil
-	}
-	value, err := s.storageDB.Get(key)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", key, err)
-	}
-	return value, nil
-}
-
-// getCodeValue returns the code value from pending writes or DB.
-// Returns (nil, nil) if not found.
-// Returns (nil, error) if I/O error occurs.
-func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
-	if pw, ok := s.codeWrites[string(key)]; ok {
-		if pw.isDelete {
-			return nil, nil
-		}
-		return pw.value, nil
-	}
-	value, err := s.codeDB.Get(key)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)
-	}
-	return value, nil
-}
-
-// getLegacyValue returns the legacy value from pending writes or DB.
-// Returns (nil, nil) if not found.
-// Returns (nil, error) if I/O error occurs.
-func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
-	if pw, ok := s.legacyWrites[string(key)]; ok {
-		if pw.isDelete {
-			return nil, nil
-		}
-		return pw.value, nil
-	}
-	value, err := s.legacyDB.Get(key)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
-	}
-	return value, nil
 }
