@@ -59,6 +59,9 @@ if [[ -n "$REVERTER_TX" ]]; then
     export SEI_EVM_IO_REVERTER_ADDRESS="$REVERTER_ADDR"
   fi
 fi
+if [[ -z "${SEI_EVM_IO_REVERTER_ADDRESS:-}" ]]; then
+  echo "WARNING: Reverter contract not deployed (deploy or receipt lookup failed). Tests using __REVERTER__ will be skipped." >&2
+fi
 
 export SEI_EVM_IO_RUN_INTEGRATION=1
 go test ./integration_test/evm_module/rpc_io_test/ -v -count=1

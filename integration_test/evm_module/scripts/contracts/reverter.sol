@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
-// Contract that reverts with Error("user error") on any call. Used by eth_call revert .iox tests.
+// Contract used by eth_call revert .iox tests. Calldata: 0x01 or empty -> Error("user error"); 0x02 -> panic (assert false).
 // To rebuild bytecode: from this directory: solc --bin reverter.sol | tail -1 > reverter_contract.hex
 
 pragma solidity ^0.8.0;
 
 contract Reverter {
     fallback() external payable {
+        if (msg.data.length >= 1 && msg.data[0] == 0x02) {
+            assert(false); // Panic(0x01)
+        }
         revert("user error");
     }
 }

@@ -1,6 +1,6 @@
 # EVM RPC .io / .iox tests
 
-Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **162 tests** from `testdata/` against a live RPC endpoint.
+Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **163 tests** from `testdata/` against a live RPC endpoint.
 
 ## How to run
 
@@ -18,8 +18,8 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **.io**   | ~50   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-| **.iox**  | ~112  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
-| **Total** | 162   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
+| **.iox**  | ~114  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
+| **Total** | 163   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -31,11 +31,11 @@ The following fixtures were **removed** (no longer in the suite) because they de
 | Removed fixture | Reason | Replacement |
 | ----------------- | ------ | ----------- |
 | `eth_call/call-revert-abi-error.io` | Fixed address `0x0ee3ab...` (reverting contract on execution-apis only) | `eth_call/call-revert-abi-error-sei.iox` (uses `__REVERTER__`, script-deployed) |
-| `eth_call/call-revert-abi-panic.io` | Same fixed address, panic case | No replacement; Error(string) revert covered by above |
+| `eth_call/call-revert-abi-panic.io` | Same fixed address, panic case | `eth_call/call-revert-abi-panic-sei.iox` (uses `__REVERTER__` with input `0x02` for panic) |
 | `eth_estimateGas/estimate-call-abi-error.io` | Same fixed address, expects revert error | `eth_estimateGas/estimate-call-abi-error-sei.iox` (uses `__REVERTER__`) |
-| `eth_estimateGas/estimate-failed-call.io` | Fixed address `0x17e7ee...`, expects revert error | Revert case covered by `estimate-call-abi-error-sei.iox` |
+| `eth_estimateGas/estimate-failed-call.io` | Fixed address `0x17e7ee...`, expects revert error | Revert (Error) and panic covered by `estimate-call-abi-error-sei.iox` and `estimate-call-abi-panic-sei.iox` (same `__REVERTER__`, input `0x01` / `0x02`) |
 
-The total count (162) reflects the current `.io`/`.iox` set under `testdata/` as of the latest run.
+The total count reflects the current `.io`/`.iox` set under `testdata/` as of the latest run.
 
 ## What is checked
 
@@ -55,7 +55,7 @@ The total count (162) reflects the current `.io`/`.iox` set under `testdata/` as
 2. The script sets `SEI_EVM_IO_SEED_BLOCK` to that block number (hex) and `SEI_EVM_IO_DEPLOY_TX_HASH` to the deploy tx hash.
 3. In `.iox` fixtures, `__SEED__` in a request is replaced by that block number (or by `"latest"` if the script didn't run / seed isn't set).
 4. Fixtures can bind `${txHash}` from the first request (e.g. `eth_getBlockByNumber(__SEED__, true)` -> `result.transactions.0.hash`) and `${deployTxHash}` is pre-filled from the script when set, so later requests use a known block and known tx hashes instead of "latest" (which might be empty).
-5. The script also deploys a **reverter** contract (reverts with `Error("user error")`); it sets `SEI_EVM_IO_REVERTER_ADDRESS`. In fixtures, `__REVERTER__` in a request is replaced by that address. Used by `eth_call/call-revert-abi-error-sei.iox`. If a fixture uses `__REVERTER__` and the env is not set, the test is skipped.
+5. The script also deploys a **reverter** contract; it sets `SEI_EVM_IO_REVERTER_ADDRESS`. In fixtures, `__REVERTER__` is replaced by that address. The reverter responds to calldata: empty or `0x01` → `Error("user error")`; `0x02` → panic (assert false). Used by `eth_call/call-revert-abi-error-sei.iox`, `eth_call/call-revert-abi-panic-sei.iox`, `eth_estimateGas/estimate-call-abi-error-sei.iox`, and `eth_estimateGas/estimate-call-abi-panic-sei.iox`. If a fixture uses `__REVERTER__` and the env is not set, the test is skipped.
 
 So "seed" = a known-good block (and deploy tx) that the script creates and the runner uses so **SEED** and deploy/tx bindings resolve.
 
@@ -65,7 +65,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 
 *Source:* **Eth exec api** = from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) (`.io`); **Sei** = Sei-generated (`.iox` or Sei-added `.io`).
 
-### Passed tests (133)
+### Passed tests (134)
 
 
 | Endpoint                               | Test                                                           | Source       |
@@ -91,10 +91,12 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_call                               | call-contract.io                                               | Eth exec api |
 | eth_call                               | call-eip7702-delegation.io                                     | Eth exec api |
 | eth_call                               | call-revert-abi-error-sei.iox                                  | Sei          |
+| eth_call                               | call-revert-abi-panic-sei.iox                                  | Sei          |
 | eth_chainId                            | get-chain-id.io                                                | Eth exec api |
 | eth_coinbase                           | coinbase.io                                                    | Sei          |
 | eth_createAccessList                   | create-al-value-transfer.iox                                   | Sei          |
 | eth_estimateGas                        | estimate-call-abi-error-sei.iox                                | Sei          |
+| eth_estimateGas                        | estimate-call-abi-panic-sei.iox                                | Sei          |
 | eth_estimateGas                        | estimate-gas-from-deploy.iox                                   | Sei          |
 | eth_estimateGas                        | estimate-simple-transfer.io                                    | Eth exec api |
 | eth_estimateGas                        | estimate-successful-call.io                                    | Eth exec api |
@@ -258,11 +260,11 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 
 | Metric          | Previous run | Latest run |
 | --------------- | ------------ | ---------- |
-| **Total tests** | 255          | 162        |
-| **Passed**      | 157          | 133        |
+| **Total tests** | 255          | 163        |
+| **Passed**      | 157          | 134        |
 | **Failed**      | 98           | 29         |
 | **Skipped**     | 0            | 0          |
-| **Pass rate**   | 61.6%        | 82.1%      |
+| **Pass rate**   | 61.6%        | 82.2%      |
 
 
 
