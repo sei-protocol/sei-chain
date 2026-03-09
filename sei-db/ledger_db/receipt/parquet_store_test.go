@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -183,12 +184,38 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 }
 
+func TestParquetReceiptStoreUsesConfiguredDirectory(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x31")
+	receipt := makeTestReceipt(txHash, 11, 0, common.HexToAddress("0x401"), nil)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(11), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, receiptFiles, "receipt parquet files should be written under the configured db directory")
+
+	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, logFiles, "log parquet files should be written under the configured db directory")
+}
+
 func TestParquetFilePruning(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 600 // Keep 600 blocks, so files with blocks < (latest - 600) get pruned
+	cfg.PruneIntervalSeconds = 1
 
 	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
@@ -209,19 +236,30 @@ func TestParquetFilePruning(t *testing.T) {
 	// Close to flush all files
 	require.NoError(t, store.Close())
 
-	// Verify we have at least 2 receipt and log files
+	// Verify we have enough receipt and log files for pruning to remove at least one pair.
 	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(receiptFiles), 2, "should have at least 2 receipt files")
+	require.GreaterOrEqual(t, len(receiptFiles), 3, "should have at least 3 receipt files")
 
 	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(logFiles), 2, "should have at least 2 log files")
+	require.GreaterOrEqual(t, len(logFiles), 3, "should have at least 3 log files")
 
-	// Reopen store - pruning will run in background
+	initialReceiptFileCount := len(receiptFiles)
+	initialLogFileCount := len(logFiles)
+
+	// Reopen store - pruning runs immediately on startup and then periodically afterward.
 	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
+
+	require.Eventually(t, func() bool {
+		currentReceiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+		require.NoError(t, err)
+		currentLogFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+		require.NoError(t, err)
+		return len(currentReceiptFiles) < initialReceiptFileCount && len(currentLogFiles) < initialLogFileCount
+	}, 5*time.Second, 100*time.Millisecond, "configured keep-recent and prune-interval should trigger parquet file pruning")
 
 	// Verify we can still query recent data
 	txHash := common.BigToHash(common.Big1.SetUint64(1400))

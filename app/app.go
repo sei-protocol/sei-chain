@@ -35,7 +35,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
@@ -112,7 +111,6 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
@@ -678,13 +676,10 @@ func New(
 		wasmOpts...,
 	)
 
-	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	receiptConfig, err := seidbconfig.ReadReceiptConfig(appOpts)
+	receiptConfig, err := readReceiptStoreConfig(homePath, appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading receipt store config: %s", err))
 	}
-	receiptConfig.DBDirectory = receiptStorePath
-	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	if app.receiptStore == nil {
 		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {

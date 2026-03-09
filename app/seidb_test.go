@@ -1,8 +1,10 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +111,22 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
 }
 
+func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
+		"receipt-store.db-directory":           "/tmp/custom-receipt-db",
+		"receipt-store.rs-backend":             "parquet",
+		"receipt-store.async-write-buffer":     7,
+		"receipt-store.keep-recent":            42,
+		"receipt-store.prune-interval-seconds": 9,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
+	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
+	assert.Equal(t, 42, receiptConfig.KeepRecent)
+	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
+}
+
 func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	_, err := config.ReadReceiptConfig(mapAppOpts{
 		"receipt-store.rs-backend": "rocksdb",
@@ -116,6 +134,25 @@ func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported receipt-store backend")
 	assert.Contains(t, err.Error(), "rocksdb")
+}
+
+func TestReadReceiptStoreConfigUsesConfiguredValues(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
+		"receipt-store.db-directory": "/tmp/custom-receipt-db",
+		"receipt-store.keep-recent":  5,
+		server.FlagMinRetainBlocks:   100,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
+	assert.Equal(t, 5, receiptConfig.KeepRecent)
+}
+
+func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(homePath, "data", "receipt.db"), receiptConfig.DBDirectory)
 }
 
 // TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"

@@ -117,6 +117,7 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
+		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
