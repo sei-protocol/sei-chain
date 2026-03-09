@@ -20,6 +20,10 @@ type peerConnInfo struct {
 	SelfAddr utils.Option[NodeAddress]
 }
 
+func (i peerConnInfo) connID() connID {
+	return connID{NodeID:i.ID,outbound:i.DialAddr.IsPresent()}
+}
+
 type peerConn interface {
 	comparable
 	Info() peerConnInfo
@@ -28,14 +32,10 @@ type peerConn interface {
 
 type poolConfig struct {
 	SelfID types.NodeID
-	// Maximal number of inbound connections.
-	MaxIn  int
-	// Maximal number of outbound connections. 
-	MaxOut int
-	// Maximal number of concurrent dials.
-	MaxDials int
-	// InPool(id) <=> id belongs to this pool. 
-	InPool func(types.NodeID) bool
+	MaxIn  int // Maximal number of inbound connections.
+	MaxOut int // Maximal number of outbound connections. 
+	MaxDials int // Maximal number of concurrent dials.
+	InPool func(types.NodeID) bool // InPool(id) <=> id belongs to this pool. 
 }
 
 type pNodeID struct {
@@ -113,7 +113,7 @@ func (p *poolManager) PushPex(sender utils.Option[types.NodeID], addrs []NodeAdd
 	}
 }
 
-func (p *poolManager) ClearSenderPex(sender types.NodeID) {
+func (p *poolManager) ClearPex(sender types.NodeID) {
 	delete(p.pex.bySender,sender)
 }
 
@@ -227,7 +227,6 @@ func (p *poolManager) StartDial() ([]NodeAddress,bool) {
 				p.dialQueue = nil
 				return nil,false
 			}
-			p.upgradePermit = false
 		}
 		// Set as dialing.
 		p.dialing[e.NodeID] = struct{}{}
@@ -266,6 +265,7 @@ func (p *poolManager) Connect(id connID) (utils.Option[connID],error) {
 			if toDisconnect.NodeID==id.NodeID {
 				panic("BUG: dialed a peer with too low priority")
 			}
+			p.upgradePermit = false
 			return utils.Some(connID{NodeID:toDisconnect.NodeID,outbound:true}),nil
 		}
 		return none,nil

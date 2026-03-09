@@ -73,7 +73,7 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	peerDB, err := newPeerDB(db, min(options.MaxInbound,100)+min(options.MaxOutbound,100))
+	peerDB, err := newPeerDB(db, min(options.maxOutbound(),100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
@@ -85,7 +85,8 @@ func NewRouter(
 		initialAddrs = append(initialAddrs,addr)
 	}
 	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](logger, selfID, options, initialAddrs)
+	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
+	peerManager.PushPex(selfID,initialAddrs)
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -412,6 +413,7 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 
 func (r *Router) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("peerManager", func() error { return r.peerManager.Run(ctx) })
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeersRoutine(ctx) })
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })
 		s.SpawnNamed("storePeers", func() error { return r.storePeersRoutine(ctx) })

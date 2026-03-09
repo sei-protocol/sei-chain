@@ -115,7 +115,7 @@ type RouterOptions struct {
 
 	// MaxInbound is the maximum number of inbound connections.
 	// Persistent and unconditional connections are not counted towards this limit.
-	// Defaults to 30.
+	// Defaults to 40.
 	MaxInbound utils.Option[int] 
 
 	// MaxOutbound is the maximum number of outbound connections.
@@ -141,6 +141,8 @@ type RouterOptions struct {
 
 func (o *RouterOptions) maxDials() int   { return o.MaxConcurrentDials.Or(10) }
 func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) }
+func (o *RouterOptions) maxOutbound() int { return o.MaxOutbound.Or(20) }
+func (o *RouterOptions) maxInbound() int { return o.MaxInbound.Or(40) }
 
 func (o *RouterOptions) peerStoreInterval() time.Duration {
 	return o.PeerStoreInterval.Or(10 * time.Second)

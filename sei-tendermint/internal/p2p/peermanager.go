@@ -12,11 +12,45 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// - regenerate queue from pexTable every (number of conns) insertions - that's good enough, usually every 10s
+// - recent dials list to filter out scum
+// - if there is sth in the override queue, take from there (initial peers).
+
+// Requirements:
+// - pexTable: up to date set of peers of peers
+// - dials + out conns <= max conns
+// - upgrading only if outbound conns are full, and 1 at a time
+// dialing reqs:
+// - dialing in production is slow (every 1s-10s)
+// - upgrading in production is even slower (every >=1min)
+// - in tests we want to trigger dialing on demand, wait until connected, and can afford scanning all addresses
+//   - tests should insert their addresses to a special slot
+// - we start with an initial list of peers to dial (which might NOT be available).
+// - we have a pre-configured list of peers, which might NOT be available (bootstrap/persistent).
+// - peers share a list of their connections even if they disconnect immediately and we WANT to keep it to be able to traverse.
+// - we always dial based on fresh information
+//   - we assume peers of peers are fresh (or only recently disconnected - small chance of miss)
+//   - they might not be reachable if over private connections
+//   - they might reject our connection (so we want to traverse all possible nodes)
+// - we don't dial peers which are connected (inbound or outbound) or currently being dialed.
+// - when upgrading, we only take into consideration peers with high priority.
+// - BONUS: when dialing/upgrading select candidate by max priority
+
 type connSet[C peerConn] = im.Map[connID, C]
 
-func GetAny[C peerConn](cs connSet[C], id types.NodeID) (C,bool) {
-	if c,ok := cs.Get(connID{id,true}); ok { return c,true }
-	return cs.Get(connID{id,false})
+func GetAny[C peerConn](conns connSet[C], id types.NodeID) (C,bool) {
+	if c,ok := conns.Get(connID{id,true}); ok { return c,true }
+	return conns.Get(connID{id,false})
+}
+
+func GetAll[C peerConn](cs connSet[C], id types.NodeID) []C {
+	var out []C
+	for _,outbound := range utils.Slice(true,false) {
+		if c,ok := cs.Get(connID{id,outbound}); ok {
+			out = append(out,c)
+		}
+	}
+	return out
 }
 
 type peerManagerInner[C peerConn] struct {
@@ -71,7 +105,7 @@ func (p *peerManager[C]) LogState() {
 
 
 
-func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions, initialAddrs []NodeAddress) *peerManager[C] {
+func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	isBlockSyncPeer := map[types.NodeID]bool{}
 	isPrivate := map[types.NodeID]bool{}
 	isPersistent := map[types.NodeID]bool{}
@@ -113,15 +147,14 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 		}),
 		regular: newPoolManager(&poolConfig{
 			// TODO: this needs more precision
-			MaxIn: options.maxConns(),
-			MaxOut: options.maxOutboundConns(),
+			MaxIn: options.maxInbound(),
+			MaxOut: options.maxOutbound(),
 			MaxDials: options.maxDials(),
 			InPool: func(id types.NodeID) bool {
 				return id!=selfID && !isPersistent[id]
 			},
 		}),
 	}
-	inner.regular.PushExtraPex(initialAddrs)
 	return &peerManager[C]{
 		selfID: selfID,
 		logger:          logger,
@@ -203,12 +236,11 @@ func (m *peerManager[C]) DialFailed(id types.NodeID) error {
 // May close and drop a duplicate connection already present in the pool.
 // Returns an error if the connection should be rejected.
 func (m *peerManager[C]) Connected(conn C) error {
-	info := conn.Info()
-	if info.ID==m.selfID {
+	id := conn.Info().connID()
+	if id.NodeID==m.selfID {
 		conn.Close()
 		return fmt.Errorf("connection to self")
 	}
-	id := connID{NodeID:info.ID,outbound:info.DialAddr.IsPresent()}
 	for inner,ctrl := range m.inner.Lock() {
 		// Notify the pool.
 		pool := inner.poolByID(id.NodeID)
@@ -235,8 +267,7 @@ func (m *peerManager[C]) Connected(conn C) error {
 // Noop if conn was not in the connection pool.
 // conn.PeerInfo().NodeID peer is available for dialing again.
 func (m *peerManager[C]) Disconnected(conn C) {
-	info := conn.Info()
-	id := connID{NodeID:info.ID,outbound:info.DialAddr.IsPresent()}
+	id := conn.Info().connID() 
 	for inner,ctrl := range m.inner.Lock() {
 		// It is fine to call Disconnected for conn which is not present.
 		conns := inner.conns.Load()
@@ -321,8 +352,8 @@ func (p *peerManager[C]) Run(ctx context.Context) error {
 		const feedInterval = 10 * time.Second
 		for {
 			for inner,ctrl := range p.inner.Lock() {
-				inner.regular.PushPex(p.selfID,p.options.BootstrapPeers)
-				inner.persistent.PushPex(p.selfID,p.options.PersistentPeers)
+				inner.regular.PushPex(utils.Some(p.selfID),p.options.BootstrapPeers)
+				inner.persistent.PushPex(utils.Some(p.selfID),p.options.PersistentPeers)
 				ctrl.Updated()
 			}
 			if err:=utils.Sleep(ctx,feedInterval); err!=nil {
