@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// A utility for scheduling asyncronous DB reads.
+// A utility for scheduling asynchronous DB reads.
 type readScheduler struct {
 	ctx         context.Context
 	readFunc    func(key []byte) []byte

@@ -22,7 +22,7 @@ type cache struct {
 	// The shards in the cache.
 	shards []*shard
 
-	// A pool for asyncronous reads.
+	// A pool for asynchronous reads.
 	readPool threading.Pool
 
 	// The interval at which to run garbage collection.

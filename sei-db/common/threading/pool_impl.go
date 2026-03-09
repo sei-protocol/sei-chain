@@ -49,14 +49,7 @@ func NewPool(
 }
 
 // Submit submits a task to the work pool. This method does not block until the task is executed.
-//
-// If wp is nil, the task is executed asynchronously in a one-off goroutine.
 func (wp *pool) Submit(ctx context.Context, task func()) (err error) {
-	if wp == nil {
-		go task()
-		return nil
-	}
-
 	defer func() {
 		if recover() != nil {
 			err = fmt.Errorf("work pool is shut down")

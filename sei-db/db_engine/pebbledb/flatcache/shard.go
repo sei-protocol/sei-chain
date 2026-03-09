@@ -24,7 +24,7 @@ type shard struct {
 	// Organizes data for garbage collection.
 	gcQueue *lruQueue
 
-	// A pool for asyncronous reads.
+	// A pool for asynchronous reads.
 	readPool threading.Pool
 
 	// A function that reads a value from the database.
@@ -44,7 +44,7 @@ const (
 	statusScheduled
 	// The data is available.
 	statusAvailable
-	// We are aware that the value is deleted (special case of data being avialable).
+	// We are aware that the value is deleted (special case of data being available).
 	statusDeleted
 )
 
