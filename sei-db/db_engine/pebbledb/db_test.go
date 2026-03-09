@@ -9,14 +9,12 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 func TestDBGetSetDelete(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -53,9 +51,8 @@ func TestDBGetSetDelete(t *testing.T) {
 }
 
 func TestBatchAtomicWrite(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -93,9 +90,8 @@ func TestBatchAtomicWrite(t *testing.T) {
 }
 
 func TestIteratorBounds(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -128,9 +124,8 @@ func TestIteratorBounds(t *testing.T) {
 }
 
 func TestIteratorPrev(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -194,9 +189,8 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 		return append(dst, a...)
 	}
 
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{Comparer: &cmp}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, &cmp, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -229,19 +223,9 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	}
 }
 
-func TestOpenOptionsComparerTypeCheck(t *testing.T) {
-	dir := t.TempDir()
-	_, err := Open(t.Context(), dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"},
-		false, threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
-	if err == nil {
-		t.Fatalf("expected error for invalid comparer type")
-	}
-}
-
 func TestErrNotFoundConsistency(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -265,9 +249,8 @@ func TestErrNotFoundConsistency(t *testing.T) {
 }
 
 func TestGetReturnsCopy(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -296,9 +279,8 @@ func TestGetReturnsCopy(t *testing.T) {
 }
 
 func TestBatchLenResetDelete(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -353,9 +335,8 @@ func TestBatchLenResetDelete(t *testing.T) {
 }
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -391,9 +372,8 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 }
 
 func TestFlush(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -420,9 +400,8 @@ func TestFlush(t *testing.T) {
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	cfg := DefaultTestConfig(t)
+	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

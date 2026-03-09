@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -379,10 +379,11 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	// Determine version for the snapshot name. The metadata DB might still
 	// be at the flat location or might have been moved in a prior attempt.
 	var version int64
-	metaPath := filepath.Join(flatkvDir, metadataDir)
+	metaCfg := s.config.MetadataDBConfig
+	metaCfg.DataDir = filepath.Join(flatkvDir, metadataDir)
 	tmpMeta, err := pebbledb.Open(
-		s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics,
-		s.readPool, s.miscPool, unit.GB/2, unit.GB/2)
+		s.ctx, &metaCfg, pebble.DefaultComparer,
+		s.readPool, s.miscPool)
 	if err == nil {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()

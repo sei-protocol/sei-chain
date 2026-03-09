@@ -29,7 +29,7 @@ type IterOptions struct {
 //
 // Comparer is optional; when set it must be compatible with the underlying
 // engine (e.g. *pebble.Comparer for PebbleDB).
-type OpenOptions struct {
+type OpenOptions struct { // TODO remove if unused
 	Comparer any
 }
 

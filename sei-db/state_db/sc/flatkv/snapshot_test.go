@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -257,8 +257,10 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works
-		db, err := pebbledb.Open(t.Context(), dbPath, types.OpenOptions{}, false,
-			threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+		cfg := pebbledb.DefaultTestConfig(t)
+		cfg.DataDir = dbPath
+		db, err := pebbledb.Open(t.Context(), &cfg, pebble.DefaultComparer,
+			threading.NewAdHocPool(), threading.NewAdHocPool())
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -315,8 +317,10 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+	acctCfg := pebbledb.DefaultTestConfig(t)
+	acctCfg.DataDir = accountDBPath
+	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
 	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))

@@ -35,33 +35,28 @@ var _ types.KeyValueDB = (*pebbleDB)(nil)
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
 func Open(
 	ctx context.Context,
-	path string,
-	opts types.OpenOptions,
-	enableMetrics bool,
+	config *PebbleDBConfig,
+	// Used to determine the ordering of keys in the database.
+	comparer *pebble.Comparer,
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
-	cacheSize int,
-	pageCacheSize int,
 ) (_ types.KeyValueDB, err error) {
-	// Validate options before allocating resources to avoid leaks on validation failure
-	var cmp *pebble.Comparer
-	if opts.Comparer != nil {
-		var ok bool
-		cmp, ok = opts.Comparer.(*pebble.Comparer)
-		if !ok {
-			return nil, fmt.Errorf("OpenOptions.Comparer must be *pebble.Comparer, got %T", opts.Comparer)
-		}
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	// Internal pebbleDB cache, used to cache pages in memory. // TODO verify accuracy of this statement
-	pebbleCache := pebble.NewCache(int64(pageCacheSize))
+	pebbleCache := pebble.NewCache(int64(config.PageCacheSize))
 	defer pebbleCache.Unref()
+
+	// TODO potentially expose more options here...
 
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
-		Comparer: cmp,
+		Comparer: comparer,
 		// FormatMajorVersion is pinned to a specific version to prevent accidental
 		// breaking changes when updating the pebble dependency. Using FormatNewest
 		// would cause the on-disk format to silently upgrade when pebble is updated,
@@ -99,7 +94,7 @@ func Open(
 	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
 
-	db, err := pebble.Open(path, popts)
+	db, err := pebble.Open(config.DataDir, popts)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +117,7 @@ func Open(
 		ctx,
 		readFunction,
 		8,
-		cacheSize,
+		config.CacheSize,
 		readPool,
 		miscPool)
 	if err != nil {
@@ -130,8 +125,8 @@ func Open(
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	if enableMetrics {
-		metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
+	if config.EnableMetrics {
+		metrics.NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), metricsScrapeInterval)
 	}
 
 	return &pebbleDB{

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -311,28 +311,23 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	return nil
 }
 
+// openPebbleDB sets the DataDir on cfg, creates the directory, and opens a PebbleDB instance.
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, dir string) (seidbtypes.KeyValueDB, error) {
+	cfg.DataDir = dir
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", dir, err)
+	}
+	db, err := pebbledb.Open(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dir, err)
+	}
+	return db, nil
+}
+
 // openAllDBs opens the 5 PebbleDBs from the snapshot directory, the changelog
 // WAL from the flatkv root, and loads per-DB local metadata. On failure all
 // already-opened handles are closed.
 func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
-	type namedPath struct {
-		name string
-		path string
-	}
-	dbPaths := []namedPath{
-		{accountDBDir, filepath.Join(snapDir, accountDBDir)},
-		{codeDBDir, filepath.Join(snapDir, codeDBDir)},
-		{storageDBDir, filepath.Join(snapDir, storageDBDir)},
-		{legacyDBDir, filepath.Join(snapDir, legacyDBDir)},
-		{metadataDir, filepath.Join(snapDir, metadataDir)},
-	}
-
-	for _, np := range dbPaths {
-		if err := os.MkdirAll(np.path, 0750); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", np.path, err)
-		}
-	}
-
 	var toClose []io.Closer
 	defer func() {
 		if retErr != nil {
@@ -349,40 +344,37 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 		}
 	}()
 
-	openDB := func(np namedPath, cacheSize int, pageCacheSize int) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(
-			s.ctx,
-			np.path,
-			seidbtypes.OpenOptions{},
-			s.config.EnablePebbleMetrics,
-			s.readPool,
-			s.miscPool,
-			cacheSize,
-			pageCacheSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
-		}
-		toClose = append(toClose, db)
-		return db, nil
-	}
-
-	// TODO don't hardcode the cache sizes!
 	var err error
-	if s.accountDB, err = openDB(dbPaths[0], unit.GB/2, unit.GB/2); err != nil {
+
+	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, filepath.Join(snapDir, accountDBDir))
+	if err != nil {
 		return err
 	}
-	if s.codeDB, err = openDB(dbPaths[1], unit.GB/2, unit.GB/2); err != nil {
+	toClose = append(toClose, s.accountDB)
+
+	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, filepath.Join(snapDir, codeDBDir))
+	if err != nil {
 		return err
 	}
-	if s.storageDB, err = openDB(dbPaths[2], unit.GB*4, unit.GB/2); err != nil {
+	toClose = append(toClose, s.codeDB)
+
+	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, filepath.Join(snapDir, storageDBDir))
+	if err != nil {
 		return err
 	}
-	if s.legacyDB, err = openDB(dbPaths[3], unit.GB/2, unit.GB/2); err != nil {
+	toClose = append(toClose, s.storageDB)
+
+	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig, filepath.Join(snapDir, legacyDBDir))
+	if err != nil {
 		return err
 	}
-	if s.metadataDB, err = openDB(dbPaths[4], unit.GB/2, unit.GB/2); err != nil {
+	toClose = append(toClose, s.legacyDB)
+
+	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, filepath.Join(snapDir, metadataDir))
+	if err != nil {
 		return err
 	}
+	toClose = append(toClose, s.metadataDB)
 
 	changelogPath := filepath.Join(flatkvRoot, changelogDir)
 	s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{

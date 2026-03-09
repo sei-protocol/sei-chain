@@ -1,5 +1,10 @@
 package flatkv
 
+import (
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+)
+
 const (
 	DefaultSnapshotInterval   uint32 = 10000
 	DefaultSnapshotKeepRecent uint32 = 2
@@ -33,15 +38,49 @@ type Config struct {
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
+
+	// AccountDBConfig defines the configuration for the account database.
+	AccountDBConfig pebbledb.PebbleDBConfig
+
+	// CodeDBConfig defines the configuration for the code database.
+	CodeDBConfig pebbledb.PebbleDBConfig
+
+	// StorageDBConfig defines the configuration for the storage database.
+	StorageDBConfig pebbledb.PebbleDBConfig
+
+	// LegacyDBConfig defines the configuration for the legacy database.
+	LegacyDBConfig pebbledb.PebbleDBConfig
+
+	// MetadataDBConfig defines the configuration for the metadata database.
+	MetadataDBConfig pebbledb.PebbleDBConfig
 }
 
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() Config {
-	return Config{
+	cfg := Config{
 		Fsync:               false,
 		AsyncWriteBuffer:    0,
 		SnapshotInterval:    DefaultSnapshotInterval,
 		SnapshotKeepRecent:  DefaultSnapshotKeepRecent,
 		EnablePebbleMetrics: true,
+		AccountDBConfig:     pebbledb.DefaultConfig(),
+		CodeDBConfig:        pebbledb.DefaultConfig(),
+		StorageDBConfig:     pebbledb.DefaultConfig(),
+		LegacyDBConfig:      pebbledb.DefaultConfig(),
+		MetadataDBConfig:    pebbledb.DefaultConfig(),
 	}
+
+	cfg.AccountDBConfig.CacheSize = unit.GB
+	cfg.StorageDBConfig.CacheSize = unit.GB * 4
+
+	return cfg
 }
+
+/*
+
+	accountDBDir = "account"
+	codeDBDir    = "code"
+	storageDBDir = "storage"
+	legacyDBDir  = "legacy"
+	metadataDir  = "metadata"
+*/
