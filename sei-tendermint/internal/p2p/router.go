@@ -256,6 +256,14 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 
 func (r *Router) dialPeersRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// Task feeding the upgrade permit to peer manager.
+		s.Spawn(func() error {
+			const upgradeInterval = time.Minute
+			for {
+				r.peerManager.PushUpgradePermit()	
+				if err := utils.Sleep(ctx,upgradeInterval); err!=nil { return err }
+			}
+		})
 		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxDials())
 		for {
 			if err := limiter.Wait(ctx); err != nil {
@@ -413,7 +421,6 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 
 func (r *Router) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("peerManager", func() error { return r.peerManager.Run(ctx) })
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeersRoutine(ctx) })
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })
 		s.SpawnNamed("storePeers", func() error { return r.storePeersRoutine(ctx) })

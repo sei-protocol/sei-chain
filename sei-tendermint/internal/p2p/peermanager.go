@@ -3,38 +3,12 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// - regenerate queue from pexTable every (number of conns) insertions - that's good enough, usually every 10s
-// - recent dials list to filter out scum
-// - if there is sth in the override queue, take from there (initial peers).
-
-// Requirements:
-// - pexTable: up to date set of peers of peers
-// - dials + out conns <= max conns
-// - upgrading only if outbound conns are full, and 1 at a time
-// dialing reqs:
-// - dialing in production is slow (every 1s-10s)
-// - upgrading in production is even slower (every >=1min)
-// - in tests we want to trigger dialing on demand, wait until connected, and can afford scanning all addresses
-//   - tests should insert their addresses to a special slot
-// - we start with an initial list of peers to dial (which might NOT be available).
-// - we have a pre-configured list of peers, which might NOT be available (bootstrap/persistent).
-// - peers share a list of their connections even if they disconnect immediately and we WANT to keep it to be able to traverse.
-// - we always dial based on fresh information
-//   - we assume peers of peers are fresh (or only recently disconnected - small chance of miss)
-//   - they might not be reachable if over private connections
-//   - they might reject our connection (so we want to traverse all possible nodes)
-// - we don't dial peers which are connected (inbound or outbound) or currently being dialed.
-// - when upgrading, we only take into consideration peers with high priority.
-// - BONUS: when dialing/upgrading select candidate by max priority
 
 type connSet[C peerConn] = im.Map[connID, C]
 
@@ -93,17 +67,15 @@ func (p *peerManager[C]) LogState() {
 		p.logger.Info("p2p connections",
 			"regular", fmt.Sprintf("in=%v/%v + out=%v/%v",
 				len(inner.regular.in), inner.regular.cfg.MaxIn,
-				inner.regular.out.Len(), inner.regular.cfg.MaxOut,
+				len(inner.regular.out), inner.regular.cfg.MaxOut,
 			),
 			"unconditional", fmt.Sprintf("in=%v + out=%v", 
 				len(inner.persistent.in),
-				inner.persistent.out.Len(),
+				len(inner.persistent.out),
 			),
 		)
 	}
 }
-
-
 
 func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	isBlockSyncPeer := map[types.NodeID]bool{}
@@ -141,15 +113,16 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 			MaxIn: utils.Max[int](),
 			MaxOut: utils.Max[int](),
 			MaxDials: options.maxDials(),
+			FixedAddrs: options.PersistentPeers,
 			InPool: func(id types.NodeID) bool {
 				return id!=selfID && isPersistent[id]
 			},
 		}),
 		regular: newPoolManager(&poolConfig{
-			// TODO: this needs more precision
 			MaxIn: options.maxInbound(),
 			MaxOut: options.maxOutbound(),
 			MaxDials: options.maxDials(),
+			FixedAddrs: options.BootstrapPeers,
 			InPool: func(id types.NodeID) bool {
 				return id!=selfID && !isPersistent[id]
 			},
@@ -193,6 +166,15 @@ func (m *peerManager[C]) PushPex(sender types.NodeID, addrs []NodeAddress) error
 		ctrl.Updated()
 	}
 	return nil
+}
+
+func (m *peerManager[C]) PushUpgradePermit() {
+	for inner,ctrl := range m.inner.Lock() {
+		if !inner.regular.upgradePermit {
+			inner.regular.upgradePermit = true
+			ctrl.Updated()
+		}
+	}
 }
 
 // StartDial waits until there is a address available for dialing.
@@ -330,37 +312,6 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 		}
 	}
 	return append(addrs, selfAddrs...)
-}
-
-func (p *peerManager[C]) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Task feeding the upgrade permit to the regular peers pool.
-		s.Spawn(func() error {
-			const upgradeInterval = time.Minute
-			for {
-				for inner,ctrl := range p.inner.Lock() {
-					if !inner.regular.upgradePermit {
-						inner.regular.upgradePermit = true
-						ctrl.Updated()
-					}
-				}
-				if err := utils.Sleep(ctx,upgradeInterval); err!=nil { return err }
-			}
-		})
-
-		// Task feeding hardcoded addresses periodically to pools.
-		const feedInterval = 10 * time.Second
-		for {
-			for inner,ctrl := range p.inner.Lock() {
-				inner.regular.PushPex(utils.Some(p.selfID),p.options.BootstrapPeers)
-				inner.persistent.PushPex(utils.Some(p.selfID),p.options.PersistentPeers)
-				ctrl.Updated()
-			}
-			if err:=utils.Sleep(ctx,feedInterval); err!=nil {
-				return err
-			}
-		}
-	})
 }
 
 // DEPRECATED, currently returns id of peers that we are connected to.
