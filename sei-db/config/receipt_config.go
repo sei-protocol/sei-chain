@@ -27,7 +27,7 @@ type ReceiptStoreConfig struct {
 	// Backend defines the backend database used for receipt-store.
 	// Supported backends: pebbledb (aka pebble), parquet
 	// defaults to pebbledb
-	Backend string `mapstructure:"backend"`
+	Backend string `mapstructure:"rs-backend"`
 
 	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store
 	// Set <= 0 for synchronous writes.
