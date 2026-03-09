@@ -1,4 +1,4 @@
-package flatcache // TODO rename the flatcache package!
+package pebblecache
 
 import "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 

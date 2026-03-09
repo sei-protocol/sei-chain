@@ -1,4 +1,4 @@
-package flatcache
+package pebblecache
 
 import (
 	"context"

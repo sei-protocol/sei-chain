@@ -15,7 +15,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/flatcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/pebblecache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -25,7 +25,7 @@ const metricsScrapeInterval = 10 * time.Second
 type pebbleDB struct {
 	db            *pebble.DB
 	metricsCancel context.CancelFunc
-	cache         flatcache.Cache
+	cache         pebblecache.Cache
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -115,7 +115,7 @@ func Open(
 	}
 
 	// A high level cache per key.
-	cache, err := flatcache.NewCache(
+	cache, err := pebblecache.NewCache(
 		ctx,
 		readFunction,
 		8,

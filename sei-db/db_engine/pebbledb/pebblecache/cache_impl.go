@@ -1,4 +1,4 @@
-package flatcache
+package pebblecache
 
 import (
 	"context"
@@ -205,5 +205,3 @@ func (c *cache) runGarbageCollection() {
 		}
 	}
 }
-
-// TODO create a warming mechanism
