@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type TestSeiDBAppOpts struct {
@@ -114,4 +116,15 @@ func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported receipt-store backend")
 	assert.Contains(t, err.Error(), "rocksdb")
+}
+
+// TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"
+// and asserts the parquet receipt store is actually instantiated (not pebble).
+func TestFullAppPathWithParquetReceiptStore(t *testing.T) {
+	app := SetupWithScReceiptFromOpts(t, false, false, TestAppOpts{
+		UseSc:          true,
+		ReceiptBackend: "parquet",
+	})
+	require.NotNil(t, app.receiptStore, "receipt store should be created")
+	assert.Equal(t, "parquet", receipt.BackendTypeName(app.receiptStore), "receipt store backend should be parquet")
 }

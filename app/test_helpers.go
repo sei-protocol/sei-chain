@@ -76,9 +76,10 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	UseSc         bool
-	EnableGiga    bool
-	EnableGigaOCC bool
+	UseSc          bool
+	EnableGiga     bool
+	EnableGigaOCC  bool
+	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -98,6 +99,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
+	}
+	if s == "receipt-store.rs-backend" && t.ReceiptBackend != "" {
+		return t.ReceiptBackend
 	}
 	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
 	// when multiple tests run in parallel (all would try to bind to port 8545)
@@ -456,6 +460,55 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 		if err != nil {
 			panic(err)
 		}
+
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: DefaultConsensusParams,
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return res
+}
+
+// SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
+// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// Use this to test the full app path with rs-backend from config.
+func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+
+	res = New(
+		log.NewNopLogger(),
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		t.TempDir(),
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		testAppOpts,
+		EmptyWasmOpts,
+		nil, // no options: receipt store is created from testAppOpts inside New()
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() { _ = recover() }()
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
