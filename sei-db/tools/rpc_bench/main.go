@@ -127,6 +127,7 @@ type storageSlot struct {
 type BlockInfo struct {
 	Number       int64
 	Hash         string
+	GasUsed      uint64
 	Transactions []string
 	Addresses    []string
 }
@@ -200,6 +201,7 @@ func getBlockInfo(endpoint string, blockNum int64) (*BlockInfo, error) {
 
 	var block struct {
 		Hash         string `json:"hash"`
+		GasUsed      string `json:"gasUsed"`
 		Transactions []struct {
 			Hash string `json:"hash"`
 			From string `json:"from"`
@@ -211,6 +213,11 @@ func getBlockInfo(endpoint string, blockNum int64) (*BlockInfo, error) {
 	}
 
 	info := &BlockInfo{Number: blockNum, Hash: block.Hash}
+	if block.GasUsed != "" {
+		if _, err := fmt.Sscanf(block.GasUsed, "0x%x", &info.GasUsed); err != nil {
+			return nil, fmt.Errorf("parse block gas used for block %d: %w", blockNum, err)
+		}
+	}
 	addrSet := make(map[string]bool)
 	for _, tx := range block.Transactions {
 		info.Transactions = append(info.Transactions, tx.Hash)
@@ -359,7 +366,12 @@ func main() {
 				allAddresses = append(allAddresses, addr)
 			}
 		}
-		fmt.Printf("  block %d: %d txs, %d addresses\n", blockNum, len(info.Transactions), len(info.Addresses))
+		avgGasPerTx := 0.0
+		if len(info.Transactions) > 0 {
+			avgGasPerTx = float64(info.GasUsed) / float64(len(info.Transactions))
+		}
+		fmt.Printf("  block %d: %d txs, gas=%d, avg_gas/tx=%.1f, %d addresses\n",
+			blockNum, len(info.Transactions), info.GasUsed, avgGasPerTx, len(info.Addresses))
 	}
 
 	if len(blocks) == 0 {
@@ -455,8 +467,8 @@ func main() {
 	// Phase 1: Per-block trace — one trace per discovered block, prints each result
 	// =========================================================================
 	fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
-	fmt.Printf("  %-12s  %-6s  %s\n", "BLOCK", "TXS", "LATENCY")
-	fmt.Printf("  %-12s  %-6s  %s\n", "-----", "---", "-------")
+	fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
+	fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
 	perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
 	for _, b := range blocks {
 		hexNum := fmt.Sprintf("0x%x", b.Number)
@@ -471,7 +483,12 @@ func main() {
 			perBlockStats.Errors++
 			errStr = fmt.Sprintf("  ERR: %v", err)
 		}
-		fmt.Printf("  %-12d  %-6d  %s%s\n", b.Number, len(b.Transactions), lat.Round(time.Millisecond), errStr)
+		avgGasPerTx := 0.0
+		if len(b.Transactions) > 0 {
+			avgGasPerTx = float64(b.GasUsed) / float64(len(b.Transactions))
+		}
+		fmt.Printf("  %-12d  %-6d  %-12d  %-12.1f  %s%s\n",
+			b.Number, len(b.Transactions), b.GasUsed, avgGasPerTx, lat.Round(time.Millisecond), errStr)
 	}
 	perBlockStats.Duration = perBlockStats.Latencies[len(perBlockStats.Latencies)-1] // just for rps calc
 	for _, l := range perBlockStats.Latencies {
