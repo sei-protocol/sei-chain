@@ -164,15 +164,21 @@ func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) {
 }
 
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
-	// TODO batch set!
+	err := p.db.Set(key, value, toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to set value in database: %w", err)
+	}
 	p.cache.Set(key, value)
-	return p.db.Set(key, value, toPebbleWriteOpts(opts))
+	return nil
 }
 
 func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
-	// TODO batch delete!
+	err := p.db.Delete(key, toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to delete value in database: %w", err)
+	}
 	p.cache.Delete(key)
-	return p.db.Delete(key, toPebbleWriteOpts(opts))
+	return nil
 }
 
 func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
@@ -191,7 +197,12 @@ func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, e
 }
 
 func (p *pebbleDB) Flush() error {
-	return p.db.Flush()
+	err := p.db.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush database: %w", err)
+	}
+
+	return nil
 }
 
 func (p *pebbleDB) Checkpoint(destDir string) error {
@@ -225,4 +236,8 @@ func toPebbleWriteOpts(opts types.WriteOptions) *pebble.WriteOptions {
 		return pebble.Sync
 	}
 	return pebble.NoSync
+}
+
+func (p *pebbleDB) DataFlushed() error {
+	panic("unimplemented") // TODO
 }

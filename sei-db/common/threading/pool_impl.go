@@ -48,7 +48,6 @@ func NewPool(
 	return workPool
 }
 
-// Submit submits a task to the work pool. This method does not block until the task is executed.
 func (wp *pool) Submit(ctx context.Context, task func()) (err error) {
 	defer func() {
 		if recover() != nil {

@@ -46,20 +46,37 @@ type BatchGetResult struct {
 // KeyValueDB is a low-level KV engine contract (business-agnostic).
 //
 // Get returns a value copy (safe to use after the call returns).
-type KeyValueDB interface { // TODO document other methods, split this into a stand alone file maybe
+type KeyValueDB interface {
+
+	// Get returns the value for the given key, returning an error if the key is not found.
 	Get(key []byte) (value []byte, err error)
+
 	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
 	// map with the results.
 	//
 	// It is not thread safe to read or mutate the map while this method is running.
 	BatchGet(keys map[string]BatchGetResult)
+
+	// Set sets the value for the given key.
 	Set(key, value []byte, opts WriteOptions) error
+
+	// Delete deletes the value for the given key.
 	Delete(key []byte, opts WriteOptions) error
 
+	// NewIter returns a new iterator over the key-value store.
 	NewIter(opts *IterOptions) (KeyValueDBIterator, error)
+
+	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
 
+	// Flush flushes the database to disk.
 	Flush() error
+
+	// Signal to the cach layer that all data currently in the cache has been pushed down to the underlying 
+	// storage layer. Useful if the calling layer keeps its own cache of data on top 
+	DataFlushed() error
+
+	// Close closes the database.
 	io.Closer
 }
 
