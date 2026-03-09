@@ -156,6 +156,7 @@ func (se *shardEntry) injectValue(key []byte, value []byte) {
 			se.value = value
 			se.shard.gcQueue.Push(key, len(key)+len(value))
 		}
+		se.shard.evictUnlocked()
 	}
 
 	se.shard.lock.Unlock()
@@ -274,7 +275,17 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key)+len(reads[i].value))
 		}
 	}
+	s.evictUnlocked()
 	s.lock.Unlock()
+}
+
+// Evicts least recently used entries until the cache is within its size budget.
+// Caller is required to hold the lock.
+func (s *shard) evictUnlocked() {
+	for s.gcQueue.GetTotalSize() > s.maxSize {
+		next := s.gcQueue.PopLeastRecentlyUsed()
+		delete(s.data, next)
+	}
 }
 
 // Set sets the value for the given key.
@@ -291,6 +302,7 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 	entry.value = value
 
 	s.gcQueue.Push(key, len(key)+len(value))
+	s.evictUnlocked()
 }
 
 // BatchSet sets the values for a batch of keys.
@@ -320,16 +332,5 @@ func (s *shard) deleteUnlocked(key []byte) {
 	entry.value = nil
 
 	s.gcQueue.Push(key, len(key))
-}
-
-// RunGarbageCollection runs the garbage collection process.
-func (s *shard) RunGarbageCollection() { // TODO maybe just do this after each update?
-	s.lock.Lock()
-
-	for s.gcQueue.GetTotalSize() > s.maxSize {
-		next := s.gcQueue.PopLeastRecentlyUsed()
-		delete(s.data, next)
-	}
-
-	s.lock.Unlock()
+	s.evictUnlocked()
 }

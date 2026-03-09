@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -27,9 +26,6 @@ type cache struct {
 
 	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool
-
-	// The interval at which to run garbage collection.
-	garbageCollectionInterval time.Duration
 }
 
 // Creates a new Cache.
@@ -45,8 +41,6 @@ func NewCache(
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
-	// The interval at which to run garbage collection.
-	garbageCollectionInterval time.Duration,
 ) (Cache, error) {
 	if shardCount <= 0 || (shardCount&(shardCount-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
@@ -59,10 +53,6 @@ func NewCache(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create shard manager: %w", err)
 	}
-	if garbageCollectionInterval <= 0 {
-		return nil, fmt.Errorf("garbageCollectionInterval must be greater than 0")
-	}
-
 	sizePerShard := maxSize / shardCount
 	if sizePerShard <= 0 {
 		return nil, fmt.Errorf("maxSize must be greater than shardCount")
@@ -76,18 +66,13 @@ func NewCache(
 		}
 	}
 
-	c := &cache{
-		ctx:                       ctx,
-		shardManager:              shardManager,
-		shards:                    shards,
-		readPool:                  readPool,
-		miscPool:                  miscPool,
-		garbageCollectionInterval: garbageCollectionInterval,
-	}
-
-	go c.runGarbageCollection()
-
-	return c, nil
+	return &cache{
+		ctx:          ctx,
+		shardManager: shardManager,
+		shards:       shards,
+		readPool:     readPool,
+		miscPool:     miscPool,
+	}, nil
 }
 
 func (c *cache) BatchSet(updates []CacheUpdate) error {
@@ -176,32 +161,4 @@ func (c *cache) Set(key []byte, value []byte) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 	shard.Set(key, value)
-}
-
-// TODO add GC metrics
-
-// Periodically runs garbage collection in the background.
-func (c *cache) runGarbageCollection() {
-
-	// Spread out work evenly across all shards, so that we visit each shard roughly once per interval.
-	gcSubInterval := c.garbageCollectionInterval / time.Duration(len(c.shards))
-	if gcSubInterval == 0 {
-		// technically possible if the number of shards is very large and the interval is very small
-		gcSubInterval = 1
-	}
-	ticker := time.NewTicker(gcSubInterval)
-	defer ticker.Stop()
-
-	nextShardIndex := 0
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-ticker.C:
-			shardIndex := nextShardIndex
-			nextShardIndex = (nextShardIndex + 1) % len(c.shards)
-			c.shards[shardIndex].RunGarbageCollection()
-		}
-	}
 }

@@ -114,15 +114,14 @@ func Open(
 		return cloned
 	}
 
-	// A high level cache per key.
+	// A high level cache per key (as opposed to the low level pebble page cache).
 	cache, err := pebblecache.NewCache(
 		ctx,
 		readFunction,
 		8,
 		cacheSize,
 		readPool,
-		miscPool,
-		10*time.Second)
+		miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create flatcache: %w", err)
 	}
