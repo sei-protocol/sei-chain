@@ -1,5 +1,22 @@
 package config
 
+import (
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cast"
+)
+
+// AppOptions is a minimal interface for reading config (e.g. from Viper).
+// Implemented by sei-cosmos server/types.AppOptions; defined here to avoid import cycles.
+type AppOptions interface {
+	Get(string) interface{}
+}
+
+const (
+	flagRSBackend = "receipt-store.rs-backend"
+)
+
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
 	// DBDirectory defines the directory to store the receipt store db files
@@ -42,4 +59,23 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		UseDefaultComparer:   false,
 	}
+}
+
+// ReadReceiptConfig reads receipt store config from app options (e.g. TOML / Viper).
+func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
+	cfg := DefaultReceiptStoreConfig()
+	if v := opts.Get(flagRSBackend); v != nil {
+		backend, err := cast.ToStringE(v)
+		if err != nil {
+			return cfg, err
+		}
+		backend = strings.ToLower(strings.TrimSpace(backend))
+		switch backend {
+		case "pebbledb", "pebble", "parquet":
+			cfg.Backend = backend
+		default:
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet", backend)
+		}
+	}
+	return cfg, nil
 }

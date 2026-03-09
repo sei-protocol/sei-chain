@@ -46,7 +46,7 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
-	case FlagRSBackend:
+	case "receipt-store.rs-backend":
 		return config.DefaultReceiptStoreConfig().Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
@@ -63,7 +63,8 @@ func TestNewDefaultConfig(t *testing.T) {
 	appOpts := TestSeiDBAppOpts{}
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
-	receiptConfig := parseReceiptConfigs(appOpts)
+	receiptConfig, err := config.ReadReceiptConfig(appOpts)
+	assert.NoError(t, err)
 	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
@@ -91,15 +92,26 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
-	receiptConfig := parseReceiptConfigs(mapAppOpts{})
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
+	assert.NoError(t, err)
 	assert.Equal(t, config.DefaultReceiptStoreConfig(), receiptConfig)
 }
 
 func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
-	receiptConfig := parseReceiptConfigs(mapAppOpts{
-		FlagRSBackend: "parquet",
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-backend": "parquet",
 	})
+	assert.NoError(t, err)
 	assert.Equal(t, "parquet", receiptConfig.Backend)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
+}
+
+func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
+	_, err := config.ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-backend": "rocksdb",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported receipt-store backend")
+	assert.Contains(t, err.Error(), "rocksdb")
 }
