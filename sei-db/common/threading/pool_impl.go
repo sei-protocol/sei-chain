@@ -10,8 +10,8 @@ var _ Pool = (*pool)(nil)
 // pool is a pool of workers that can be used to execute tasks concurrently.
 // More efficient than spawning large numbers of short lived goroutines.
 type pool struct {
-	ctx       context.Context
-	workQueue chan func()
+	ctx             context.Context
+	workQueue       chan func()
 }
 
 // TODO add metrics!
@@ -43,6 +43,11 @@ func NewPool(
 	go func() {
 		<-ctx.Done()
 		close(workQueue)
+
+		// Handle any remaining tasks in the queue to avoid caller deadlock.
+		for task := range workQueue {
+			task()
+		}
 	}()
 
 	return workPool

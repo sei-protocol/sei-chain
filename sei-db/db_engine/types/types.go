@@ -55,7 +55,7 @@ type KeyValueDB interface {
 	// map with the results.
 	//
 	// It is not thread safe to read or mutate the map while this method is running.
-	BatchGet(keys map[string]BatchGetResult)
+	BatchGet(keys map[string]BatchGetResult) error
 
 	// Set sets the value for the given key.
 	Set(key, value []byte, opts WriteOptions) error
@@ -71,10 +71,6 @@ type KeyValueDB interface {
 
 	// Flush flushes the database to disk.
 	Flush() error
-
-	// Signal to the cach layer that all data currently in the cache has been pushed down to the underlying 
-	// storage layer. Useful if the calling layer keeps its own cache of data on top 
-	DataFlushed() error
 
 	// Close closes the database.
 	io.Closer

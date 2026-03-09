@@ -1,6 +1,8 @@
 package pebbledb
 
 import (
+	"fmt"
+
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/flatcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -46,9 +48,12 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	err := pb.b.Commit(toPebbleWriteOpts(opts))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to commit batch: %w", err)
 	}
-	pb.cache.BatchSet(pb.pendingCacheUpdates)
+	err = pb.cache.BatchSet(pb.pendingCacheUpdates)
+	if err != nil {
+		return fmt.Errorf("failed to set cache: %w", err)
+	}
 	pb.pendingCacheUpdates = nil
 	return nil
 }

@@ -16,8 +16,6 @@ type CacheUpdate struct {
 // Cache describes a cache kapable of being used by a FlatKV store.
 type Cache interface {
 
-	// TODO decide if we should support individual modifications
-
 	// Get returns the value for the given key, or (nil, false) if not found.
 	Get(
 		// The entry to fetch.
@@ -32,7 +30,7 @@ type Cache interface {
 	// map with the results.
 	//
 	// It is not thread safe to read or mutate the map while this method is running.
-	BatchGet(keys map[string]types.BatchGetResult)
+	BatchGet(keys map[string]types.BatchGetResult) error
 
 	// Set sets the value for the given key.
 	Set(key []byte, value []byte)
@@ -41,5 +39,5 @@ type Cache interface {
 	Delete(key []byte)
 
 	// BatchSet applies the given updates to the cache.
-	BatchSet(updates []CacheUpdate)
+	BatchSet(updates []CacheUpdate) error
 }

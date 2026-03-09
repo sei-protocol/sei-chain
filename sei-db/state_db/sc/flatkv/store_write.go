@@ -22,7 +22,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
 
 	// Batch read all old values from DBs in parallel.
-	storageOld, accountOld, codeOld, legacyOld := s.batchReadOldValues(cs)
+	storageOld, accountOld, codeOld, legacyOld, err := s.batchReadOldValues(cs)
+	if err != nil {
+		return fmt.Errorf("failed to batch read old values: %w", err)
+	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 
@@ -471,6 +474,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	accountOld map[string]types.BatchGetResult,
 	codeOld map[string]types.BatchGetResult,
 	legacyOld map[string]types.BatchGetResult,
+	err error,
 ) {
 	storageOld = make(map[string]types.BatchGetResult)
 	accountOld = make(map[string]types.BatchGetResult)
@@ -500,35 +504,60 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 		}
 	}
 
+	var storageErr error
 	var wg sync.WaitGroup
 	if len(storageOld) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.storageDB.BatchGet(storageOld)
+			storageErr = s.storageDB.BatchGet(storageOld)
 		}()
 	}
+
+	var accountErr error
 	if len(accountOld) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.accountDB.BatchGet(accountOld)
+			accountErr = s.accountDB.BatchGet(accountOld)
 		}()
 	}
+	var codeErr error
 	if len(codeOld) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.codeDB.BatchGet(codeOld)
+			codeErr = s.codeDB.BatchGet(codeOld)
 		}()
 	}
+
+	var legacyErr error
 	if len(legacyOld) > 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.legacyDB.BatchGet(legacyOld)
+			legacyErr = s.legacyDB.BatchGet(legacyOld)
 		}()
 	}
+
 	wg.Wait()
+
+	if storageErr != nil || accountErr != nil || codeErr != nil || legacyErr != nil {
+		errString := ""
+		if storageErr != nil {
+			errString += fmt.Sprintf(", storageDB: %s\n", storageErr.Error())
+		}
+		if accountErr != nil {
+			errString += fmt.Sprintf(", accountDB: %s\n", accountErr.Error())
+		}
+		if codeErr != nil {
+			errString += fmt.Sprintf(", codeDB: %s\n", codeErr.Error())
+		}
+		if legacyErr != nil {
+			errString += fmt.Sprintf(", legacyDB: %s\n", legacyErr.Error())
+		}
+		err = fmt.Errorf("batch get: %s", errString)
+		return
+	}
 	return
 }

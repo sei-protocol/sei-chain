@@ -105,6 +105,9 @@ type CommitStore struct {
 
 	// A work pool for reading from the DB.
 	readPool threading.Pool
+
+	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	miscPool threading.Pool
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -123,6 +126,7 @@ func NewCommitStore(
 	meter := otel.Meter(flatkvMeterName)
 
 	readPool := threading.NewPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
+	miscPool := threading.NewPool(ctx, "flatkv-misc", 20, 1024) // TODO this should be configurable!
 
 	return &CommitStore{
 		ctx:               ctx,
@@ -139,6 +143,7 @@ func NewCommitStore(
 		workingLtHash:     lthash.New(),
 		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 		readPool:          readPool,
+		miscPool:          miscPool,
 	}
 }
 
@@ -343,6 +348,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 			seidbtypes.OpenOptions{},
 			s.config.EnablePebbleMetrics,
 			s.readPool,
+			s.miscPool,
 			cacheSize,
 			pageCacheSize)
 		if err != nil {

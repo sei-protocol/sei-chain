@@ -40,6 +40,8 @@ func Open(
 	enableMetrics bool,
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
+	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	miscPool threading.Pool,
 	cacheSize int,
 	pageCacheSize int,
 ) (_ types.KeyValueDB, err error) {
@@ -119,6 +121,7 @@ func Open(
 		8,
 		cacheSize,
 		readPool,
+		miscPool,
 		10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create flatcache: %w", err)
@@ -137,17 +140,6 @@ func Open(
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
-	// // Pebble returns a zero-copy view plus a closer; we copy and close internally.
-	// val, closer, err := p.db.Get(key)
-	// if err != nil {
-	// 	if errors.Is(err, pebble.ErrNotFound) {
-	// 		return nil, errorutils.ErrNotFound
-	// 	}
-	// 	return nil, err
-	// }
-	// cloned := bytes.Clone(val)
-	// _ = closer.Close()
-
 	val, found, err := p.cache.Get(key, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
@@ -159,8 +151,12 @@ func (p *pebbleDB) Get(key []byte) ([]byte, error) {
 	return val, nil
 }
 
-func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) {
-	p.cache.BatchGet(keys)
+func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
+	err := p.cache.BatchGet(keys)
+	if err != nil {
+		return fmt.Errorf("failed to get values from cache: %w", err)
+	}
+	return nil
 }
 
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
@@ -236,8 +232,4 @@ func toPebbleWriteOpts(opts types.WriteOptions) *pebble.WriteOptions {
 		return pebble.Sync
 	}
 	return pebble.NoSync
-}
-
-func (p *pebbleDB) DataFlushed() error {
-	panic("unimplemented") // TODO
 }

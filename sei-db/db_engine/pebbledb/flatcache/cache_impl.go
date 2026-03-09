@@ -25,6 +25,9 @@ type cache struct {
 	// A pool for asynchronous reads.
 	readPool threading.Pool
 
+	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	miscPool threading.Pool
+
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration
 }
@@ -40,6 +43,8 @@ func NewCache(
 	maxSize int,
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
+	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	miscPool threading.Pool,
 	// The interval at which to run garbage collection.
 	garbageCollectionInterval time.Duration,
 ) (Cache, error) {
@@ -84,7 +89,7 @@ func NewCache(
 	return c, nil
 }
 
-func (c *cache) BatchSet(updates []CacheUpdate) {
+func (c *cache) BatchSet(updates []CacheUpdate) error {
 	// Sort entries by shard index so each shard is locked only once.
 	shardMap := make(map[uint64][]CacheUpdate)
 	for i := range updates {
@@ -92,18 +97,23 @@ func (c *cache) BatchSet(updates []CacheUpdate) {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	var wg sync.WaitGroup // TODO use a pool here
+	var wg sync.WaitGroup
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
-		go func(shardIndex uint64, shardEntries []CacheUpdate) {
-			defer wg.Done()
+		err := c.miscPool.Submit(c.ctx, func() {
 			c.shards[shardIndex].BatchSet(shardEntries)
-		}(shardIndex, shardEntries)
+			wg.Done()
+		})
+		if err != nil {
+			return fmt.Errorf("failed to submit batch set: %w", err)
+		}
 	}
 	wg.Wait()
+
+	return nil
 }
 
-func (c *cache) BatchGet(keys map[string]types.BatchGetResult) {
+func (c *cache) BatchGet(keys map[string]types.BatchGetResult) error {
 	work := make(map[uint64]map[string]types.BatchGetResult)
 	for key := range keys {
 		idx := c.shardManager.Shard([]byte(key))
@@ -113,10 +123,11 @@ func (c *cache) BatchGet(keys map[string]types.BatchGetResult) {
 		work[idx][key] = types.BatchGetResult{}
 	}
 
-	var wg sync.WaitGroup // TODO use a pool here
+	var wg sync.WaitGroup
 	for shardIndex, subMap := range work {
 		wg.Add(1)
-		go func(shardIndex uint64, subMap map[string]types.BatchGetResult) {
+
+		err := c.miscPool.Submit(c.ctx, func() {
 			defer wg.Done()
 			err := c.shards[shardIndex].BatchGet(subMap)
 			if err != nil {
@@ -124,7 +135,10 @@ func (c *cache) BatchGet(keys map[string]types.BatchGetResult) {
 					subMap[key] = types.BatchGetResult{Error: err}
 				}
 			}
-		}(shardIndex, subMap)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to submit batch get: %w", err)
+		}
 	}
 	wg.Wait()
 
@@ -133,6 +147,8 @@ func (c *cache) BatchGet(keys map[string]types.BatchGetResult) {
 			keys[key] = result
 		}
 	}
+
+	return nil
 }
 
 func (c *cache) Delete(key []byte) {

@@ -61,7 +61,7 @@ func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := pebbledb.Open(t.Context(), dir, types.OpenOptions{}, false,
-		threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
+		threading.NewAdHocPool(), threading.NewAdHocPool(), unit.MB*8, unit.MB*8)
 	require.NoError(t, err)
 	return db
 }
