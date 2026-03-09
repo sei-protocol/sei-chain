@@ -27,6 +27,11 @@ type CryptoSim struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Cancels the DB infrastructure context. Only called after the database
+	// has been fully closed during teardown, so that pools, caches, and
+	// background goroutines remain functional throughout graceful shutdown.
+	dbCancel context.CancelFunc
+
 	// The configuration for the benchmark.
 	config *CryptoSimConfig
 
@@ -93,23 +98,31 @@ func NewCryptoSim(
 		config.MinimumNumberOfDormantAccounts = 2 * config.TransactionsPerBlock
 	}
 
+	// The workload context is cancelled on Ctrl-C (or programmatically) to
+	// stop the benchmark loop and executors.
 	ctx, cancel := context.WithCancel(ctx)
+
+	// The DB context keeps pools, caches, and background goroutines alive
+	// until teardown has finished closing the database.
+	dbCtx, dbCancel := context.WithCancel(context.Background())
 
 	dataDir, err := resolveAndCreateDataDir(config.DataDir)
 	if err != nil {
 		cancel()
+		dbCancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
 
-	db, err := wrappers.NewDBImpl(ctx, config.Backend, dataDir)
+	db, err := wrappers.NewDBImpl(dbCtx, config.Backend, dataDir)
 	if err != nil {
 		cancel()
+		dbCancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	metrics := NewCryptosimMetrics(ctx, db.GetPhaseTimer(), config)
+	metrics := NewCryptosimMetrics(dbCtx, db.GetPhaseTimer(), config)
 	// Server start deferred until after DataGenerator loads DB state and sets gauges,
 	// avoiding rate() spikes when restarting with a preserved DB.
 
@@ -128,6 +141,7 @@ func NewCryptoSim(
 		if closeErr := db.Close(); closeErr != nil {
 			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
 		}
+		dbCancel()
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
@@ -145,6 +159,7 @@ func NewCryptoSim(
 	c := &CryptoSim{
 		ctx:                               ctx,
 		cancel:                            cancel,
+		dbCancel:                          dbCancel,
 		config:                            config,
 		consoleUpdatePeriod:               consoleUpdatePeriod,
 		lastConsoleUpdateTime:             start,
@@ -408,6 +423,7 @@ func (c *CryptoSim) teardown() {
 		fmt.Printf("failed to close database: %v\n", err)
 	}
 
+	c.dbCancel()
 	c.dataGenerator.Close()
 
 	c.closeChan <- struct{}{}

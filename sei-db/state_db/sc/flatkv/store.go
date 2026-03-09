@@ -65,6 +65,7 @@ type pendingAccountWrite struct {
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
 	ctx    context.Context
+	cancel context.CancelFunc
 	log    logger.Logger
 	config Config
 	dbDir  string
@@ -129,11 +130,14 @@ func NewCommitStore(
 	}
 	meter := otel.Meter(flatkvMeterName)
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	readPool := threading.NewFixedPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
 	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", 20)
 
 	return &CommitStore{
 		ctx:               ctx,
+		cancel:            cancel,
 		log:               log,
 		config:            cfg,
 		dbDir:             dbDir,

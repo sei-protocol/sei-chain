@@ -81,6 +81,7 @@ func NewCache(
 		shardManager:              shardManager,
 		shards:                    shards,
 		readPool:                  readPool,
+		miscPool:                  miscPool,
 		garbageCollectionInterval: garbageCollectionInterval,
 	}
 
