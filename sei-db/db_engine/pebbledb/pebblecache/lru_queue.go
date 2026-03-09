@@ -10,7 +10,7 @@ type lruQueue struct {
 }
 
 type lruQueueEntry struct {
-	key  []byte
+	key  string
 	size int
 }
 
@@ -29,8 +29,7 @@ func (lru *lruQueue) Push(
 	// the size of the key + value
 	size int,
 ) {
-	keyString := string(key) // TODO revisit and maybe do unsafe copies
-	if elem, ok := lru.entries[keyString]; ok {
+	if elem, ok := lru.entries[string(key)]; ok {
 		entry := elem.Value.(*lruQueueEntry)
 		lru.totalSize += size - entry.size
 		entry.size = size
@@ -38,12 +37,12 @@ func (lru *lruQueue) Push(
 		return
 	}
 
-	keyCopy := append([]byte(nil), key...) // TODO don't do this
+	keyStr := string(key)
 	elem := lru.order.PushBack(&lruQueueEntry{
-		key:  keyCopy,
+		key:  keyStr,
 		size: size,
 	})
-	lru.entries[keyString] = elem
+	lru.entries[keyStr] = elem
 	lru.totalSize += size
 }
 
@@ -68,8 +67,9 @@ func (lru *lruQueue) GetCount() int {
 }
 
 // Pops a single element out of the queue. The element removed is the entry least recently passed to Update().
+// Returns the key in string form to avoid copying the key an additional time.
 // Panics if the queue is empty.
-func (lru *lruQueue) PopLeastRecentlyUsed() []byte {
+func (lru *lruQueue) PopLeastRecentlyUsed() string {
 	elem := lru.order.Front()
 	if elem == nil {
 		panic("cannot pop from empty LRU queue")
@@ -77,7 +77,7 @@ func (lru *lruQueue) PopLeastRecentlyUsed() []byte {
 
 	lru.order.Remove(elem)
 	entry := elem.Value.(*lruQueueEntry)
-	delete(lru.entries, string(entry.key))
+	delete(lru.entries, entry.key)
 	lru.totalSize -= entry.size
 	return entry.key
 }

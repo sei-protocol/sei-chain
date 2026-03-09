@@ -9,8 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-// TODO unsafe byte-> string conversion maybe?
-
 // A single shard of a Cache.
 type shard struct {
 	ctx context.Context
@@ -168,14 +166,15 @@ func (se *shardEntry) injectValue(key []byte, value []byte) {
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
 // when this method is called.
 func (s *shard) getEntry(key []byte) *shardEntry {
-	entry, ok := s.data[string(key)]
-	if !ok {
-		entry = &shardEntry{
-			shard:  s,
-			status: statusUnknown,
-		}
-		s.data[string(key)] = entry
+	if entry, ok := s.data[string(key)]; ok {
+		return entry
 	}
+	entry := &shardEntry{
+		shard:  s,
+		status: statusUnknown,
+	}
+	keyStr := string(key)
+	s.data[keyStr] = entry
 	return entry
 }
 
@@ -329,7 +328,7 @@ func (s *shard) RunGarbageCollection() { // TODO maybe just do this after each u
 
 	for s.gcQueue.GetTotalSize() > s.maxSize {
 		next := s.gcQueue.PopLeastRecentlyUsed()
-		delete(s.data, string(next)) // TODO use unsafe copy
+		delete(s.data, next)
 	}
 
 	s.lock.Unlock()

@@ -1,7 +1,6 @@
 package pebblecache
 
 import (
-	"bytes"
 	"testing"
 )
 
@@ -22,16 +21,16 @@ func TestLRUQueueTracksSizeCountAndOrder(t *testing.T) {
 
 	lru.Touch([]byte("a"))
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("b")) {
-		t.Fatalf("first pop = %q, want %q", got, []byte("b"))
+	if got := lru.PopLeastRecentlyUsed(); got != "b" {
+		t.Fatalf("first pop = %q, want %q", got, "b")
 	}
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("c")) {
-		t.Fatalf("second pop = %q, want %q", got, []byte("c"))
+	if got := lru.PopLeastRecentlyUsed(); got != "c" {
+		t.Fatalf("second pop = %q, want %q", got, "c")
 	}
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("a")) {
-		t.Fatalf("third pop = %q, want %q", got, []byte("a"))
+	if got := lru.PopLeastRecentlyUsed(); got != "a" {
+		t.Fatalf("third pop = %q, want %q", got, "a")
 	}
 
 	if got := lru.GetCount(); got != 0 {
@@ -58,24 +57,24 @@ func TestLRUQueuePushUpdatesExistingEntry(t *testing.T) {
 		t.Fatalf("GetTotalSize() = %d, want 16", got)
 	}
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("b")) {
-		t.Fatalf("first pop = %q, want %q", got, []byte("b"))
+	if got := lru.PopLeastRecentlyUsed(); got != "b" {
+		t.Fatalf("first pop = %q, want %q", got, "b")
 	}
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("a")) {
-		t.Fatalf("second pop = %q, want %q", got, []byte("a"))
+	if got := lru.PopLeastRecentlyUsed(); got != "a" {
+		t.Fatalf("second pop = %q, want %q", got, "a")
 	}
 }
 
-func TestLRUQueueCopiesInsertedKey(t *testing.T) {
+func TestLRUQueueIsolatesFromCallerMutation(t *testing.T) {
 	lru := NewLRUQueue()
 
 	key := []byte("a")
 	lru.Push(key, 1)
 	key[0] = 'z'
 
-	if got := lru.PopLeastRecentlyUsed(); !bytes.Equal(got, []byte("a")) {
-		t.Fatalf("pop after mutating caller key = %q, want %q", got, []byte("a"))
+	if got := lru.PopLeastRecentlyUsed(); got != "a" {
+		t.Fatalf("pop after mutating caller key = %q, want %q", got, "a")
 	}
 }
 
