@@ -253,7 +253,7 @@ func NewProposal(
 	}
 	proposal := newProposal(
 		viewSpec.View(),
-		time.Now(),
+		createdAt,
 		laneRanges,
 		app,
 	)

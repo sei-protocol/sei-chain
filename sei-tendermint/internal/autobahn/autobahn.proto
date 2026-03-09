@@ -174,6 +174,13 @@ message PersistedWrapper {
   optional bytes data = 2;
 }
 
+// Persisted availability prune anchor (AppQC + matching CommitQC pair).
+// Stored atomically in an A/B file; used as the crash-recovery pruning watermark.
+message PersistedAvailPruneAnchor {
+  optional AppQC app_qc = 1;
+  optional CommitQC commit_qc = 2;
+}
+
 message AppQC {
   AppProposal vote = 1;
   repeated Signature sigs = 2;
