@@ -17,6 +17,7 @@ type TestSeiDBAppOpts struct {
 func (t TestSeiDBAppOpts) Get(s string) interface{} {
 	defaultSCConfig := config.DefaultStateCommitConfig()
 	defaultSSConfig := config.DefaultStateStoreConfig()
+	defaultReceiptConfig := config.DefaultReceiptStoreConfig()
 	switch s {
 	case FlagSCEnable:
 		return defaultSCConfig.Enable
@@ -50,8 +51,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
-	case "receipt-store.rs-backend":
-		return config.DefaultReceiptStoreConfig().Backend
+	case receiptStoreBackendKey:
+		return defaultReceiptConfig.Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSWriteMode:
@@ -103,7 +104,7 @@ func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 
 func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
-		"receipt-store.rs-backend": "parquet",
+		receiptStoreBackendKey: "parquet",
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "parquet", receiptConfig.Backend)
@@ -113,11 +114,11 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 
 func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
-		"receipt-store.db-directory":           "/tmp/custom-receipt-db",
-		"receipt-store.rs-backend":             "parquet",
-		"receipt-store.async-write-buffer":     7,
-		"receipt-store.keep-recent":            42,
-		"receipt-store.prune-interval-seconds": 9,
+		receiptStoreDBDirectoryKey:          "/tmp/custom-receipt-db",
+		receiptStoreBackendKey:              "parquet",
+		receiptStoreAsyncWriteBufferKey:     7,
+		receiptStoreKeepRecentKey:           42,
+		receiptStorePruneIntervalSecondsKey: 9,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
@@ -129,7 +130,7 @@ func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 
 func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	_, err := config.ReadReceiptConfig(mapAppOpts{
-		"receipt-store.rs-backend": "rocksdb",
+		receiptStoreBackendKey: "rocksdb",
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported receipt-store backend")
@@ -139,9 +140,9 @@ func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 func TestReadReceiptStoreConfigUsesConfiguredValues(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
-		"receipt-store.db-directory": "/tmp/custom-receipt-db",
-		"receipt-store.keep-recent":  5,
-		server.FlagMinRetainBlocks:   100,
+		receiptStoreDBDirectoryKey: "/tmp/custom-receipt-db",
+		receiptStoreKeepRecentKey:  5,
+		server.FlagMinRetainBlocks: 100,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)

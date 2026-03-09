@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -248,6 +247,11 @@ func TestParquetFilePruning(t *testing.T) {
 	initialReceiptFileCount := len(receiptFiles)
 	initialLogFileCount := len(logFiles)
 
+	const (
+		pruneTimeout      = 5_000_000_000
+		prunePollInterval = 100_000_000
+	)
+
 	// Reopen store - pruning runs immediately on startup and then periodically afterward.
 	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
@@ -259,7 +263,7 @@ func TestParquetFilePruning(t *testing.T) {
 		currentLogFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
 		require.NoError(t, err)
 		return len(currentReceiptFiles) < initialReceiptFileCount && len(currentLogFiles) < initialLogFileCount
-	}, 5*time.Second, 100*time.Millisecond, "configured keep-recent and prune-interval should trigger parquet file pruning")
+	}, pruneTimeout, prunePollInterval, "configured keep-recent and prune-interval should trigger parquet file pruning")
 
 	// Verify we can still query recent data
 	txHash := common.BigToHash(common.Big1.SetUint64(1400))

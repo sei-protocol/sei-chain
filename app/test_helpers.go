@@ -100,7 +100,7 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
 	}
-	if s == "receipt-store.rs-backend" && t.ReceiptBackend != "" {
+	if s == receiptStoreBackendKey && t.ReceiptBackend != "" {
 		return t.ReceiptBackend
 	}
 	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
