@@ -77,7 +77,7 @@ func setupTestStore(t *testing.T) *CommitStore {
 }
 
 // setupTestStoreWithConfig creates a test store with custom config
-func setupTestStoreWithConfig(t *testing.T, cfg Config) *CommitStore {
+func setupTestStoreWithConfig(t *testing.T, cfg *Config) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)

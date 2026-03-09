@@ -56,8 +56,8 @@ type Config struct {
 }
 
 // DefaultConfig returns Config with safe default values.
-func DefaultConfig() Config {
-	cfg := Config{
+func DefaultConfig() *Config {
+	cfg := &Config{
 		Fsync:               false,
 		AsyncWriteBuffer:    0,
 		SnapshotInterval:    DefaultSnapshotInterval,
@@ -75,12 +75,3 @@ func DefaultConfig() Config {
 
 	return cfg
 }
-
-/*
-
-	accountDBDir = "account"
-	codeDBDir    = "code"
-	storageDBDir = "storage"
-	legacyDBDir  = "legacy"
-	metadataDir  = "metadata"
-*/

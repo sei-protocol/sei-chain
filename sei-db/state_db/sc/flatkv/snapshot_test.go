@@ -317,8 +317,9 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	acctCfg := pebbledb.DefaultTestConfig(t)
+	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = accountDBPath
+	acctCfg.EnableMetrics = false
 	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer,
 		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
@@ -763,7 +764,7 @@ func TestCreateWorkingDirReclones(t *testing.T) {
 
 func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{SnapshotKeepRecent: 1})
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 1})
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
@@ -787,7 +788,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 
 func TestPruneSnapshotsKeepAll(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{SnapshotKeepRecent: 100})
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 100})
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
@@ -921,7 +922,7 @@ func TestTryTruncateWAL(t *testing.T) {
 	// SnapshotKeepRecent=0 so pruneSnapshots removes snapshot-0 once
 	// the manual snapshot at v5 is created; this makes v5 the earliest
 	// snapshot and gives tryTruncateWAL a positive truncation offset.
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{SnapshotKeepRecent: 0})
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 0})
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
@@ -1065,7 +1066,7 @@ func TestSeekSnapshotExact(t *testing.T) {
 
 func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{SnapshotKeepRecent: 10})
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 10})
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 
@@ -1079,7 +1080,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 	for i, expectedHash := range hashes {
 		ver := int64(i + 1)
-		s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{SnapshotKeepRecent: 10})
+		s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 10})
 		_, err := s2.LoadVersion(ver)
 		require.NoError(t, err)
 		require.Equal(t, ver, s2.Version())

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
 const (
@@ -138,6 +139,9 @@ type CryptoSimConfig struct {
 
 	// If true, the data directory will be deleted on a clean shutdown.
 	DeleteDataDirOnShutdown bool
+
+	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
+	FlatKVConfig *flatkv.Config
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -146,7 +150,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
 	// That file should contain every available config set to its default value, as a reference.
 
-	return &CryptoSimConfig{
+	cfg := &CryptoSimConfig{
 		NumberOfHotAccounts:               100,
 		MinimumNumberOfColdAccounts:       1_000_000,
 		MinimumNumberOfDormantAccounts:    1_000_000,
@@ -178,7 +182,10 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		EnableSuspension:                  true,
 		DeleteDataDirOnStartup:            false,
 		DeleteDataDirOnShutdown:           false,
+		FlatKVConfig:                      flatkv.DefaultConfig(),
 	}
+
+	return cfg
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.

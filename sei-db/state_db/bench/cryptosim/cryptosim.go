@@ -115,7 +115,12 @@ func NewCryptoSim(
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
 
-	db, err := wrappers.NewDBImpl(dbCtx, config.Backend, dataDir)
+	var dbConfig any
+	if config.Backend == wrappers.FlatKV {
+		dbConfig = config.FlatKVConfig
+	}
+
+	db, err := wrappers.NewDBImpl(dbCtx, config.Backend, dataDir, dbConfig)
 	if err != nil {
 		cancel()
 		dbCancel()

@@ -535,7 +535,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{
+		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{
 			Fsync: false,
 		})
 		_, err := store.LoadVersion(0)
@@ -571,7 +571,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 		SnapshotInterval:   5,
 		SnapshotKeepRecent: 2,
 	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &cfg)
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
 	defer s.Close()
@@ -591,7 +591,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{
+	cfg := &Config{
 		SnapshotInterval:   10,
 		SnapshotKeepRecent: 2,
 	}
@@ -621,7 +621,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{SnapshotInterval: 0}
+	cfg := &Config{SnapshotInterval: 0}
 	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)
@@ -837,7 +837,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 
 func TestStoreFsyncEnabled(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{Fsync: true}
+	cfg := &Config{Fsync: true}
 	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
 	_, err := s.LoadVersion(0)
 	require.NoError(t, err)

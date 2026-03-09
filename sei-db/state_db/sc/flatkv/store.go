@@ -67,7 +67,7 @@ type CommitStore struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	log    logger.Logger
-	config Config
+	config *Config
 	dbDir  string
 
 	// Five separate PebbleDB instances
@@ -123,7 +123,7 @@ func NewCommitStore(
 	ctx context.Context,
 	dbDir string,
 	log logger.Logger,
-	cfg Config,
+	cfg *Config,
 ) *CommitStore {
 	if log == nil {
 		log = logger.NewNopLogger()
