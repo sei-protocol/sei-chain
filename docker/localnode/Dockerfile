@@ -6,9 +6,9 @@ ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upg
 RUN set -eux; \
     apt-get update; \
     if [ "$RUNTIME_ONLY" = "true" ]; then \
-      apt-get install -y --no-install-recommends jq python3 curl ca-certificates; \
+      apt-get install -y --no-install-recommends jq python3 curl ca-certificates git uuid-runtime; \
     else \
-      apt-get install -y --no-install-recommends make build-essential git jq python3 curl ca-certificates; \
+      apt-get install -y --no-install-recommends make build-essential git jq python3 curl ca-certificates uuid-runtime; \
     fi; \
     rm -rf /var/lib/apt/lists/*
 COPY --from=go-dist /usr/local/go /usr/local/go
