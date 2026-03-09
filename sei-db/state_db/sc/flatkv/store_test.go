@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -58,7 +59,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := pebbledb.Open(t.Context(), dir, types.OpenOptions{}, false)
+	db, err := pebbledb.Open(t.Context(), dir, types.OpenOptions{}, false, nil, unit.MB*8, unit.MB*8)
 	require.NoError(t, err)
 	return db
 }

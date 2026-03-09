@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -379,10 +380,8 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	// be at the flat location or might have been moved in a prior attempt.
 	var version int64
 	metaPath := filepath.Join(flatkvDir, metadataDir)
-	gb := 1024 * 1024 * 1024
-	// TODO don't hardcode the cache sizes!
 	tmpMeta, err := pebbledb.Open(
-		s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics, s.readPool, gb/2, gb/2)
+		s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics, s.readPool, unit.GB/2, unit.GB/2)
 	if err == nil {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()

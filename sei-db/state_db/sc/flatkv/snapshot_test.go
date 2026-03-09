@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -255,7 +256,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works
-		db, err := pebbledb.Open(t.Context(), dbPath, types.OpenOptions{}, false)
+		db, err := pebbledb.Open(t.Context(), dbPath, types.OpenOptions{}, false, nil, unit.MB*8, unit.MB*8)
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -312,7 +313,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false)
+	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false, nil, unit.MB*8, unit.MB*8)
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
 	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))

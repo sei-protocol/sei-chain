@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -352,22 +353,20 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}
 
 	// TODO don't hardcode the cache sizes!
-	gb := 1024 * 1024 * 1024
-
 	var err error
-	if s.accountDB, err = openDB(dbPaths[0], gb/2, gb/2); err != nil {
+	if s.accountDB, err = openDB(dbPaths[0], unit.GB/2, unit.GB/2); err != nil {
 		return err
 	}
-	if s.codeDB, err = openDB(dbPaths[1], gb/2, gb/2); err != nil {
+	if s.codeDB, err = openDB(dbPaths[1], unit.GB/2, unit.GB/2); err != nil {
 		return err
 	}
-	if s.storageDB, err = openDB(dbPaths[2], gb*4, gb/2); err != nil {
+	if s.storageDB, err = openDB(dbPaths[2], unit.GB*4, unit.GB/2); err != nil {
 		return err
 	}
-	if s.legacyDB, err = openDB(dbPaths[3], gb/2, gb/2); err != nil {
+	if s.legacyDB, err = openDB(dbPaths[3], unit.GB/2, unit.GB/2); err != nil {
 		return err
 	}
-	if s.metadataDB, err = openDB(dbPaths[4], gb/2, gb/2); err != nil {
+	if s.metadataDB, err = openDB(dbPaths[4], unit.GB/2, unit.GB/2); err != nil {
 		return err
 	}
 
