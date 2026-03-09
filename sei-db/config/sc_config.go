@@ -39,6 +39,9 @@ type StateCommitConfig struct {
 	// defaults to cosmos_only
 	ReadMode ReadMode `mapstructure:"read_mode"`
 
+	// EnableLatticeHash controls whether lattice hash will be participating in final app hash or not
+	EnableLatticeHash bool `mapstructure:"enable-lattice-hash"`
+
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
 	MemIAVLConfig memiavl.Config
 
@@ -59,11 +62,12 @@ type StateCommitConfig struct {
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:        true,
-		WriteMode:     CosmosOnlyWrite,
-		ReadMode:      CosmosOnlyRead,
-		MemIAVLConfig: memiavl.DefaultConfig(),
-		FlatKVConfig:  flatkv.DefaultConfig(),
+		Enable:            true,
+		WriteMode:         CosmosOnlyWrite,
+		ReadMode:          CosmosOnlyRead,
+		EnableLatticeHash: false,
+		MemIAVLConfig:     memiavl.DefaultConfig(),
+		FlatKVConfig:      flatkv.DefaultConfig(),
 
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,

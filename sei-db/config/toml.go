@@ -23,6 +23,10 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # defaults to cosmos_only
 sc-read-mode = "{{ .StateCommit.ReadMode }}"
 
+# EnableLatticeHash controls whether the FlatKV lattice hash participates
+# in the final app hash. Default: false.
+sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
+
 # Max concurrent historical proof queries (RPC /store path)
 sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
 

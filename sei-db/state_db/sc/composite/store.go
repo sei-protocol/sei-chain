@@ -221,14 +221,51 @@ func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
 
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.WorkingCommitInfo()
+	commitInfo := cs.cosmosCommitter.WorkingCommitInfo()
+	version := commitInfo.Version
+	if cs.evmCommitter != nil && cs.config.EnableLatticeHash {
+		hash := cs.evmCommitter.RootHash()
+		evmStoreInfo := proto.StoreInfo{
+			Name: "evm",
+			CommitId: proto.CommitID{
+				Version: version,
+				Hash:    hash,
+			},
+		}
+		combined := make([]proto.StoreInfo, len(commitInfo.StoreInfos)+1)
+		copy(combined, commitInfo.StoreInfos)
+		combined[len(combined)-1] = evmStoreInfo
+		commitInfo = &proto.CommitInfo{
+			Version:    version,
+			StoreInfos: combined,
+		}
+	}
+	return commitInfo
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.LastCommitInfo()
+	lastCommitInfo := cs.cosmosCommitter.LastCommitInfo()
+	if cs.evmCommitter != nil && cs.config.EnableLatticeHash {
+		version := lastCommitInfo.Version
+		hash := cs.evmCommitter.CommittedRootHash()
+		evmStoreInfo := proto.StoreInfo{
+			Name: "evm",
+			CommitId: proto.CommitID{
+				Version: version,
+				Hash:    hash,
+			},
+		}
+		// Copy to avoid mutating memiavl's internal lastCommitInfo
+		combined := make([]proto.StoreInfo, len(lastCommitInfo.StoreInfos)+1)
+		copy(combined, lastCommitInfo.StoreInfos)
+		combined[len(combined)-1] = evmStoreInfo
+		lastCommitInfo = &proto.CommitInfo{
+			Version:    version,
+			StoreInfos: combined,
+		}
+	}
+	return lastCommitInfo
 }
 
 // GetChildStoreByName returns the underlying child store by module name.
