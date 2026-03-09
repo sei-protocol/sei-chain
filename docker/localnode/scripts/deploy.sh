@@ -10,7 +10,7 @@ export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
 echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
-echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
+echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH" >> "$HOME/.bashrc"
 rm -rf build/generated
 /bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN

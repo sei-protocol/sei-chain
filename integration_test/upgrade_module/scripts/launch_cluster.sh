@@ -1,7 +1,5 @@
 #!/bin/bash
 
-make clean
-
 # Check if $1 is set and use its value for UPGRADE_VERSION_LIST
 if [ -n "$1" ]; then
     INVARIANT_CHECK_INTERVAL=10 UPGRADE_VERSION_LIST=$1 make docker-cluster-start &

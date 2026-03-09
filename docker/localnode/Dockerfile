@@ -1,22 +1,17 @@
 FROM golang:1.25.6-bookworm AS go-dist
 
-FROM ubuntu:latest
+FROM ubuntu:24.04
+ARG RUNTIME_ONLY=false
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
-RUN apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
-COPY --from=go-dist /usr/local/go /usr/local/go
 RUN set -eux; \
-    curl -fsSL https://foundry.paradigm.xyz | bash; \
-    for attempt in 1 2 3 4 5; do \
-      if /root/.foundry/bin/foundryup; then \
-        break; \
-      fi; \
-      if [ "${attempt}" -eq 5 ]; then \
-        echo "foundryup failed after retries"; \
-        exit 1; \
-      fi; \
-      sleep 2; \
-    done
-RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
+    apt-get update; \
+    if [ "$RUNTIME_ONLY" = "true" ]; then \
+      apt-get install -y --no-install-recommends jq python3 curl ca-certificates; \
+    else \
+      apt-get install -y --no-install-recommends make build-essential git jq python3 curl ca-certificates; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=go-dist /usr/local/go /usr/local/go
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
     chmod -R a+rwX /root

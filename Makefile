@@ -195,16 +195,17 @@ build-linux:
 
 # Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
 DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
+RUNTIME_ONLY ?= false
 export DOCKER_PLATFORM
 
 # Build docker image for detected platform
 build-docker-node:
 	@echo "Building for $(DOCKER_PLATFORM)..."
-	@cd docker && docker build --tag sei-chain/localnode localnode --platform $(DOCKER_PLATFORM)
+	@cd docker && docker build --tag sei-chain/localnode localnode --platform $(DOCKER_PLATFORM) --build-arg RUNTIME_ONLY=$(RUNTIME_ONLY)
 .PHONY: build-docker-node
 
 build-rpc-node:
-	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
+	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64 --build-arg RUNTIME_ONLY=$(RUNTIME_ONLY)
 .PHONY: build-rpc-node
 
 # Run a single node docker container
