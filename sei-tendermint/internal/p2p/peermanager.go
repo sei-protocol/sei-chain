@@ -59,6 +59,8 @@ type peerManager[C peerConn] struct {
 	isPrivate       map[types.NodeID]bool
 
 	inner           utils.Watch[*peerManagerInner[C]]
+	// Receiver of the inner.conns. It is copyable and allows accessing connections
+	// without taking lock on inner.
 	conns           utils.AtomicRecv[connSet[C]]
 }
 
@@ -94,15 +96,25 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 	// We do not allow multiple addresses for the same peer in the peer manager any more.
 	// It would be backward incompatible to invalidate configs with multiple addresses per peer.
 	// Instead we just log an error to indicate that some addresses have been ignored.
+	var persistentAddrs []NodeAddress
 	for _, addr := range options.PersistentPeers {
-		isPersistent[addr.NodeID] = true
 		if err := addr.Validate(); err != nil {
 			logger.Error("invalid persistent peer address", "addr", addr, "err", err)
+			continue
 		}
+		isPersistent[addr.NodeID] = true
+		persistentAddrs = append(persistentAddrs,addr)
 	}
+	var bootstrapAddrs []NodeAddress
 	for _, addr := range options.BootstrapPeers {
 		if err := addr.Validate(); err != nil {
 			logger.Error("invalid bootstrap peer address", "addr", addr, "err", err)
+			continue
+		}
+		if isPersistent[addr.NodeID] {
+			persistentAddrs = append(persistentAddrs,addr)
+		} else {
+			bootstrapAddrs = append(bootstrapAddrs,addr)
 		}
 	}
 
@@ -113,7 +125,7 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 			MaxIn: utils.Max[int](),
 			MaxOut: utils.Max[int](),
 			MaxDials: options.maxDials(),
-			FixedAddrs: options.PersistentPeers,
+			FixedAddrs: persistentAddrs,
 			InPool: func(id types.NodeID) bool {
 				return id!=selfID && isPersistent[id]
 			},
@@ -122,7 +134,7 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 			MaxIn: options.maxInbound(),
 			MaxOut: options.maxOutbound(),
 			MaxDials: options.maxDials(),
-			FixedAddrs: options.BootstrapPeers,
+			FixedAddrs: bootstrapAddrs,
 			InPool: func(id types.NodeID) bool {
 				return id!=selfID && !isPersistent[id]
 			},
@@ -141,14 +153,15 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 
 func (m *peerManager[C]) Conns() connSet[C] { return m.conns.Load() }
 
-// AddAddrs adds addresses, so that they are available for dialing.
+// PushPex registeres address list received from sender in the pex table.
+// Address list replaces the previous address list received from that sender
+// (every sender has a bounded capacity in peermanager).
+// The addresses on the list are expected to be fresh, ideally they should be addresses
+// of the current peers of the sender. This property allows us to quickly prune stale
+// addresses. PeerManager keeps address list from every connected peer and a small
+// "extra" cache for senders which are not connected to facilitate random local search.
+// If any of the addresses is invalid (does not parse), the whole slice is rejected.
 // Addresses to persistent peers are ignored, since they are populated in constructor.
-// Known addresses are ignored.
-// If maxAddrsPerPeer limit is exceeded, new address replaces a random failed address of that peer.
-// If options.MaxPeers limit is exceeded, some peer with ALL addresses failed is replaced.
-// If there is no such address/peer to replace, the new address is ignored.
-// If some address is invalid, an error is returned.
-// Even if an error is returned, some addresses might have been added.
 func (m *peerManager[C]) PushPex(sender types.NodeID, addrs []NodeAddress) error {
 	for _, addr := range addrs {
 		if err := addr.Validate(); err != nil {

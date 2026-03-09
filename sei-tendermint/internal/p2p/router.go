@@ -396,8 +396,9 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 	// TODO(gprusak): resolve all addresses in parallel.
 	for _,addr := range addrs { 
 		endpoints, err := addr.Resolve(resolveCtx)
-		r.logger.Info("address.Resolve() failed","addr",addr,"err",err)
-		if len(endpoints)>0 {
+		if err!=nil {
+			r.logger.Info("address.Resolve() failed","addr",addr,"err",err)
+		} else if len(endpoints)>0 {
 			endpointSet[endpoints[0]] = struct{}{}
 		}
 	}
