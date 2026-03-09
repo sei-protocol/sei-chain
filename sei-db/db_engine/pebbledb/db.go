@@ -104,14 +104,17 @@ func Open(
 		return nil, err
 	}
 
-	readFunction := func(key []byte) []byte { // TODO error handling!
+	readFunction := func(key []byte) ([]byte, bool, error) {
 		val, closer, err := db.Get(key)
 		if err != nil {
-			return nil
+			if errors.Is(err, pebble.ErrNotFound) {
+				return nil, false, nil
+			}
+			return nil, false, fmt.Errorf("failed to read from pebble: %w", err)
 		}
 		cloned := bytes.Clone(val)
 		_ = closer.Close()
-		return cloned
+		return cloned, true, nil
 	}
 
 	// A high level cache per key (as opposed to the low level pebble page cache).

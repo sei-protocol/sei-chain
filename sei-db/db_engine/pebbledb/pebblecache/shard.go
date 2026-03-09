@@ -26,10 +26,17 @@ type shard struct {
 	readPool threading.Pool
 
 	// A function that reads a value from the database.
-	readFunc func(key []byte) []byte
+	readFunc func(key []byte) ([]byte, bool, error)
 
 	// The maximum size of this cache, in bytes.
 	maxSize int
+}
+
+// The result of a read from the underlying database.
+type readResult struct {
+	value []byte
+	found bool
+	err   error
 }
 
 // The status of a value in the cache.
@@ -59,14 +66,14 @@ type shardEntry struct {
 
 	// If the value is not available when we request it,
 	// it will be written to this channel when it is available.
-	valueChan chan []byte
+	valueChan chan readResult
 }
 
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
 	readPool threading.Pool,
-	readFunc func(key []byte) []byte,
+	readFunc func(key []byte) ([]byte, bool, error),
 	maxSize int,
 ) (*shard, error) {
 
@@ -110,58 +117,66 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		// Another goroutine initiated a read, wait for that read to finish.
 		valueChan := entry.valueChan
 		s.lock.Unlock()
-		value, err := threading.InterruptiblePull(s.ctx, valueChan)
+		result, err := threading.InterruptiblePull(s.ctx, valueChan)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
-		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil, nil
+		valueChan <- result // reload the channel in case there are other listeners
+		if result.err != nil {
+			return nil, false, fmt.Errorf("failed to read value from database: %w", result.err)
+		}
+		return result.value, result.found, nil
 	case statusUnknown:
 		// We are the first goroutine to read this value.
 		entry.status = statusScheduled
-		valueChan := make(chan []byte, 1)
+		valueChan := make(chan readResult, 1)
 		entry.valueChan = valueChan
 		s.lock.Unlock()
 		err := s.readPool.Submit(s.ctx, func() {
-			value := s.readFunc(key)
-			entry.injectValue(key, value)
+			value, found, readErr := s.readFunc(key)
+			entry.injectValue(key, readResult{value: value, found: found, err: readErr})
 		})
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
 		}
-		value, err := threading.InterruptiblePull(s.ctx, valueChan)
+		result, err := threading.InterruptiblePull(s.ctx, valueChan)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
-		valueChan <- value // reload the channel in case there are other listeners
-		return value, value != nil, nil
+		valueChan <- result // reload the channel in case there are other listeners
+		if result.err != nil {
+			return nil, false, result.err
+		}
+		return result.value, result.found, nil
 	default:
 		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
 	}
 }
 
 // This method is called by the read scheduler when a value becomes available.
-func (se *shardEntry) injectValue(key []byte, value []byte) {
+func (se *shardEntry) injectValue(key []byte, result readResult) {
 	se.shard.lock.Lock()
 
 	if se.status == statusScheduled {
-		// In the time since the read was scheduled, nobody has written to this entry,
-		// so safe to overwrite the value.
-		if value == nil {
+		if result.err != nil {
+			// Don't cache errors — reset so the next caller retries.
+			delete(se.shard.data, string(key))
+		} else if !result.found {
 			se.status = statusDeleted
 			se.value = nil
 			se.shard.gcQueue.Push(key, len(key))
+			se.shard.evictUnlocked()
 		} else {
 			se.status = statusAvailable
-			se.value = value
-			se.shard.gcQueue.Push(key, len(key)+len(value))
+			se.value = result.value
+			se.shard.gcQueue.Push(key, len(key)+len(result.value))
+			se.shard.evictUnlocked()
 		}
-		se.shard.evictUnlocked()
 	}
 
 	se.shard.lock.Unlock()
 
-	se.valueChan <- value
+	se.valueChan <- result
 }
 
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
@@ -183,10 +198,10 @@ func (s *shard) getEntry(key []byte) *shardEntry {
 type pendingRead struct {
 	key           string
 	entry         *shardEntry
-	valueChan     chan []byte
+	valueChan     chan readResult
 	needsSchedule bool
 	// Populated after the read completes, used by bulkInjectValues.
-	value []byte
+	result readResult
 }
 
 // BatchGet reads a batch of keys from the shard. Results are written into the provided map.
@@ -210,7 +225,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 			})
 		case statusUnknown:
 			entry.status = statusScheduled
-			valueChan := make(chan []byte, 1)
+			valueChan := make(chan readResult, 1)
 			entry.valueChan = valueChan
 			pending = append(pending, pendingRead{
 				key:           key,
@@ -229,9 +244,8 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		if pending[i].needsSchedule {
 			p := &pending[i]
 			err := s.readPool.Submit(s.ctx, func() {
-				value := s.readFunc([]byte(p.key))
-				p.entry.valueChan <- value
-				// Intentionally do not call injectValue here, we want to defer the update to a single bulk operation.
+				value, found, readErr := s.readFunc([]byte(p.key))
+				p.entry.valueChan <- readResult{value: value, found: found, err: readErr}
 			})
 			if err != nil {
 				return fmt.Errorf("failed to schedule read: %w", err)
@@ -240,14 +254,18 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 	}
 
 	for i := range pending {
-		value, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
+		result, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
 		if err != nil {
 			return fmt.Errorf("failed to pull value from channel: %w", err)
 		}
-		pending[i].valueChan <- value
-		pending[i].value = value
+		pending[i].valueChan <- result
+		pending[i].result = result
 
-		keys[pending[i].key] = types.BatchGetResult{Value: value, Found: value != nil}
+		if result.err != nil {
+			keys[pending[i].key] = types.BatchGetResult{Error: result.err}
+		} else {
+			keys[pending[i].key] = types.BatchGetResult{Value: result.value, Found: result.found}
+		}
 	}
 
 	if len(pending) > 0 {
@@ -265,14 +283,18 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		if entry.status != statusScheduled {
 			continue
 		}
-		if reads[i].value == nil {
+		result := reads[i].result
+		if result.err != nil {
+			// Don't cache errors — reset so the next caller retries.
+			delete(s.data, reads[i].key)
+		} else if !result.found {
 			entry.status = statusDeleted
 			entry.value = nil
 			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key))
 		} else {
 			entry.status = statusAvailable
-			entry.value = reads[i].value
-			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key)+len(reads[i].value))
+			entry.value = result.value
+			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key)+len(result.value))
 		}
 	}
 	s.evictUnlocked()

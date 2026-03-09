@@ -32,7 +32,7 @@ type cache struct {
 func NewCache(
 	ctx context.Context,
 	// A function that reads a value from the database.
-	readFunc func(key []byte) []byte,
+	readFunc func(key []byte) ([]byte, bool, error),
 	// The number of shards in the cache. Must be a power of two and greater than 0.
 	shardCount int,
 	// The maximum size of the cache, in bytes.
