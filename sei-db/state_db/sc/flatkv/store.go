@@ -221,7 +221,9 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 
 	defer func() {
 		if retErr != nil {
-			_ = ro.Close()
+			if closeErr := ro.Close(); closeErr != nil {
+				s.log.Error("failed to close readonly store during error cleanup", "err", closeErr)
+			}
 		}
 	}()
 

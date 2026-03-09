@@ -104,7 +104,9 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				_ = cosmosCommitter.Close()
+				if closeErr := cosmosCommitter.Close(); closeErr != nil {
+					cs.logger.Error("failed to close cosmos committer during FlatKV error cleanup", "err", closeErr)
+				}
 				return nil, fmt.Errorf("failed to load readonly FlatKV version: %w", err)
 			}
 			newStore.evmCommitter = evmStore
