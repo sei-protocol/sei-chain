@@ -86,6 +86,7 @@ func NewRouter(
 	}
 	selfID := privKey.Public().NodeID()
 	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
+	// initialAddrs will stay around util pex table fills the whole "extra" cache.
 	peerManager.PushPex(selfID,initialAddrs)
 	router := &Router{
 		logger:           logger,

@@ -60,13 +60,14 @@ type dialQueueEntry struct {
 // Pops a dialing candidate from the queue.
 // May rebuild queue if runs out of candidates.
 // Complexity: O(max num of connections) + amortized O(1) 
-// TODO(gprusak): amortization is nontrivial currently:
+// TODO(gprusak): amortization is rather complex currently:
 // * skipping over in/out/dialing entries is covered by O(max num of connections)
 // * rebuilding queue is covered by the pop() calls + PexPush calls, since the last rebuild
+// This amortization is rather coarse, but it makes address selection as reliable as going
+// through all the addresses in the pex table, while reasonably limiting the search complexity.
 func (p *poolManager) pop() (dialQueueEntry,bool) {
 	canRebuild := true
 	for {
-		// TODO(gprusak): here we should fit the initialPeers.
 		for len(p.dialQueue)>0 {
 			// Pop dial candidate from the queue.
 			e := p.dialQueue[0]
@@ -174,11 +175,10 @@ func (t *pexTable) All() iter.Seq[NodeAddress] {
 // in particular we need to avoid a situation in which we have enough addresses to dial for ~10h, while we
 // receive fresh addresses every ~10s.
 // However to not block dialing on receiving fresh data, pop() amortizes additionally over number of dials.
-// NOTE: this amortization is rather coarse, but should provide a sufficient abuse protection.
 // NOTE: fairness of dialing is achieved by maintaining a list of recently dialled peers (dialRecent),
 // which should be enough if the global number of peers is bounded. However it does protect us from
 // peers spamming with fake addresses (which may delay dialing correct addresses indefinitely).
-// This is intentional, reliable connectivity is provided by persistent peers.
+// I.e. this is best-effort fairness, reliable connectivity is provided by persistent peers.
 func (p *poolManager) RebuildQueue() {
 	p.pex.pushes = 0
 	// Regroup addresses by ID.
