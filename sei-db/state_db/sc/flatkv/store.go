@@ -125,8 +125,8 @@ func NewCommitStore(
 	}
 	meter := otel.Meter(flatkvMeterName)
 
-	readPool := threading.NewPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
-	miscPool := threading.NewPool(ctx, "flatkv-misc", 20, 1024) // TODO this should be configurable!
+	readPool := threading.NewFixedPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
+	miscPool := threading.NewFixedPool(ctx, "flatkv-misc", 20, 1024) // TODO this should be configurable!
 
 	return &CommitStore{
 		ctx:               ctx,
