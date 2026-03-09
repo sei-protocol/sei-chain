@@ -219,53 +219,44 @@ func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
 	return cs.cosmosCommitter.GetEarliestVersion()
 }
 
+// appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
+// appended, without mutating the original. Returns the original unchanged
+// when lattice hashing is disabled.
+func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
+	if !cs.config.EnableLatticeHash {
+		return ci
+	}
+	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
+	copy(combined, ci.StoreInfos)
+	combined[len(combined)-1] = proto.StoreInfo{
+		Name: "evm_lattice",
+		CommitId: proto.CommitID{
+			Version: ci.Version,
+			Hash:    evmHash,
+		},
+	}
+	return &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: combined,
+	}
+}
+
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	commitInfo := cs.cosmosCommitter.WorkingCommitInfo()
-	version := commitInfo.Version
-	if cs.evmCommitter != nil && cs.config.EnableLatticeHash {
-		hash := cs.evmCommitter.RootHash()
-		evmStoreInfo := proto.StoreInfo{
-			Name: "evm",
-			CommitId: proto.CommitID{
-				Version: version,
-				Hash:    hash,
-			},
-		}
-		combined := make([]proto.StoreInfo, len(commitInfo.StoreInfos)+1)
-		copy(combined, commitInfo.StoreInfos)
-		combined[len(combined)-1] = evmStoreInfo
-		commitInfo = &proto.CommitInfo{
-			Version:    version,
-			StoreInfos: combined,
-		}
+	ci := cs.cosmosCommitter.WorkingCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.RootHash())
 	}
-	return commitInfo
+	return ci
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	lastCommitInfo := cs.cosmosCommitter.LastCommitInfo()
-	if cs.evmCommitter != nil && cs.config.EnableLatticeHash {
-		version := lastCommitInfo.Version
-		hash := cs.evmCommitter.CommittedRootHash()
-		evmStoreInfo := proto.StoreInfo{
-			Name: "evm",
-			CommitId: proto.CommitID{
-				Version: version,
-				Hash:    hash,
-			},
-		}
-		// Copy to avoid mutating memiavl's internal lastCommitInfo
-		combined := make([]proto.StoreInfo, len(lastCommitInfo.StoreInfos)+1)
-		copy(combined, lastCommitInfo.StoreInfos)
-		combined[len(combined)-1] = evmStoreInfo
-		lastCommitInfo = &proto.CommitInfo{
-			Version:    version,
-			StoreInfos: combined,
-		}
+	ci := cs.cosmosCommitter.LastCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.CommittedRootHash())
 	}
-	return lastCommitInfo
+	return ci
 }
 
 // GetChildStoreByName returns the underlying child store by module name.
