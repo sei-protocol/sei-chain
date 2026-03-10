@@ -395,15 +395,28 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 	}
 
 	endpointSet := map[Endpoint]struct{}{}
-	// TODO(gprusak): resolve all addresses in parallel.
-	for _, addr := range addrs {
-		endpoints, err := addr.Resolve(resolveCtx)
-		if err != nil {
-			r.logger.Info("address.Resolve() failed", "addr", addr, "err", err)
-		} else if len(endpoints) > 0 {
-			endpointSet[endpoints[0]] = struct{}{}
+	// Resolve addresses in parallel. No errors expected,
+	// just resolve as many addresses as possible within timeout.
+	utils.OrPanic(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		endpointSet := utils.NewMutex(endpointSet)
+		for _, addr := range addrs {
+			s.Spawn(func() error {
+				endpoints, err := addr.Resolve(resolveCtx)
+				if err != nil {
+					r.logger.Info("address.Resolve() failed", "addr", addr, "err", err)
+					return nil
+				}
+				if len(endpoints) > 0 {
+					for endpointSet := range endpointSet.Lock() {
+						endpointSet[endpoints[0]] = struct{}{}
+					}
+				}
+				return nil
+			})
+			return nil
 		}
-	}
+		return nil
+	}))
 	for endpoint, _ := range endpointSet {
 		dialCtx := ctx
 		if d, ok := r.options.DialTimeout.Get(); ok {
