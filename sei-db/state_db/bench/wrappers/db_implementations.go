@@ -67,6 +67,9 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
 	cs := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	if err := cs.CleanupCrashArtifacts(); err != nil {
+		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
+	}
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)

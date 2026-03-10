@@ -76,6 +76,20 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) {
 	cs.cosmosCommitter.Initialize(initialStores)
 }
 
+// CleanupCrashArtifacts removes temporary/orphaned files left by a
+// previous process crash (e.g. FlatKV readonly-* working directories).
+// Must be called once at process startup, before any read-only clones
+// are created. Any writer lock acquired during cleanup is retained for
+// the subsequent LoadVersion(..., false) call.
+func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
+	if fkv, ok := cs.evmCommitter.(*flatkv.CommitStore); ok {
+		if err := fkv.CleanupOrphanedReadOnlyDirs(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetInitialVersion sets the initial version for the store
 func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	return cs.cosmosCommitter.SetInitialVersion(initialVersion)
@@ -104,7 +118,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				cs.logger.Error("FlatKV unavailable for readonly load, EVM data will not be served",
+				cs.logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
 					"version", targetVersion, "err", err)
 			} else {
 				newStore.evmCommitter = evmStore

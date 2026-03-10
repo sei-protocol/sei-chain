@@ -921,3 +921,40 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	require.NoError(t, roStore.Close())
 	require.NoDirExists(t, tmpDir)
 }
+
+func TestCleanupOrphanedReadOnlyDirs(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	fkvDir := s.flatkvDir()
+	require.NoError(t, os.MkdirAll(fkvDir, 0o755))
+
+	// Simulate orphaned dirs left by a crash.
+	orphan1 := filepath.Join(fkvDir, "readonly-old1")
+	orphan2 := filepath.Join(fkvDir, "readonly-old2")
+	require.NoError(t, os.Mkdir(orphan1, 0o755))
+	require.NoError(t, os.Mkdir(orphan2, 0o755))
+
+	require.NoError(t, s.CleanupOrphanedReadOnlyDirs())
+
+	require.NoDirExists(t, orphan1)
+	require.NoDirExists(t, orphan2)
+
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+}
+
+func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
+	dir := t.TempDir()
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	defer func() { require.NoError(t, s1.Close()) }()
+	require.NoError(t, s1.CleanupOrphanedReadOnlyDirs())
+
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	defer func() { require.NoError(t, s2.Close()) }()
+
+	err := s2.CleanupOrphanedReadOnlyDirs()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "acquire file lock")
+}
