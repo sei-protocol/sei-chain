@@ -232,6 +232,10 @@ func (p *poolManager) TryStartDial() ([]NodeAddress, bool) {
 	}
 }
 
+func (p *poolManager) PushUpgradePermit() {
+	p.upgradePermit = true
+}
+
 func (p *poolManager) PushPex(sender utils.Option[types.NodeID], addrs []NodeAddress) {
 	// Accept at most 1 address per NodeID from each pex sender.
 	dedup := map[types.NodeID]NodeAddress{}
