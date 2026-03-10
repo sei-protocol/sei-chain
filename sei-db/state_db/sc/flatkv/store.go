@@ -69,7 +69,6 @@ type CommitStore struct {
 	cancel context.CancelFunc
 	log    logger.Logger
 	config *Config
-	dbDir  string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
@@ -122,12 +121,11 @@ var _ Store = (*CommitStore)(nil)
 // Call LoadVersion to open and initialize.
 func NewCommitStore(
 	ctx context.Context,
-	dbDir string,
 	log logger.Logger,
 	cfg *Config,
 ) (*CommitStore, error) {
 
-	// TODO pre-populate file paths in sub-configs
+	cfg.InitializeDataDirectories()
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
@@ -152,7 +150,6 @@ func NewCommitStore(
 		cancel:            cancel,
 		log:               log,
 		config:            cfg,
-		dbDir:             dbDir,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
@@ -168,7 +165,7 @@ func NewCommitStore(
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return s.dbDir
+	return s.config.DataDir
 }
 
 // LoadVersion loads the specified version of the database.
@@ -291,7 +288,7 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("create working dir: %w", err)
 	}
 
-	if err := s.openAllDBs(workDir, dir); err != nil {
+	if err := s.openAllDBs(); err != nil {
 		return err
 	}
 
@@ -323,23 +320,22 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	return nil
 }
 
-// openPebbleDB sets the DataDir on cfg, creates the directory, and opens a PebbleDB instance.
-func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, dir string) (seidbtypes.KeyValueDB, error) {
-	cfg.DataDir = dir
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return nil, fmt.Errorf("create directory %s: %w", dir, err)
+// openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.KeyValueDB, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
 	db, err := pebbledb.Open(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", dir, err)
+		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
 	return db, nil
 }
 
-// openAllDBs opens the 5 PebbleDBs from the snapshot directory, the changelog
-// WAL from the flatkv root, and loads per-DB local metadata. On failure all
-// already-opened handles are closed.
-func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
+// openAllDBs opens the 5 PebbleDBs using the paths in the config, the
+// changelog WAL from the flatkv root, and loads per-DB local metadata.
+// On failure all already-opened handles are closed.
+func (s *CommitStore) openAllDBs() (retErr error) {
 	var toClose []io.Closer
 	defer func() {
 		if retErr != nil {
@@ -358,37 +354,37 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 
 	var err error
 
-	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, filepath.Join(snapDir, accountDBDir))
+	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig)
 	if err != nil {
 		return err
 	}
 	toClose = append(toClose, s.accountDB)
 
-	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, filepath.Join(snapDir, codeDBDir))
+	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig)
 	if err != nil {
 		return err
 	}
 	toClose = append(toClose, s.codeDB)
 
-	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, filepath.Join(snapDir, storageDBDir))
+	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig)
 	if err != nil {
 		return err
 	}
 	toClose = append(toClose, s.storageDB)
 
-	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig, filepath.Join(snapDir, legacyDBDir))
+	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig)
 	if err != nil {
 		return err
 	}
 	toClose = append(toClose, s.legacyDB)
 
-	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, filepath.Join(snapDir, metadataDir))
+	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig)
 	if err != nil {
 		return err
 	}
 	toClose = append(toClose, s.metadataDB)
 
-	changelogPath := filepath.Join(flatkvRoot, changelogDir)
+	changelogPath := filepath.Join(s.flatkvDir(), changelogDir)
 	s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
 		WriteBufferSize: 0,
 		KeepRecent:      0,
@@ -399,7 +395,6 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}
 	toClose = append(toClose, s.changelog)
 
-	// Load per-DB local metadata (or initialize if not present)
 	dataDBs := map[string]seidbtypes.KeyValueDB{
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,

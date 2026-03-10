@@ -640,7 +640,9 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create state and close
-	s1, err := NewCommitStore(t.Context(), dir, nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dir
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -659,7 +661,9 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen and verify
-	s2, err := NewCommitStore(t.Context(), dir, nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = dir
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)

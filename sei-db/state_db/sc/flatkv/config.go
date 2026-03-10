@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -14,6 +15,10 @@ const (
 
 // Config defines configuration for the FlatKV (EVM) commit store.
 type Config struct {
+	// DataDir is the root directory for the FlatKV data files.
+	// Must be set before calling Validate().
+	DataDir string
+
 	// Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
 	// WAL always uses NoSync (matching memiavl); crash recovery relies on
 	// WAL catchup, which is idempotent.
@@ -102,8 +107,33 @@ func DefaultConfig() *Config {
 	return cfg
 }
 
+// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
+// that does not already have one, using DataDir as the base path. The DBs live
+// under the working directory: <DataDir>/working/<subdir>.
+func (c *Config) InitializeDataDirectories() {
+	workDir := filepath.Join(c.DataDir, workingDirName)
+	if c.AccountDBConfig.DataDir == "" {
+		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	}
+	if c.CodeDBConfig.DataDir == "" {
+		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	}
+	if c.StorageDBConfig.DataDir == "" {
+		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	}
+	if c.LegacyDBConfig.DataDir == "" {
+		c.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	}
+	if c.MetadataDBConfig.DataDir == "" {
+		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+	}
+}
+
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *Config) Validate() error {
+	if c.DataDir == "" {
+		return fmt.Errorf("data dir is required")
+	}
 	if c.AccountDBConfig.Validate() != nil {
 		return fmt.Errorf("account db config is invalid: %w", c.AccountDBConfig.Validate())
 	}

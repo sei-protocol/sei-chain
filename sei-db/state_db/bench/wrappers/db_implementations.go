@@ -49,9 +49,10 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkv.Conf
 	if config == nil {
 		config = flatkv.DefaultConfig()
 	}
+	config.DataDir = dbDir
 
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs, err := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), config)
+	cs, err := flatkv.NewCommitStore(ctx, logger.NewNopLogger(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}

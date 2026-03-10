@@ -522,8 +522,8 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
-		dir := t.TempDir()
-		store, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+		cfg := DefaultTestConfig(t)
+		store, err := NewCommitStore(t.Context(), nil, cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0)
 		require.NoError(t, err)
@@ -536,8 +536,9 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
-		store, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{
-			Fsync: false,
+		store, err := NewCommitStore(t.Context(), nil, &Config{
+			DataDir: filepath.Join(dir, flatkvRootDir),
+			Fsync:   false,
 		})
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0)
@@ -570,10 +571,11 @@ func TestStoreFsyncConfig(t *testing.T) {
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
+		DataDir:            filepath.Join(dir, flatkvRootDir),
 		SnapshotInterval:   5,
 		SnapshotKeepRecent: 2,
 	}
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &cfg)
+	s, err := NewCommitStore(t.Context(), nil, &cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -595,10 +597,11 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{
+		DataDir:            filepath.Join(dir, flatkvRootDir),
 		SnapshotInterval:   10,
 		SnapshotKeepRecent: 2,
 	}
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -625,8 +628,8 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{SnapshotInterval: 0}
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	cfg := &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotInterval: 0}
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -718,8 +721,8 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
-		dir := t.TempDir()
-		s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+		cfg := DefaultTestConfig(t)
+		s, err := NewCommitStore(t.Context(), nil, cfg)
 		require.NoError(t, err)
 		_, err = s.LoadVersion(0)
 		require.NoError(t, err)
@@ -843,8 +846,8 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 
 func TestStoreFsyncEnabled(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{Fsync: true}
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	cfg := &Config{DataDir: filepath.Join(dir, flatkvRootDir), Fsync: true}
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -865,8 +868,8 @@ func TestStoreFsyncEnabled(t *testing.T) {
 // =============================================================================
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -886,8 +889,8 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 // =============================================================================
 
 func TestWALRecordsChangesets(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)

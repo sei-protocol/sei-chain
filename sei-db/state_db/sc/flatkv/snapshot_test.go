@@ -34,7 +34,9 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, v
 
 func TestSnapshotCreatesDir(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -62,7 +64,9 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 func TestSnapshotIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -83,7 +87,9 @@ func TestOpenFromSnapshot(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create store, commit v1 and v2, snapshot at v2, commit v3
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -101,7 +107,9 @@ func TestOpenFromSnapshot(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen - should catchup from v2 snapshot + WAL entry for v3
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -124,7 +132,9 @@ func TestOpenFromSnapshot(t *testing.T) {
 func TestCatchupUpdatesLtHash(t *testing.T) {
 	dir := t.TempDir()
 
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -143,7 +153,9 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen: catchup from v2 snapshot through v3,v4,v5 via WAL
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -156,9 +168,8 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 }
 
 func TestRollbackRewindsState(t *testing.T) {
-	dir := t.TempDir()
-
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -194,9 +205,8 @@ func TestRollbackRewindsState(t *testing.T) {
 }
 
 func TestRollbackToSnapshotExact(t *testing.T) {
-	dir := t.TempDir()
-
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -218,7 +228,9 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 
 func TestPartialSnapshotCleanup(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -279,7 +291,9 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 
 	// Open the store - should trigger migration
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -311,7 +325,9 @@ func TestOpenVersionValidation(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create store, commit some data
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -339,7 +355,9 @@ func TestOpenVersionValidation(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -409,7 +427,9 @@ func TestSeekSnapshot(t *testing.T) {
 func TestLoadVersionWithTarget(t *testing.T) {
 	dir := t.TempDir()
 
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -423,7 +443,9 @@ func TestLoadVersionWithTarget(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen at specific version 3
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(3)
 	require.NoError(t, err)
@@ -443,7 +465,9 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 
 	// Phase 1: build baseline at v2 and snapshot it.
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0)
 	require.NoError(t, err)
@@ -465,7 +489,9 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 
 	// Phase 3: reopen exactly at v2. If later commits had mutated the snapshot
 	// baseline in place, we'd incorrectly read 0x04 here.
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(2)
 	require.NoError(t, err)
@@ -475,7 +501,9 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, s2.Close())
 
 	// Phase 4: reopen latest again to ensure catchup/replay still reaches v4.
-	s3, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s3, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s3.LoadVersion(0)
 	require.NoError(t, err)
@@ -496,7 +524,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	slot := Slot{0x81}
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -512,7 +542,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// Round 1: load exactly v2
-	s1, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s1, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(2)
 	require.NoError(t, err)
@@ -524,7 +556,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Round 2: load latest (catches up through v3, v4)
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -536,7 +570,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, s2.Close())
 
 	// Round 3: load v2 AGAIN — snapshot must still be clean.
-	s3, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s3, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s3.LoadVersion(2)
 	require.NoError(t, err, "LoadVersion(2) must succeed after LoadVersion(0) dirtied working dir")
@@ -553,7 +589,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 func TestRollbackTargetBeforeWALStart(t *testing.T) {
 	dir := t.TempDir()
 
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -588,7 +626,9 @@ func TestRollbackTargetBeforeWALStart(t *testing.T) {
 
 	// Simulate restart: should stay at v2.
 	require.NoError(t, s.Close())
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -787,7 +827,7 @@ func TestCreateWorkingDirReclones(t *testing.T) {
 
 func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 1})
+	s, err := NewCommitStore(t.Context(), nil, &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotKeepRecent: 1})
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -812,7 +852,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 
 func TestPruneSnapshotsKeepAll(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 100})
+	s, err := NewCommitStore(t.Context(), nil, &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotKeepRecent: 100})
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -849,7 +889,9 @@ func TestOrphanSnapshotRecovery(t *testing.T) {
 	_, err := os.Lstat(currentPath(flatkvDir))
 	require.True(t, os.IsNotExist(err), "no current symlink should exist")
 
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -911,8 +953,8 @@ func TestTraverseSnapshotsEarlyStop(t *testing.T) {
 // =============================================================================
 
 func TestVerifyWALTailSuccess(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -926,8 +968,8 @@ func TestVerifyWALTailSuccess(t *testing.T) {
 }
 
 func TestVerifyWALTailMismatch(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -950,7 +992,7 @@ func TestTryTruncateWAL(t *testing.T) {
 	// SnapshotKeepRecent=0 so pruneSnapshots removes snapshot-0 once
 	// the manual snapshot at v5 is created; this makes v5 the earliest
 	// snapshot and gives tryTruncateWAL a positive truncation offset.
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 0})
+	s, err := NewCommitStore(t.Context(), nil, &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotKeepRecent: 0})
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -975,8 +1017,8 @@ func TestTryTruncateWAL(t *testing.T) {
 }
 
 func TestTryTruncateWALNoSnapshot(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -998,7 +1040,9 @@ func TestTryTruncateWALNoSnapshot(t *testing.T) {
 
 func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -1097,7 +1141,7 @@ func TestSeekSnapshotExact(t *testing.T) {
 
 func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 10})
+	s, err := NewCommitStore(t.Context(), nil, &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotKeepRecent: 10})
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -1112,7 +1156,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 	for i, expectedHash := range hashes {
 		ver := int64(i + 1)
-		s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, &Config{SnapshotKeepRecent: 10})
+		s2, err := NewCommitStore(t.Context(), nil, &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotKeepRecent: 10})
 		require.NoError(t, err)
 		_, err = s2.LoadVersion(ver)
 		require.NoError(t, err)
@@ -1128,7 +1172,9 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(context.Background(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(context.Background(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -1155,7 +1201,9 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
 	// so committedVersion should be 5 (from working dir metadata), not 2
 	// (from the snapshot). Catchup should replay 0 entries.
-	s2, err := NewCommitStore(context.Background(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(context.Background(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
@@ -1167,7 +1215,9 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 
 func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0)
 	require.NoError(t, err)
@@ -1189,7 +1239,9 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
-	s2, err := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s2, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0)
 	require.NoError(t, err)
