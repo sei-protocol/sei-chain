@@ -3,6 +3,8 @@ package pebblecache
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLRUQueueIsolatesFromCallerMutation(t *testing.T) {
@@ -12,33 +14,19 @@ func TestLRUQueueIsolatesFromCallerMutation(t *testing.T) {
 	lru.Push(key, 1)
 	key[0] = 'z'
 
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop after mutating caller key = %q, want %q", got, "a")
-	}
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
 }
 
 func TestNewLRUQueueStartsEmpty(t *testing.T) {
 	lru := NewLRUQueue()
 
-	if got := lru.GetCount(); got != 0 {
-		t.Fatalf("GetCount() = %d, want 0", got)
-	}
-	if got := lru.GetTotalSize(); got != 0 {
-		t.Fatalf("GetTotalSize() = %d, want 0", got)
-	}
+	require.Equal(t, 0, lru.GetCount())
+	require.Equal(t, 0, lru.GetTotalSize())
 }
 
 func TestPopLeastRecentlyUsedPanicsOnEmptyQueue(t *testing.T) {
 	lru := NewLRUQueue()
-
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic on pop from empty queue, but none occurred")
-		}
-	}()
-
-	lru.PopLeastRecentlyUsed()
+	require.Panics(t, func() { lru.PopLeastRecentlyUsed() })
 }
 
 func TestPopLeastRecentlyUsedPanicsAfterDrain(t *testing.T) {
@@ -46,29 +34,16 @@ func TestPopLeastRecentlyUsedPanicsAfterDrain(t *testing.T) {
 	lru.Push([]byte("x"), 1)
 	lru.PopLeastRecentlyUsed()
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic on pop from drained queue, but none occurred")
-		}
-	}()
-
-	lru.PopLeastRecentlyUsed()
+	require.Panics(t, func() { lru.PopLeastRecentlyUsed() })
 }
 
 func TestPushSingleElement(t *testing.T) {
 	lru := NewLRUQueue()
 	lru.Push([]byte("only"), 42)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 42 {
-		t.Fatalf("GetTotalSize() = %d, want 42", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "only" {
-		t.Fatalf("pop = %q, want %q", got, "only")
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 42, lru.GetTotalSize())
+	require.Equal(t, "only", lru.PopLeastRecentlyUsed())
 }
 
 func TestPushDuplicateDecreasesSize(t *testing.T) {
@@ -76,12 +51,8 @@ func TestPushDuplicateDecreasesSize(t *testing.T) {
 	lru.Push([]byte("k"), 100)
 	lru.Push([]byte("k"), 30)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 30 {
-		t.Fatalf("GetTotalSize() = %d, want 30", got)
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 30, lru.GetTotalSize())
 }
 
 func TestPushDuplicateMovesToBack(t *testing.T) {
@@ -93,46 +64,27 @@ func TestPushDuplicateMovesToBack(t *testing.T) {
 	// Re-push "a" — should move it behind "b" and "c"
 	lru.Push([]byte("a"), 1)
 
-	if got := lru.PopLeastRecentlyUsed(); got != "b" {
-		t.Fatalf("pop = %q, want %q", got, "b")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "c" {
-		t.Fatalf("pop = %q, want %q", got, "c")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop = %q, want %q", got, "a")
-	}
+	require.Equal(t, "b", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "c", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
 }
 
 func TestPushZeroSize(t *testing.T) {
 	lru := NewLRUQueue()
 	lru.Push([]byte("z"), 0)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 0 {
-		t.Fatalf("GetTotalSize() = %d, want 0", got)
-	}
-
-	if got := lru.PopLeastRecentlyUsed(); got != "z" {
-		t.Fatalf("pop = %q, want %q", got, "z")
-	}
-	if got := lru.GetTotalSize(); got != 0 {
-		t.Fatalf("GetTotalSize() after pop = %d, want 0", got)
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 0, lru.GetTotalSize())
+	require.Equal(t, "z", lru.PopLeastRecentlyUsed())
+	require.Equal(t, 0, lru.GetTotalSize())
 }
 
 func TestPushEmptyKey(t *testing.T) {
 	lru := NewLRUQueue()
 	lru.Push([]byte(""), 5)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "" {
-		t.Fatalf("pop = %q, want %q", got, "")
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, "", lru.PopLeastRecentlyUsed())
 }
 
 func TestPushRepeatedUpdatesToSameKey(t *testing.T) {
@@ -142,36 +94,25 @@ func TestPushRepeatedUpdatesToSameKey(t *testing.T) {
 	lru.Push([]byte("k"), 3)
 	lru.Push([]byte("k"), 4)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 4 {
-		t.Fatalf("GetTotalSize() = %d, want 4 (last push)", got)
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 4, lru.GetTotalSize())
 }
 
 func TestTouchNonexistentKeyIsNoop(t *testing.T) {
 	lru := NewLRUQueue()
 	lru.Push([]byte("a"), 1)
 
-	// Should not panic or change state.
 	lru.Touch([]byte("missing"))
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop = %q, want %q", got, "a")
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
 }
 
 func TestTouchOnEmptyQueueIsNoop(t *testing.T) {
 	lru := NewLRUQueue()
 	lru.Touch([]byte("ghost"))
 
-	if got := lru.GetCount(); got != 0 {
-		t.Fatalf("GetCount() = %d, want 0", got)
-	}
+	require.Equal(t, 0, lru.GetCount())
 }
 
 func TestTouchSingleElement(t *testing.T) {
@@ -179,12 +120,8 @@ func TestTouchSingleElement(t *testing.T) {
 	lru.Push([]byte("solo"), 10)
 	lru.Touch([]byte("solo"))
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "solo" {
-		t.Fatalf("pop = %q, want %q", got, "solo")
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, "solo", lru.PopLeastRecentlyUsed())
 }
 
 func TestTouchDoesNotAffectSizeOrCount(t *testing.T) {
@@ -194,12 +131,8 @@ func TestTouchDoesNotAffectSizeOrCount(t *testing.T) {
 
 	lru.Touch([]byte("a"))
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.GetTotalSize(); got != 10 {
-		t.Fatalf("GetTotalSize() = %d, want 10", got)
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, 10, lru.GetTotalSize())
 }
 
 func TestMultipleTouchesChangeOrder(t *testing.T) {
@@ -212,15 +145,9 @@ func TestMultipleTouchesChangeOrder(t *testing.T) {
 	lru.Touch([]byte("a")) // Order: b, c, a
 	lru.Touch([]byte("b")) // Order: c, a, b
 
-	if got := lru.PopLeastRecentlyUsed(); got != "c" {
-		t.Fatalf("pop = %q, want %q", got, "c")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop = %q, want %q", got, "a")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "b" {
-		t.Fatalf("pop = %q, want %q", got, "b")
-	}
+	require.Equal(t, "c", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "b", lru.PopLeastRecentlyUsed())
 }
 
 func TestTouchAlreadyMostRecentIsNoop(t *testing.T) {
@@ -230,12 +157,8 @@ func TestTouchAlreadyMostRecentIsNoop(t *testing.T) {
 
 	lru.Touch([]byte("b")) // "b" is already at back
 
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop = %q, want %q", got, "a")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "b" {
-		t.Fatalf("pop = %q, want %q", got, "b")
-	}
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "b", lru.PopLeastRecentlyUsed())
 }
 
 func TestPopDecrementsCountAndSize(t *testing.T) {
@@ -246,21 +169,13 @@ func TestPopDecrementsCountAndSize(t *testing.T) {
 
 	lru.PopLeastRecentlyUsed()
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.GetTotalSize(); got != 50 {
-		t.Fatalf("GetTotalSize() = %d, want 50", got)
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, 50, lru.GetTotalSize())
 
 	lru.PopLeastRecentlyUsed()
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 30 {
-		t.Fatalf("GetTotalSize() = %d, want 30", got)
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 30, lru.GetTotalSize())
 }
 
 func TestPopFIFOOrderWithoutTouches(t *testing.T) {
@@ -271,9 +186,7 @@ func TestPopFIFOOrderWithoutTouches(t *testing.T) {
 	}
 
 	for _, want := range keys {
-		if got := lru.PopLeastRecentlyUsed(); got != want {
-			t.Fatalf("pop = %q, want %q", got, want)
-		}
+		require.Equal(t, want, lru.PopLeastRecentlyUsed())
 	}
 }
 
@@ -282,19 +195,12 @@ func TestPushAfterDrain(t *testing.T) {
 	lru.Push([]byte("a"), 5)
 	lru.PopLeastRecentlyUsed()
 
-	// Queue is empty; push new entries.
 	lru.Push([]byte("x"), 10)
 	lru.Push([]byte("y"), 20)
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.GetTotalSize(); got != 30 {
-		t.Fatalf("GetTotalSize() = %d, want 30", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "x" {
-		t.Fatalf("pop = %q, want %q", got, "x")
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, 30, lru.GetTotalSize())
+	require.Equal(t, "x", lru.PopLeastRecentlyUsed())
 }
 
 func TestPushPreviouslyPoppedKey(t *testing.T) {
@@ -304,15 +210,9 @@ func TestPushPreviouslyPoppedKey(t *testing.T) {
 
 	lru.Push([]byte("recycled"), 99)
 
-	if got := lru.GetCount(); got != 1 {
-		t.Fatalf("GetCount() = %d, want 1", got)
-	}
-	if got := lru.GetTotalSize(); got != 99 {
-		t.Fatalf("GetTotalSize() = %d, want 99", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "recycled" {
-		t.Fatalf("pop = %q, want %q", got, "recycled")
-	}
+	require.Equal(t, 1, lru.GetCount())
+	require.Equal(t, 99, lru.GetTotalSize())
+	require.Equal(t, "recycled", lru.PopLeastRecentlyUsed())
 }
 
 func TestInterleavedPushAndPop(t *testing.T) {
@@ -321,26 +221,14 @@ func TestInterleavedPushAndPop(t *testing.T) {
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 2)
 
-	if got := lru.PopLeastRecentlyUsed(); got != "a" {
-		t.Fatalf("pop = %q, want %q", got, "a")
-	}
+	require.Equal(t, "a", lru.PopLeastRecentlyUsed())
 
 	lru.Push([]byte("c"), 3)
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.GetTotalSize(); got != 5 {
-		t.Fatalf("GetTotalSize() = %d, want 5", got)
-	}
-
-	// "b" was pushed before "c"
-	if got := lru.PopLeastRecentlyUsed(); got != "b" {
-		t.Fatalf("pop = %q, want %q", got, "b")
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "c" {
-		t.Fatalf("pop = %q, want %q", got, "c")
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, 5, lru.GetTotalSize())
+	require.Equal(t, "b", lru.PopLeastRecentlyUsed())
+	require.Equal(t, "c", lru.PopLeastRecentlyUsed())
 }
 
 func TestTouchThenPushSameKey(t *testing.T) {
@@ -351,15 +239,9 @@ func TestTouchThenPushSameKey(t *testing.T) {
 	lru.Touch([]byte("a"))    // order: b, a
 	lru.Push([]byte("a"), 50) // updates size, stays at back
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.GetTotalSize(); got != 51 {
-		t.Fatalf("GetTotalSize() = %d, want 51", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != "b" {
-		t.Fatalf("pop = %q, want %q", got, "b")
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, 51, lru.GetTotalSize())
+	require.Equal(t, "b", lru.PopLeastRecentlyUsed())
 }
 
 func TestBinaryKeyData(t *testing.T) {
@@ -370,17 +252,11 @@ func TestBinaryKeyData(t *testing.T) {
 	lru.Push(k1, 10)
 	lru.Push(k2, 20)
 
-	if got := lru.GetCount(); got != 2 {
-		t.Fatalf("GetCount() = %d, want 2", got)
-	}
-	if got := lru.PopLeastRecentlyUsed(); got != string(k1) {
-		t.Fatalf("pop = %q, want %q", got, string(k1))
-	}
+	require.Equal(t, 2, lru.GetCount())
+	require.Equal(t, string(k1), lru.PopLeastRecentlyUsed())
 
 	lru.Touch(k2)
-	if got := lru.PopLeastRecentlyUsed(); got != string(k2) {
-		t.Fatalf("pop = %q, want %q", got, string(k2))
-	}
+	require.Equal(t, string(k2), lru.PopLeastRecentlyUsed())
 }
 
 func TestCallerMutationAfterTouchDoesNotAffectQueue(t *testing.T) {
@@ -391,9 +267,7 @@ func TestCallerMutationAfterTouchDoesNotAffectQueue(t *testing.T) {
 	key[0] = 'Z'
 	lru.Touch(key) // Touch with mutated key ("Zbc") — should be a no-op
 
-	if got := lru.PopLeastRecentlyUsed(); got != "abc" {
-		t.Fatalf("pop = %q, want %q", got, "abc")
-	}
+	require.Equal(t, "abc", lru.PopLeastRecentlyUsed())
 }
 
 func TestManyEntries(t *testing.T) {
@@ -407,27 +281,16 @@ func TestManyEntries(t *testing.T) {
 		totalSize += i + 1
 	}
 
-	if got := lru.GetCount(); got != n {
-		t.Fatalf("GetCount() = %d, want %d", got, n)
-	}
-	if got := lru.GetTotalSize(); got != totalSize {
-		t.Fatalf("GetTotalSize() = %d, want %d", got, totalSize)
-	}
+	require.Equal(t, n, lru.GetCount())
+	require.Equal(t, totalSize, lru.GetTotalSize())
 
-	// FIFO order should be maintained.
 	for i := 0; i < n; i++ {
 		want := fmt.Sprintf("key-%04d", i)
-		if got := lru.PopLeastRecentlyUsed(); got != want {
-			t.Fatalf("pop %d = %q, want %q", i, got, want)
-		}
+		require.Equal(t, want, lru.PopLeastRecentlyUsed(), "pop %d", i)
 	}
 
-	if got := lru.GetCount(); got != 0 {
-		t.Fatalf("GetCount() after drain = %d, want 0", got)
-	}
-	if got := lru.GetTotalSize(); got != 0 {
-		t.Fatalf("GetTotalSize() after drain = %d, want 0", got)
-	}
+	require.Equal(t, 0, lru.GetCount())
+	require.Equal(t, 0, lru.GetTotalSize())
 }
 
 func TestPushUpdatedSizeThenPopVerifySizeAccounting(t *testing.T) {
@@ -436,19 +299,12 @@ func TestPushUpdatedSizeThenPopVerifySizeAccounting(t *testing.T) {
 	lru.Push([]byte("b"), 20)
 	lru.Push([]byte("a"), 5) // decrease a's size from 10 to 5
 
-	// total = 5 + 20 = 25
-	if got := lru.GetTotalSize(); got != 25 {
-		t.Fatalf("GetTotalSize() = %d, want 25", got)
-	}
+	require.Equal(t, 25, lru.GetTotalSize())
 
 	// Pop "b" (it's the LRU since "a" was re-pushed to back).
 	lru.PopLeastRecentlyUsed()
-	if got := lru.GetTotalSize(); got != 5 {
-		t.Fatalf("GetTotalSize() after popping b = %d, want 5", got)
-	}
+	require.Equal(t, 5, lru.GetTotalSize())
 
 	lru.PopLeastRecentlyUsed()
-	if got := lru.GetTotalSize(); got != 0 {
-		t.Fatalf("GetTotalSize() after popping a = %d, want 0", got)
-	}
+	require.Equal(t, 0, lru.GetTotalSize())
 }
