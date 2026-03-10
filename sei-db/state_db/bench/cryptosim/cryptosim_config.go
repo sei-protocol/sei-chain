@@ -142,6 +142,9 @@ type CryptoSimConfig struct {
 
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
 	FlatKVConfig *flatkv.Config
+
+	// The capacity of the channel that holds blocks awaiting execution.
+	BlockChannelCapacity int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -165,7 +168,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   32,
+		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
@@ -174,7 +177,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		SetupUpdateIntervalCount:          100_000,
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
-		ExecutorQueueSize:                 64,
+		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
@@ -183,6 +186,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteDataDirOnStartup:            false,
 		DeleteDataDirOnShutdown:           false,
 		FlatKVConfig:                      flatkv.DefaultConfig(),
+		BlockChannelCapacity:              8,
 	}
 
 	return cfg
@@ -256,6 +260,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BackgroundMetricsScrapeInterval < 0 {
 		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
+	}
+	if c.BlockChannelCapacity < 1 {
+		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
 	}
 
 	return nil
