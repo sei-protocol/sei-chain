@@ -132,6 +132,9 @@ type CryptoSimConfig struct {
 	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
 	// If false, Enter has no effect.
 	EnableSuspension bool
+
+	// The capacity of the channel that holds blocks awaiting execution.
+	BlockChannelCapacity int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -164,12 +167,13 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		SetupUpdateIntervalCount:          100_000,
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
-		ExecutorQueueSize:                 64,
+		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
+		BlockChannelCapacity:              8,
 	}
 }
 
@@ -241,6 +245,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BackgroundMetricsScrapeInterval < 0 {
 		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
+	}
+	if c.BlockChannelCapacity < 1 {
+		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
 	}
 
 	return nil
