@@ -79,7 +79,7 @@ func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
 }
 
 func (ch *Channel[T]) Send(msg T, to types.NodeID) {
-	c, ok := GetAny(ch.router.peerManager.Conns(),to)
+	c, ok := GetAny(ch.router.peerManager.Conns(), to)
 	if !ok {
 		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
 		return

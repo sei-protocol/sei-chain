@@ -26,7 +26,7 @@ func (s *peerUpdatesRecv[C]) Recv(ctx context.Context) (PeerUpdate, error) {
 	_, err := s.recv.Wait(ctx, func(conns connSet[C]) bool {
 		// Check for disconnected peers.
 		for id := range s.last {
-			if _,ok := GetAny(conns,id); !ok {
+			if _, ok := GetAny(conns, id); !ok {
 				delete(s.last, id)
 				update = PeerUpdate{
 					NodeID: id,

@@ -73,21 +73,21 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	peerDB, err := newPeerDB(db, min(options.maxOutbound(),100))
+	peerDB, err := newPeerDB(db, min(options.maxOutbound(), 100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
 	var initialAddrs []NodeAddress
 	for addr := range peerDB.All() {
-		if err := addr.Validate(); err!=nil {
+		if err := addr.Validate(); err != nil {
 			logger.Error("peerDB: bad address", "addr", addr.String(), "err", err)
 		}
-		initialAddrs = append(initialAddrs,addr)
+		initialAddrs = append(initialAddrs, addr)
 	}
 	selfID := privKey.Public().NodeID()
 	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
 	// initialAddrs will stay around util pex table fills the whole "extra" cache.
-	peerManager.PushPex(selfID,initialAddrs)
+	peerManager.PushPex(selfID, initialAddrs)
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -125,7 +125,7 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 }
 
 func (r *Router) Connected(id types.NodeID) bool {
-	_, ok := GetAny(r.peerManager.Conns(),id)
+	_, ok := GetAny(r.peerManager.Conns(), id)
 	return ok
 }
 
@@ -261,8 +261,10 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 		s.Spawn(func() error {
 			const upgradeInterval = time.Minute
 			for {
-				r.peerManager.PushUpgradePermit()	
-				if err := utils.Sleep(ctx,upgradeInterval); err!=nil { return err }
+				r.peerManager.PushUpgradePermit()
+				if err := utils.Sleep(ctx, upgradeInterval); err != nil {
+					return err
+				}
 			}
 		})
 		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxDials())
@@ -302,7 +304,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							// will end up in a bounded cache, rather than main index. That's fine because
 							// we use the handshake pex data only for a local search,
 							// which is not supposed to be exhaustive.
-							if err := r.AddAddrs(id,hConn.msg.PexAddrs); err != nil {
+							if err := r.AddAddrs(id, hConn.msg.PexAddrs); err != nil {
 								return fmt.Errorf("r.AddAddrs(): %w", err)
 							}
 						}
@@ -317,7 +319,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 						return err
 					}
 					dialAddrRaw := hConn.conn.RemoteAddr()
-					dialAddr := NodeAddress{NodeID:id, Hostname:dialAddrRaw.Addr().String(), Port:dialAddrRaw.Port()}
+					dialAddr := NodeAddress{NodeID: id, Hostname: dialAddrRaw.Addr().String(), Port: dialAddrRaw.Port()}
 					if err := r.runConn(ctx, hConn, info, utils.Some(dialAddr)); err != nil {
 						return fmt.Errorf("r.runConn(): %w", err)
 					}
@@ -394,15 +396,15 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 
 	endpointSet := map[Endpoint]struct{}{}
 	// TODO(gprusak): resolve all addresses in parallel.
-	for _,addr := range addrs { 
+	for _, addr := range addrs {
 		endpoints, err := addr.Resolve(resolveCtx)
-		if err!=nil {
-			r.logger.Info("address.Resolve() failed","addr",addr,"err",err)
-		} else if len(endpoints)>0 {
+		if err != nil {
+			r.logger.Info("address.Resolve() failed", "addr", addr, "err", err)
+		} else if len(endpoints) > 0 {
 			endpointSet[endpoints[0]] = struct{}{}
 		}
 	}
-	for endpoint,_ := range endpointSet {
+	for endpoint, _ := range endpointSet {
 		dialCtx := ctx
 		if d, ok := r.options.DialTimeout.Get(); ok {
 			var cancel context.CancelFunc

@@ -96,7 +96,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		err := nodes[i].Router.peerManager.PushPex(nodes[i].NodeID,utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		err := nodes[i].Router.peerManager.PushPex(nodes[i].NodeID, utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
@@ -111,7 +111,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			err := source.Router.peerManager.PushPex(source.NodeID,utils.Slice(target.NodeAddress))
+			err := source.Router.peerManager.PushPex(source.NodeID, utils.Slice(target.NodeAddress))
 			require.NoError(t, err)
 		}
 	}
@@ -122,7 +122,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 				if target.NodeID == source.NodeID {
 					continue
 				}
-				if _, ok := GetAny(conns,target.NodeID); !ok {
+				if _, ok := GetAny(conns, target.NodeID); !ok {
 					return false
 				}
 			}
@@ -234,7 +234,7 @@ type TestNode struct {
 func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *ConnV2) {
 	id := conn.Info().connID()
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		return conns.GetOpt(id)!=utils.Some(conn)
+		return conns.GetOpt(id) != utils.Some(conn)
 	}); err != nil {
 		panic(err)
 	}
@@ -250,7 +250,7 @@ func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
 
 func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		_, ok := GetAny(conns,target)
+		_, ok := GetAny(conns, target)
 		return ok == status
 	}); err != nil {
 		panic(err)
@@ -258,13 +258,13 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	_ = n.Router.peerManager.PushPex(target.NodeID,utils.Slice(target.NodeAddress))
+	_ = n.Router.peerManager.PushPex(target.NodeID, utils.Slice(target.NodeAddress))
 	n.WaitForConn(ctx, target.NodeID, true)
 	target.WaitForConn(ctx, n.NodeID, true)
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
-	for _,conn := range GetAll(n.Router.peerManager.Conns(),target) {
+	for _, conn := range GetAll(n.Router.peerManager.Conns(), target) {
 		conn.Close()
 	}
 	n.WaitForConn(ctx, target, false)

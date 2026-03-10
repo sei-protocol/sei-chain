@@ -327,7 +327,7 @@ func (r *reactorTestSuite) seedAddrs(t *testing.T) {
 	for i := range r.total - 1 {
 		n1 := r.network.Node(r.nodes[i])
 		n2 := r.network.Node(r.nodes[i+1])
-		require.NoError(t, n1.Router.AddAddrs(n2.NodeID,utils.Slice(n2.NodeAddress)))
+		require.NoError(t, n1.Router.AddAddrs(n2.NodeID, utils.Slice(n2.NodeAddress)))
 	}
 }
 
