@@ -16,6 +16,7 @@ type AppOptions interface {
 const (
 	flagRSDBDirectory          = "receipt-store.db-directory"
 	flagRSBackend              = "receipt-store.rs-backend"
+	flagRSMisnamedBackend      = "receipt-store.backend"
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSKeepRecent           = "receipt-store.keep-recent"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
@@ -62,6 +63,9 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 // ReadReceiptConfig reads receipt store config from app options (e.g. TOML / Viper).
 func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 	cfg := DefaultReceiptStoreConfig()
+	if v := opts.Get(flagRSMisnamedBackend); v != nil {
+		return cfg, fmt.Errorf("unsupported receipt-store config key %q; use %q instead", flagRSMisnamedBackend, flagRSBackend)
+	}
 	if v := opts.Get(flagRSDBDirectory); v != nil {
 		dbDirectory, err := cast.ToStringE(v)
 		if err != nil {
