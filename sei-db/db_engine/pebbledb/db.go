@@ -30,8 +30,6 @@ type pebbleDB struct {
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
-// TODO create a config struct for this!
-
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
 func Open(
 	ctx context.Context,

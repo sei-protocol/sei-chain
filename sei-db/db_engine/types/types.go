@@ -20,19 +20,6 @@ type IterOptions struct {
 	UpperBound []byte
 }
 
-// OpenOptions configures opening a DB.
-//
-// NOTE: This is intentionally minimal today. Most performance-critical knobs
-// (cache size, memtable sizing, compaction settings, etc.) are currently owned by
-// the backend implementations. If/when we need per-node tuning, we can extend
-// this struct or add engine-specific options.
-//
-// Comparer is optional; when set it must be compatible with the underlying
-// engine (e.g. *pebble.Comparer for PebbleDB).
-type OpenOptions struct { // TODO remove if unused
-	Comparer any
-}
-
 // BatchGetResult describes the result of a single key lookup within a BatchGet call.
 type BatchGetResult struct {
 	// The value for the given key.

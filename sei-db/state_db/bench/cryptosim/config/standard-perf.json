@@ -1,0 +1,16 @@
+{
+    "Comment": "The standardized parameters for performance and longevity testing.",
+    "DataDir": "data",
+    "MinimumNumberOfColdAccounts": 1000000,
+    "MinimumNumberOfDormantAccounts": 100000000,
+    "AccountDBConfig": {
+        "CacheSize": 1073741824
+    },
+    "CodeDBConfig": {
+        "CacheSize": 1073741824
+    },
+    "StorageDBConfig": {
+        "CacheSize": 4294967296
+    }
+}
+

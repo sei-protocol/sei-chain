@@ -60,6 +60,8 @@ func (ep *elasticPool) Submit(ctx context.Context, task func()) (err error) {
 	case ep.workQueue <- task:
 		return nil
 	default:
+		// We hit this case when all workers are busy. Under standard operation, this should
+		// be fairly rare, but it's not catastrophic if it happens.
 		go task()
 		return nil
 	}
