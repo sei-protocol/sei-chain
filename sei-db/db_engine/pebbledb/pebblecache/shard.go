@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -30,6 +31,9 @@ type shard struct {
 
 	// The maximum size of this cache, in bytes.
 	maxSize int
+
+	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
+	metrics *CacheMetrics
 }
 
 // The result of a read from the underlying database.
@@ -106,18 +110,23 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 			s.gcQueue.Touch(key)
 		}
 		s.lock.Unlock()
+		s.metrics.reportCacheHits(1)
 		return value, true, nil
 	case statusDeleted:
 		if updateLru {
 			s.gcQueue.Touch(key)
 		}
 		s.lock.Unlock()
+		s.metrics.reportCacheHits(1)
 		return nil, false, nil
 	case statusScheduled:
 		// Another goroutine initiated a read, wait for that read to finish.
 		valueChan := entry.valueChan
 		s.lock.Unlock()
+		s.metrics.reportCacheMisses(1)
+		startTime := time.Now()
 		result, err := threading.InterruptiblePull(s.ctx, valueChan)
+		s.metrics.reportCacheMissLatency(time.Since(startTime))
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
@@ -132,6 +141,8 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 		valueChan := make(chan readResult, 1)
 		entry.valueChan = valueChan
 		s.lock.Unlock()
+		s.metrics.reportCacheMisses(1)
+		startTime := time.Now()
 		err := s.readPool.Submit(s.ctx, func() {
 			value, found, readErr := s.readFunc(key)
 			entry.injectValue(key, readResult{value: value, found: found, err: readErr})
@@ -140,6 +151,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
 		}
 		result, err := threading.InterruptiblePull(s.ctx, valueChan)
+		s.metrics.reportCacheMissLatency(time.Since(startTime))
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
@@ -207,6 +219,7 @@ type pendingRead struct {
 // BatchGet reads a batch of keys from the shard. Results are written into the provided map.
 func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 	pending := make([]pendingRead, 0, len(keys))
+	var hits int64
 
 	s.lock.Lock()
 	for key := range keys {
@@ -215,8 +228,10 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		switch entry.status {
 		case statusAvailable:
 			keys[key] = types.BatchGetResult{Value: entry.value, Found: true}
+			hits++
 		case statusDeleted:
 			keys[key] = types.BatchGetResult{Found: false}
+			hits++
 		case statusScheduled:
 			pending = append(pending, pendingRead{
 				key:       key,
@@ -239,6 +254,16 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		}
 	}
 	s.lock.Unlock()
+
+	if hits > 0 {
+		s.metrics.reportCacheHits(hits)
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	s.metrics.reportCacheMisses(int64(len(pending)))
+	startTime := time.Now()
 
 	for i := range pending {
 		if pending[i].needsSchedule {
@@ -268,9 +293,8 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		}
 	}
 
-	if len(pending) > 0 {
-		go s.bulkInjectValues(pending)
-	}
+	s.metrics.reportCacheMissLatency(time.Since(startTime))
+	go s.bulkInjectValues(pending)
 
 	return nil
 }
@@ -308,6 +332,13 @@ func (s *shard) evictUnlocked() {
 		next := s.gcQueue.PopLeastRecentlyUsed()
 		delete(s.data, next)
 	}
+}
+
+// getSizeInfo returns the current size (bytes) and entry count under the shard lock.
+func (s *shard) getSizeInfo() (bytes int, entries int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.gcQueue.GetTotalSize(), s.gcQueue.GetCount()
 }
 
 // Set sets the value for the given key.

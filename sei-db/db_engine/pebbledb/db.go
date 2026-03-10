@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
@@ -17,8 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/pebblecache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
-
-const metricsScrapeInterval = 10 * time.Second
 
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
@@ -107,6 +104,16 @@ func Open(
 		return cloned, true, nil
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	if config.EnableMetrics {
+		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
+	}
+
+	var cacheName string
+	if config.EnableMetrics {
+		cacheName = filepath.Base(config.DataDir)
+	}
+
 	// A high level cache per key (as opposed to the low level pebble block cache).
 	cache, err := pebblecache.NewCache(
 		ctx,
@@ -114,14 +121,12 @@ func Open(
 		8,
 		config.CacheSize,
 		readPool,
-		miscPool)
+		miscPool,
+		cacheName,
+		config.MetricsScrapeInterval)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create flatcache: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	if config.EnableMetrics {
-		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), metricsScrapeInterval)
 	}
 
 	return &pebbleDB{

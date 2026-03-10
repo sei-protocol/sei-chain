@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -28,7 +29,8 @@ type cache struct {
 	miscPool threading.Pool
 }
 
-// Creates a new Cache.
+// Creates a new Cache. If cacheName is non-empty, OTel metrics are enabled and the
+// background size scrape runs every metricsScrapeInterval.
 func NewCache(
 	ctx context.Context,
 	// A function that reads a value from the database.
@@ -41,6 +43,10 @@ func NewCache(
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
+	// Name used as the "cache" attribute on metrics. Empty string disables metrics.
+	cacheName string,
+	// How often to scrape cache size for metrics. Ignored if cacheName is empty.
+	metricsScrapeInterval time.Duration,
 ) (Cache, error) {
 	if shardCount <= 0 || (shardCount&(shardCount-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
@@ -66,13 +72,31 @@ func NewCache(
 		}
 	}
 
-	return &cache{
+	c := &cache{
 		ctx:          ctx,
 		shardManager: shardManager,
 		shards:       shards,
 		readPool:     readPool,
 		miscPool:     miscPool,
-	}, nil
+	}
+
+	if cacheName != "" {
+		metrics := newCacheMetrics(ctx, cacheName, metricsScrapeInterval, c.getCacheSizeInfo)
+		for _, s := range c.shards {
+			s.metrics = metrics
+		}
+	}
+
+	return c, nil
+}
+
+func (c *cache) getCacheSizeInfo() (bytes int64, entries int64) {
+	for _, s := range c.shards {
+		b, e := s.getSizeInfo()
+		bytes += int64(b)
+		entries += int64(e)
+	}
+	return bytes, entries
 }
 
 func (c *cache) BatchSet(updates []CacheUpdate) error {

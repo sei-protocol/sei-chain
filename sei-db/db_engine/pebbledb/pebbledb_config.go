@@ -2,6 +2,7 @@ package pebbledb
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
@@ -18,15 +19,18 @@ type PebbleDBConfig struct {
 	BlockCacheSize int
 	// Whether to enable metrics.
 	EnableMetrics bool
+	// How often to scrape metrics (pebble internals + cache size).
+	MetricsScrapeInterval time.Duration
 }
 
 // Default configuration for the PebbleDB database.
 func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
-		CacheSize:       512 * unit.MB,
-		CacheShardCount: 8,
-		BlockCacheSize:  512 * unit.MB,
-		EnableMetrics:   true,
+		CacheSize:             512 * unit.MB,
+		CacheShardCount:       8,
+		BlockCacheSize:        512 * unit.MB,
+		EnableMetrics:         true,
+		MetricsScrapeInterval: 10 * time.Second,
 	}
 }
 
@@ -43,6 +47,9 @@ func (c *PebbleDBConfig) Validate() error {
 	}
 	if c.BlockCacheSize <= 0 {
 		return fmt.Errorf("block cache size must be greater than 0")
+	}
+	if c.EnableMetrics && c.MetricsScrapeInterval <= 0 {
+		return fmt.Errorf("metrics scrape interval must be positive when metrics are enabled")
 	}
 	return nil
 }
