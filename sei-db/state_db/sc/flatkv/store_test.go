@@ -45,7 +45,7 @@ func memiavlStorageKey(addr Address, slot Slot) []byte {
 // makeChangeSet creates a changeset
 func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 	return &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: key, Value: value, Delete: delete},
@@ -204,7 +204,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: pairs,
 		},
@@ -228,7 +228,7 @@ func TestStoreEmptyChangesets(t *testing.T) {
 
 	// Empty changeset should not cause issues
 	emptyCS := &proto.NamedChangeSet{
-		Name:      "empty",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: nil},
 	}
 

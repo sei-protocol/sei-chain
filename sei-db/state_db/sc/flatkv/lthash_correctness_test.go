@@ -41,6 +41,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	scanDB(s.accountDB)
 	scanDB(s.codeDB)
 	scanDB(s.storageDB)
+	scanDB(s.legacyDB)
 
 	result, _ := lthash.ComputeLtHash(nil, pairs)
 	return result
@@ -668,4 +669,24 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	require.True(t, s2.workingLtHash.Equal(scan),
 		fmt.Sprintf("LtHash mismatch after reopen:\n  persisted checksum: %x\n  fullscan  checksum: %x",
 			s2.workingLtHash.Checksum(), scan.Checksum()))
+}
+
+// =============================================================================
+// fullScanLtHash Includes legacyDB (W-P0-11)
+// =============================================================================
+
+func TestFullScanLtHashIncludesLegacy(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xAA}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
+	cs := makeChangeSet(legacyKey, []byte{0x42}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	groundTruth := fullScanLtHash(t, s)
+	require.Equal(t, s.workingLtHash.Checksum(), groundTruth.Checksum(),
+		"full scan including legacyDB should match incremental LtHash")
 }
