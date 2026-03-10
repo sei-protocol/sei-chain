@@ -7,6 +7,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	smetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 const cacheMeterName = "seidb_pebblecache"
@@ -70,11 +72,7 @@ func newCacheMetrics(
 		"pebblecache_miss_latency",
 		metric.WithDescription("Time taken to resolve a cache miss from the backing store"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(
-			0.00001, 0.000025, 0.00005, 0.0001, 0.00025, 0.0005, // 10μs–500μs
-			0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, // 1ms–50ms
-			0.1, 0.25, 0.5, 1, // 100ms–1s
-		),
+		metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 	)
 
 	cm := &CacheMetrics{
