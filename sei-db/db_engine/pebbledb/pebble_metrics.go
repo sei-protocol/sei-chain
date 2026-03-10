@@ -1,7 +1,4 @@
-// Package metrics provides OpenTelemetry instruments and scrapers for Pebble DB metrics,
-// allowing any Pebble instance to export compaction, flush, cache, and storage metrics
-// to OTel-compatible backends (e.g., Prometheus).
-package metrics
+package pebbledb
 
 import (
 	"context"

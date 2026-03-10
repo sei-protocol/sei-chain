@@ -13,7 +13,6 @@ import (
 	"github.com/cockroachdb/pebble/v2/sstable"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/pebblecache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -122,7 +121,7 @@ func Open(
 
 	ctx, cancel := context.WithCancel(ctx)
 	if config.EnableMetrics {
-		metrics.NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), metricsScrapeInterval)
+		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), metricsScrapeInterval)
 	}
 
 	return &pebbleDB{
