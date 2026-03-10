@@ -155,7 +155,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   32,
+		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
