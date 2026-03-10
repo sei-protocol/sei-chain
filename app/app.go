@@ -749,7 +749,7 @@ func New(
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
-			logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path (sequential)")
+			logger.Info("benchmark: Giga Executor is ENABLED - using new EVM execution path (sequential)")
 		}
 	} else {
 		logger.Info("benchmark: Giga Executor is DISABLED - using default GETH interpreter")
@@ -1546,71 +1546,89 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	firstCosmosSeen := false
 	for txIndex, tx := range txs {
 		if app.GetEVMMsg(typedTxs[txIndex]) != nil {
+			if firstCosmosSeen {
+				ctx.Logger().Error("Giga OCC cannot execute block due to tx ordering, falling back to V2")
+				// Oops! This isn't "all EVM txs, then all Cosmos txs" - we need to fallback to V2.
+				return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
+			}
+
 			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex]))
 		} else {
+			if !firstCosmosSeen {
+				firstCosmosSeen = true
+			}
 			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex]))
 		}
 	}
 
-	// Run EVM txs against a cache so we can discard all changes on fallback.
-	evmCtx, evmCache := app.CacheContext(ctx)
-
-	// Cache block-level constants (identical for all txs in this block).
-	// Must use evmCtx (not ctx) because giga KV stores are registered in CacheContext.
-	cache, cacheErr := newGigaBlockCache(evmCtx, &app.GigaEvmKeeper)
-	if cacheErr != nil {
-		ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
-		return nil, ctx
-	}
-
-	// Create OCC scheduler with giga executor deliverTx capturing the cache.
-	evmScheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.makeGigaDeliverTx(cache),
-	)
-
-	evmBatchResult, evmSchedErr := evmScheduler.ProcessAll(evmCtx, evmEntries)
-	if evmSchedErr != nil {
-		// TODO: DeliverTxBatch panics in this case
-		// TODO: detect if it was interop, and use v2 if so
-		ctx.Logger().Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
-		return nil, ctx
-	}
-
+	var evmBatchResult []abci.ResponseDeliverTx
 	fallbackToV2 := false
-	for _, r := range evmBatchResult {
-		if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
-			fallbackToV2 = true
-			break
+
+	if len(evmEntries) > 0 {
+		// Run EVM txs against a cache so we can discard all changes on fallback.
+		evmCtx, evmCache := app.CacheContext(ctx)
+
+		// Cache block-level constants (identical for all txs in this block).
+		// Must use evmCtx (not ctx) because giga KV stores are registered in CacheContext.
+		cache, cacheErr := newGigaBlockCache(evmCtx, &app.GigaEvmKeeper)
+		if cacheErr != nil {
+			ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
+			return nil, ctx
+		}
+
+		// Create OCC scheduler with giga executor deliverTx capturing the cache.
+		evmScheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.makeGigaDeliverTx(cache),
+		)
+
+		var evmSchedErr error
+		evmBatchResult, evmSchedErr = evmScheduler.ProcessAll(evmCtx, evmEntries)
+		if evmSchedErr != nil {
+			ctx.Logger().Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
+			return nil, ctx
+		}
+
+		for _, r := range evmBatchResult {
+			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
+				fallbackToV2 = true
+				break
+			}
+		}
+
+		if fallbackToV2 {
+			metrics.IncrGigaFallbackToV2Counter()
+			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
+			evmBatchResult = nil
+			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
+			for txIndex, tx := range txs {
+				v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
+			}
+		} else {
+			// Commit EVM cache to main store before processing non-EVM txs.
+			evmCache.Write()
+			evmCtx.GigaMultiStore().WriteGiga()
 		}
 	}
 
-	if fallbackToV2 {
-		metrics.IncrGigaFallbackToV2Counter()
-		// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
-		evmBatchResult = nil
-		v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
-		for txIndex, tx := range txs {
-			v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
-		}
-	} else {
-		// Commit EVM cache to main store before processing non-EVM txs.
-		evmCache.Write()
-		evmCtx.GigaMultiStore().WriteGiga()
-	}
+	var v2BatchResult []abci.ResponseDeliverTx
 
-	v2Scheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.DeliverTx,
-	)
-	v2BatchResult, v2SchedErr := v2Scheduler.ProcessAll(ctx, v2Entries)
-	if v2SchedErr != nil {
-		ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
-		return nil, ctx
+	if len(v2Entries) > 0 {
+		v2Scheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.DeliverTx,
+		)
+		var v2SchedErr error
+		v2BatchResult, v2SchedErr = v2Scheduler.ProcessAll(ctx, v2Entries)
+		if v2SchedErr != nil {
+			ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
+			return nil, ctx
+		}
 	}
 
 	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
