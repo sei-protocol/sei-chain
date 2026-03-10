@@ -104,12 +104,11 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				if closeErr := cosmosCommitter.Close(); closeErr != nil {
-					cs.logger.Error("failed to close cosmos committer during FlatKV error cleanup", "err", closeErr)
-				}
-				return nil, fmt.Errorf("failed to load readonly FlatKV version: %w", err)
+				cs.logger.Error("FlatKV unavailable for readonly load, EVM data will not be served",
+					"version", targetVersion, "err", err)
+			} else {
+				newStore.evmCommitter = evmStore
 			}
-			newStore.evmCommitter = evmStore
 		}
 		return newStore, nil
 	}
