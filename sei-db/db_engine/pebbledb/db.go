@@ -46,11 +46,9 @@ func Open(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	// Internal pebbleDB cache, used to cache pages in memory. // TODO verify accuracy of this statement
-	pebbleCache := pebble.NewCache(int64(config.PageCacheSize))
+	// Internal pebbleDB block cache, used to cache uncompressed SSTable data blocks in memory.
+	pebbleCache := pebble.NewCache(int64(config.BlockCacheSize))
 	defer pebbleCache.Unref()
-
-	// TODO potentially expose more options here...
 
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
@@ -110,7 +108,7 @@ func Open(
 		return cloned, true, nil
 	}
 
-	// A high level cache per key (as opposed to the low level pebble page cache).
+	// A high level cache per key (as opposed to the low level pebble block cache).
 	cache, err := pebblecache.NewCache(
 		ctx,
 		readFunction,

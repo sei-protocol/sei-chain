@@ -14,8 +14,8 @@ type PebbleDBConfig struct {
 	CacheSize int
 	// The number of shards in the key-value cache. Must be a power of two and greater than 0.
 	CacheShardCount int
-	// The size of pebbleDB's internal page cache, in bytes.
-	PageCacheSize int
+	// The size of pebbleDB's internal block cache, in bytes.
+	BlockCacheSize int
 	// Whether to enable metrics.
 	EnableMetrics bool
 }
@@ -25,7 +25,7 @@ func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
 		CacheSize:       512 * unit.MB,
 		CacheShardCount: 8,
-		PageCacheSize:   512 * unit.MB,
+		BlockCacheSize:  512 * unit.MB,
 		EnableMetrics:   true,
 	}
 }
@@ -41,8 +41,8 @@ func (c *PebbleDBConfig) Validate() error {
 	if c.CacheSize <= 0 {
 		return fmt.Errorf("cache size must be greater than 0")
 	}
-	if c.PageCacheSize <= 0 {
-		return fmt.Errorf("page cache size must be greater than 0")
+	if c.BlockCacheSize <= 0 {
+		return fmt.Errorf("block cache size must be greater than 0")
 	}
 	return nil
 }

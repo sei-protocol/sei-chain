@@ -12,7 +12,7 @@ func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
 	return pebbledb.PebbleDBConfig{
 		CacheSize:       16 * unit.MB,
 		CacheShardCount: 8,
-		PageCacheSize:   16 * unit.MB,
+		BlockCacheSize:  16 * unit.MB,
 		EnableMetrics:   false,
 	}
 }

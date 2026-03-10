@@ -13,7 +13,7 @@ func DefaultTestConfig(t *testing.T) PebbleDBConfig {
 
 	cfg.DataDir = t.TempDir()
 	cfg.CacheSize = 16 * unit.MB
-	cfg.PageCacheSize = 16 * unit.MB
+	cfg.BlockCacheSize = 16 * unit.MB
 	cfg.EnableMetrics = false
 
 	return cfg
