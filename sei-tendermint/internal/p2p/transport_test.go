@@ -64,7 +64,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 					x := makeRouter(logger, rng)
 					// Establish a connection.
 					addr := TestAddress(r)
-					tcpConn, err := x.dial(ctx, addr)
+					tcpConn, err := x.dial(ctx, utils.Slice(addr))
 					if err != nil {
 						return fmt.Errorf("tcp.dial(): %w", err)
 					}
@@ -123,7 +123,7 @@ func TestRouter_Listen(t *testing.T) {
 
 				x := makeRouter(logger, rng)
 				addr := TestAddress(r)
-				tcpConn, err := x.dial(ctx, addr)
+				tcpConn, err := x.dial(ctx, utils.Slice(addr))
 				if err != nil {
 					return fmt.Errorf("tcp.dial(): %v", err)
 				}
@@ -153,7 +153,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 
 		x := makeRouter(logger, rng)
 		addr := TestAddress(r)
-		tcpConn, err := x.dial(ctx, addr)
+		tcpConn, err := x.dial(ctx, utils.Slice(addr))
 		if err != nil {
 			return fmt.Errorf("tcp.dial(): %v", err)
 		}
@@ -187,7 +187,7 @@ func TestHandshake_Context(t *testing.T) {
 		s.Spawn(func() error {
 			// One connection end tries to handshake.
 			addr := TestAddress(a)
-			tcpConn, err := b.dial(ctx, addr)
+			tcpConn, err := b.dial(ctx, utils.Slice(addr))
 			if err != nil {
 				return fmt.Errorf("tcp.dial(): %v", err)
 			}

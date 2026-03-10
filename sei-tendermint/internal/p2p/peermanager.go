@@ -226,6 +226,7 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 					return addrs, nil
 				}
 			}
+			m.logger.Info("no addrs available, WAITING")
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
 			}
@@ -353,7 +354,7 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 // DEPRECATED, currently returns id of peers that we are connected to.
 func (m *peerManager[C]) Peers() []types.NodeID {
 	idSet := map[types.NodeID]struct{}{}
-	for id, _ := range m.Conns().All() {
+	for id := range m.Conns().All() {
 		idSet[id.NodeID] = struct{}{}
 	}
 	ids := make([]types.NodeID, 0, len(idSet))

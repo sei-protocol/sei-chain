@@ -257,6 +257,8 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 
 func (r *Router) dialPeersRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		
+		r.logger.Info("dialPeersRoutine")
 		// Task feeding the upgrade permit to peer manager.
 		s.Spawn(func() error {
 			const upgradeInterval = time.Minute
@@ -272,6 +274,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 			if err := limiter.Wait(ctx); err != nil {
 				return err
 			}
+			r.logger.Info("StartDial")
 			addrs, err := r.peerManager.StartDial(ctx)
 			if err != nil {
 				return err
@@ -279,6 +282,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 			id := addrs[0].NodeID
 			s.Spawn(func() error {
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					r.logger.Info("dialing","addrs",addrs)
 					tcpConn, err := r.dial(ctx, addrs)
 					if err != nil {
 						r.peerManager.DialFailed(id)
@@ -417,17 +421,10 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 		}
 		return nil
 	}))
-	for endpoint, _ := range endpointSet {
-		dialCtx := ctx
-		if d, ok := r.options.DialTimeout.Get(); ok {
-			var cancel context.CancelFunc
-			dialCtx, cancel = context.WithTimeout(dialCtx, d)
-			defer cancel()
-		}
-		if err := endpoint.Validate(); err != nil {
-			return tcp.Conn{}, err
-		}
-		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
+	for endpoint := range endpointSet {
+		c,err := utils.WithOptTimeout1(ctx, r.options.DialTimeout, func(ctx context.Context) (tcp.Conn,error) {
+			return tcp.Dial(ctx, endpoint.AddrPort)
+		})
 		if err != nil {
 			continue
 		}
