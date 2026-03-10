@@ -28,6 +28,7 @@ const (
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
 	FlagSCReadMode                   = "state-commit.sc-read-mode"
+	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -111,6 +112,8 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		}
 		scConfig.ReadMode = parsedRM
 	}
+
+	scConfig.EnableLatticeHash = cast.ToBool(appOpts.Get(FlagSCEnableLatticeHash))
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)

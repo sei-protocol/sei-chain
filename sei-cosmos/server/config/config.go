@@ -406,13 +406,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 		StateCommit: config.StateCommitConfig{
-			Enable:                    v.GetBool("state-commit.sc-enable"),
-			Directory:                 v.GetString("state-commit.sc-directory"),
-			WriteMode:                 config.WriteMode(v.GetString("state-commit.sc-write-mode")),
-			ReadMode:                  config.ReadMode(v.GetString("state-commit.sc-read-mode")),
+			Enable:                     v.GetBool("state-commit.sc-enable"),
+			Directory:                  v.GetString("state-commit.sc-directory"),
+			WriteMode:                  config.WriteMode(v.GetString("state-commit.sc-write-mode")),
+			ReadMode:                   config.ReadMode(v.GetString("state-commit.sc-read-mode")),
 			HistoricalProofMaxInFlight: v.GetInt("state-commit.sc-historical-proof-max-inflight"),
 			HistoricalProofRateLimit:   v.GetFloat64("state-commit.sc-historical-proof-rate-limit"),
 			HistoricalProofBurst:       v.GetInt("state-commit.sc-historical-proof-burst"),
+			EnableLatticeHash:          v.GetBool("state-commit.sc-enable-lattice-hash"),
 			MemIAVLConfig: memiavl.Config{
 				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
 				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),

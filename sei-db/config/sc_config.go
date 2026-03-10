@@ -7,6 +7,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
+const (
+	DefaultSCHistoricalProofMaxInFlight = 1
+	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
+	DefaultSCHistoricalProofBurst       = 1
+)
+
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
 	// Enable defines if the state-commit(SeiDB) should be enabled.
@@ -26,12 +32,15 @@ type StateCommitConfig struct {
 	// WriteMode defines the write routing mode for EVM data
 	// Valid values: cosmos_only, dual_write, split_write, evm_only
 	// defaults to cosmos_only
-	WriteMode WriteMode `mapstructure:"write_mode"`
+	WriteMode WriteMode `mapstructure:"write-mode"`
 
 	// ReadMode defines the read routing mode for EVM data
 	// Valid values: cosmos_only, evm_first, split_read
 	// defaults to cosmos_only
-	ReadMode ReadMode `mapstructure:"read_mode"`
+	ReadMode ReadMode `mapstructure:"read-mode"`
+
+	// EnableLatticeHash controls whether lattice hash will be participating in final app hash or not
+	EnableLatticeHash bool `mapstructure:"enable-lattice-hash"`
 
 	// HistoricalProofMaxInFlight defines the maximum number of concurrent historical proof queries.
 	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
@@ -52,21 +61,25 @@ type StateCommitConfig struct {
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:        true,
-		WriteMode:     CosmosOnlyWrite,
-		ReadMode:      CosmosOnlyRead,
-		MemIAVLConfig: memiavl.DefaultConfig(),
-		FlatKVConfig:  flatkv.DefaultConfig(),
+		Enable:                     true,
+		WriteMode:                  CosmosOnlyWrite,
+		ReadMode:                   CosmosOnlyRead,
+		EnableLatticeHash:          false,
+		MemIAVLConfig:              memiavl.DefaultConfig(),
+		FlatKVConfig:               flatkv.DefaultConfig(),
+		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
+		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
+		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 	}
 }
 
 // Validate checks if the StateCommitConfig is valid
 func (c StateCommitConfig) Validate() error {
 	if !c.WriteMode.IsValid() {
-		return fmt.Errorf("invalid write_mode: %s", c.WriteMode)
+		return fmt.Errorf("invalid write-mode: %s", c.WriteMode)
 	}
 	if !c.ReadMode.IsValid() {
-		return fmt.Errorf("invalid read_mode: %s", c.ReadMode)
+		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
 	}
 	return nil
 }
