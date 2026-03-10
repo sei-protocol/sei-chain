@@ -1,6 +1,8 @@
 package flatkv
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
@@ -53,25 +55,86 @@ type Config struct {
 
 	// MetadataDBConfig defines the configuration for the metadata database.
 	MetadataDBConfig pebbledb.PebbleDBConfig
+
+	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
+	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
+	ReaderThreadsPerCore float64
+
+	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
+	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
+	ReaderConstantThreadCount int
+
+	// Controls the size of the queue for work sent to the read pool.
+	ReaderPoolQueueSize int
+
+	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
+	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
+	MiscPoolThreadsPerCore float64
+
+	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
+	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
+	MiscConstantThreadCount int
 }
 
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
-		Fsync:               false,
-		AsyncWriteBuffer:    0,
-		SnapshotInterval:    DefaultSnapshotInterval,
-		SnapshotKeepRecent:  DefaultSnapshotKeepRecent,
-		EnablePebbleMetrics: true,
-		AccountDBConfig:     pebbledb.DefaultConfig(),
-		CodeDBConfig:        pebbledb.DefaultConfig(),
-		StorageDBConfig:     pebbledb.DefaultConfig(),
-		LegacyDBConfig:      pebbledb.DefaultConfig(),
-		MetadataDBConfig:    pebbledb.DefaultConfig(),
+		Fsync:                     false,
+		AsyncWriteBuffer:          0,
+		SnapshotInterval:          DefaultSnapshotInterval,
+		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		EnablePebbleMetrics:       true,
+		AccountDBConfig:           pebbledb.DefaultConfig(),
+		CodeDBConfig:              pebbledb.DefaultConfig(),
+		StorageDBConfig:           pebbledb.DefaultConfig(),
+		LegacyDBConfig:            pebbledb.DefaultConfig(),
+		MetadataDBConfig:          pebbledb.DefaultConfig(),
+		ReaderThreadsPerCore:      2.0,
+		ReaderConstantThreadCount: 0,
+		ReaderPoolQueueSize:       1024,
+		MiscPoolThreadsPerCore:    4.0,
+		MiscConstantThreadCount:   0,
 	}
 
 	cfg.AccountDBConfig.CacheSize = unit.GB
 	cfg.StorageDBConfig.CacheSize = unit.GB * 4
 
 	return cfg
+}
+
+// Validate checks that the configuration is sane and returns an error if it is not.
+func (c *Config) Validate() error {
+	if c.AccountDBConfig.Validate() != nil {
+		return fmt.Errorf("account db config is invalid: %w", c.AccountDBConfig.Validate())
+	}
+	if c.CodeDBConfig.Validate() != nil {
+		return fmt.Errorf("code db config is invalid: %w", c.CodeDBConfig.Validate())
+	}
+	if c.StorageDBConfig.Validate() != nil {
+		return fmt.Errorf("storage db config is invalid: %w", c.StorageDBConfig.Validate())
+	}
+	if c.LegacyDBConfig.Validate() != nil {
+		return fmt.Errorf("legacy db config is invalid: %w", c.LegacyDBConfig.Validate())
+	}
+	if c.MetadataDBConfig.Validate() != nil {
+		return fmt.Errorf("metadata db config is invalid: %w", c.MetadataDBConfig.Validate())
+	}
+
+	if c.ReaderThreadsPerCore < 0 {
+		return fmt.Errorf("reader threads per core must be greater than 0")
+	}
+	if c.ReaderConstantThreadCount < 0 {
+		return fmt.Errorf("reader constant thread count must be greater than 0")
+	}
+	if c.ReaderPoolQueueSize < 0 {
+		return fmt.Errorf("reader pool queue size must be greater than 0")
+	}
+	if c.MiscPoolThreadsPerCore < 0 {
+		return fmt.Errorf("misc threads per core must be greater than 0")
+	}
+	if c.MiscConstantThreadCount < 0 {
+		return fmt.Errorf("misc constant thread count must be greater than 0")
+	}
+
+	return nil
 }

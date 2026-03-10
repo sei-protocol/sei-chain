@@ -15,10 +15,11 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test", EVMStoreName})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -64,10 +65,11 @@ func TestEmptyChangesets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -85,10 +87,11 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -122,10 +125,11 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -157,10 +161,11 @@ func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	// Commit a few versions
@@ -193,10 +198,11 @@ func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := 0; i < 3; i++ {
@@ -216,7 +222,8 @@ func TestGetVersions(t *testing.T) {
 	}
 	require.NoError(t, cs.Close())
 
-	cs2 := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	require.NoError(t, err)
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()

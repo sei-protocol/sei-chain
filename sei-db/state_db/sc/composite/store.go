@@ -50,7 +50,7 @@ func NewCompositeCommitStore(
 	homeDir string,
 	logger logger.Logger,
 	cfg config.StateCommitConfig,
-) *CompositeCommitStore {
+) (*CompositeCommitStore, error) {
 	// Always initialize the Cosmos backend (creates struct only, not opened)
 	cosmosCommitter := memiavl.NewCommitStore(homeDir, logger, cfg.MemIAVLConfig)
 
@@ -65,10 +65,14 @@ func NewCompositeCommitStore(
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
 		flatkvPath := filepath.Join(homeDir, "data", "flatkv")
-		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, logger, cfg.FlatKVConfig)
+		var err error
+		store.evmCommitter, err = flatkv.NewCommitStore(ctx, flatkvPath, logger, cfg.FlatKVConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
+		}
 	}
 
-	return store
+	return store, nil
 }
 
 // Initialize initializes the store with the given store names

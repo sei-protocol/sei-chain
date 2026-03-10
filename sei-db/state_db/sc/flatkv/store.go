@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -124,7 +125,14 @@ func NewCommitStore(
 	dbDir string,
 	log logger.Logger,
 	cfg *Config,
-) *CommitStore {
+) (*CommitStore, error) {
+
+	// TODO pre-populate file paths in sub-configs
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %w", err)
+	}
+
 	if log == nil {
 		log = logger.NewNopLogger()
 	}
@@ -132,8 +140,12 @@ func NewCommitStore(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	readPool := threading.NewFixedPool(ctx, "flatkv-read", 20, 1024) // TODO this should be configurable!
-	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", 20)
+	coreCount := runtime.NumCPU()
+	readPoolSize := int(cfg.ReaderThreadsPerCore*float64(coreCount) + float64(cfg.ReaderConstantThreadCount))
+	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
+
+	readPool := threading.NewFixedPool(ctx, "flatkv-read", readPoolSize, cfg.ReaderPoolQueueSize)
+	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", miscPoolSize)
 
 	return &CommitStore{
 		ctx:               ctx,
@@ -152,7 +164,7 @@ func NewCommitStore(
 		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 		readPool:          readPool,
 		miscPool:          miscPool,
-	}
+	}, nil
 }
 
 func (s *CommitStore) flatkvDir() string {

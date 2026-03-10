@@ -51,8 +51,11 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkv.Conf
 	}
 
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), config)
-	_, err := cs.LoadVersion(0)
+	cs, err := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
+	}
+	_, err = cs.LoadVersion(0)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
@@ -68,7 +71,10 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Composite commit store: %w", err)
+	}
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)

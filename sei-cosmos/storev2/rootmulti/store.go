@@ -92,7 +92,10 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
+	if err != nil {
+		panic(err)
+	}
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,
