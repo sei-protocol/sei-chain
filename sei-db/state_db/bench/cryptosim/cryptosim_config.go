@@ -135,6 +135,10 @@ type CryptoSimConfig struct {
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
+
+	// If true, the benchmark will generate receipts for each transaction in each block and
+	// feed those reciepts into the reciept store.
+	GenerateReceipts bool
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -174,6 +178,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
 		BlockChannelCapacity:              8,
+		GenerateReceipts:                  false,
 	}
 }
 

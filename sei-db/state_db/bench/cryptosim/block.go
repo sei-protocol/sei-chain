@@ -1,6 +1,10 @@
 package cryptosim
 
-import "iter"
+import (
+	"iter"
+
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+)
 
 // A simulated block of transactions.
 type block struct {
@@ -9,9 +13,11 @@ type block struct {
 	// The transactions in the block.
 	transactions []*transaction
 
-	// The block number. This is not currently preserved across benchmark restarts, but otherwise monotonically
-	// increases as you'd expect.
-	blockNumber int64
+	// If reciept generation is enabled, this will contain the receipts for each transaction in the block.
+	reciepts []*evmtypes.Receipt
+
+	// The block number.
+	blockNumber uint64
 
 	// The next account ID to be used when creating a new account, as of the end of this block.
 	nextAccountID int64
@@ -29,14 +35,21 @@ type block struct {
 func NewBlock(
 	config *CryptoSimConfig,
 	metrics *CryptosimMetrics,
-	blockNumber int64,
+	blockNumber uint64,
 	capacity int,
 ) *block {
+
+	var reciepts []*evmtypes.Receipt
+	if config.GenerateReceipts {
+		reciepts = make([]*evmtypes.Receipt, 0, capacity)
+	}
+
 	return &block{
 		config:       config,
 		blockNumber:  blockNumber,
 		transactions: make([]*transaction, 0, capacity),
 		metrics:      metrics,
+		reciepts:     reciepts,
 	}
 }
 
@@ -56,8 +69,13 @@ func (b *block) AddTransaction(txn *transaction) {
 	b.transactions = append(b.transactions, txn)
 }
 
+// Adds a receipt to the block.
+func (b *block) AddReceipt(receipt *evmtypes.Receipt) {
+	b.reciepts = append(b.reciepts, receipt)
+}
+
 // Returns the block number.
-func (b *block) BlockNumber() int64 {
+func (b *block) BlockNumber() uint64 {
 	return b.blockNumber
 }
 

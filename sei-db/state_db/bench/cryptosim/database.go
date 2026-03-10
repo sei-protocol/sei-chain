@@ -102,9 +102,10 @@ func (d *Database) TransactionCount() int64 {
 func (d *Database) MaybeFinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
+	nextBlockNumber uint64,
 ) (bool, error) {
 	if d.transactionsInCurrentBlock >= int64(d.config.TransactionsPerBlock) {
-		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, false)
+		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, nextBlockNumber, false)
 		if err != nil {
 			return false, fmt.Errorf("failed to finalize block: %w", err)
 		}
@@ -117,6 +118,7 @@ func (d *Database) MaybeFinalizeBlock(
 func (d *Database) FinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
+	nextBlockNumber uint64,
 	forceCommit bool,
 ) error {
 
@@ -133,7 +135,7 @@ func (d *Database) FinalizeBlock(
 
 	d.metrics.SetMainThreadPhase("finalizing")
 
-	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
+	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+3)
 	for key, value := range d.batch.Iterator() {
 		changeSets = append(changeSets, &proto.NamedChangeSet{
 			Name:      wrappers.EVMStoreName,
@@ -164,6 +166,16 @@ func (d *Database) FinalizeBlock(
 		}},
 	})
 
+	// Persist the block number counter in every batch.
+	blockNumberValue := make([]byte, 8)
+	binary.BigEndian.PutUint64(blockNumberValue, nextBlockNumber)
+	changeSets = append(changeSets, &proto.NamedChangeSet{
+		Name: wrappers.EVMStoreName,
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
+		}},
+	})
+
 	err := d.db.ApplyChangeSets(changeSets)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
@@ -190,10 +202,10 @@ func (d *Database) FinalizeBlock(
 }
 
 // Close the database and release any resources.
-func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
+func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64, nextBlockNumber uint64) error {
 	fmt.Printf("Committing final batch.\n")
 
-	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, true); err != nil {
+	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, nextBlockNumber, true); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 

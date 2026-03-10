@@ -40,6 +40,26 @@ var erc20TransferEventSignatureBytes = [hashLen]byte{
 	0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 }
 
+// BuildERC20TransferReceiptFromTxn produces a plausible successful ERC20 transfer receipt from a transaction.
+func BuildERC20TransferReceiptFromTxn(
+	crand *CannedRandom,
+	feeCollectionAccount []byte,
+	blockNumber uint64,
+	txIndex uint32,
+	txn *transaction,
+) (*evmtypes.Receipt, error) {
+	return BuildERC20TransferReceipt(
+		crand,
+		feeCollectionAccount,
+		txn.srcAccount,
+		txn.dstAccount,
+		txn.srcAccountSlot,
+		txn.dstAccountSlot,
+		txn.erc20Contract,
+		blockNumber,
+		txIndex)
+}
+
 // BuildERC20TransferReceipt produces a plausible successful ERC20 transfer receipt.
 //
 // The sender and receiver are derived from the address portion of the supplied storage keys, since cryptosim tracks
