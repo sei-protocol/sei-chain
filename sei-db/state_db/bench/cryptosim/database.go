@@ -80,10 +80,10 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// Signal that a transaction has been executed.
-func (d *Database) IncrementTransactionCount() {
-	d.transactionCount++
-	d.transactionsInCurrentBlock++
+// Signal that transactions have been added to the current block.
+func (d *Database) IncrementTransactionCount(count int64) {
+	d.transactionCount += count
+	d.transactionsInCurrentBlock += count
 }
 
 // Reset the transaction count. Useful for when changing test phases.
@@ -119,6 +119,8 @@ func (d *Database) FinalizeBlock(
 	nextErc20ContractID int64,
 	forceCommit bool,
 ) error {
+
+	d.metrics.SetMainThreadPhase("execute_block")
 
 	// Wait for all transactions in the current block to be executed.
 	if d.flushFunc != nil {
@@ -195,6 +197,17 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 
+	fmt.Printf("Closing database.\n")
+	err := d.db.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+
+	return nil
+}
+
+// Close the database and release any resources without finalizing the last batch.
+func (d *Database) CloseWithoutFinalizing() error {
 	fmt.Printf("Closing database.\n")
 	err := d.db.Close()
 	if err != nil {
