@@ -1,10 +1,14 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type TestSeiDBAppOpts struct {
@@ -13,6 +17,7 @@ type TestSeiDBAppOpts struct {
 func (t TestSeiDBAppOpts) Get(s string) interface{} {
 	defaultSCConfig := config.DefaultStateCommitConfig()
 	defaultSSConfig := config.DefaultStateStoreConfig()
+	defaultReceiptConfig := config.DefaultReceiptStoreConfig()
 	switch s {
 	case FlagSCEnable:
 		return defaultSCConfig.Enable
@@ -46,6 +51,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case receiptStoreBackendKey:
+		return defaultReceiptConfig.Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSWriteMode:
@@ -61,8 +68,11 @@ func TestNewDefaultConfig(t *testing.T) {
 	appOpts := TestSeiDBAppOpts{}
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
+	receiptConfig, err := config.ReadReceiptConfig(appOpts)
+	assert.NoError(t, err)
 	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
+	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
 }
 
 type mapAppOpts map[string]interface{}
@@ -84,4 +94,75 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
 	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}
+
+func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
+	assert.NoError(t, err)
+	assert.Equal(t, config.DefaultReceiptStoreConfig(), receiptConfig)
+}
+
+func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
+		receiptStoreBackendKey: "parquet",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
+	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
+}
+
+func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
+	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
+		receiptStoreDBDirectoryKey:          "/tmp/custom-receipt-db",
+		receiptStoreBackendKey:              "parquet",
+		receiptStoreAsyncWriteBufferKey:     7,
+		receiptStoreKeepRecentKey:           42,
+		receiptStorePruneIntervalSecondsKey: 9,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
+	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
+	assert.Equal(t, 42, receiptConfig.KeepRecent)
+	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
+}
+
+func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
+	_, err := config.ReadReceiptConfig(mapAppOpts{
+		receiptStoreBackendKey: "rocksdb",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported receipt-store backend")
+	assert.Contains(t, err.Error(), "rocksdb")
+}
+
+func TestReadReceiptStoreConfigUsesConfiguredValues(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
+		receiptStoreDBDirectoryKey: "/tmp/custom-receipt-db",
+		receiptStoreKeepRecentKey:  5,
+		server.FlagMinRetainBlocks: 100,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
+	assert.Equal(t, 5, receiptConfig.KeepRecent)
+}
+
+func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(homePath, "data", "receipt.db"), receiptConfig.DBDirectory)
+}
+
+// TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"
+// and asserts the parquet receipt store is actually instantiated (not pebble).
+func TestFullAppPathWithParquetReceiptStore(t *testing.T) {
+	app := SetupWithScReceiptFromOpts(t, false, false, TestAppOpts{
+		UseSc:          true,
+		ReceiptBackend: "parquet",
+	})
+	require.NotNil(t, app.receiptStore, "receipt store should be created")
+	assert.Equal(t, "parquet", receipt.BackendTypeName(app.receiptStore), "receipt store backend should be parquet")
 }
