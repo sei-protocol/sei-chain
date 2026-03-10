@@ -31,9 +31,10 @@ const (
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 100
+	cfg.SnapshotInterval = 1000
+	cfg.SnapshotMinTimeInterval = 60
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
-	cs := memiavl.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
+	cs := memiavl.NewCommitStore(dbDir, logger.NewConsoleLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
@@ -49,7 +50,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string) (DBWrapper, error) 
 	cfg := flatkv.DefaultConfig()
 	cfg.Fsync = false
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	cs := flatkv.NewCommitStore(ctx, dbDir, logger.NewConsoleLogger(), cfg)
 	_, err := cs.LoadVersion(0)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
@@ -66,7 +67,7 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	cs := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewConsoleLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)
@@ -88,7 +89,7 @@ func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg.AsyncWriteBuffer = 0
 	cfg.WriteMode = config.DualWrite
 	cfg.ReadMode = config.EVMFirstRead
-	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewNopLogger())
+	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewConsoleLogger())
 }
 
 func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
