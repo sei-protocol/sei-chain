@@ -109,24 +109,28 @@ func Open(
 		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
-	var cacheName string
-	if config.EnableMetrics {
-		cacheName = filepath.Base(config.DataDir)
-	}
+	var cache pebblecache.Cache
+	if config.CacheSize == 0 {
+		cache = pebblecache.NewNoOpCache(readFunction)
+	} else {
+		var cacheName string
+		if config.EnableMetrics {
+			cacheName = filepath.Base(config.DataDir)
+		}
 
-	// A high level cache per key (as opposed to the low level pebble block cache).
-	cache, err := pebblecache.NewCache(
-		ctx,
-		readFunction,
-		8,
-		config.CacheSize,
-		readPool,
-		miscPool,
-		cacheName,
-		config.MetricsScrapeInterval)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create flatcache: %w", err)
+		cache, err = pebblecache.NewCache(
+			ctx,
+			readFunction,
+			config.CacheShardCount,
+			config.CacheSize,
+			readPool,
+			miscPool,
+			cacheName,
+			config.MetricsScrapeInterval)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create flatcache: %w", err)
+		}
 	}
 
 	return &pebbleDB{

@@ -39,11 +39,13 @@ func (c *PebbleDBConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
-	if c.CacheShardCount <= 0 || (c.CacheShardCount&(c.CacheShardCount-1)) != 0 {
-		return fmt.Errorf("cache shard count must be a power of two and greater than 0")
+	if c.CacheSize < 0 {
+		return fmt.Errorf("cache size must not be negative")
 	}
-	if c.CacheSize <= 0 {
-		return fmt.Errorf("cache size must be greater than 0")
+	if c.CacheSize > 0 {
+		if (c.CacheShardCount&(c.CacheShardCount-1)) != 0 {
+			return fmt.Errorf("cache shard count must be a power of two or 0")
+		}
 	}
 	if c.BlockCacheSize <= 0 {
 		return fmt.Errorf("block cache size must be greater than 0")

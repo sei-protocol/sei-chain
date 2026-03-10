@@ -1,6 +1,7 @@
 package pebblecache
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -105,7 +106,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	switch entry.status {
 
 	case statusAvailable:
-		value := entry.value
+		value := bytes.Clone(entry.value)
 		if updateLru {
 			s.gcQueue.Touch(key)
 		}
@@ -227,7 +228,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 
 		switch entry.status {
 		case statusAvailable:
-			keys[key] = types.BatchGetResult{Value: entry.value, Found: true}
+			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value), Found: true}
 			hits++
 		case statusDeleted:
 			keys[key] = types.BatchGetResult{Found: false}
