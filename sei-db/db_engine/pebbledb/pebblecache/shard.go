@@ -104,66 +104,84 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	entry := s.getEntry(key)
 
 	switch entry.status {
-
 	case statusAvailable:
-		value := bytes.Clone(entry.value)
-		if updateLru {
-			s.gcQueue.Touch(key)
-		}
-		s.lock.Unlock()
-		s.metrics.reportCacheHits(1)
-		return value, true, nil
+		return s.getAvailable(entry, key, updateLru)
 	case statusDeleted:
-		if updateLru {
-			s.gcQueue.Touch(key)
-		}
-		s.lock.Unlock()
-		s.metrics.reportCacheHits(1)
-		return nil, false, nil
+		return s.getDeleted(key, updateLru)
 	case statusScheduled:
-		// Another goroutine initiated a read, wait for that read to finish.
-		valueChan := entry.valueChan
-		s.lock.Unlock()
-		s.metrics.reportCacheMisses(1)
-		startTime := time.Now()
-		result, err := threading.InterruptiblePull(s.ctx, valueChan)
-		s.metrics.reportCacheMissLatency(time.Since(startTime))
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
-		}
-		valueChan <- result // reload the channel in case there are other listeners
-		if result.err != nil {
-			return nil, false, fmt.Errorf("failed to read value from database: %w", result.err)
-		}
-		return result.value, result.found, nil
+		return s.getScheduled(entry)
 	case statusUnknown:
-		// We are the first goroutine to read this value.
-		entry.status = statusScheduled
-		valueChan := make(chan readResult, 1)
-		entry.valueChan = valueChan
-		s.lock.Unlock()
-		s.metrics.reportCacheMisses(1)
-		startTime := time.Now()
-		err := s.readPool.Submit(s.ctx, func() {
-			value, found, readErr := s.readFunc(key)
-			entry.injectValue(key, readResult{value: value, found: found, err: readErr})
-		})
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to schedule read: %w", err)
-		}
-		result, err := threading.InterruptiblePull(s.ctx, valueChan)
-		s.metrics.reportCacheMissLatency(time.Since(startTime))
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
-		}
-		valueChan <- result // reload the channel in case there are other listeners
-		if result.err != nil {
-			return nil, false, result.err
-		}
-		return result.value, result.found, nil
+		return s.getUnknown(entry, key)
 	default:
+		s.lock.Unlock()
 		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
 	}
+}
+
+// Handles Get for a key whose value is already cached. Lock must be held; releases it.
+func (s *shard) getAvailable(entry *shardEntry, key []byte, updateLru bool) ([]byte, bool, error) {
+	value := bytes.Clone(entry.value)
+	if updateLru {
+		s.gcQueue.Touch(key)
+	}
+	s.lock.Unlock()
+	s.metrics.reportCacheHits(1)
+	return value, true, nil
+}
+
+// Handles Get for a key known to be deleted. Lock must be held; releases it.
+func (s *shard) getDeleted(key []byte, updateLru bool) ([]byte, bool, error) {
+	if updateLru {
+		s.gcQueue.Touch(key)
+	}
+	s.lock.Unlock()
+	s.metrics.reportCacheHits(1)
+	return nil, false, nil
+}
+
+// Handles Get for a key with an in-flight read from another goroutine. Lock must be held; releases it.
+func (s *shard) getScheduled(entry *shardEntry) ([]byte, bool, error) {
+	valueChan := entry.valueChan
+	s.lock.Unlock()
+	s.metrics.reportCacheMisses(1)
+	startTime := time.Now()
+	result, err := threading.InterruptiblePull(s.ctx, valueChan)
+	s.metrics.reportCacheMissLatency(time.Since(startTime))
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+	}
+	valueChan <- result // reload the channel in case there are other listeners
+	if result.err != nil {
+		return nil, false, fmt.Errorf("failed to read value from database: %w", result.err)
+	}
+	return result.value, result.found, nil
+}
+
+// Handles Get for a key not yet read. Schedules the read and waits. Lock must be held; releases it.
+func (s *shard) getUnknown(entry *shardEntry, key []byte) ([]byte, bool, error) {
+	entry.status = statusScheduled
+	valueChan := make(chan readResult, 1)
+	entry.valueChan = valueChan
+	s.lock.Unlock()
+	s.metrics.reportCacheMisses(1)
+	startTime := time.Now()
+	err := s.readPool.Submit(s.ctx, func() {
+		value, found, readErr := s.readFunc(key)
+		entry.injectValue(key, readResult{value: value, found: found, err: readErr})
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to schedule read: %w", err)
+	}
+	result, err := threading.InterruptiblePull(s.ctx, valueChan)
+	s.metrics.reportCacheMissLatency(time.Since(startTime))
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+	}
+	valueChan <- result // reload the channel in case there are other listeners
+	if result.err != nil {
+		return nil, false, result.err
+	}
+	return result.value, result.found, nil
 }
 
 // This method is called by the read scheduler when a value becomes available.
