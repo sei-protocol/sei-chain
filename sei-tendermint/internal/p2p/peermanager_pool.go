@@ -79,7 +79,6 @@ func (t *pexTable) All() iter.Seq[*pexEntry] {
 type poolConfig struct {
 	MaxIn      int                     // Maximal number of inbound connections.
 	MaxOut     int                     // Maximal number of outbound connections.
-	MaxDials   int                     // Maximal number of concurrent dials.
 	FixedAddrs []NodeAddress           // Addresses which are always available for dialing.
 	InPool     func(types.NodeID) bool // InPool(id) <=> id belongs to this pool.
 }
@@ -150,12 +149,18 @@ func (p *poolManager) toUpgrade() utils.Option[pNodeID] {
 // TryStartDial looks for a peer available for dialing.
 // Marks peer as "dialing" on success.
 // Returns a nonempty list of addresses of that peer.
+// The complexity of a successful TryStartDial() is O(total pex size):
+// - we assume the dialing to be infrequent
+// - we assume the bound on the total number of pexEntries to be ~100 and the number of addresses per entry to be ~100.
+// The complexity of failed TryStartDial() calls is amortized over the number of successful dial calls (+ number of inbound connections):
+// TheTryStartDial marks entries of pex as "searched" and avoids processing them again
+// until any event that can make any peer eligible for dialing again (dial failure/disconnect).
 func (p *poolManager) TryStartDial() ([]NodeAddress, bool) {
 	switch {
-	// Dialing is not allowed if outbound connections are disabled or dialing capacity is full.
-	case p.cfg.MaxOut == 0 || len(p.dialing) >= p.cfg.MaxDials:
+	// Dialing is not allowed if outbound connections are disabled.
+	case p.cfg.MaxOut == 0:
 		return nil, false
-	// Fast dialing is allowed iff the current outbound connections (including  ongoing dials)
+	// Regular dialing is allowed iff the current outbound connections (including ongoing dials)
 	// do not saturate outbound capacity.
 	case len(p.out)+len(p.dialing) < p.cfg.MaxOut: // Try to find address to dial.
 	// Upgrades are allowed iff:
@@ -205,9 +210,10 @@ func (p *poolManager) TryStartDial() ([]NodeAddress, bool) {
 					clearRecent = true
 					continue
 				}
+				// We have found a new best candidate.
+				best = utils.Some(addr.pNodeID())
 				clear(bestAddrs)
 				bestAddrs[addr.NodeAddress] = struct{}{}
-				best = utils.Some(addr.pNodeID())
 			}
 		}
 		if len(bestAddrs) > 0 {

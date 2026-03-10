@@ -143,7 +143,6 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 		persistent: newPoolManager(&poolConfig{
 			MaxIn:      utils.Max[int](),
 			MaxOut:     utils.Max[int](),
-			MaxDials:   options.maxDials(),
 			FixedAddrs: persistentAddrs,
 			InPool: func(id types.NodeID) bool {
 				return id != selfID && isPersistent[id]
@@ -152,7 +151,6 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 		regular: newPoolManager(&poolConfig{
 			MaxIn:      options.maxInbound(),
 			MaxOut:     options.maxOutbound(),
-			MaxDials:   options.maxDials(),
 			FixedAddrs: bootstrapAddrs,
 			InPool: func(id types.NodeID) bool {
 				return id != selfID && !isPersistent[id]
