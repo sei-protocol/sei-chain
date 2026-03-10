@@ -65,6 +65,19 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 	require.Equal(t, defaultMaxBlocksPerFile, store.CacheRotateInterval())
 }
 
+func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
+	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+		DBDirectory:          t.TempDir(),
+		KeepRecent:           123,
+		PruneIntervalSeconds: 9,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.Equal(t, int64(123), store.config.KeepRecent)
+	require.Equal(t, int64(9), store.config.PruneIntervalSeconds)
+}
+
 func TestPruneOldFilesKeepsTrackingOnDeleteFailure(t *testing.T) {
 	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
 		DBDirectory: t.TempDir(),
