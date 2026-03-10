@@ -13,7 +13,6 @@ type fixedPool struct {
 	workQueue chan func()
 }
 
-// TODO add metrics!
 // TODO unit test before merging!
 
 // Create a new work pool.
