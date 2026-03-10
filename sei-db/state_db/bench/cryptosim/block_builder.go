@@ -77,7 +77,7 @@ func (b *blockBuilder) buildBlock() *block {
 				b.dataGenerator.Rand(),
 				b.dataGenerator.FeeCollectionAddress(),
 				blk.BlockNumber(),
-				0, // TODO
+				uint32(i),
 				txn,
 			)
 			if err != nil {

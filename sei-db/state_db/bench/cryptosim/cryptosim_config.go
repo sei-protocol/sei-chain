@@ -139,6 +139,9 @@ type CryptoSimConfig struct {
 	// If true, the benchmark will generate receipts for each transaction in each block and
 	// feed those reciepts into the reciept store.
 	GenerateReceipts bool
+
+	// The capacity of the channel that holds blocks sent to the reciept store.
+	RecieptChannelCapacity int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -179,6 +182,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		EnableSuspension:                  true,
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,
+		RecieptChannelCapacity:            32,
 	}
 }
 
@@ -253,6 +257,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BlockChannelCapacity < 1 {
 		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
+	if c.RecieptChannelCapacity < 1 {
+		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
 	}
 
 	return nil

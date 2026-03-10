@@ -75,6 +75,9 @@ type CryptoSim struct {
 	// This is fixed after initial setup is complete, since we don't currently simulate
 	// the creation of new ERC20 contracts during the benchmark.
 	nextERC20ContractID int64
+
+	// The channel that holds blocks sent to the reciept store.
+	recieptsChan chan *block
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -155,6 +158,16 @@ func NewCryptoSim(
 
 	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator, dataGenerator.InitialNextBlockNumber())
 
+	var recieptsChan chan *block
+	if config.GenerateReceipts {
+		recieptsChan = make(chan *block, config.RecieptChannelCapacity)
+		_, err := NewRecieptStoreSimulator(ctx, config, recieptsChan)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create receipt store simulator: %w", err)
+		}
+	}
+
 	c := &CryptoSim{
 		ctx:                               ctx,
 		cancel:                            cancel,
@@ -169,6 +182,7 @@ func NewCryptoSim(
 		executors:                         executors,
 		metrics:                           metrics,
 		suspendChan:                       make(chan bool, 1),
+		recieptsChan:                      recieptsChan,
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
@@ -392,6 +406,15 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 		c.cancel()
 		return
 	}
+
+	if c.config.GenerateReceipts {
+		select {
+		case <-c.ctx.Done():
+			return
+		case c.recieptsChan <- blk:
+		}
+	}
+
 	blk.ReportBlockMetrics()
 }
 
