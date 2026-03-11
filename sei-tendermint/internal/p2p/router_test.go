@@ -735,7 +735,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		addr := TestAddress(r)
 		utils.OrPanic(x.AddAddrs(addr.NodeID, utils.Slice(addr)))
 		addrs := utils.OrPanic1(x.peerManager.StartDial(ctx))
-		utils.OrPanic(utils.TestDiff(utils.Slice(addr),addrs))
+		utils.OrPanic(utils.TestDiff(utils.Slice(addr), addrs))
 		tcpConn := utils.OrPanic1(x.dial(ctx, addrs))
 		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		hConn, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
