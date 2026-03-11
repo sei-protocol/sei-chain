@@ -124,12 +124,6 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
-	// TraceProfileEnabled enables per-request debug trace phase timing logs.
-	TraceProfileEnabled bool `mapstructure:"trace_profile_enabled"`
-
-	// TraceProfileThreshold logs only traces taking at least this long. Set to 0 to log all.
-	TraceProfileThreshold time.Duration `mapstructure:"trace_profile_threshold"`
-
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
 
@@ -168,8 +162,6 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
-	TraceProfileEnabled:          false,
-	TraceProfileThreshold:        500 * time.Millisecond,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
 	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
@@ -201,8 +193,6 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
-	flagTraceProfileEnabled          = "evm.trace_profile_enabled"
-	flagTraceProfileThreshold        = "evm.trace_profile_threshold"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
 	flagWorkerQueueSize              = "evm.worker_queue_size"
@@ -336,16 +326,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagTraceProfileEnabled); v != nil {
-		if cfg.TraceProfileEnabled, err = cast.ToBoolE(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagTraceProfileThreshold); v != nil {
-		if cfg.TraceProfileThreshold, err = cast.ToDurationE(v); err != nil {
-			return cfg, err
-		}
-	}
 	if v := opts.Get(flagRPCStatsInterval); v != nil {
 		if cfg.RPCStatsInterval, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
@@ -451,12 +431,6 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
-
-# Enable per-request debug trace phase timing logs in the node output.
-trace_profile_enabled = {{ .EVM.TraceProfileEnabled }}
-
-# Only log trace profiles taking at least this long. Set to "0s" to log all traces.
-trace_profile_threshold = "{{ .EVM.TraceProfileThreshold }}"
 
 # WorkerPoolSize defines the number of workers in the worker pool.
 # Default: min(64, CPU cores × 2). Capped at 64 to prevent excessive goroutines on high-core machines.
