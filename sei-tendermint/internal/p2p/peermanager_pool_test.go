@@ -481,3 +481,34 @@ func TestPoolManager_TryStartDial_AggregatesAddresses(t *testing.T) {
 }
 
 // Test checking that ClearPex makes addresses not available for dialing.
+func TestPoolManager_ClearPex(t *testing.T) {
+	rng := utils.TestRng()
+	fixedAddrs := utils.GenSliceN(rng, 5, makeAddr)
+	extraAddrs := utils.GenSliceN(rng, 5, makeAddr)
+	pool := newPoolManager(&poolConfig{MaxIn: 0, MaxOut: 10, FixedAddrs: fixedAddrs, InPool: inPoolAll})
+	pool.PushPex(utils.None[types.NodeID](), extraAddrs)
+
+	t.Log("populate pool with multiple senders and extra entries")
+	senders := map[types.NodeID][]NodeAddress{}
+	allAddrs := append(fixedAddrs, extraAddrs...)
+	for range 5 {
+		addrs := utils.GenSliceN(rng, 5, makeAddr)
+		s := makeNodeID(rng)
+		senders[s] = addrs
+		pool.PushPex(utils.Some(s), addrs)
+		allAddrs = append(allAddrs, addrs...)
+	}
+	all := toSet(allAddrs...)
+	for s, addrs := range senders {
+		for _, addr := range addrs {
+			delete(all, addr)
+		}
+		pool.ClearPex(s)
+		for want := maps.Clone(all); len(want) > 0; {
+			got := opt(pool.TryStartDial()).OrPanic("")[0]
+			require.True(t, want[got])
+			delete(want, got)
+			require.NoError(t, pool.DialFailed(got.NodeID))
+		}
+	}
+}
