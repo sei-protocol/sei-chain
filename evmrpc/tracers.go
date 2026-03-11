@@ -218,8 +218,11 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	// Accessing tracersAPI from the embedded DebugAPI
-	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	}
 	if returnErr != nil {
 		return
 	}
@@ -247,8 +250,11 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	}
 	defer done()
 
-	// Accessing tracersAPI from the embedded DebugAPI
-	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	}
 	if returnErr != nil {
 		return
 	}
@@ -334,7 +340,11 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	}
 	return
 }
 
@@ -348,7 +358,11 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	}
 	return
 }
 
