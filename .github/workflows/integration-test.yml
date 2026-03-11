@@ -144,6 +144,13 @@ jobs:
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
+          {
+            name: "EVM Parquet Receipt Store",
+            env: "RECEIPT_BACKEND=parquet",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
