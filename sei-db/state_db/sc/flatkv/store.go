@@ -207,7 +207,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
 // requested version.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
-	ro := NewCommitStore(s.ctx, s.dbDir, s.log, s.config)
+	ro := NewCommitStore(s.ctx, s.dbDir, s.config)
 
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
 	if err != nil {
@@ -218,7 +218,7 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	defer func() {
 		if retErr != nil {
 			if closeErr := ro.Close(); closeErr != nil {
-				s.log.Error("failed to close readonly store during error cleanup", "err", closeErr)
+				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
 			}
 		}
 	}()
@@ -284,7 +284,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	s.readOnly = true
 
-	s.log.Info("FlatKV readonly store opened", "version", s.committedVersion,
+	logger.Info("FlatKV readonly store opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
 	return nil
 }

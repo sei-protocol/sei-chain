@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-
 	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -15,7 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state_db", "sc", "composite")
 
 // EVMStoreName is the module name for the EVM store
 const EVMStoreName = "evm"
@@ -113,7 +115,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				cs.logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
+				logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
 					"version", targetVersion, "err", err)
 			} else {
 				newStore.evmCommitter = evmStore
