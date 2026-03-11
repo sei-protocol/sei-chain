@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
