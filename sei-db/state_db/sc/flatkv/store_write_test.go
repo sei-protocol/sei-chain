@@ -1221,6 +1221,54 @@ func bytesToNonce(b []byte) uint64 {
 }
 
 // =============================================================================
+// AccountValue Encoding Transition (40 → 72 → 40 bytes)
+// =============================================================================
+
+func TestAccountValueEncodingTransition(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+
+	// Step 1: Write nonce only → EOA encoding (40 bytes)
+	cs1 := namedCS(noncePair(addr, 7))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	raw1, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueEOALen, len(raw1), "nonce-only should produce EOA encoding (40 bytes)")
+
+	// Step 2: Add codehash → contract encoding (72 bytes)
+	cs2 := namedCS(codeHashPair(addr, codeHashN(0xAB)))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	raw2, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueContractLen, len(raw2), "nonce+codehash should produce contract encoding (72 bytes)")
+
+	av2, err := DecodeAccountValue(raw2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), av2.Nonce, "nonce should be preserved after codehash write")
+	require.Equal(t, codeHashN(0xAB), av2.CodeHash)
+
+	// Step 3: Delete codehash → back to EOA encoding (40 bytes)
+	cs3 := namedCS(codeHashDeletePair(addr))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	commitAndCheck(t, s)
+
+	raw3, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueEOALen, len(raw3), "codehash delete should shrink back to EOA encoding (40 bytes)")
+
+	av3, err := DecodeAccountValue(raw3)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), av3.Nonce, "nonce should survive codehash deletion")
+	require.Equal(t, CodeHash{}, av3.CodeHash, "codehash should be zero after delete")
+}
+
+// =============================================================================
 // Write Test Helpers
 // =============================================================================
 

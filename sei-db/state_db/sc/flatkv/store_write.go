@@ -120,9 +120,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if pair.Delete {
 					if kind == evm.EVMKeyNonce {
-						paw.value.Nonce = 0
+						paw.value.ClearNonce()
 					} else {
-						paw.value.CodeHash = CodeHash{}
+						paw.value.ClearCodeHash()
 					}
 				} else {
 					if kind == evm.EVMKeyNonce {
@@ -209,7 +209,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			Key:       AccountKey(paw.addr),
 			Value:     paw.value.Encode(),
 			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
-			Delete:    paw.isDelete,
+			Delete:    false,  // account rows are never physically deleted
 		})
 	}
 
@@ -339,16 +339,9 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 		for _, paw := range s.accountWrites {
 			key := AccountKey(paw.addr)
-			if paw.isDelete {
-				if err := batch.Delete(key); err != nil {
-					return fmt.Errorf("accountDB delete: %w", err)
-				}
-			} else {
-				// Encode AccountValue and store with addr as key
-				encoded := EncodeAccountValue(paw.value)
-				if err := batch.Set(key, encoded); err != nil {
-					return fmt.Errorf("accountDB set: %w", err)
-				}
+			encoded := EncodeAccountValue(paw.value)
+			if err := batch.Set(key, encoded); err != nil {
+				return fmt.Errorf("accountDB set: %w", err)
 			}
 		}
 

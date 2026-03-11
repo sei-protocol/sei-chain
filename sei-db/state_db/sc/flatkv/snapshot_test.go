@@ -1214,12 +1214,13 @@ func TestReopenAfterDeletes(t *testing.T) {
 	addr := Address{0xEE}
 	slot := Slot{0xFF}
 
+	ch := codeHashN(0x77)
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: codeHashN(0x77)[:]},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 		}},
 	}
@@ -1447,4 +1448,89 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	val, found := s2.Get(key)
 	require.True(t, found)
 	require.Equal(t, []byte{0xCC}, val)
+}
+
+func TestLocalMetaCorruption(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	// Corrupt accountDB LocalMeta in working dir: write 3 garbage bytes (expected 8).
+	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
+	db, err := pebbledb.Open(context.Background(), workingAccount, types.OpenOptions{}, false)
+	require.NoError(t, err)
+	require.NoError(t, db.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Close())
+
+	// Same corruption in the snapshot dir.
+	snapAccount := filepath.Join(dbDir, snapshotName(1), accountDBDir)
+	db2, err := pebbledb.Open(context.Background(), snapAccount, types.OpenOptions{}, false)
+	require.NoError(t, err)
+	require.NoError(t, db2.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Close())
+
+	// Remove SNAPSHOT_BASE to force re-clone from corrupted snapshot.
+	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
+
+	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err, "open should fail when LocalMeta is corrupted (invalid size)")
+	require.Contains(t, err.Error(), "invalid LocalMeta size")
+}
+
+// TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
+// tidwall/wal auto-truncates corrupted segments on open, so the observable effect
+// is entry loss. When catchup needs those entries to reach the requested version,
+// LoadVersion fails with a version mismatch.
+func TestWALSegmentCorruption(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA}) // v1
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB}) // v2
+	require.NoError(t, s.Close())
+
+	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
+	// rewind global version to v1 so catchup needs to replay v2 from WAL.
+	workingMeta := filepath.Join(dbDir, "working", metadataDir)
+	mdb, err := pebbledb.Open(context.Background(), workingMeta, types.OpenOptions{}, false)
+	require.NoError(t, err)
+	versionBuf := make([]byte, 8)
+	versionBuf[7] = 1 // version = 1
+	require.NoError(t, mdb.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Close())
+
+	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
+	walDir := filepath.Join(dbDir, changelogDir)
+	entries, err := os.ReadDir(walDir)
+	require.NoError(t, err)
+	corrupted := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(walDir, e.Name())
+		garbage := make([]byte, 128)
+		for i := range garbage {
+			garbage[i] = 0xFF
+		}
+		require.NoError(t, os.WriteFile(p, garbage, 0600))
+		corrupted++
+	}
+	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
+
+	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
+	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	_, err = s2.LoadVersion(2, false)
+	require.Error(t, err, "LoadVersion should fail: WAL corrupted, can't reach requested version")
 }
