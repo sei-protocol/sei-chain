@@ -32,17 +32,19 @@ const (
 )
 
 type DebugAPI struct {
-	tracersAPI         *tracers.API
-	tmClient           rpcclient.Client
-	keeper             *keeper.Keeper
-	ctxProvider        func(int64) sdk.Context
-	txConfigProvider   func(int64) client.TxConfig
-	connectionType     ConnectionType
-	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
-	backend            *Backend
-	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
-	maxBlockLookback   int64
-	traceTimeout       time.Duration
+	tracersAPI            *tracers.API
+	tmClient              rpcclient.Client
+	keeper                *keeper.Keeper
+	ctxProvider           func(int64) sdk.Context
+	txConfigProvider      func(int64) client.TxConfig
+	connectionType        ConnectionType
+	isPanicCache          *expirable.LRU[common.Hash, bool] // hash to isPanic
+	backend               *Backend
+	traceCallSemaphore    chan struct{} // Semaphore for limiting concurrent trace calls
+	maxBlockLookback      int64
+	traceTimeout          time.Duration
+	traceProfileEnabled   bool
+	traceProfileThreshold time.Duration
 }
 
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
@@ -86,17 +88,19 @@ func NewDebugAPI(
 	}
 
 	return &DebugAPI{
-		tracersAPI:         tracersAPI,
-		tmClient:           tmClient,
-		keeper:             k,
-		ctxProvider:        ctxProvider,
-		txConfigProvider:   txConfigProvider,
-		connectionType:     connectionType,
-		isPanicCache:       isPanicCache,
-		backend:            backend,
-		traceCallSemaphore: sem,
-		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
-		traceTimeout:       debugCfg.TraceTimeout,
+		tracersAPI:            tracersAPI,
+		tmClient:              tmClient,
+		keeper:                k,
+		ctxProvider:           ctxProvider,
+		txConfigProvider:      txConfigProvider,
+		connectionType:        connectionType,
+		isPanicCache:          isPanicCache,
+		backend:               backend,
+		traceCallSemaphore:    sem,
+		maxBlockLookback:      debugCfg.MaxTraceLookbackBlocks,
+		traceTimeout:          debugCfg.TraceTimeout,
+		traceProfileEnabled:   debugCfg.TraceProfileEnabled,
+		traceProfileThreshold: debugCfg.TraceProfileThreshold,
 	}
 }
 
@@ -125,16 +129,18 @@ func NewSeiDebugAPI(
 	// Note: The embedded DebugAPI here does not get its own isPanicCache initialized
 	// This is consistent with the original code. If it needs one, it should be added.
 	embeddedDebugAPI := &DebugAPI{
-		tracersAPI:         tracersAPI,
-		tmClient:           tmClient,
-		keeper:             k,
-		ctxProvider:        ctxProvider,
-		txConfigProvider:   txConfigProvider,
-		connectionType:     connectionType,
-		traceCallSemaphore: sem,
-		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
-		traceTimeout:       debugCfg.TraceTimeout,
-		backend:            backend,
+		tracersAPI:            tracersAPI,
+		tmClient:              tmClient,
+		keeper:                k,
+		ctxProvider:           ctxProvider,
+		txConfigProvider:      txConfigProvider,
+		connectionType:        connectionType,
+		traceCallSemaphore:    sem,
+		maxBlockLookback:      debugCfg.MaxTraceLookbackBlocks,
+		traceTimeout:          debugCfg.TraceTimeout,
+		traceProfileEnabled:   debugCfg.TraceProfileEnabled,
+		traceProfileThreshold: debugCfg.TraceProfileThreshold,
+		backend:               backend,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
 
@@ -149,6 +155,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	ctx, finishProfile := api.startTraceProfile(ctx, "debug_traceTransaction", map[string]interface{}{
+		"tx_hash": hash.Hex(),
+	})
+	defer func() { finishProfile(returnErr) }()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
@@ -178,6 +188,10 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	ctx, finishProfile := api.startTraceProfile(ctx, "sei_traceBlockByNumberExcludeTraceFail", map[string]interface{}{
+		"block_number": number.Int64(),
+	})
+	defer func() { finishProfile(returnErr) }()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
@@ -211,6 +225,10 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	ctx, finishProfile := api.startTraceProfile(ctx, "sei_traceBlockByHashExcludeTraceFail", map[string]interface{}{
+		"block_hash": hash.Hex(),
+	})
+	defer func() { finishProfile(returnErr) }()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
@@ -292,6 +310,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	ctx, finishProfile := api.startTraceProfile(ctx, "debug_traceBlockByNumber", map[string]interface{}{
+		"block_number": number.Int64(),
+	})
+	defer func() { finishProfile(returnErr) }()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
@@ -310,6 +332,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	ctx, finishProfile := api.startTraceProfile(ctx, "debug_traceBlockByHash", map[string]interface{}{
+		"block_hash": hash.Hex(),
+	})
+	defer func() { finishProfile(returnErr) }()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
@@ -323,6 +349,15 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+	fields := map[string]interface{}{}
+	if blockNrOrHash.BlockNumber != nil {
+		fields["block_number"] = blockNrOrHash.BlockNumber.Int64()
+	}
+	if blockNrOrHash.BlockHash != nil {
+		fields["block_hash"] = blockNrOrHash.BlockHash.Hex()
+	}
+	ctx, finishProfile := api.startTraceProfile(ctx, "debug_traceCall", fields)
+	defer func() { finishProfile(returnErr) }()
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceCall", api.connectionType, startTime, returnErr)
@@ -337,6 +372,10 @@ type StateAccessResponse struct {
 }
 
 func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+	ctx, finishProfile := api.startTraceProfile(ctx, "debug_traceStateAccess", map[string]interface{}{
+		"tx_hash": hash.Hex(),
+	})
+	defer func() { finishProfile(returnErr) }()
 	defer func() {
 		if r := recover(); r != nil {
 			result = nil

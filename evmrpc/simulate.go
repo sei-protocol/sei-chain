@@ -325,6 +325,11 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("block_by_number_count", 1)
+		defer profile.addDuration("block_by_number_total", time.Since(start))
+	}
 	blockNum := b.ConvertBlockNumber(bn)
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
 	if err != nil {
@@ -441,6 +446,11 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("state_at_transaction_count", 1)
+		defer profile.addDuration("state_at_transaction_total", time.Since(start))
+	}
 	emptyRelease := func() {}
 	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
 	if err != nil {
@@ -474,6 +484,11 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 }
 
 func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("replay_transaction_till_index_count", 1)
+		defer profile.addDuration("replay_transaction_till_index_total", time.Since(start))
+	}
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
 		return nil, nil, errors.New("no transaction in genesis")
@@ -481,6 +496,9 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	sdkCtx, tmBlock, err := b.initializeBlock(ctx, block)
 	if err != nil {
 		return nil, nil, err
+	}
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		sdkCtx = sdkCtx.WithContext(withTraceProfile(sdkCtx.Context(), profile))
 	}
 	if txIndex > len(tmBlock.Block.Txs)-1 {
 		return nil, nil, errors.New("did not find transaction")
@@ -491,6 +509,9 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
+		}
+		if profile := traceProfileFromContext(ctx); profile != nil {
+			profile.addCount("replay_transaction_till_index_tx_count", 1)
 		}
 		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 		if err != nil {
@@ -505,16 +526,29 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("state_at_block_count", 1)
+		defer profile.addDuration("state_at_block_total", time.Since(start))
+	}
 	emptyRelease := func() {}
 	sdkCtx, _, err := b.initializeBlock(ctx, block)
 	if err != nil {
 		return nil, emptyRelease, err
+	}
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		sdkCtx = sdkCtx.WithContext(withTraceProfile(sdkCtx.Context(), profile))
 	}
 	statedb := state.NewDBImpl(sdkCtx, b.keeper, true)
 	return statedb, emptyRelease, nil
 }
 
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (sdk.Context, *coretypes.ResultBlock, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("initialize_block_count", 1)
+		defer profile.addDuration("initialize_block_total", time.Since(start))
+	}
 	// get the parent block using block.parentHash
 	prevBlockHeight := block.Number().Int64() - 1
 
@@ -642,25 +676,75 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
+	profile := traceProfileFromContext(state.GetDBImpl(statedb).Ctx().Context())
+	if profile != nil {
+		start := time.Now()
+		profile.addCount("prepare_tx_count", 1)
+		defer profile.addDuration("prepare_tx_total", time.Since(start))
+	}
 	typedStateDB := state.GetDBImpl(statedb)
-	typedStateDB.CleanupForTracer()
-	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	if profile != nil {
+		start := time.Now()
+		typedStateDB.CleanupForTracer()
+		profile.addDuration("prepare_tx_cleanup_total", time.Since(start))
+	} else {
+		typedStateDB.CleanupForTracer()
+	}
+	var ctx sdk.Context
+	if profile != nil {
+		start := time.Now()
+		ctx, _ = b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+		profile.addDuration("prepare_tx_prepare_ctx_total", time.Since(start))
+	} else {
+		ctx, _ = b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	}
 	ctx = ctx.WithIsEVM(true)
+	if profile != nil {
+		ctx = ctx.WithContext(withTraceProfile(ctx.Context(), profile))
+	}
 	if noSignatureSet(tx) {
 		// skip ante if no signature is set
+		if profile != nil {
+			profile.addCount("prepare_tx_no_signature_count", 1)
+		}
 		return nil
 	}
-	txData, err := ethtx.NewTxDataFromTx(tx)
+	var (
+		txData ethtx.TxData
+		err    error
+	)
+	if profile != nil {
+		start := time.Now()
+		txData, err = ethtx.NewTxDataFromTx(tx)
+		profile.addDuration("prepare_tx_txdata_total", time.Since(start))
+	} else {
+		txData, err = ethtx.NewTxDataFromTx(tx)
+	}
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to TxData due to %s", err)
 	}
-	msg, err := types.NewMsgEVMTransaction(txData)
+	var msg *types.MsgEVMTransaction
+	if profile != nil {
+		start := time.Now()
+		msg, err = types.NewMsgEVMTransaction(txData)
+		profile.addDuration("prepare_tx_msg_total", time.Since(start))
+	} else {
+		msg, err = types.NewMsgEVMTransaction(txData)
+	}
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
 	}
 	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
-	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	var newCtx sdk.Context
+	if profile != nil {
+		start := time.Now()
+		profile.addCount("prepare_tx_ante_count", 1)
+		newCtx, err = b.antehandler(ctx, tb.GetTx(), false)
+		profile.addDuration("prepare_tx_ante_total", time.Since(start))
+	} else {
+		newCtx, err = b.antehandler(ctx, tb.GetTx(), false)
+	}
 	if err != nil {
 		return fmt.Errorf("transaction failed ante handler due to %s", err)
 	}
@@ -669,6 +753,11 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 }
 
 func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
+	if profile := traceProfileFromContext(ctx); profile != nil {
+		start := time.Now()
+		profile.addCount("get_block_context_count", 1)
+		defer profile.addDuration("get_block_context_total", time.Since(start))
+	}
 	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return vm.BlockContext{}, nil

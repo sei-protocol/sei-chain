@@ -35,6 +35,8 @@ type opts struct {
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
+	traceProfileEnabled          interface{}
+	traceProfileThreshold        interface{}
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
@@ -119,6 +121,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trace_timeout" {
 		return o.traceTimeout
 	}
+	if k == "evm.trace_profile_enabled" {
+		return o.traceProfileEnabled
+	}
+	if k == "evm.trace_profile_threshold" {
+		return o.traceProfileThreshold
+	}
 	if k == "evm.rpc_stats_interval" {
 		return o.rpcStatsInterval
 	}
@@ -160,6 +168,8 @@ func getDefaultOpts() opts {
 		uint64(10),
 		int64(100),
 		30 * time.Second,
+		false,
+		500 * time.Millisecond,
 		10 * time.Second,
 		32,
 		1000,
@@ -258,6 +268,16 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.traceTimeout = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceProfileEnabled = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceProfileThreshold = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
