@@ -38,10 +38,12 @@ type pexEntry struct {
 	addrs    []pAddr
 }
 
-func newPexEntry(priority func(types.NodeID) uint64, addrs iter.Seq[NodeAddress]) *pexEntry {
+func (p *poolManager) newPexEntry(addrs iter.Seq[NodeAddress]) *pexEntry {
 	e := &pexEntry{}
 	for addr := range addrs {
-		e.addrs = append(e.addrs, pAddr{priority: priority(addr.NodeID), NodeAddress: addr})
+		if p.cfg.InPool(addr.NodeID) {
+			e.addrs = append(e.addrs, pAddr{priority: p.priority(addr.NodeID), NodeAddress: addr})
+		}
 	}
 	return e
 }
@@ -106,7 +108,7 @@ func newPoolManager(cfg *poolConfig) *poolManager {
 	priority := func(id types.NodeID) uint64 {
 		return binary.LittleEndian.Uint64(h.Sum([]byte(id)[:8]))
 	}
-	return &poolManager{
+	p := &poolManager{
 		cfg:           cfg,
 		priority:      priority,
 		in:            map[types.NodeID]struct{}{},
@@ -115,11 +117,12 @@ func newPoolManager(cfg *poolConfig) *poolManager {
 		dialHistory:   map[types.NodeID]struct{}{},
 		upgradePermit: false,
 		pex: pexTable{
-			fixed:    newPexEntry(priority, slices.Values(cfg.FixedAddrs)),
 			bySender: map[types.NodeID]*pexEntry{},
 			extra:    utils.NewRingBuf[*pexEntry](10),
 		},
 	}
+	p.pex.fixed = p.newPexEntry(slices.Values(cfg.FixedAddrs))
+	return p
 }
 
 func (p *poolManager) setDialing(id types.NodeID) {
@@ -240,11 +243,9 @@ func (p *poolManager) PushPex(sender utils.Option[types.NodeID], addrs []NodeAdd
 	// Accept at most 1 address per NodeID from each pex sender.
 	dedup := map[types.NodeID]NodeAddress{}
 	for _, addr := range addrs {
-		if p.cfg.InPool(addr.NodeID) {
-			dedup[addr.NodeID] = addr
-		}
+		dedup[addr.NodeID] = addr
 	}
-	e := newPexEntry(p.priority, maps.Values(dedup))
+	e := p.newPexEntry(maps.Values(dedup))
 	if sender, ok := sender.Get(); ok {
 		p.pex.bySender[sender] = e
 	} else {

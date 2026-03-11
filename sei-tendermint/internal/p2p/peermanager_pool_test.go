@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"sort"
 	"maps"
 	"iter"
 	"slices"
@@ -20,6 +19,14 @@ func opt[T any](v T, ok bool) utils.Option[T] {
 		return utils.Some(v)
 	}
 	return utils.None[T]()
+}
+
+func toSet[T comparable](vs ...T) map[T]bool {
+	m := map[T]bool{}
+	for _,v := range vs {
+		m[v] = true
+	}
+	return m
 }
 
 func minBy[T any, I cmp.Ordered](vals iter.Seq[T], by func(T) I) utils.Option[T] {
@@ -216,137 +223,144 @@ func TestPoolManager_DialAvailability(t *testing.T) {
 // - over all NodeIDs if there is <MaxOut outbound conns
 // - over high priority NodeIDs for ==MaxOut outbound conns
 // - populate the fixed addrs, bySender and extra (via public api of the poolManager).
-func TestPoolManagerRoundRobinAndPriority(t *testing.T) {
+func TestPoolManager_TryStartDial_Priority(t *testing.T) {
 	rng := utils.TestRng()
-	fixedA, fixedB := makeNodeID(rng), makeNodeID(rng)
-	bySenderPeer, extraPeer := makeNodeID(rng), makeNodeID(rng)
-	allowed := map[types.NodeID]bool{
-		fixedA:       true,
-		fixedB:       true,
-		bySenderPeer: true,
-		extraPeer:    true,
-	}
-	fixture := newPoolFixture(rng, 1, 2, allowed, fixedA, fixedB)
-
-	senderID := makeNodeID(rng)
-	fixture.p.PushPex(utils.Some(senderID), []NodeAddress{fixture.addrs[bySenderPeer]})
-	fixture.p.PushPex(utils.None[types.NodeID](), []NodeAddress{fixture.addrs[extraPeer]})
-
-	all := []types.NodeID{fixedA, fixedB, bySenderPeer, extraPeer}
-	expected := make([]types.NodeID, len(all))
-	copy(expected, all)
-	sort.Slice(expected, func(i, j int) bool {
-		return fixture.p.priority(expected[i]) > fixture.p.priority(expected[j])
-	})
-
-	var got []types.NodeID
-	for range expected {
-		id := mustStartDialID(t, fixture.p)
-		got = append(got, id)
-		mustDialFailed(t, fixture.p, id)
-	}
-	require.Equal(t, expected, got)
-
-	for range expected {
-		id := mustStartDialID(t, fixture.p)
-		mustDialFailed(t, fixture.p, id)
+	const maxOut = 5
+	
+	t.Log("populate pool with addresses from various sources")
+	var allAddrs []NodeAddress
+	fixedAddrs := utils.GenSliceN(rng,3,makeAddr)
+	allAddrs = append(allAddrs,fixedAddrs...)
+	pool := newPoolManager(&poolConfig{MaxIn:0,MaxOut:maxOut,FixedAddrs:fixedAddrs,InPool:inPoolAll})
+	addrs := utils.GenSliceN(rng,3,makeAddr)
+	pool.PushPex(utils.None[types.NodeID](), addrs)
+	allAddrs = append(allAddrs,addrs...)
+	for range 3 {
+		addrs := utils.GenSliceN(rng,3,makeAddr)
+		pool.PushPex(utils.Some(makeNodeID(rng)), addrs)
+		allAddrs = append(allAddrs,addrs...)
 	}
 
-	connectIDs := expected[:fixture.p.cfg.MaxOut]
-	for _, id := range connectIDs {
-		mustStartDialID(t, fixture.p)
-		mustConnectOutbound(t, fixture.p, id)
-	}
-
-	lowest := fixture.p.priority(connectIDs[0])
-	for _, id := range connectIDs[1:] {
-		if p := fixture.p.priority(id); p < lowest {
-			lowest = p
+	t.Log("expect all addresses to be dialed in round robin")
+	for range 3 {
+		want := toSet(allAddrs...)
+		for len(want)>0 {
+			got := opt(pool.TryStartDial()).OrPanic("")[0]
+			require.NoError(t,pool.DialFailed(got.NodeID))
+			require.True(t,want[got])
+			delete(want,got)
 		}
 	}
 
-	var better, worse types.NodeID
-	for better == "" || worse == "" {
-		id := makeNodeID(rng)
-		allowed[id] = true
-		priority := fixture.p.priority(id)
-		fixture.register(rng, id)
-		addr := fixture.addrs[id]
-		fixture.p.PushPex(utils.None[types.NodeID](), []NodeAddress{addr})
-		switch {
-		case priority > lowest && better == "":
-			better = id
-		case priority < lowest && worse == "":
-			worse = id
-		default:
-			delete(fixture.allowed, id)
+	t.Log("fill the outbound capacity with random conns")
+	busy := map[NodeAddress]bool{}
+	minPrio := utils.Max[uint64]()
+	for range maxOut {
+		addr := opt(pool.TryStartDial()).OrPanic("")[0]
+		// decide whether dial was successful at random. 
+		if rng.Intn(10)!=0 {
+			require.NoError(t,pool.DialFailed(addr.NodeID))
+			continue
+		}
+		minPrio = min(minPrio,pool.priority(addr.NodeID))
+		busy[addr] = true
+		require.False(t,utils.OrPanic1(pool.Connect(connID{addr.NodeID,true})).IsPresent())
+	}
+	
+	t.Log("expect high priority addresses to be dialed round robin")
+	for range 3 {
+		want := map[NodeAddress]bool{}
+		for _,addr := range allAddrs {
+			if busy[addr] || pool.priority(addr.NodeID)<=minPrio { continue }
+			want[addr] = true
+		}
+		for len(want)>0 {
+			got := opt(pool.TryStartDial()).OrPanic("")[0]
+			require.NoError(t,pool.DialFailed(got.NodeID))
+			require.True(t,want[got])
+			delete(want,got)
 		}
 	}
-
-	mustFailStartDial(t, fixture.p)
-	grantUpgradePermit(fixture.p)
-	id := mustStartDialID(t, fixture.p)
-	require.Equal(t, better, id)
-	mustDialFailed(t, fixture.p, id)
 }
 
 // Test checking that interleaving PushPex and TryStartDial works as intended:
 // - pushed addresses are immediately available.
-func TestPoolManagerPushPexIsImmediate(t *testing.T) {
+func TestPoolManager_PushPex(t *testing.T) {
 	rng := utils.TestRng()
-	allowed := map[types.NodeID]bool{}
-	fixture := newPoolFixture(rng, 1, 1, allowed)
-	mustFailStartDial(t, fixture.p)
+	pool := newPoolManager(&poolConfig{MaxIn:0,MaxOut:10,InPool:inPoolAll})
 
-	id := makeNodeID(rng)
-	allowed[id] = true
-	addr := fixture.register(rng, id)
-	fixture.p.PushPex(utils.None[types.NodeID](), []NodeAddress{addr})
-
-	dialed := mustStartDialID(t, fixture.p)
-	require.Equal(t, id, dialed)
+	senders := utils.GenSliceN(rng,3,makeNodeID)
+	for i := range 10 {
+		addrs := utils.GenSliceN(rng,3,makeAddr)
+		pool.PushPex(utils.Some(senders[i%len(senders)]), addrs)
+		want := toSet(addrs...)
+		for len(want)>0 {
+			got := opt(pool.TryStartDial()).OrPanic("")[0]
+			require.NoError(t,pool.DialFailed(got.NodeID))
+			require.True(t,want[got])
+			delete(want,got)
+		}
+	}
 }
 
 // Test checking that inbound and outbound connection for the same NodeID can coexist.
-func TestPoolManagerInboundOutboundCoexist(t *testing.T) {
+func TestPoolManager_InboundOutboundCoexist(t *testing.T) {
 	rng := utils.TestRng()
-	id := makeNodeID(rng)
-	allowed := map[types.NodeID]bool{id: true}
-	fixture := newPoolFixture(rng, 1, 1, allowed, id)
-
-	first := mustStartDialID(t, fixture.p)
-	require.Equal(t, id, first)
-
-	mustConnectInbound(t, fixture.p, id)
-	evicted, err := fixture.p.Connect(connID{NodeID: id, outbound: true})
-	require.NoError(t, err)
-	require.False(t, evicted.IsPresent())
+	fixedAddrs := utils.GenSliceN(rng,2,makeAddr)
+	pool := newPoolManager(&poolConfig{MaxIn:10,MaxOut:10,FixedAddrs:fixedAddrs,InPool:inPoolAll})
+	
+	t.Logf("race inbound/outbound connections for the same peer")
+	addr1 := opt(pool.TryStartDial()).OrPanic("")[0]
+	addr2 := opt(pool.TryStartDial()).OrPanic("")[0]
+	utils.OrPanic1(pool.Connect(connID{addr1.NodeID,false}))
+	utils.OrPanic1(pool.Connect(connID{addr1.NodeID,true}))
+	utils.OrPanic1(pool.Connect(connID{addr2.NodeID,true}))
+	utils.OrPanic1(pool.Connect(connID{addr2.NodeID,false}))
 }
 
 // Test checking that InPool filter works as intended:
 //   - if PushPex/FixedAddrs inserts a mix of addresses form the pool and not from the pool,
 //     filtered out entries should be never dialed.
 //   - inbound connections not from the pool should be rejected.
-func TestPoolManagerInPoolFilter(t *testing.T) {
+func TestPoolManager_InPoolFilter(t *testing.T) {
 	rng := utils.TestRng()
-	allowedID := makeNodeID(rng)
-	allowed := map[types.NodeID]bool{allowedID: true}
-	fixture := newPoolFixture(rng, 1, 1, allowed, allowedID)
-	disallowedID := makeNodeID(rng)
+	allowed := toSet(utils.GenSliceN(rng,50,makeNodeID)...)
+	inPool := func(id types.NodeID) bool { return allowed[id] }
 
-	addr := makeAddrFor(rng, disallowedID)
-
-	mixed := []NodeAddress{fixture.addrs[allowedID], addr}
-	fixture.p.PushPex(utils.None[types.NodeID](), mixed)
-
-	for range 3 {
-		id := mustStartDialID(t, fixture.p)
-		require.Equal(t, allowedID, id)
-		mustDialFailed(t, fixture.p, id)
+	t.Log("addresses of not-in-pool peers should get filtered out during PushPex")
+	var allowedAddrs []NodeAddress
+	for id := range allowed {
+		allowedAddrs = append(allowedAddrs, makeAddrFor(rng,id))
 	}
-
-	_, err := fixture.p.Connect(connID{NodeID: disallowedID, outbound: false})
-	require.ErrorIs(t, err, errNotInPool)
+	nextAllowed := 5
+	fixedAddrs := utils.GenSliceN(rng,10,makeAddr)
+	fixedAddrs = append(fixedAddrs,allowedAddrs[:nextAllowed]...)
+	want := toSet(allowedAddrs[:nextAllowed]...)
+	utils.Shuffle(rng,fixedAddrs)
+	pool := newPoolManager(&poolConfig{MaxIn:1,MaxOut:1,FixedAddrs:fixedAddrs,InPool:inPool})
+	for nextAllowed<len(allowedAddrs) {
+		// Push some pex entries with some allowed addresses interleaved.
+		for range 2 {
+			addrs := utils.GenSliceN(rng,10,makeAddr)
+			n := min(nextAllowed+3,len(allowedAddrs))
+			for _,a := range allowedAddrs[nextAllowed:n] {
+				addrs = append(addrs,a)
+				want[a] = true
+			}
+			nextAllowed = n
+			utils.Shuffle(rng,addrs)
+			pool.PushPex(utils.Some(makeNodeID(rng)), addrs)
+		}
+		// Expect all of them to get dialled.
+		for len(want)>0 {
+			got := opt(pool.TryStartDial()).OrPanic("")[0]
+			require.NoError(t,pool.DialFailed(got.NodeID))
+			require.True(t,want[got])
+			delete(want,got)
+		}
+	}
 }
 
+// Test checking that if PushPex accepts at most 1 addr per NodeID and the remaining ones are discarded.
 // Test checking that InPool filter does not apply to PushPex sender.
+// Test checking that addresses of the same node are aggregated.
