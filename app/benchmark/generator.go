@@ -438,7 +438,7 @@ func (g *Generator) transitionToLoadPhase() {
 		logger.Info("benchmark: Adding scenario to load generator",
 			"scenario", state.config.Name,
 			"weight", state.config.Weight,
-			"address", state.address.Hex())
+			"address", state.address)
 		gen := generator.NewScenarioGenerator(state.accounts, state.scenario)
 		weightedConfigs = append(weightedConfigs, generator.WeightedConfig(state.config.Weight, gen))
 	}

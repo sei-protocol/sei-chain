@@ -1921,7 +1921,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			logger.Error("giga: failed to finalize stateDB on consensus error",
-				"txHash", ethTx.Hash().Hex(),
+				"tx-hash", ethTx.Hash(),
 				"error", ferr,
 			)
 		}

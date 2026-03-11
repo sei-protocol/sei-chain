@@ -70,12 +70,12 @@ func (app *App) ProcessBenchmarkReceipts(ctx sdk.Context) {
 		receipt, err := app.EvmKeeper.GetReceipt(ctx, txHash)
 		if err != nil {
 			logger.Info("benchmark: Receipt not found for deployment tx",
-				"txHash", txHash.Hex(),
-				"error", err.Error())
+				"tx-hash", txHash,
+				"error", err)
 			continue
 		}
 		logger.Info("benchmark: Found deployment receipt",
-			"txHash", txHash.Hex(),
+			"tx-hash", txHash,
 			"status", receipt.Status,
 			"contractAddress", receipt.ContractAddress,
 			"gasUsed", receipt.GasUsed)
