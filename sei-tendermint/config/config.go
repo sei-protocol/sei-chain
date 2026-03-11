@@ -704,14 +704,10 @@ type P2PConfig struct {
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer
 func DefaultP2PConfig() *P2PConfig {
 	return &P2PConfig{
-		ListenAddress:   "tcp://127.0.0.1:26656",
-		ExternalAddress: "",
-		UPNP:            false,
-		MaxConnections:  100,
-		// TODO(gprusak): decrease to 10, once PEX is improved to:
-		// * exchange both inbound and outbound connections information
-		// * exchange information on handshake as well.
-		MaxOutboundConnections:        100,
+		ListenAddress:                 "tcp://127.0.0.1:26656",
+		ExternalAddress:               "",
+		UPNP:                          false,
+		MaxConnections:                100,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
 		MaxPacketMsgPayloadSize:       1000000,

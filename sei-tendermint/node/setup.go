@@ -251,15 +251,15 @@ func createRouter(
 	}
 	// MaxOutbound defaults to 20, unless MaxConnections<40,
 	// then it defaults to half of the maxConnections.
-	maxOutbound := min(20,(maxConns+1)/2)
-	if m:=cfg.P2P.MaxOutboundConnections; m!=nil {
-		maxOutbound = min(maxConns,utils.Clamp[int](*m))
+	maxOutbound := min(20, (maxConns+1)/2)
+	if m := cfg.P2P.MaxOutboundConnections; m != nil {
+		maxOutbound = min(maxConns, utils.Clamp[int](*m))
 	}
-	// MaxInbound is simply MaxConnections - MaxOutbound, 
+	// MaxInbound is simply MaxConnections - MaxOutbound,
 	// because now we have totally separate inbound and outbound connection pools.
 	// TODO(gprusak): eventually we should migrate configs to specify
 	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
-	maxInbound := maxConns-maxOutbound
+	maxInbound := maxConns - maxOutbound
 	options.MaxOutbound = utils.Some(maxOutbound)
 	options.MaxConcurrentAccepts = utils.Some(maxInbound)
 	options.MaxInbound = utils.Some(maxInbound)
