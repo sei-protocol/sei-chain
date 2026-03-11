@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"fmt"
-
 	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -13,14 +11,14 @@ func MigrateCastAddressBalances(ctx sdk.Context, k *keeper.Keeper) (rerr error) 
 		castAddr := sdk.AccAddress(evmAddr[:])
 		if balances := k.BankKeeper().SpendableCoins(ctx, castAddr); !balances.IsZero() {
 			if err := k.BankKeeper().SendCoins(ctx, castAddr, seiAddr, balances); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("error migrating balances from cast address to real address for %s due to %s", evmAddr.Hex(), err))
+				logger.Error("error migrating balances from cast to real for address", "address", evmAddr, "err", err)
 				rerr = err
 				return true
 			}
 		}
 		if wei := k.BankKeeper().GetWeiBalance(ctx, castAddr); !wei.IsZero() {
 			if err := k.BankKeeper().SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), wei); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("error migrating wei from cast address to real address for %s due to %s", evmAddr.Hex(), err))
+				logger.Error("error migrating wei from cast to real for address", "address", evmAddr, "err", err)
 				rerr = err
 				return true
 			}

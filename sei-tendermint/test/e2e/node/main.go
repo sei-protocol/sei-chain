@@ -7,10 +7,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
@@ -18,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	lproxy "github.com/sei-protocol/sei-chain/sei-tendermint/light/proxy"
@@ -33,12 +35,14 @@ import (
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
 
+var logger = seilog.NewLogger("tendermint", "test", "e2e", "node")
+
 const builtinProtocol = "builtin"
 
 // main is the binary entrypoint.
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	if len(os.Args) != 2 {
 		fmt.Printf("Usage: %v <configfile>", os.Args[0])
@@ -52,6 +56,8 @@ func main() {
 	if err := run(ctx, configFile); err != nil {
 		os.Exit(1)
 	}
+	<-ctx.Done()
+	logger.Info("Shutting down...")
 }
 
 // run runs the application - basically like main() with error handling.
@@ -61,20 +67,12 @@ func run(ctx context.Context, configFile string) error {
 		return err
 	}
 
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		// have print here because we can't log (yet), use the logger
-		// everywhere else.
-		_, _ = fmt.Fprintln(os.Stderr, "ERROR:", err)
-		return err
-	}
-
 	if cfg.Mode == string(e2e.ModeLight) {
-		err = startLightNode(ctx, logger, cfg)
+		err = startLightNode(ctx, cfg)
 	} else {
 		// Start remote signer (must start before node if running builtin).
 		if cfg.PrivValServer != "" {
-			if err = startSigner(ctx, logger, cfg); err != nil {
+			if err = startSigner(ctx, cfg); err != nil {
 				logger.Error("starting signer",
 					"server", cfg.PrivValServer,
 					"err", err)
@@ -105,11 +103,7 @@ func run(ctx context.Context, configFile string) error {
 			"err", err)
 		return err
 	}
-
-	// Apparently there's no way to wait for the server, so we just sleep
-	for {
-		time.Sleep(1 * time.Hour)
-	}
+	return nil
 }
 
 // startNode starts a Tendermint node running the application directly. It assumes the Tendermint
@@ -122,7 +116,7 @@ func startNode(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	tmcfg, nodeLogger, err := setupNode()
+	tmcfg, err := setupNode()
 	if err != nil {
 		return fmt.Errorf("failed to setup config: %w", err)
 	}
@@ -130,7 +124,6 @@ func startNode(ctx context.Context, cfg *Config) error {
 	n, err := node.New(
 		ctx,
 		tmcfg,
-		nodeLogger,
 		func() {},
 		app,
 		nil,
@@ -144,22 +137,22 @@ func startNode(ctx context.Context, cfg *Config) error {
 }
 
 func startSeedNode(ctx context.Context) error {
-	tmcfg, nodeLogger, err := setupNode()
+	tmcfg, err := setupNode()
 	if err != nil {
 		return fmt.Errorf("failed to setup config: %w", err)
 	}
 
 	tmcfg.Mode = config.ModeSeed
 
-	n, err := node.New(ctx, tmcfg, nodeLogger, func() {}, nil, nil, []trace.TracerProviderOption{}, nil)
+	n, err := node.New(ctx, tmcfg, func() {}, nil, nil, []trace.TracerProviderOption{}, nil)
 	if err != nil {
 		return err
 	}
 	return n.Start(ctx)
 }
 
-func startLightNode(ctx context.Context, logger log.Logger, cfg *Config) error {
-	tmcfg, nodeLogger, err := setupNode()
+func startLightNode(ctx context.Context, cfg *Config) error {
+	tmcfg, err := setupNode()
 	if err != nil {
 		return err
 	}
@@ -184,7 +177,6 @@ func startLightNode(ctx context.Context, logger log.Logger, cfg *Config) error {
 		providers[1:],
 		dbs.New(lightDB),
 		5*time.Minute,
-		light.Logger(nodeLogger),
 	)
 	if err != nil {
 		return err
@@ -202,7 +194,7 @@ func startLightNode(ctx context.Context, logger log.Logger, cfg *Config) error {
 		rpccfg.WriteTimeout = tmcfg.RPC.TimeoutBroadcastTxCommit + 1*time.Second
 	}
 
-	p, err := lproxy.NewProxy(c, tmcfg.RPC.ListenAddress, providers[0], rpccfg, nodeLogger,
+	p, err := lproxy.NewProxy(c, tmcfg.RPC.ListenAddress, providers[0], rpccfg,
 		lrpc.KeyPathFn(lrpc.DefaultMerkleKeyPathFn()))
 	if err != nil {
 		return err
@@ -218,7 +210,7 @@ func startLightNode(ctx context.Context, logger log.Logger, cfg *Config) error {
 }
 
 // startSigner starts a signer server connecting to the given endpoint.
-func startSigner(ctx context.Context, logger log.Logger, cfg *Config) error {
+func startSigner(ctx context.Context, cfg *Config) error {
 	filePV, err := privval.LoadFilePV(cfg.PrivValKey, cfg.PrivValState)
 	if err != nil {
 		return err
@@ -237,7 +229,7 @@ func startSigner(ctx context.Context, logger log.Logger, cfg *Config) error {
 		if err != nil {
 			return err
 		}
-		ss := grpcprivval.NewSignerServer(logger, cfg.ChainID, filePV)
+		ss := grpcprivval.NewSignerServer(cfg.ChainID, filePV)
 
 		s := grpc.NewServer()
 
@@ -258,7 +250,7 @@ func startSigner(ctx context.Context, logger log.Logger, cfg *Config) error {
 		return fmt.Errorf("invalid privval protocol %q", protocol)
 	}
 
-	endpoint := privval.NewSignerDialerEndpoint(logger, dialFn,
+	endpoint := privval.NewSignerDialerEndpoint(dialFn,
 		privval.SignerDialerEndpointRetryWaitInterval(1*time.Second),
 		privval.SignerDialerEndpointConnRetries(100))
 
@@ -271,39 +263,34 @@ func startSigner(ctx context.Context, logger log.Logger, cfg *Config) error {
 	return nil
 }
 
-func setupNode() (*config.Config, log.Logger, error) {
+func setupNode() (*config.Config, error) {
 	var tmcfg *config.Config
 
 	home := os.Getenv("TMHOME")
 	if home == "" {
-		return nil, nil, errors.New("TMHOME not set")
+		return nil, errors.New("TMHOME not set")
 	}
 
 	viper.AddConfigPath(filepath.Join(home, "config"))
 	viper.SetConfigName("config")
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	tmcfg = config.DefaultConfig()
 
 	if err := viper.Unmarshal(tmcfg); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	tmcfg.SetRoot(home)
 
 	if err := tmcfg.ValidateBasic(); err != nil {
-		return nil, nil, fmt.Errorf("error in config file: %w", err)
+		return nil, fmt.Errorf("error in config file: %w", err)
 	}
 
-	nodeLogger, err := log.NewDefaultLogger(tmcfg.LogFormat, tmcfg.LogLevel)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return tmcfg, nodeLogger.With("module", "main"), nil
+	return tmcfg, nil
 }
 
 // rpcEndpoints takes a list of persistent peers and splits them into a list of rpc endpoints

@@ -1,10 +1,6 @@
 package keeper
 
 import (
-	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -48,11 +44,6 @@ func NewKeeper(
 		bankKeeper:    bankKeeper,
 		distrKeeper:   distrKeeper,
 	}
-}
-
-// Logger returns a logger for the x/tokenfactory module
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
 // GetDenomPrefixStore returns the substore for a specific denom

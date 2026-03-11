@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -33,7 +32,7 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg.AsyncCommitBuffer = 10
 	cfg.SnapshotInterval = 100
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
-	cs := memiavl.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
+	cs := memiavl.NewCommitStore(dbDir, cfg)
 	cs.Initialize([]string{EVMStoreName})
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
@@ -49,7 +48,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string) (DBWrapper, error) 
 	cfg := flatkv.DefaultConfig()
 	cfg.Fsync = false
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs := flatkv.NewCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	cs := flatkv.NewCommitStore(ctx, dbDir, cfg)
 	_, err := cs.LoadVersion(0)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
@@ -66,7 +65,7 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
+	cs := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)
@@ -88,7 +87,7 @@ func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg.AsyncWriteBuffer = 0
 	cfg.WriteMode = config.DualWrite
 	cfg.ReadMode = config.EVMFirstRead
-	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewNopLogger())
+	return ssComposite.NewCompositeStateStore(cfg, dir)
 }
 
 func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {

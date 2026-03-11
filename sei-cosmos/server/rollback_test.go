@@ -26,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -119,7 +118,7 @@ func setupTestApp(t *testing.T, height int64) (*mockApplication, string) {
 	db, err := dbm.NewDB("test", dbm.MemDBBackend, tempDir)
 	require.NoError(t, err)
 
-	cms := rootmulti.NewStore(db, log.NewNopLogger())
+	cms := rootmulti.NewStore(db)
 	key := storetypes.NewKVStoreKey("test")
 	cms.MountStoreWithDB(key, storetypes.StoreTypeIAVL, db)
 	err = cms.LoadLatestVersion()
@@ -411,7 +410,7 @@ func TestRollbackScenario1_BothAtSameHeight(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, initialHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -422,7 +421,6 @@ func TestRollbackScenario1_BothAtSameHeight(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -454,7 +452,7 @@ func TestRollbackScenario2_AppAheadOfTendermint(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, tmHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -465,7 +463,6 @@ func TestRollbackScenario2_AppAheadOfTendermint(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -497,7 +494,7 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, tmHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -508,7 +505,6 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -536,7 +532,7 @@ func TestRollbackErrorCases(t *testing.T) {
 		// Setup tendermint state at height 0
 		cfg := setupTendermintStateDB(t, tempDir, 0)
 
-		appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+		appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 			return app
 		}
 
@@ -545,7 +541,6 @@ func TestRollbackErrorCases(t *testing.T) {
 
 		ctx := &Context{
 			Config: cfg,
-			Logger: log.NewNopLogger(),
 			Viper:  nil,
 		}
 		cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -569,7 +564,7 @@ func TestRollbackWithNumBlocks(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, initialHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -581,7 +576,6 @@ func TestRollbackWithNumBlocks(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)

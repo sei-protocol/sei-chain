@@ -13,9 +13,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/parquet-go/parquet-go"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "ledger_db", "parquet")
 
 const (
 	maxInt64  = int64(^uint64(0) >> 1)
@@ -75,7 +77,6 @@ type Store struct {
 	earliestVersion atomic.Int64
 	closeOnce       sync.Once
 
-	log       dbLogger.Logger
 	pruneStop chan struct{}
 
 	// WarmupRecords holds receipts recovered from WAL for cache warming.
@@ -83,7 +84,7 @@ type Store struct {
 }
 
 // NewStore creates a new parquet store.
-func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
+func NewStore(cfg StoreConfig) (*Store, error) {
 	storeCfg := resolveStoreConfig(cfg)
 
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
@@ -96,7 +97,7 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 	}
 
 	walDir := filepath.Join(cfg.DBDirectory, "parquet-wal")
-	receiptWAL, err := NewWAL(log, walDir)
+	receiptWAL, err := NewWAL(walDir)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,6 @@ func NewStore(log dbLogger.Logger, cfg StoreConfig) (*Store, error) {
 		config:         storeCfg,
 		Reader:         reader,
 		wal:            receiptWAL,
-		log:            log,
 		pruneStop:      make(chan struct{}),
 	}
 
@@ -320,8 +320,8 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 			pruneBeforeBlock := latestVersion - s.config.KeepRecent
 			if pruneBeforeBlock > 0 {
 				pruned := s.pruneOldFiles(uint64(pruneBeforeBlock))
-				if pruned > 0 && s.log != nil {
-					s.log.Info(fmt.Sprintf("Pruned %d parquet file pairs older than block %d", pruned, pruneBeforeBlock))
+				if pruned > 0 {
+					logger.Info("Pruned parquet file pairs older than block", "pruned-count", pruned, "block", pruneBeforeBlock)
 				}
 			}
 
@@ -353,9 +353,7 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 			s.Reader.RemoveTrackedReceiptFile(filePair.StartBlock)
 			if err := removeFile(filePair.ReceiptFile); err != nil && !os.IsNotExist(err) {
 				s.Reader.AddTrackedReceiptFile(filePair.StartBlock)
-				if s.log != nil {
-					s.log.Error("failed to prune receipt file", "file", filePair.ReceiptFile, "err", err)
-				}
+				logger.Error("failed to prune receipt file", "file", filePair.ReceiptFile, "err", err)
 			} else {
 				receiptRemoved = true
 			}
@@ -366,9 +364,7 @@ func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
 			s.Reader.RemoveTrackedLogFile(filePair.StartBlock)
 			if err := removeFile(filePair.LogFile); err != nil && !os.IsNotExist(err) {
 				s.Reader.AddTrackedLogFile(filePair.StartBlock)
-				if s.log != nil {
-					s.log.Error("failed to prune log file", "file", filePair.LogFile, "err", err)
-				}
+				logger.Error("failed to prune log file", "file", filePair.LogFile, "err", err)
 			} else {
 				logRemoved = true
 			}

@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/tidwall/wal"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
 // The size of internal channel buffers if the provided buffer size is less than 1.
@@ -29,7 +27,6 @@ type WAL[T any] struct {
 	dir       string
 	log       *wal.Log
 	config    Config
-	logger    logger.Logger
 	marshal   MarshalFn[T]
 	unmarshal UnmarshalFn[T]
 
@@ -110,7 +107,6 @@ func NewWAL[T any](
 	ctx context.Context,
 	marshal MarshalFn[T],
 	unmarshal UnmarshalFn[T],
-	logger logger.Logger,
 	dir string,
 	config Config,
 ) (*WAL[T], error) {
@@ -142,7 +138,6 @@ func NewWAL[T any](
 		dir:            dir,
 		log:            log,
 		config:         config,
-		logger:         logger,
 		marshal:        marshal,
 		unmarshal:      unmarshal,
 		writeBatchSize: writeBatchSize,

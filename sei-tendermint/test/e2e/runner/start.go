@@ -6,11 +6,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
 
-func Start(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error {
+func Start(ctx context.Context, testnet *e2e.Testnet) error {
 	if len(testnet.Nodes) == 0 {
 		return fmt.Errorf("no nodes in testnet")
 	}
@@ -52,7 +51,7 @@ func Start(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
 
-			_, err := waitForNode(ctx, logger, node, 0)
+			_, err := waitForNode(ctx, node, 0)
 			return err
 		}(); err != nil {
 			return err
@@ -111,7 +110,7 @@ func Start(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error {
 		}
 
 		wctx, wcancel := context.WithTimeout(ctx, 8*time.Minute)
-		status, err := waitForNode(wctx, logger, node, node.StartAt)
+		status, err := waitForNode(wctx, node, node.StartAt)
 		if err != nil {
 			wcancel()
 			return err

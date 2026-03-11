@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
@@ -24,7 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -145,8 +143,7 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 
 			genFile := tmConfig.GenesisFile()
 			overwrite, _ := cmd.Flags().GetBool(FlagOverwrite)
-			serverCtx := server.GetServerContextFromCmd(cmd)
-			genDoc, err := loadOrWriteGenesis(serverCtx.Logger, genFile, chainID, overwrite, mbm, cdc)
+			genDoc, err := loadOrWriteGenesis(genFile, chainID, overwrite, mbm, cdc)
 			if err != nil {
 				return err
 			}
@@ -218,7 +215,7 @@ func checkConfigOverwrite(configPath string, overwrite bool) error {
 }
 
 // loadOrWriteGenesis loads existing genesis at genFile if present and !overwrite, else writes embedded (well-known) or default.
-func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
+func loadOrWriteGenesis(genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
 	if !overwrite && tmos.FileExists(genFile) {
 		if err := ensureGenesisPathIsFile(genFile); err != nil {
 			return nil, err

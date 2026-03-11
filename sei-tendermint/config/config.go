@@ -12,7 +12,6 @@ import (
 	"time"
 
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -245,7 +244,7 @@ func DefaultBaseConfig() BaseConfig {
 		ProxyApp:    "tcp://127.0.0.1:26658",
 		ABCI:        "socket",
 		LogLevel:    DefaultLogLevel,
-		LogFormat:   log.LogFormatPlain,
+		LogFormat:   "json",
 		FilterPeers: false,
 		DBBackend:   "goleveldb",
 		DBPath:      "data",
@@ -320,7 +319,7 @@ func (cfg BaseConfig) DBDir() string {
 // returns an error if any check fails.
 func (cfg BaseConfig) ValidateBasic() error {
 	switch cfg.LogFormat {
-	case log.LogFormatJSON, log.LogFormatText, log.LogFormatPlain:
+	case "json", "text", "plain":
 	default:
 		return errors.New("unknown log format (must be 'plain', 'text' or 'json')")
 	}

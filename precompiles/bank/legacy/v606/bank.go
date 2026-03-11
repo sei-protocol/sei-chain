@@ -14,7 +14,6 @@ import (
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
@@ -380,10 +379,6 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
-}
-
-func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("precompile", "bank")
 }
 
 func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {

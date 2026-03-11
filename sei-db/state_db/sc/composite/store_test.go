@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -15,7 +14,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test", EVMStoreName})
 
 	_, err := cs.LoadVersion(0, false)
@@ -64,7 +63,7 @@ func TestEmptyChangesets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -85,7 +84,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -122,7 +121,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -157,7 +156,7 @@ func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -193,7 +192,7 @@ func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -216,7 +215,7 @@ func TestGetVersions(t *testing.T) {
 	}
 	require.NoError(t, cs.Close())
 
-	cs2 := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()

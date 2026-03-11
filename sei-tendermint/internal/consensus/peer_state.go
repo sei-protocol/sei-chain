@@ -10,7 +10,6 @@ import (
 
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -39,7 +38,6 @@ func (pss peerStateStats) String() string {
 // Be mindful of what you Expose.
 type PeerState struct {
 	peerID types.NodeID
-	logger log.Logger
 
 	// NOTE: Modify below using setters, never directly.
 	mtx    sync.RWMutex
@@ -49,10 +47,9 @@ type PeerState struct {
 }
 
 // NewPeerState returns a new PeerState for the given node ID.
-func NewPeerState(logger log.Logger, peerID types.NodeID) *PeerState {
+func NewPeerState(peerID types.NodeID) *PeerState {
 	return &PeerState{
 		peerID: peerID,
-		logger: logger,
 		PRS: cstypes.PeerRoundState{
 			HRS:                cstypes.HRS{Round: -1},
 			ProposalPOLRound:   -1,
@@ -98,7 +95,7 @@ func (ps *PeerState) SetHasProposal(proposal *types.Proposal) {
 
 	// Check memory limits before acquiring lock or setting any state
 	if proposal.BlockID.PartSetHeader.Total > types.MaxBlockPartsCount {
-		ps.logger.Debug("PartSetHeader.Total exceeds maximum", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
+		logger.Debug("PartSetHeader.Total exceeds maximum", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
 		return
 	}
 
@@ -138,7 +135,7 @@ func (ps *PeerState) InitProposalBlockParts(partSetHeader types.PartSetHeader) {
 
 	// Apply the same memory exhaustion protection as in SetHasProposal
 	if partSetHeader.Total > types.MaxBlockPartsCount {
-		ps.logger.Debug("InitProposalBlockParts: PartSetHeader.Total exceeds maximum", "total", partSetHeader.Total, "max", types.MaxBlockPartsCount)
+		logger.Debug("InitProposalBlockParts: PartSetHeader.Total exceeds maximum", "total", partSetHeader.Total, "max", types.MaxBlockPartsCount)
 		return
 	}
 
@@ -371,12 +368,13 @@ func (ps *PeerState) SetHasVote(vote *types.Vote) error {
 
 // setHasVote will return an error when the index exceeds the bitArray length
 func (ps *PeerState) setHasVote(height int64, round int32, voteType tmproto.SignedMsgType, index int32) error {
-	logger := ps.logger.With(
-		"peerH/R", fmt.Sprintf("%d/%d", ps.PRS.Height, ps.PRS.Round),
-		"H/R", fmt.Sprintf("%d/%d", height, round),
-	)
 
-	logger.Debug("setHasVote", "type", voteType, "index", index)
+	logger.Debug("setHasVote", "type", voteType, "index", index,
+		"peer-height", ps.PRS.Height,
+		"peer-round", ps.PRS.Round,
+		"height", height,
+		"round", round,
+	)
 
 	// NOTE: some may be nil BitArrays -> no side effects
 	psVotes := ps.getVoteBitArray(height, round, voteType)

@@ -4,15 +4,17 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/inspect"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
+var logger = seilog.NewLogger("tendermint", "cmd", "tendermint", "commands")
+
 // InspectCmd constructs the command to start an inspect server.
-func MakeInspectCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+func MakeInspectCommand(conf *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inspect",
 		Short: "Run an inspect server for investigating Tendermint state",
@@ -29,7 +31,7 @@ func MakeInspectCommand(conf *config.Config, logger log.Logger) *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
 
-			ins, err := inspect.NewFromConfig(logger, conf)
+			ins, err := inspect.NewFromConfig(conf)
 			if err != nil {
 				return err
 			}

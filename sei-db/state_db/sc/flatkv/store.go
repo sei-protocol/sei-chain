@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -16,9 +15,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/seilog"
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel"
 )
+
+var logger = seilog.NewLogger("db", "state_db", "sc", "flatkv")
 
 const (
 	// Top-level directory names
@@ -63,7 +65,6 @@ type pendingAccountWrite struct {
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
 	ctx    context.Context
-	log    logger.Logger
 	config Config
 	dbDir  string
 
@@ -109,17 +110,12 @@ var _ Store = (*CommitStore)(nil)
 func NewCommitStore(
 	ctx context.Context,
 	dbDir string,
-	log logger.Logger,
 	cfg Config,
 ) *CommitStore {
-	if log == nil {
-		log = logger.NewNopLogger()
-	}
 	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
 		ctx:               ctx,
-		log:               log,
 		config:            cfg,
 		dbDir:             dbDir,
 		localMeta:         make(map[string]*LocalMeta),
@@ -144,7 +140,7 @@ func (s *CommitStore) flatkvDir() string {
 //   - targetVersion > 0: seek the best snapshot <= targetVersion, open it, then
 //     catchup via WAL to reach targetVersion exactly.
 func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	_ = s.closeDBsOnly()
 
@@ -176,7 +172,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
 				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
 			}
 		} else {
-			s.log.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
+			logger.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
 		}
 		// Force a fresh working dir clone: the working dir may contain data
 		// beyond targetVersion from a previous open-to-latest.
@@ -266,7 +262,7 @@ func (s *CommitStore) open() (retErr error) {
 		return err
 	}
 
-	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
+	logger.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
 	return nil
 }
 
@@ -355,7 +351,7 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 	}
 
 	changelogPath := filepath.Join(flatkvRoot, changelogDir)
-	s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
+	s.changelog, err = wal.NewChangelogWAL(changelogPath, wal.Config{
 		WriteBufferSize: 0,
 		KeepRecent:      0,
 		PruneInterval:   0,
@@ -420,7 +416,7 @@ func (s *CommitStore) clearChangelog() error {
 		return fmt.Errorf("remove changelog dir: %w", err)
 	}
 	var err error
-	s.changelog, err = wal.NewChangelogWAL(s.log, dir, wal.Config{})
+	s.changelog, err = wal.NewChangelogWAL(dir, wal.Config{})
 	if err != nil {
 		return fmt.Errorf("reopen changelog: %w", err)
 	}

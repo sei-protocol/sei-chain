@@ -17,8 +17,6 @@ func (k Keeper) AllocateTokens(
 	previousProposer sdk.ConsAddress, bondedVotes []abci.VoteInfo,
 ) {
 
-	logger := k.Logger(ctx)
-
 	// fetch and clear the collected fees for distribution, since this is
 	// called in BeginBlock, collected fees will be from the previous block
 	// (and distributed to the previous proposer)

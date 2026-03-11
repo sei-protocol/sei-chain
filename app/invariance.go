@@ -58,7 +58,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	)
 	ckv, ok := cms.GetStore(app.BankKeeper.GetStoreKey()).(*commitment.Store)
 	if !ok {
-		app.Logger().Error("bank store is not a memiavl store; cannot run light invariance check")
+		logger.Error("bank store is not a memiavl store; cannot run light invariance check")
 		return
 	}
 	balanceChangePairs := ckv.GetChangedPairs(banktypes.BalancesPrefix)
@@ -73,7 +73,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "sei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
+			logger.Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
 			continue
 		}
 		addrLen := int(p.Key[1])
@@ -85,7 +85,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "sei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
+			logger.Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
 			continue
 		}
 		addr := p.Key[2 : addrLen+2]
@@ -105,7 +105,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 						Value: "post_block",
 					},
 				})
-				app.Logger().Error(fmt.Sprintf("failed to unmarshal balance: %s", err))
+				logger.Error(fmt.Sprintf("failed to unmarshal balance: %s", err))
 				continue
 			}
 			if balance.Amount.IsNegative() {
@@ -133,7 +133,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock balance: %s", err))
+			logger.Error(fmt.Sprintf("failed to unmarshal preblock balance: %s", err))
 			continue
 		}
 		useiPreTotal = useiPreTotal.Add(balance.Amount)
@@ -150,7 +150,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "wei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key: %X", p.Key))
+			logger.Error(fmt.Sprintf("invalid changed pair key: %X", p.Key))
 			continue
 		}
 		if !p.Delete {
@@ -164,7 +164,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 						Value: "post_block",
 					},
 				})
-				app.Logger().Error(fmt.Sprintf("failed to unmarshal wei balance: %s", err))
+				logger.Error(fmt.Sprintf("failed to unmarshal wei balance: %s", err))
 				continue
 			}
 			weiPostTotal = weiPostTotal.Add(amt)
@@ -192,7 +192,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock wei balance: %s", err))
+			logger.Error(fmt.Sprintf("failed to unmarshal preblock wei balance: %s", err))
 			continue
 		}
 		weiPreTotal = weiPreTotal.Add(amt)
@@ -212,7 +212,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal pre total supply: %s", err))
+			logger.Error(fmt.Sprintf("failed to unmarshal pre total supply: %s", err))
 			return
 		}
 		preTotalSupply = amt
@@ -233,7 +233,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 							Value: "post_block",
 						},
 					})
-					app.Logger().Error(fmt.Sprintf("failed to unmarshal total supply: %s", err))
+					logger.Error(fmt.Sprintf("failed to unmarshal total supply: %s", err))
 				} else {
 					supplyChanged = amt.Sub(preTotalSupply)
 				}

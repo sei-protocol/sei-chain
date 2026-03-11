@@ -21,7 +21,6 @@ import (
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -71,11 +70,10 @@ func TestEvidencePoolBasic(t *testing.T) {
 	stateStore.On("LoadValidators", mock.AnythingOfType("int64")).Return(valSet, nil)
 	stateStore.On("Load").Return(createState(height+1, valSet), nil)
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(logger, evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
 	startPool(t, pool, stateStore)
 
 	// evidence not seen yet:
@@ -138,11 +136,10 @@ func TestAddExpiredEvidence(t *testing.T) {
 		return &types.BlockMeta{Header: types.Header{Time: expiredEvidenceTime}}
 	})
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(logger, evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
 	startPool(t, pool, stateStore)
 
 	testCases := []struct {
@@ -401,11 +398,10 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 	blockStore.On("LoadBlockCommit", height).Return(trusted.Commit)
 	blockStore.On("LoadBlockCommit", commonHeight).Return(common.Commit)
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(logger, dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
 
 	hash := ev.Hash()
 
@@ -456,12 +452,11 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, valAddress)
 	require.NoError(t, err)
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	// create previous pool and populate it
-	pool := evidence.NewPool(logger, evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
 	startPool(t, pool, stateStore)
 
 	goodEvidence, err := types.NewMockDuplicateVoteEvidenceWithValidator(
@@ -504,7 +499,7 @@ func TestRecoverPendingEvidence(t *testing.T) {
 		},
 	}, nil)
 
-	newPool := evidence.NewPool(logger, evidenceDB, newStateStore, blockStore, evidence.NopMetrics(), nil)
+	newPool := evidence.NewPool(evidenceDB, newStateStore, blockStore, evidence.NopMetrics(), nil)
 	startPool(t, newPool, newStateStore)
 	evList, _ := newPool.PendingEvidence(defaultEvidenceMaxBytes)
 	require.Equal(t, 1, len(evList))
@@ -607,12 +602,10 @@ func defaultTestPool(ctx context.Context, t *testing.T, height int64) (*evidence
 	blockStore, err := initializeBlockStore(dbm.NewMemDB(), state, valAddress)
 	require.NoError(t, err)
 
-	logger := log.NewNopLogger()
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(logger, evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
 	startPool(t, pool, stateStore)
 	return pool, val, eventBus
 }

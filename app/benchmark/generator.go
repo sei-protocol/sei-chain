@@ -12,7 +12,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-load/config"
@@ -66,12 +65,11 @@ type Generator struct {
 	loadGenerator generator.Generator
 	txsPerBatch   int
 
-	mu     sync.RWMutex
-	logger log.Logger
+	mu sync.RWMutex
 }
 
 // NewGenerator creates a new benchmark generator from a config.
-func NewGenerator(cfg *config.LoadConfig, txConfig client.TxConfig, logger log.Logger) (*Generator, error) {
+func NewGenerator(cfg *config.LoadConfig, txConfig client.TxConfig) (*Generator, error) {
 	// Read number of transactions per batch from environment variable, default to 1000
 	txsPerBatch := 1000
 	if envVal := os.Getenv("BENCHMARK_TXS_PER_BATCH"); envVal != "" {
@@ -90,7 +88,6 @@ func NewGenerator(cfg *config.LoadConfig, txConfig client.TxConfig, logger log.L
 		phase:          PhaseWarmup, // Start with warmup to let chain initialize
 		warmupCounter:  0,
 		txsPerBatch:    txsPerBatch,
-		logger:         logger,
 	}
 	logger.Info("benchmark: Generator will wait for warmup blocks before deploying", "warmupBlocks", WarmupBlocks)
 
@@ -198,16 +195,16 @@ func (g *Generator) craftDeploymentTx(state *scenarioState, txScenario *loadtype
 	case scenarios.Disperse:
 		deployData = getDisperseDeployData()
 	default:
-		g.logger.Info("benchmark: Unknown contract scenario, skipping deployment", "scenario", state.scenario.Name())
+		logger.Info("benchmark: Unknown contract scenario, skipping deployment", "scenario", state.scenario.Name())
 		return nil
 	}
 
 	nonce := g.deployer.GetAndIncrementNonce()
-	g.logger.Info("benchmark: Creating deployment transaction",
+	logger.Info("benchmark: Creating deployment transaction",
 		"scenario", state.scenario.Name(),
-		"deployer", g.deployer.Address.Hex(),
+		"deployer", g.deployer.Address,
 		"nonce", nonce,
-		"chainID", g.chainID.String(),
+		"chainID", g.chainID,
 		"dataLen", len(deployData))
 
 	// Create deployment transaction with chain ID set
@@ -226,12 +223,12 @@ func (g *Generator) craftDeploymentTx(state *scenarioState, txScenario *loadtype
 	signer := ethtypes.NewCancunSigner(g.chainID)
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(tx), signer, g.deployer.PrivKey)
 	if err != nil {
-		g.logger.Error("benchmark: Failed to sign deployment tx", "error", err)
+		logger.Error("benchmark: Failed to sign deployment tx", "error", err)
 		panic(err)
 	}
 
-	g.logger.Info("benchmark: Deployment transaction signed",
-		"txHash", signedTx.Hash().Hex(),
+	logger.Info("benchmark: Deployment transaction signed",
+		"txHash", signedTx.Hash(),
 		"gas", signedTx.Gas())
 
 	return signedTx
@@ -263,7 +260,7 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 		deployTx := g.createDeploymentTx(state)
 		if deployTx == nil {
 			// Scenario doesn't need deployment (e.g., EVMTransfer)
-			g.logger.Info("benchmark: Scenario doesn't need deployment, attaching with zero address",
+			logger.Info("benchmark: Scenario doesn't need deployment, attaching with zero address",
 				"scenario", state.scenario.Name())
 			state.deployed = true
 			if err := state.scenario.Attach(g.cfg, common.Address{}); err != nil {
@@ -276,9 +273,9 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 		state.deployTxHash = deployTx.Hash()
 		g.pendingDeploys[deployTx.Hash()] = state
 
-		g.logger.Info("benchmark: Created deployment transaction (will only deploy once)",
+		logger.Info("benchmark: Created deployment transaction (will only deploy once)",
 			"scenario", state.config.Name,
-			"txHash", deployTx.Hash().Hex())
+			"txHash", deployTx.Hash())
 
 		// Convert to Cosmos SDK tx
 		txRecord, err := g.ethTxToTxRecord(deployTx)
@@ -370,22 +367,22 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 		return
 	}
 
-	g.logger.Info("benchmark: Processing receipts for pending deployments",
+	logger.Info("benchmark: Processing receipts for pending deployments",
 		"pendingCount", len(g.pendingDeploys),
 		"receiptsProvided", len(receipts))
 
 	for txHash, state := range g.pendingDeploys {
 		receipt, ok := receipts[txHash]
 		if !ok {
-			g.logger.Info("benchmark: Receipt not yet available for deployment",
+			logger.Info("benchmark: Receipt not yet available for deployment",
 				"scenario", state.config.Name,
-				"txHash", txHash.Hex())
+				"txHash", txHash)
 			continue
 		}
 
-		g.logger.Info("benchmark: Found receipt for deployment",
+		logger.Info("benchmark: Found receipt for deployment",
 			"scenario", state.config.Name,
-			"txHash", txHash.Hex(),
+			"txHash", txHash,
 			"status", receipt.Status,
 			"gasUsed", receipt.GasUsed,
 			"contractAddress", receipt.ContractAddress,
@@ -397,10 +394,10 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 		}
 
 		addr := common.HexToAddress(receipt.ContractAddress)
-		g.logger.Info("benchmark: Contract deployed successfully",
+		logger.Info("benchmark: Contract deployed successfully",
 			"scenario", state.config.Name,
-			"address", addr.Hex(),
-			"txHash", txHash.Hex(),
+			"address", addr,
+			"txHash", txHash,
 			"gasUsed", receipt.GasUsed)
 
 		// Attach the deployed address to the scenario
@@ -408,9 +405,9 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 			panic(fmt.Sprintf("benchmark: Failed to attach scenario %s to address %s: %v",
 				state.config.Name, addr.Hex(), err))
 		}
-		g.logger.Info("benchmark: Scenario attached to deployed contract",
+		logger.Info("benchmark: Scenario attached to deployed contract",
 			"scenario", state.config.Name,
-			"address", addr.Hex())
+			"address", addr)
 		state.address = addr
 		state.deployed = true
 		delete(g.pendingDeploys, txHash)
@@ -424,21 +421,21 @@ func (g *Generator) ProcessReceipts(receipts map[common.Hash]*evmtypes.Receipt) 
 
 // transitionToLoadPhase switches from setup to load generation.
 func (g *Generator) transitionToLoadPhase() {
-	g.logger.Info("benchmark: All scenarios deployed, transitioning to load phase")
+	logger.Info("benchmark: All scenarios deployed, transitioning to load phase")
 	g.phase = PhaseLoad
 
 	// Create weighted generator from deployed scenarios
 	weightedConfigs := make([]*generator.WeightedCfg, 0, len(g.scenarios))
 	for _, state := range g.scenarios {
 		if !state.deployed {
-			g.logger.Info("benchmark: Scenario not deployed, skipping", "scenario", state.config.Name)
+			logger.Info("benchmark: Scenario not deployed, skipping", "scenario", state.config.Name)
 			continue
 		}
 		if state.config.Weight == 0 {
-			g.logger.Info("benchmark: Skipping scenario with weight 0", "scenario", state.config.Name)
+			logger.Info("benchmark: Skipping scenario with weight 0", "scenario", state.config.Name)
 			continue
 		}
-		g.logger.Info("benchmark: Adding scenario to load generator",
+		logger.Info("benchmark: Adding scenario to load generator",
 			"scenario", state.config.Name,
 			"weight", state.config.Weight,
 			"address", state.address.Hex())
@@ -451,7 +448,7 @@ func (g *Generator) transitionToLoadPhase() {
 	}
 
 	g.loadGenerator = generator.NewWeightedGenerator(weightedConfigs...)
-	g.logger.Info("benchmark: Load generator initialized and ready", "scenarios", len(weightedConfigs))
+	logger.Info("benchmark: Load generator initialized and ready", "scenarios", len(weightedConfigs))
 }
 
 // Generate returns the next batch of transaction records.
@@ -463,12 +460,12 @@ func (g *Generator) Generate() []*abci.TxRecord {
 	if phase == PhaseWarmup {
 		g.warmupCounter++
 		if g.warmupCounter >= WarmupBlocks {
-			g.logger.Info("benchmark: Warmup complete, transitioning to setup phase",
+			logger.Info("benchmark: Warmup complete, transitioning to setup phase",
 				"blocksWaited", g.warmupCounter)
 			g.phase = PhaseSetup
 			phase = PhaseSetup
 		} else {
-			g.logger.Info("benchmark: Warming up, waiting for chain to initialize",
+			logger.Info("benchmark: Warming up, waiting for chain to initialize",
 				"block", g.warmupCounter,
 				"needed", WarmupBlocks)
 			g.mu.Unlock()

@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (
@@ -52,7 +51,6 @@ const (
 var GigaKeys = []string{"evm", "bank"}
 
 func SetupSeiDB(
-	logger log.Logger,
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
@@ -83,7 +81,7 @@ func SetupSeiDB(
 	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, gigaStoreKeys)
+	cms := rootmulti.NewStore(homePath, scConfig, ssConfig, gigaStoreKeys)
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
 			baseApp.SetCMS(cms)

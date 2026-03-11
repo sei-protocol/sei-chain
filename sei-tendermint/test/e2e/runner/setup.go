@@ -19,7 +19,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -39,7 +38,7 @@ const (
 )
 
 // Setup sets up the testnet configuration.
-func Setup(logger log.Logger, testnet *e2e.Testnet) error {
+func Setup(testnet *e2e.Testnet) error {
 	logger.Info(fmt.Sprintf("Generating testnet files in %q", testnet.Dir))
 
 	err := os.MkdirAll(testnet.Dir, os.ModePerm)

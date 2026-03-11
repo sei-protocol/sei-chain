@@ -230,7 +230,7 @@ func NewBurnCoinMessageHandler(burner types.Burner) MessageHandlerFunc {
 			if err := burner.BurnCoins(ctx, types.ModuleName, coins); err != nil {
 				return nil, nil, sdkerrors.Wrap(err, "burn coins")
 			}
-			moduleLogger(ctx).Info("Burned", "amount", coins)
+			logger.Info("Burned", "amount", coins)
 			return nil, nil, nil
 		}
 		return nil, nil, types.ErrUnknownMsg

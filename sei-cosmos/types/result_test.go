@@ -3,9 +3,10 @@ package types_test
 import (
 	"encoding/hex"
 	"fmt"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"strings"
 	"testing"
+
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/golang/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -220,7 +221,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 }
 
 func TestWrapServiceResult(t *testing.T) {
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 
 	res, err := sdk.WrapServiceResult(ctx, nil, fmt.Errorf("test"))
 	require.Nil(t, res)

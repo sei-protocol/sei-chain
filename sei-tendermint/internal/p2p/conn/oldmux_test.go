@@ -13,7 +13,6 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -33,7 +32,7 @@ func makeChDescs() []*ChannelDescriptor {
 }
 
 func newMConnectionWithCfg(conn Conn, chDescs []*ChannelDescriptor, cfg MConnConfig) *MConnection {
-	return NewMConnection(log.NewNopLogger(), conn, chDescs, cfg)
+	return NewMConnection(conn, chDescs, cfg)
 }
 
 func newMConnection(conn Conn) *MConnection {

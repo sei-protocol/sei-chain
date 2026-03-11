@@ -10,8 +10,8 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
@@ -21,6 +21,8 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
+
+var logger = seilog.NewLogger("cosmos", "store", "iavl")
 
 const (
 	DefaultIAVLCacheSize = 500000
@@ -43,15 +45,15 @@ type Store struct {
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
 // store's version (id) from the provided DB. An error is returned if the version
 // fails to load, or if called with a positive version on an empty tree.
-func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
-	return LoadStoreWithInitialVersion(db, logger, key, id, lazyLoading, 0, cacheSize, disableFastNode, orphanConfig)
+func LoadStore(db dbm.DB, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
+	return LoadStoreWithInitialVersion(db, key, id, lazyLoading, 0, cacheSize, disableFastNode, orphanConfig)
 }
 
 // LoadStoreWithInitialVersion returns an IAVL Store as a CommitKVStore setting its initialVersion
 // to the one given. Internally, it will load the store's version (id) from the
 // provided DB. An error is returned if the version fails to load, or if called with a positive
 // version on an empty tree.
-func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
+func LoadStoreWithInitialVersion(db dbm.DB, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
 	opts := iavl.Options{
 		InitialVersion: initialVersion,
 		Sync:           false,
