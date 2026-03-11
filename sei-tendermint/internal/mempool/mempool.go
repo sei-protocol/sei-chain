@@ -959,7 +959,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", fmt.Sprintf("%x", wtx.tx.Hash()))
+				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.tx.Hash())
 				continue
 			}
 			txmp.handleRecheckResult(wtx.tx, res)
@@ -1065,7 +1065,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 			rtx := reenqueue.tx
 			go func() {
 				if err := txmp.CheckTx(context.Background(), rtx, nil, TxInfo{}); err != nil {
-					logger.Error(fmt.Sprintf("failed to reenqueue transaction %X due to %s", rtx.Hash(), err))
+					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
 				}
 			}()
 		}
@@ -1174,7 +1174,7 @@ func (txmp *TxMempool) handlePendingTransactions() {
 	for _, tx := range accepted {
 		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-tx.tx.Size()))
 		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
-			logger.Error(fmt.Sprintf("error adding pending transaction: %s", err))
+			logger.Error("error adding pending transaction", "err", err)
 		}
 	}
 	for _, tx := range rejected {

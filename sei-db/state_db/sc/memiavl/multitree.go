@@ -107,7 +107,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
 	elapsed := time.Since(startTime)
-	logger.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs", len(treeNames), elapsed.Seconds()))
+	logger.Info("all memIAVL trees loaded", "count", len(treeNames), "elapsed-sec", elapsed.Seconds())
 
 	if elapsed > slowLoadThreshold {
 		logger.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
@@ -447,8 +447,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 	if replayCount > 0 {
 		t.UpdateCommitInfo()
 		replayElapsed := time.Since(startTime).Seconds()
-		logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).",
-			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+		logger.Info("changelog replay complete", "entries", replayCount, "elapsed-sec", replayElapsed, "entries-per-sec", float64(replayCount)/replayElapsed)
 	}
 
 	return nil

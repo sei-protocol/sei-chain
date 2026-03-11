@@ -42,7 +42,7 @@ func InjectEvidence(ctx context.Context, r *rand.Rand, testnet *e2e.Testnet, amo
 		return errors.New("could not find node to inject evidence into")
 	}
 
-	logger.Info(fmt.Sprintf("Injecting evidence through %v (amount: %d)...", targetNode.Name, amount))
+	logger.Info("injecting evidence", "node", targetNode.Name, "amount", amount)
 
 	client, err := targetNode.Client()
 	if err != nil {

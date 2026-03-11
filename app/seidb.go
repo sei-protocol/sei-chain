@@ -61,10 +61,10 @@ func SetupSeiDB(
 		return baseAppOptions, nil
 	}
 	scConfig := parseSCConfigs(appOpts)
-	logger.Info(fmt.Sprintf("SeiDB SC is enabled, running node with sc config %v", scConfig))
+	logger.Info("SeiDB SC is enabled", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
-		logger.Info(fmt.Sprintf("SeiDB SS is enabled, running %s for historical state", ssConfig.Backend))
+		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
 	}
 	if ssConfig.EVMEnabled() {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",

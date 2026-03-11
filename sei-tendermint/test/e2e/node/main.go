@@ -259,7 +259,7 @@ func startSigner(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	logger.Info(fmt.Sprintf("Remote signer connecting to %v", cfg.PrivValServer))
+	logger.Info("remote signer connecting", "addr", cfg.PrivValServer)
 	return nil
 }
 

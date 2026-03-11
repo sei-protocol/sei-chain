@@ -60,7 +60,7 @@ func DefaultConfig() *Config {
 // Serve creates a http.Server and calls Serve with the given listener. It
 // wraps handler to recover panics and limit the request body size.
 func Serve(ctx context.Context, listener net.Listener, handler http.Handler, config *Config) error {
-	logger.Info(fmt.Sprintf("Starting RPC HTTP server on %s", listener.Addr()))
+	logger.Info("starting RPC HTTP server", "addr", listener.Addr())
 	h := recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes))
 	s := &http.Server{
 		Handler:        h,

@@ -1997,8 +1997,9 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			address    types.Address
 		)
 		if commitSize != valSetLen {
-			logger.Error(fmt.Sprintf("commit size (%d) doesn't match valset length (%d) at height %d\n\n%v\n\n%v",
-				commitSize, valSetLen, block.Height, block.LastCommit.Signatures, cs.roundState.LastValidators().Validators))
+			logger.Error("commit size doesn't match valset length",
+				"commit-size", commitSize, "valset-len", valSetLen, "height", block.Height,
+				"signatures", block.LastCommit.Signatures, "validators", cs.roundState.LastValidators().Validators)
 			return
 		}
 

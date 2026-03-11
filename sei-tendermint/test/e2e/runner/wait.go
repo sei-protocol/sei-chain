@@ -19,7 +19,7 @@ func Wait(ctx context.Context, testnet *e2e.Testnet, blocks int64) error {
 
 // WaitUntil waits until a given height has been reached.
 func WaitUntil(ctx context.Context, testnet *e2e.Testnet, height int64) error {
-	logger.Info(fmt.Sprintf("Waiting for all nodes to reach height %v...", height))
+	logger.Info("waiting for all nodes to reach height", "height", height)
 
 	_, _, err := waitForHeight(ctx, testnet, height)
 

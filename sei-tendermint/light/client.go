@@ -917,10 +917,10 @@ func (c *Client) backwards(
 	)
 
 	if verifiedHeader.Height-newHeader.Height > 10000 {
-		logger.Info(fmt.Sprintf("skipping the backward verification process from %d to %d", newHeader.Height, verifiedHeader.Height))
+		logger.Info("skipping backward verification process", "from", newHeader.Height, "to", verifiedHeader.Height)
 		return nil
 	}
-	logger.Info(fmt.Sprintf("starting the backward verification process from %d to %d", newHeader.Height, verifiedHeader.Height))
+	logger.Info("starting backward verification process", "from", newHeader.Height, "to", verifiedHeader.Height)
 	for verifiedHeader.Height > newHeader.Height {
 		interimBlock, err := c.lightBlockFromPrimary(ctx, verifiedHeader.Height-1)
 		if err != nil {

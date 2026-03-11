@@ -57,7 +57,7 @@ func Start(ctx context.Context, testnet *e2e.Testnet) error {
 			return err
 		}
 		node.HasStarted = true
-		logger.Info(fmt.Sprintf("Node %v up on http://127.0.0.1:%v", node.Name, node.ProxyPort))
+		logger.Info("node up", "node", node.Name, "url", fmt.Sprintf("http://127.0.0.1:%v", node.ProxyPort))
 	}
 
 	networkHeight := testnet.InitialHeight
@@ -127,8 +127,7 @@ func Start(ctx context.Context, testnet *e2e.Testnet) error {
 		} else {
 			lastNodeHeight = status.SyncInfo.LatestBlockHeight
 		}
-		logger.Info(fmt.Sprintf("Node %v up on http://127.0.0.1:%v at height %v",
-			node.Name, node.ProxyPort, lastNodeHeight))
+		logger.Info("node up", "node", node.Name, "url", fmt.Sprintf("http://127.0.0.1:%v", node.ProxyPort), "height", lastNodeHeight)
 	}
 
 	return nil

@@ -1013,23 +1013,24 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			logger.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)",
-				treeName, residentNodes*100, residentLeaves*100, prefetchThreshold*100))
+			logger.Info("skipped prefetching for tree",
+				"tree", treeName, "nodes-pct", residentNodes*100, "leaves-pct", residentLeaves*100, "threshold-pct", prefetchThreshold*100)
 			return
 		}
 	}
 
 	if residentNodes < prefetchThreshold {
-		logger.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f", treeName, residentNodes, prefetchThreshold))
+		logger.Info("tree nodes page cache residency below threshold", "tree", treeName, "resident-ratio", residentNodes, "threshold", prefetchThreshold)
 		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
-		logger.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f", treeName, residentLeaves, prefetchThreshold))
+		logger.Info("tree leaves page cache residency below threshold", "tree", treeName, "resident-ratio", residentLeaves, "threshold", prefetchThreshold)
 		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
-	logger.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.", treeName, time.Since(startTime).Seconds()))
+	logger.Info("prefetch snapshot completed; consider adding more RAM for page cache to avoid preloading during restart",
+		"tree", treeName, "elapsed-sec", time.Since(startTime).Seconds())
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name

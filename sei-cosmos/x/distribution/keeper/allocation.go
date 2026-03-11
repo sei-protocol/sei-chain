@@ -68,12 +68,11 @@ func (k Keeper) AllocateTokens(
 		// e.g. a validator undelegates at block X, it's removed entirely by
 		// block X+1's endblock, then X+2 we need to refer to the previous
 		// proposer for X+1, but we've forgotten about them.
-		logger.Error(fmt.Sprintf(
-			"WARNING: Attempt to allocate proposer rewards to unknown proposer %s. "+
-				"This should happen only if the proposer unbonded completely within a single block, "+
-				"which generally should not happen except in exceptional circumstances (or fuzz testing). "+
-				"We recommend you investigate immediately.",
-			previousProposer.String()))
+		logger.Error("attempt to allocate proposer rewards to unknown proposer; "+
+			"this should happen only if the proposer unbonded completely within a single block, "+
+			"which generally should not happen except in exceptional circumstances (or fuzz testing); "+
+			"we recommend you investigate immediately",
+			"proposer", previousProposer)
 	}
 
 	// calculate fraction allocated to validators

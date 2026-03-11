@@ -227,7 +227,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
 		}
-		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
+		logger.Info("finished replay and caught up to target version", "version", targetVersion)
 	}
 
 	if opts.LoadForOverwriting && targetVersion > 0 {
@@ -528,7 +528,7 @@ func (db *DB) pruneSnapshots() {
 	defer func() {
 		pruneLatency := time.Since(startTime).Seconds()
 		otelMetrics.SnapshotPruneLatency.Record(context.Background(), pruneLatency)
-		logger.Info("pruneSnapshots completed", "duration_sec", fmt.Sprintf("%.2fs", pruneLatency))
+		logger.Info("pruneSnapshots completed", "duration-sec", pruneLatency)
 	}()
 
 	currentVersion, err := currentVersion(db.dir)

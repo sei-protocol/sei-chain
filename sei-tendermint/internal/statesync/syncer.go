@@ -100,8 +100,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 	}
 	if added {
 		s.metrics.TotalSnapshots.Add(1)
-		logger.Info(fmt.Sprintf("Discovered and added new snapshot from peer %s", peerID), "height", snapshot.Height, "format", snapshot.Format,
-			"hash", snapshot.Hash)
+		logger.Info("discovered and added new snapshot", "peer", peerID, "height", snapshot.Height, "format", snapshot.Format, "hash", snapshot.Hash)
 	}
 	return added, nil
 }
@@ -135,7 +134,7 @@ func (s *syncer) SyncAny(
 		if err := requestSnapshots(); err != nil {
 			return sm.State{}, nil, err
 		}
-		logger.Info(fmt.Sprintf("Discovering snapshots for %v", discoveryTime))
+		logger.Info("discovering snapshots", "duration", discoveryTime)
 		time.Sleep(discoveryTime)
 	}
 
@@ -164,7 +163,7 @@ func (s *syncer) SyncAny(
 			if discoveryTime == 0 {
 				return sm.State{}, nil, errNoSnapshots
 			}
-			logger.Info(fmt.Sprintf("No snapshots discovered sleeping for %v", discoveryTime))
+			logger.Info("no snapshots discovered, sleeping", "duration", discoveryTime)
 			time.Sleep(discoveryTime)
 			continue
 		}
@@ -177,7 +176,7 @@ func (s *syncer) SyncAny(
 
 		s.processingSnapshot = snapshot
 		s.metrics.SnapshotChunkTotal.Set(float64(snapshot.Chunks))
-		logger.Info(fmt.Sprintf("Going to start state sync with the picked snapshot height %d", snapshot.Height))
+		logger.Info("starting state sync with picked snapshot", "height", snapshot.Height)
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:

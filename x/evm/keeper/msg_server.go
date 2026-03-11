@@ -359,7 +359,7 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 	existingEvmAddr, ok := server.GetEVMAddress(ctx, addr)
 	if ok {
 		if existingEvmAddr.Cmp(evmAddr) != 0 {
-			logger.Error(fmt.Sprintf("unexpected associated EVM address %s exists for contract %s: expecting %s", existingEvmAddr.Hex(), addr.String(), evmAddr.Hex()))
+			logger.Error("unexpected associated EVM address exists for contract", "existing", existingEvmAddr, "contract", addr, "expected", evmAddr)
 		}
 		return nil, errors.New("contract already has an associated address")
 	}

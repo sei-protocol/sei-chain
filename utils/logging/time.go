@@ -1,7 +1,6 @@
 package logging
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -39,7 +38,7 @@ func LogIfNotDoneAfter[R any](task func() (R, error), after time.Duration, label
 			panic(err)
 		case <-time.After(after):
 			metrics.IncrLogIfNotDoneAfter(label)
-			logger.Error(fmt.Sprintf("%s still not finished after %s", label, after))
+			logger.Error("operation still not finished", "label", label, "after", after)
 		}
 	}
 }
