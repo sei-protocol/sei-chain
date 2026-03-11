@@ -23,10 +23,6 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # defaults to cosmos_only
 sc-read-mode = "{{ .StateCommit.ReadMode }}"
 
-# EnableLatticeHash controls whether the FlatKV lattice hash participates
-# in the final app hash. Default: false.
-sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
-
 # Max concurrent historical proof queries (RPC /store path)
 sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
 
@@ -139,24 +135,6 @@ const ReceiptStoreConfigTemplate = `
 # Supported backends: pebble (aka pebbledb), parquet
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
-
-# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
-db-directory = "{{ .ReceiptStore.DBDirectory }}"
-
-# AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
-# Applies only when rs-backend = "pebbledb"; parquet ignores this setting.
-# Set <= 0 for synchronous writes.
-# defaults to 100
-async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
-
-# KeepRecent defines the number of versions to keep in receipt store
-# Setting it to 0 means keep everything.
-# Default to keep the last 100,000 blocks
-keep-recent = {{ .ReceiptStore.KeepRecent }}
-
-# PruneIntervalSeconds defines the interval in seconds to trigger pruning.
-# defaults to 600 seconds
-prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

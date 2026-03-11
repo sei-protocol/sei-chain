@@ -11,7 +11,7 @@
   "Erc20ContractSize": 2048,
   "Erc20InteractionsPerAccount": 10,
   "Erc20StorageSlotSize": 32,
-  "ExecutorQueueSize": 1024,
+  "ExecutorQueueSize": 64,
   "HotAccountProbability": 0.1,
   "HotErc20ContractProbability": 0.5,
   "HotErc20ContractSetSize": 100,
@@ -29,6 +29,5 @@
   "TransactionsPerBlock": 1024,
   "MaxRuntimeSeconds": 0,
   "TransactionMetricsSampleRate": 0.001,
-  "BackgroundMetricsScrapeInterval": 60,
-  "BlockChannelCapacity": 8
+  "BackgroundMetricsScrapeInterval": 60
 }
