@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -110,6 +111,10 @@ func panicUpgradeNeeded(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 
 	upgradeMsg := BuildUpgradeNeededMsg(plan)
 	logger.Error(upgradeMsg)
+	// Emit the raw upgrade message to stderr so that cosmovisor's log scanner
+	// can match it. Structured log handlers (JSON, text) escape the inner
+	// double-quotes, which breaks the cosmovisor upgrade regex.
+	fmt.Fprintln(os.Stderr, upgradeMsg)
 
 	panic(upgradeMsg)
 }
