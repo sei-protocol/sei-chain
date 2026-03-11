@@ -269,7 +269,8 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 				}
 			}
 		})
-		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxDials())
+		const dialBurst = 10
+		limiter := rate.NewLimiter(r.options.maxDialRate(), dialBurst)
 		for {
 			if err := limiter.Wait(ctx); err != nil {
 				return err

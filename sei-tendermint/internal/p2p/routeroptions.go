@@ -123,10 +123,6 @@ type RouterOptions struct {
 	// Defaults to 20.
 	MaxOutbound utils.Option[int]
 
-	// MaxConcurrentDials limits the number of concurrent outbound connection handshakes.
-	// Defaults to 10.
-	MaxConcurrentDials utils.Option[int]
-
 	// MaxConncurrentAccepts limites the number of concurrent inbound connection handshakes.
 	// Defaults to 10.
 	MaxConcurrentAccepts utils.Option[int]
@@ -139,7 +135,6 @@ type RouterOptions struct {
 	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int    { return o.MaxConcurrentDials.Or(10) }
 func (o *RouterOptions) maxAccepts() int  { return o.MaxConcurrentAccepts.Or(10) }
 func (o *RouterOptions) maxOutbound() int { return o.MaxOutbound.Or(20) }
 func (o *RouterOptions) maxInbound() int  { return o.MaxInbound.Or(40) }

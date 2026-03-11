@@ -653,7 +653,7 @@ type P2PConfig struct {
 	// MaxOutboundConnections limits the number of outbound connections to regular (non-persistent) peers.
 	// It should be significantly lower than MaxConnections, unless
 	// the node is supposed to have a small number of connections altogether.
-	MaxOutboundConnections uint
+	MaxOutboundConnections *uint `mapstructure:"max-outbound-connections"`
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address.
