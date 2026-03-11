@@ -11,6 +11,7 @@ var _ Pool = (*fixedPool)(nil)
 // More efficient than spawning large numbers of short lived goroutines.
 type fixedPool struct {
 	workQueue chan func()
+	ctx       context.Context
 }
 
 // Create a new work pool.
@@ -28,35 +29,35 @@ func NewFixedPool(
 	workQueue := make(chan func(), queueSize)
 	fp := &fixedPool{
 		workQueue: workQueue,
+		ctx:       ctx,
 	}
 
 	for i := 0; i < workers; i++ {
 		go fp.worker()
 	}
 
-	// Shutdown the work pool when the context is done.
 	go func() {
 		<-ctx.Done()
-		close(workQueue)
-
-		// Handle any remaining tasks in the queue to avoid caller deadlock.
-		for task := range workQueue {
-			task()
+		// Send a nil sentinel to each worker. Because nils are enqueued behind any
+		// buffered tasks, every previously-submitted task is guaranteed to complete
+		// before workers exit.
+		for i := 0; i < workers; i++ {
+			workQueue <- nil
 		}
 	}()
 
 	return fp
 }
 
-func (fp *fixedPool) Submit(ctx context.Context, task func()) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("fixed pool is shut down")
-		}
-	}()
+func (fp *fixedPool) Submit(ctx context.Context, task func()) error {
+	if task == nil {
+		return fmt.Errorf("fixed pool: nil task")
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-fp.ctx.Done():
+		return fmt.Errorf("fixed pool is shut down")
 	case fp.workQueue <- task:
 		return nil
 	}
@@ -64,6 +65,9 @@ func (fp *fixedPool) Submit(ctx context.Context, task func()) (err error) {
 
 func (fp *fixedPool) worker() {
 	for task := range fp.workQueue {
+		if task == nil {
+			return
+		}
 		task()
 	}
 }
