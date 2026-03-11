@@ -54,6 +54,18 @@ type ReceiptInput struct {
 	ReceiptBytes []byte // For WAL
 }
 
+// FaultHooks provides optional hook points for fault injection in tests.
+// All fields are nil in production. When non-nil, the hook is called at
+// the corresponding point in the write path; returning a non-nil error
+// aborts the operation and propagates the error to the caller.
+type FaultHooks struct {
+	AfterWALWrite     func(blockNumber uint64) error // after WAL writes, before parquet apply
+	BeforeFlush       func(blockNumber uint64) error // before writing buffers to parquet
+	AfterFlush        func(blockNumber uint64) error // after parquet flush, before buffer clear
+	AfterCloseWriters func(blockNumber uint64) error // during rotation, after closing old writers
+	AfterWALClear     func(blockNumber uint64) error // during rotation, after WAL truncation
+}
+
 // Store is the parquet-based receipt store.
 type Store struct {
 	basePath      string
@@ -81,6 +93,10 @@ type Store struct {
 
 	// WarmupRecords holds receipts recovered from WAL for cache warming.
 	WarmupRecords []ReceiptRecord
+
+	// FaultHooks is nil in production. Tests can set this to inject faults
+	// at specific points in the write path for crash recovery testing.
+	FaultHooks *FaultHooks
 }
 
 // NewStore creates a new parquet store.
@@ -221,6 +237,12 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 		}
 	}
 
+	if h := s.FaultHooks; h != nil && h.AfterWALWrite != nil {
+		if err := h.AfterWALWrite(inputs[0].BlockNumber); err != nil {
+			return err
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -238,6 +260,39 @@ func (s *Store) UpdateLatestVersion(version int64) {
 	if version > s.latestVersion.Load() {
 		s.latestVersion.Store(version)
 	}
+}
+
+// SimulateCrash abandons the store without flushing or finalizing, mimicking
+// an abrupt process termination (e.g. kill -9 or power loss). Specifically
+// it skips:
+//   - flushLocked(): in-memory buffered receipts are lost
+//   - receiptWriter.Close() / logWriter.Close(): parquet footers are never
+//     written, leaving on-disk files corrupt/unreadable
+//   - receiptFile.Sync() / logFile.Sync(): OS-buffered writes may be lost
+//
+// The raw os.File.Close() and wal.Close() calls below exist only to release
+// file descriptors and locks so the test process can reopen the same directory.
+func (s *Store) SimulateCrash() {
+	if s.pruneStop != nil {
+		close(s.pruneStop)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.receiptFile != nil {
+		_ = s.receiptFile.Close()
+		s.receiptFile = nil
+	}
+	if s.logFile != nil {
+		_ = s.logFile.Close()
+		s.logFile = nil
+	}
+	s.receiptWriter = nil
+	s.logWriter = nil
+
+	_ = s.wal.Close()
+	_ = s.Reader.Close()
 }
 
 // Close closes the store.
@@ -437,9 +492,21 @@ func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
 		return err
 	}
 
+	if h := s.FaultHooks; h != nil && h.AfterCloseWriters != nil {
+		if err := h.AfterCloseWriters(newBlockNumber); err != nil {
+			return err
+		}
+	}
+
 	s.Reader.OnFileRotation(oldStartBlock)
 	if err := s.ClearWAL(); err != nil {
 		return err
+	}
+
+	if h := s.FaultHooks; h != nil && h.AfterWALClear != nil {
+		if err := h.AfterWALClear(newBlockNumber); err != nil {
+			return err
+		}
 	}
 
 	s.fileStartBlock = newBlockNumber
@@ -501,6 +568,12 @@ func (s *Store) flushLocked() error {
 		return nil
 	}
 
+	if h := s.FaultHooks; h != nil && h.BeforeFlush != nil {
+		if err := h.BeforeFlush(s.lastSeenBlock); err != nil {
+			return err
+		}
+	}
+
 	if _, err := s.receiptWriter.Write(s.receiptsBuffer); err != nil {
 		return fmt.Errorf("failed to write receipts to parquet: %w", err)
 	}
@@ -514,6 +587,12 @@ func (s *Store) flushLocked() error {
 		}
 		if err := s.logWriter.Flush(); err != nil {
 			return fmt.Errorf("failed to flush log parquet writer: %w", err)
+		}
+	}
+
+	if h := s.FaultHooks; h != nil && h.AfterFlush != nil {
+		if err := h.AfterFlush(s.lastSeenBlock); err != nil {
+			return err
 		}
 	}
 

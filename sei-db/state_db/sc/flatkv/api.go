@@ -21,10 +21,10 @@ type Options struct {
 // Read path: Get/Has/Iterator read committed state only.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
-	// LoadVersion opens the database at the specified version.
-	// targetVersion == 0 opens the latest; targetVersion > 0 seeks the best
-	// snapshot <= target and replays WAL to reach it exactly.
-	LoadVersion(targetVersion int64) (Store, error)
+	// LoadVersion opens the database at the given version (0 = latest).
+	// When readOnly is true an isolated, read-only store is returned;
+	// the caller must Close it when done.
+	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
