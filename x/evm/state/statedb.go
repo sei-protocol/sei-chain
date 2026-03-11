@@ -19,6 +19,7 @@ type DBImpl struct {
 
 	tempState *TemporaryState
 	journal   []journalEntry
+	readCache *readCache
 
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
@@ -53,6 +54,7 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		tempState:          NewTemporaryState(),
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
+		readCache:          newReadCache(),
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
@@ -83,6 +85,7 @@ func (s *DBImpl) Cleanup() {
 	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
+	s.readCache = nil
 }
 
 func (s *DBImpl) CleanupForTracer() {
@@ -95,6 +98,10 @@ func (s *DBImpl) CleanupForTracer() {
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
+	if s.readCache == nil {
+		s.readCache = newReadCache()
+	}
+	s.readCache.clearCommittedState()
 	s.Snapshot()
 }
 
@@ -117,8 +124,14 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 		s.flushEvents(s.snapshottedCtxs[i])
 	}
 	s.flushEvents(s.ctx)
+	if len(s.snapshottedCtxs) > 0 {
+		s.ctx = s.snapshottedCtxs[0]
+	}
 
 	surplus = s.tempState.surplus
+	if s.readCache != nil {
+		s.readCache.clear()
+	}
 	return
 }
 
@@ -161,6 +174,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
 		tempState:          s.tempState.DeepCopy(),
 		journal:            journal,
+		readCache:          s.readCache.clone(),
 		k:                  s.k,
 		coinbaseAddress:    s.coinbaseAddress,
 		coinbaseEvmAddress: s.coinbaseEvmAddress,

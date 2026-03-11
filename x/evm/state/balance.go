@@ -23,6 +23,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
+	var oldBalance *uint256.Int
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		oldBalance = s.GetBalance(evmAddr)
+	}
 
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
@@ -45,12 +49,13 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
-		newBalance := s.GetBalance(evmAddr).ToBig()
-		oldBalance := new(big.Int).Add(newBalance, amt)
+	if s.cacheEnabled() {
+		delete(s.readCache.balance, evmAddr)
+	}
 
-		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
+	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
+		newBalance := uint256FromBig(new(big.Int).Sub(oldBalance.ToBig(), amt)).ToBig()
+		s.logger.OnBalanceChange(evmAddr, oldBalance.ToBig(), newBalance, reason)
 	}
 
 	surplus := sdk.NewIntFromBigInt(amt)
@@ -70,6 +75,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
+	var oldBalance *uint256.Int
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		oldBalance = s.GetBalance(evmAddr)
+	}
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
@@ -88,12 +97,13 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
-		newBalance := s.GetBalance(evmAddr).ToBig()
-		oldBalance := new(big.Int).Sub(newBalance, amt)
+	if s.cacheEnabled() {
+		delete(s.readCache.balance, evmAddr)
+	}
 
-		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
+	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
+		newBalance := uint256FromBig(new(big.Int).Add(oldBalance.ToBig(), amt)).ToBig()
+		s.logger.OnBalanceChange(evmAddr, oldBalance.ToBig(), newBalance, reason)
 	}
 
 	surplus := sdk.NewIntFromBigInt(amt).Neg()
@@ -104,17 +114,23 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-
 	// Hook for mock balances (no-op in production builds)
 	s.ensureMinimumBalance(evmAddr)
-
+	if s.cacheEnabled() {
+		if cached, ok := s.readCache.balance[evmAddr]; ok {
+			return cloneUint256(cached)
+		}
+	}
 	seiAddr := s.getSeiAddress(evmAddr)
 	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
 	if overflow {
 		panic("balance overflow")
 	}
 	if res == nil {
-		return uint256.NewInt(0)
+		res = uint256.NewInt(0)
+	}
+	if s.cacheEnabled() {
+		s.readCache.balance[evmAddr] = *res
 	}
 	return res
 }
@@ -139,6 +155,9 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	s.send(moduleAddr, seiAddr, amt)
 	if s.err != nil {
 		panic(s.err)
+	}
+	if s.cacheEnabled() {
+		s.readCache.balance[evmAddr] = *amtUint256
 	}
 }
 
