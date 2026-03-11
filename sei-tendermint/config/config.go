@@ -244,7 +244,7 @@ func DefaultBaseConfig() BaseConfig {
 		ProxyApp:    "tcp://127.0.0.1:26658",
 		ABCI:        "socket",
 		LogLevel:    DefaultLogLevel,
-		LogFormat:   "json",
+		LogFormat:   "text",
 		FilterPeers: false,
 		DBBackend:   "goleveldb",
 		DBPath:      "data",
