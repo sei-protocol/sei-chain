@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"errors"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -188,7 +189,8 @@ func TestParquetFilePruning(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
-	cfg.KeepRecent = 600 // Keep 600 blocks, so files with blocks < (latest - 600) get pruned
+	cfg.KeepRecent = 600
+	cfg.PruneIntervalSeconds = 0 // Disable background pruning; we trigger it manually below.
 
 	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
@@ -198,7 +200,7 @@ func TestParquetFilePruning(t *testing.T) {
 	// File 1: blocks 501-1000
 	// File 2: blocks 1001-1500
 	for block := uint64(1); block <= 1500; block++ {
-		txHash := common.BigToHash(common.Big1.SetUint64(block))
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
 		receipt := makeTestReceipt(txHash, block, 0, common.HexToAddress("0x1"), nil)
 		err := store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
 			{TxHash: txHash, Receipt: receipt},
@@ -209,22 +211,37 @@ func TestParquetFilePruning(t *testing.T) {
 	// Close to flush all files
 	require.NoError(t, store.Close())
 
-	// Verify we have at least 2 receipt and log files
-	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	// Verify we have at least 2 receipt and log files before pruning
+	receiptFilesBefore, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(receiptFiles), 2, "should have at least 2 receipt files")
+	require.GreaterOrEqual(t, len(receiptFilesBefore), 2, "should have at least 2 receipt files")
 
-	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	logFilesBefore, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(logFiles), 2, "should have at least 2 log files")
+	require.GreaterOrEqual(t, len(logFilesBefore), 2, "should have at least 2 log files")
 
-	// Reopen store - pruning will run in background
+	// Reopen store (no background pruning because PruneIntervalSeconds == 0)
 	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
+	// Manually trigger pruning synchronously: prune files entirely before block 900
+	// (latestVersion 1500 - keepRecent 600 = 900)
+	pqStore := store.(*cachedReceiptStore).backend.(*parquetReceiptStore)
+	pruned := pqStore.store.PruneOldFiles(900)
+	require.Greater(t, pruned, 0, "should have pruned at least one file pair")
+
+	// Verify files were actually removed from disk
+	receiptFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.Less(t, len(receiptFilesAfter), len(receiptFilesBefore), "pruning should have removed receipt files")
+
+	logFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.Less(t, len(logFilesAfter), len(logFilesBefore), "pruning should have removed log files")
+
 	// Verify we can still query recent data
-	txHash := common.BigToHash(common.Big1.SetUint64(1400))
+	txHash := common.BigToHash(new(big.Int).SetUint64(1400))
 	_, err = store.GetReceiptFromStore(ctx, txHash)
 	require.NoError(t, err)
 }
