@@ -107,6 +107,13 @@ func DefaultConfig() *Config {
 	return cfg
 }
 
+// Copy returns a deep copy of the Config.
+func (c *Config) Copy() *Config {
+	//  The nested PebbleDB configs are value types, so a shallow struct copy is sufficient.
+	cp := *c
+	return &cp
+}
+
 // InitializeDataDirectories sets the DataDir for each nested PebbleDB config
 // that does not already have one, using DataDir as the base path. The DBs live
 // under the working directory: <DataDir>/working/<subdir>.

@@ -246,7 +246,8 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
 // requested version.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
-	ro, err := NewCommitStore(s.ctx, s.log, s.config)
+	roCfg := s.config.Copy()
+	ro, err := NewCommitStore(s.ctx, s.log, roCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -256,6 +257,12 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 		return nil, fmt.Errorf("create readonly temp dir: %w", err)
 	}
 	ro.readOnlyWorkDir = workDir
+
+	ro.config.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	ro.config.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	ro.config.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 
 	defer func() {
 		if retErr != nil {
