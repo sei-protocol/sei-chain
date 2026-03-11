@@ -80,15 +80,27 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) {
 	cs.cosmosCommitter.Initialize(initialStores)
 }
 
+// CleanupCrashArtifacts removes temporary/orphaned files left by a
+// previous process crash (e.g. FlatKV readonly-* working directories).
+// Must be called once at process startup, before any read-only clones
+// are created. Any writer lock acquired during cleanup is retained for
+// the subsequent LoadVersion(..., false) call.
+func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
+	if fkv, ok := cs.evmCommitter.(*flatkv.CommitStore); ok {
+		if err := fkv.CleanupOrphanedReadOnlyDirs(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetInitialVersion sets the initial version for the store
 func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	return cs.cosmosCommitter.SetInitialVersion(initialVersion)
 }
 
-// LoadVersion loads the specified version of the database.
-// Being used for two scenarios:
-// ReadOnly: Either for state sync or for historical proof
-// Writable: Opened during initialization for root multistore
+// LoadVersion opens the database at the given version (0 = latest).
+// When readOnly is true an isolated composite store is returned.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
 	cosmosSC, err := cs.cosmosCommitter.LoadVersion(targetVersion, readOnly)
 	if err != nil {
@@ -100,7 +112,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 	}
 
-	// Read only mode should return a new SC
 	if readOnly {
 		newStore := &CompositeCommitStore{
 			logger:          cs.logger,
@@ -108,16 +119,21 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 			homeDir:         cs.homeDir,
 			config:          cs.config,
 		}
-		// TODO: Support loading FlatKV at target version for read only
+		if cs.evmCommitter != nil {
+			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
+			if err != nil {
+				cs.logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
+					"version", targetVersion, "err", err)
+			} else {
+				newStore.evmCommitter = evmStore
+			}
+		}
 		return newStore, nil
 	}
 
 	cs.cosmosCommitter = cosmosCommitter
-	// Load evmCommitter if initialized (nil when WriteMode is CosmosOnlyWrite).
-	// This is the single entry point for evmCommitter.LoadVersion — CMS calls
-	// CompositeCommitStore.LoadVersion(), which internally loads both backends.
 	if cs.evmCommitter != nil {
-		_, err := cs.evmCommitter.LoadVersion(targetVersion)
+		_, err := cs.evmCommitter.LoadVersion(targetVersion, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
@@ -223,44 +239,16 @@ func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
 	return cs.cosmosCommitter.GetEarliestVersion()
 }
 
-// appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original. Returns the original unchanged
-// when lattice hashing is disabled.
-func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
-	if !cs.config.EnableLatticeHash {
-		return ci
-	}
-	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
-	copy(combined, ci.StoreInfos)
-	combined[len(combined)-1] = proto.StoreInfo{
-		Name: "evm_lattice",
-		CommitId: proto.CommitID{
-			Version: ci.Version,
-			Hash:    evmHash,
-		},
-	}
-	return &proto.CommitInfo{
-		Version:    ci.Version,
-		StoreInfos: combined,
-	}
-}
-
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	ci := cs.cosmosCommitter.WorkingCommitInfo()
-	if cs.evmCommitter != nil {
-		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.RootHash())
-	}
-	return ci
+	// TODO: Need to combine hash for cosmos and evm
+	return cs.cosmosCommitter.WorkingCommitInfo()
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	ci := cs.cosmosCommitter.LastCommitInfo()
-	if cs.evmCommitter != nil {
-		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.CommittedRootHash())
-	}
-	return ci
+	// TODO: Need to combine hash for cosmos and evm
+	return cs.cosmosCommitter.LastCommitInfo()
 }
 
 // GetChildStoreByName returns the underlying child store by module name.

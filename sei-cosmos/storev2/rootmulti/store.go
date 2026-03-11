@@ -96,6 +96,9 @@ func NewStore(
 	if err != nil {
 		panic(err)
 	}
+	if err := scStore.CleanupCrashArtifacts(); err != nil {
+		panic(fmt.Errorf("failed to cleanup crash artifacts: %w", err))
+	}
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,

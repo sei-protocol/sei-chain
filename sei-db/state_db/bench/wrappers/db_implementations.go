@@ -31,10 +31,9 @@ const (
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 1000
-	cfg.SnapshotMinTimeInterval = 60
+	cfg.SnapshotInterval = 100
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
-	cs := memiavl.NewCommitStore(dbDir, logger.NewConsoleLogger(), cfg)
+	cs := memiavl.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
 	cs.Initialize([]string{EVMStoreName})
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
@@ -57,7 +56,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkv.Conf
 	if err != nil {
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}
-	_, err = cs.LoadVersion(0)
+	_, err = cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
@@ -76,6 +75,9 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, logger.NewNopLogger(), cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Composite commit store: %w", err)
+	}
+	if err := cs.CleanupCrashArtifacts(); err != nil {
+		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
 	}
 	cs.Initialize([]string{EVMStoreName})
 
@@ -98,7 +100,7 @@ func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg.AsyncWriteBuffer = 0
 	cfg.WriteMode = config.DualWrite
 	cfg.ReadMode = config.EVMFirstRead
-	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewConsoleLogger())
+	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewNopLogger())
 }
 
 func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {

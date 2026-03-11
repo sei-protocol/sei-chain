@@ -53,9 +53,6 @@ type CryptoSim struct {
 	// The data generator for the benchmark.
 	dataGenerator *DataGenerator
 
-	// Builds blocks of transactions.
-	blockBuilder *blockBuilder
-
 	// The database for the benchmark.
 	database *Database
 
@@ -72,14 +69,6 @@ type CryptoSim struct {
 	// benchmark, sending "false" will resume it. Suspending an already suspended benchmark will have no effect,
 	// and resuming an already resumed benchmark will likewise have no effect.
 	suspendChan chan bool
-
-	// The most recent block that has been processed.
-	mostRecentBlock *block
-
-	// The next ERC20 contract ID to be used when creating a new ERC20 contract.
-	// This is fixed after initial setup is complete, since we don't currently simulate
-	// the creation of new ERC20 contracts during the benchmark.
-	nextERC20ContractID int64
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -172,8 +161,6 @@ func NewCryptoSim(
 			ctx, cancel, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
 
-	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator)
-
 	c := &CryptoSim{
 		ctx:                               ctx,
 		cancel:                            cancel,
@@ -184,7 +171,6 @@ func NewCryptoSim(
 		lastConsoleUpdateTransactionCount: 0,
 		closeChan:                         make(chan struct{}, 1),
 		dataGenerator:                     dataGenerator,
-		blockBuilder:                      blockBuilder,
 		database:                          database,
 		executors:                         executors,
 		metrics:                           metrics,
@@ -200,10 +186,7 @@ func NewCryptoSim(
 
 	c.database.ResetTransactionCount()
 	c.startTimestamp = time.Now()
-
-	// Now that we are done generating initial data, it is thread safe to start the block builder.
-	// (dataGenerator is not thread safe, and is used both for initial setup and for transaction generation)
-	c.blockBuilder.Start()
+	c.metrics.StartBackgroundSampling(c.startTimestamp)
 
 	go c.run()
 	return c, nil
@@ -247,7 +230,7 @@ func (c *CryptoSim) setupAccounts() error {
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 		finalized, err := c.database.MaybeFinalizeBlock(
 			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
@@ -255,7 +238,7 @@ func (c *CryptoSim) setupAccounts() error {
 		}
 		if finalized {
 			c.dataGenerator.ReportAccountCounts()
-			c.dataGenerator.ReportEndOfBlock()
+			c.dataGenerator.ReportFinalizeBlock()
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
@@ -274,7 +257,7 @@ func (c *CryptoSim) setupAccounts() error {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
 	c.dataGenerator.ReportAccountCounts()
-	c.dataGenerator.ReportEndOfBlock()
+	c.dataGenerator.ReportFinalizeBlock()
 
 	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
 
@@ -304,7 +287,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 			break
 		}
 
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 
 		_, _, err := c.dataGenerator.CreateNewErc20Contract(c.config.Erc20ContractSize, true)
 		if err != nil {
@@ -316,7 +299,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
 		if finalized {
-			c.dataGenerator.ReportEndOfBlock()
+			c.dataGenerator.ReportFinalizeBlock()
 			c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 		}
 
@@ -338,13 +321,11 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
-	c.dataGenerator.ReportEndOfBlock()
+	c.dataGenerator.ReportFinalizeBlock()
 	c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()))
-
-	c.nextERC20ContractID = c.dataGenerator.NextErc20ContractID()
 
 	return nil
 }
@@ -355,14 +336,10 @@ func (c *CryptoSim) run() {
 	defer c.teardown()
 
 	haltTime := time.Now().Add(time.Duration(c.config.MaxRuntimeSeconds) * time.Second)
-	var timeoutChan <-chan time.Time
-	if c.config.MaxRuntimeSeconds > 0 {
-		timeoutChan = time.After(time.Until(haltTime))
-	}
+
+	c.metrics.SetMainThreadPhase("executing")
 
 	for {
-		c.metrics.SetMainThreadPhase("get_block")
-
 		select {
 		case <-c.ctx.Done():
 			if c.database.TransactionCount() > 0 {
@@ -374,52 +351,55 @@ func (c *CryptoSim) run() {
 			if isSuspended {
 				c.suspend()
 			}
-		case <-timeoutChan:
-			fmt.Printf("\nBenchmark timed out after %s.\n", formatDuration(time.Since(c.startTimestamp), 1))
-			c.cancel()
-			return
-		case blk := <-c.blockBuilder.blocksChan:
-			c.handleNextBlock(blk)
+		default:
+			c.handleNextCycle(haltTime)
 		}
-
-		c.generateConsoleReport(false)
 	}
 }
 
-// Execute and finalize the next block.
-func (c *CryptoSim) handleNextBlock(blk *block) {
-	c.mostRecentBlock = blk
-	c.metrics.SetMainThreadPhase("send_to_executors")
-
-	c.database.IncrementTransactionCount(blk.TransactionCount())
-
-	for txn := range blk.Iterator() {
-		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
-		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
-	}
-
-	if err := c.database.FinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID(), false); err != nil {
-		fmt.Printf("failed to finalize block: %v\n", err)
+// Process the next benchmark cycle, creating a new transaction and executing it.
+func (c *CryptoSim) handleNextCycle(haltTime time.Time) {
+	txn, err := BuildTransaction(c.dataGenerator)
+	if err != nil {
+		fmt.Printf("\nfailed to build transaction: %v\n", err)
 		c.cancel()
 		return
 	}
-	blk.ReportBlockMetrics()
+
+	c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
+	c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
+
+	finalized, err := c.database.MaybeFinalizeBlock(
+		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+	if err != nil {
+		fmt.Printf("error finalizing block: %v\n", err)
+		c.cancel()
+		return
+	}
+	if finalized {
+		c.dataGenerator.ReportAccountCounts()
+		c.dataGenerator.ReportFinalizeBlock()
+
+		if c.config.MaxRuntimeSeconds > 0 && time.Now().After(haltTime) {
+			c.cancel()
+		}
+	}
+
+	c.database.IncrementTransactionCount()
+	c.generateConsoleReport(false)
 }
 
 // Suspends the benchmark. This method blocks until the benchmark is resumed or shut down.
 func (c *CryptoSim) suspend() {
 
-	if c.mostRecentBlock != nil {
-		err := c.database.FinalizeBlock(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID, true)
-		if err != nil {
-			fmt.Printf("failed to finalize block: %v\n", err)
-			c.cancel()
-			return
-		}
+	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
+	if err != nil {
+		fmt.Printf("failed to finalize block: %v\n", err)
+		c.cancel()
+		return
 	}
 
 	fmt.Printf("Benchmark suspended.\n")
-	c.metrics.SetMainThreadPhase("suspended")
 
 	for {
 		select {
@@ -443,16 +423,9 @@ func (c *CryptoSim) suspend() {
 
 // Clean up the benchmark and release any resources.
 func (c *CryptoSim) teardown() {
-	if c.mostRecentBlock == nil {
-		err := c.database.CloseWithoutFinalizing()
-		if err != nil {
-			fmt.Printf("failed to close database: %v\n", err)
-		}
-	} else {
-		err := c.database.Close(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID)
-		if err != nil {
-			fmt.Printf("failed to close database: %v\n", err)
-		}
+	err := c.database.Close(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
+	if err != nil {
+		fmt.Printf("failed to close database: %v\n", err)
 	}
 
 	c.dbCancel()

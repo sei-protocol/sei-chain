@@ -138,6 +138,7 @@ func (d *DataGenerator) CreateNewAccount(
 	accountID := d.nextAccountID
 	d.nextAccountID++
 
+	// Use EVMKeyCode for account data (balance+padding); EVMKeyNonce only accepts 8-byte values.
 	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
 	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 
@@ -288,8 +289,7 @@ func (d *DataGenerator) FeeCollectionAddress() []byte {
 	return d.feeCollectionAddress
 }
 
-// Call this to signal that we have reached the end of a block. This is a signal that it is now safe to use
-// recently created accounts as read/write targets.
-func (d *DataGenerator) ReportEndOfBlock() {
+// This method should be called after a block is finalized.
+func (d *DataGenerator) ReportFinalizeBlock() {
 	d.highestSafeAccountIDInBlock = d.nextAccountID - 1
 }

@@ -525,7 +525,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 		cfg := DefaultTestConfig(t)
 		store, err := NewCommitStore(t.Context(), nil, cfg)
 		require.NoError(t, err)
-		_, err = store.LoadVersion(0)
+		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -541,7 +541,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 			Fsync:   false,
 		})
 		require.NoError(t, err)
-		_, err = store.LoadVersion(0)
+		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -577,7 +577,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	}
 	s, err := NewCommitStore(t.Context(), nil, &cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -603,7 +603,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	}
 	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -631,7 +631,7 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	cfg := &Config{DataDir: filepath.Join(dir, flatkvRootDir), SnapshotInterval: 0}
 	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -724,7 +724,7 @@ func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 		cfg := DefaultTestConfig(t)
 		s, err := NewCommitStore(t.Context(), nil, cfg)
 		require.NoError(t, err)
-		_, err = s.LoadVersion(0)
+		_, err = s.LoadVersion(0, false)
 		require.NoError(t, err)
 
 		commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -849,7 +849,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	cfg := &Config{DataDir: filepath.Join(dir, flatkvRootDir), Fsync: true}
 	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -871,7 +871,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -892,7 +892,7 @@ func TestWALRecordsChangesets(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), nil, cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})

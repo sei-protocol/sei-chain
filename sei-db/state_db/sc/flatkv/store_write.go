@@ -20,6 +20,10 @@ import (
 // - codeDB: key=addr, value=bytecode
 // - legacyDB: key=full original key (with prefix), value=raw value
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+
 	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
 
 	// Batch read all old values from DBs in parallel.
@@ -30,7 +34,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 
-	// Save original changesets for changelog
+	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	// Collect LtHash pairs per DB (using internal key format)
@@ -230,6 +234,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
+	if s.readOnly {
+		return 0, errReadOnly
+	}
 	// Auto-increment version
 	version := s.committedVersion + 1
 

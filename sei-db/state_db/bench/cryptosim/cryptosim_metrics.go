@@ -172,9 +172,18 @@ func NewCryptosimMetrics(
 			m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
 		}
 		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)
-		m.startUptimeSampling(time.Now())
 	}
 	return m
+}
+
+// StartBackgroundSampling starts goroutines that periodically update gauges
+// (uptime, etc.). Call this when the benchmark is about to run, after initial
+// state is loaded. Does not start any HTTP server; the caller configures export.
+func (m *CryptosimMetrics) StartBackgroundSampling(startTime time.Time) {
+	if m == nil {
+		return
+	}
+	m.startUptimeSampling(startTime)
 }
 
 func (m *CryptosimMetrics) startUptimeSampling(startTime time.Time) {
