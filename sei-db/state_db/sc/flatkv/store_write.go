@@ -73,11 +73,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
+					storageOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
 				} else {
 					s.storageWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
+					storageOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
 				}
 
 				// LtHash pair: internal key directly
@@ -156,11 +158,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
+					codeOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
 				} else {
 					s.codeWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
+					codeOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
 				}
 
 				// LtHash pair: internal key directly
@@ -180,11 +184,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
+					legacyOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
 				} else {
 					s.legacyWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
+					legacyOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
 				}
 
 				legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
@@ -483,8 +489,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 	return nil
 }
 
-// batchReadOldValues scans all changeset pairs and issues parallel BatchGet
-// calls across the four data DBs. Returns one result map per DB.
+// batchReadOldValues scans all changeset pairs and returns one result map per
+// DB containing the "old value" for each key. Keys that already have uncommitted
+// pending writes (from a prior ApplyChangeSets call in the same block) are
+// resolved from those pending writes directly and excluded from the DB batch
+// read, avoiding unnecessary I/O and cache pollution.
 func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	storageOld map[string]types.BatchGetResult,
 	accountOld map[string]types.BatchGetResult,
@@ -497,6 +506,22 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	codeOld = make(map[string]types.BatchGetResult)
 	legacyOld = make(map[string]types.BatchGetResult)
 
+	// Separate maps for keys that need a DB read (no pending write).
+	storageBatch := make(map[string]types.BatchGetResult)
+	accountBatch := make(map[string]types.BatchGetResult)
+	codeBatch := make(map[string]types.BatchGetResult)
+	legacyBatch := make(map[string]types.BatchGetResult)
+
+	pendingKVResult := func(pw *pendingKVWrite) types.BatchGetResult {
+		if pw.isDelete {
+			return types.BatchGetResult{Found: true, Value: nil}
+		}
+		return types.BatchGetResult{Found: true, Value: pw.value}
+	}
+
+	// Partition changeset keys: resolve from pending writes when available
+	// (prior ApplyChangeSets call in the same block), otherwise queue for
+	// a DB batch read.
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
 			continue
@@ -505,28 +530,65 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 			switch kind {
 			case evm.EVMKeyStorage:
-				storageOld[string(keyBytes)] = types.BatchGetResult{}
+				k := string(keyBytes)
+				if _, done := storageOld[k]; done {
+					continue
+				}
+				if pw, ok := s.storageWrites[k]; ok {
+					storageOld[k] = pendingKVResult(pw)
+				} else {
+					storageBatch[k] = types.BatchGetResult{}
+				}
+
 			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 				addr, ok := AddressFromBytes(keyBytes)
 				if !ok {
 					continue
 				}
-				accountOld[string(AccountKey(addr))] = types.BatchGetResult{}
+				k := string(AccountKey(addr))
+				if _, done := accountOld[k]; done {
+					continue
+				}
+				if paw, ok := s.accountWrites[k]; ok {
+					accountOld[k] = types.BatchGetResult{Found: true, Value: EncodeAccountValue(paw.value)}
+				} else {
+					accountBatch[k] = types.BatchGetResult{}
+				}
+
 			case evm.EVMKeyCode:
-				codeOld[string(keyBytes)] = types.BatchGetResult{}
+				k := string(keyBytes)
+				if _, done := codeOld[k]; done {
+					continue
+				}
+				if pw, ok := s.codeWrites[k]; ok {
+					codeOld[k] = pendingKVResult(pw)
+				} else {
+					codeBatch[k] = types.BatchGetResult{}
+				}
+
 			case evm.EVMKeyLegacy:
-				legacyOld[string(keyBytes)] = types.BatchGetResult{}
+				k := string(keyBytes)
+				if _, done := legacyOld[k]; done {
+					continue
+				}
+				if pw, ok := s.legacyWrites[k]; ok {
+					legacyOld[k] = pendingKVResult(pw)
+				} else {
+					legacyBatch[k] = types.BatchGetResult{}
+				}
 			}
 		}
 	}
 
-	var storageErr error
+	// Issue parallel BatchGet calls only for keys that need a DB read.
 	var wg sync.WaitGroup
-	if len(storageOld) > 0 {
+	var storageErr, accountErr, codeErr, legacyErr error
+
+	if len(storageBatch) > 0 {
 		wg.Add(1)
 		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
-			storageErr = s.storageDB.BatchGet(storageOld)
+			storageErr = s.storageDB.BatchGet(storageBatch)
 		})
 		if err != nil {
 			err = fmt.Errorf("failed to submit batch get: %w", err)
@@ -534,24 +596,11 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 		}
 	}
 
-	var accountErr error
-	if len(accountOld) > 0 {
+	if len(accountBatch) > 0 {
 		wg.Add(1)
 		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
-			accountErr = s.accountDB.BatchGet(accountOld)
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
-		}
-	}
-	var codeErr error
-	if len(codeOld) > 0 {
-		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
-			defer wg.Done()
-			codeErr = s.codeDB.BatchGet(codeOld)
+			accountErr = s.accountDB.BatchGet(accountBatch)
 		})
 		if err != nil {
 			err = fmt.Errorf("failed to submit batch get: %w", err)
@@ -559,12 +608,23 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 		}
 	}
 
-	var legacyErr error
-	if len(legacyOld) > 0 {
+	if len(codeBatch) > 0 {
 		wg.Add(1)
 		err = s.miscPool.Submit(s.ctx, func() {
 			defer wg.Done()
-			legacyErr = s.legacyDB.BatchGet(legacyOld)
+			codeErr = s.codeDB.BatchGet(codeBatch)
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to submit batch get: %w", err)
+			return
+		}
+	}
+
+	if len(legacyBatch) > 0 {
+		wg.Add(1)
+		err = s.miscPool.Submit(s.ctx, func() {
+			defer wg.Done()
+			legacyErr = s.legacyDB.BatchGet(legacyBatch)
 		})
 		if err != nil {
 			err = fmt.Errorf("failed to submit batch get: %w", err)
@@ -573,7 +633,23 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	}
 
 	wg.Wait()
-	err = errors.Join(storageErr, accountErr, codeErr, legacyErr)
+	if err = errors.Join(storageErr, accountErr, codeErr, legacyErr); err != nil {
+		return
+	}
+
+	// Merge DB results into the result maps.
+	for k, v := range storageBatch {
+		storageOld[k] = v
+	}
+	for k, v := range accountBatch {
+		accountOld[k] = v
+	}
+	for k, v := range codeBatch {
+		codeOld[k] = v
+	}
+	for k, v := range legacyBatch {
+		legacyOld[k] = v
+	}
 
 	return
 }
