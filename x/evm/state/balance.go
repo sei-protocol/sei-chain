@@ -113,16 +113,11 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
-	profile, start := s.startGetterProfile("db_get_balance")
-	defer finishGetterProfile(profile, start, "db_get_balance")
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	// Hook for mock balances (no-op in production builds)
 	s.ensureMinimumBalance(evmAddr)
 	if s.cacheEnabled() {
 		if cached, ok := s.readCache.balance[evmAddr]; ok {
-			if profile != nil {
-				profile.AddCount("db_get_balance_cache_hit_count", 1)
-			}
 			return cloneUint256(cached)
 		}
 	}

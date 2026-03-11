@@ -6,14 +6,9 @@ import (
 )
 
 func (s *DBImpl) GetNonce(addr common.Address) uint64 {
-	profile, start := s.startGetterProfile("db_get_nonce")
-	defer finishGetterProfile(profile, start, "db_get_nonce")
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	if s.cacheEnabled() {
 		if cached, ok := s.readCache.nonce[addr]; ok {
-			if profile != nil {
-				profile.AddCount("db_get_nonce_cache_hit_count", 1)
-			}
 			return cached
 		}
 	}

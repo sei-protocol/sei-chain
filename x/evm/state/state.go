@@ -24,14 +24,9 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	profile, start := s.startGetterProfile("db_get_committed_state")
-	defer finishGetterProfile(profile, start, "db_get_committed_state")
 	if s.committedCacheEnabled() {
 		key := storageCacheKey{address: addr, slot: hash}
 		if cached, ok := s.readCache.committedState[key]; ok {
-			if profile != nil {
-				profile.AddCount("db_get_committed_state_cache_hit_count", 1)
-			}
 			return cached
 		}
 	}
@@ -43,14 +38,9 @@ func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
-	profile, start := s.startGetterProfile("db_get_state")
-	defer finishGetterProfile(profile, start, "db_get_state")
 	if s.cacheEnabled() {
 		key := storageCacheKey{address: addr, slot: hash}
 		if cached, ok := s.readCache.state[key]; ok {
-			if profile != nil {
-				profile.AddCount("db_get_state_cache_hit_count", 1)
-			}
 			return cached
 		}
 	}
