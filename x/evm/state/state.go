@@ -24,11 +24,31 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	return s.getState(s.snapshottedCtxs[0], addr, hash)
+	if s.committedCacheEnabled() {
+		key := storageCacheKey{address: addr, slot: hash}
+		if cached, ok := s.readCache.committedState[key]; ok {
+			return cached
+		}
+	}
+	val := s.getState(s.snapshottedCtxs[0], addr, hash)
+	if s.committedCacheEnabled() {
+		s.readCache.committedState[storageCacheKey{address: addr, slot: hash}] = val
+	}
+	return val
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
-	return s.getState(s.ctx, addr, hash)
+	if s.cacheEnabled() {
+		key := storageCacheKey{address: addr, slot: hash}
+		if cached, ok := s.readCache.state[key]; ok {
+			return cached
+		}
+	}
+	val := s.getState(s.ctx, addr, hash)
+	if s.cacheEnabled() {
+		s.readCache.state[storageCacheKey{address: addr, slot: hash}] = val
+	}
+	return val
 }
 
 func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
@@ -45,6 +65,9 @@ func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash)
 	}
 
 	s.k.SetState(s.ctx, addr, key, val)
+	if s.cacheEnabled() {
+		s.readCache.state[storageCacheKey{address: addr, slot: key}] = val
+	}
 	return old
 }
 
@@ -139,6 +162,9 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	if watermarkIndex >= 0 {
 		s.journal = s.journal[:watermarkIndex]
 	}
+	if s.readCache != nil {
+		s.readCache.clear()
+	}
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -169,6 +195,9 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
+	if s.cacheEnabled() {
+		s.readCache.invalidateAccount(acc)
+	}
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])

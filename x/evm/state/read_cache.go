@@ -1,0 +1,136 @@
+package state
+
+import (
+	"bytes"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
+)
+
+type storageCacheKey struct {
+	address common.Address
+	slot    common.Hash
+}
+
+type readCache struct {
+	state          map[storageCacheKey]common.Hash
+	committedState map[storageCacheKey]common.Hash
+	nonce          map[common.Address]uint64
+	codeHash       map[common.Address]common.Hash
+	code           map[common.Address][]byte
+	codeSize       map[common.Address]int
+	balance        map[common.Address]uint256.Int
+}
+
+func newReadCache() *readCache {
+	return &readCache{
+		state:          make(map[storageCacheKey]common.Hash),
+		committedState: make(map[storageCacheKey]common.Hash),
+		nonce:          make(map[common.Address]uint64),
+		codeHash:       make(map[common.Address]common.Hash),
+		code:           make(map[common.Address][]byte),
+		codeSize:       make(map[common.Address]int),
+		balance:        make(map[common.Address]uint256.Int),
+	}
+}
+
+func (c *readCache) clone() *readCache {
+	if c == nil {
+		return nil
+	}
+	cloned := newReadCache()
+	for key, value := range c.state {
+		cloned.state[key] = value
+	}
+	for key, value := range c.committedState {
+		cloned.committedState[key] = value
+	}
+	for key, value := range c.nonce {
+		cloned.nonce[key] = value
+	}
+	for key, value := range c.codeHash {
+		cloned.codeHash[key] = value
+	}
+	for key, value := range c.code {
+		cloned.code[key] = cloneBytes(value)
+	}
+	for key, value := range c.codeSize {
+		cloned.codeSize[key] = value
+	}
+	for key, value := range c.balance {
+		cloned.balance[key] = value
+	}
+	return cloned
+}
+
+func (c *readCache) clear() {
+	if c == nil {
+		return
+	}
+	c.state = make(map[storageCacheKey]common.Hash)
+	c.committedState = make(map[storageCacheKey]common.Hash)
+	c.nonce = make(map[common.Address]uint64)
+	c.codeHash = make(map[common.Address]common.Hash)
+	c.code = make(map[common.Address][]byte)
+	c.codeSize = make(map[common.Address]int)
+	c.balance = make(map[common.Address]uint256.Int)
+}
+
+func (c *readCache) clearCommittedState() {
+	if c == nil {
+		return
+	}
+	c.committedState = make(map[storageCacheKey]common.Hash)
+}
+
+func (c *readCache) invalidateAccount(address common.Address) {
+	if c == nil {
+		return
+	}
+	delete(c.nonce, address)
+	delete(c.codeHash, address)
+	delete(c.code, address)
+	delete(c.codeSize, address)
+	delete(c.balance, address)
+	for key := range c.state {
+		if key.address == address {
+			delete(c.state, key)
+		}
+	}
+}
+
+func cloneBytes(value []byte) []byte {
+	if value == nil {
+		return nil
+	}
+	return bytes.Clone(value)
+}
+
+func cloneUint256(value uint256.Int) *uint256.Int {
+	cloned := new(uint256.Int)
+	cloned.Set(&value)
+	return cloned
+}
+
+func uint256FromBig(value *big.Int) *uint256.Int {
+	if value == nil {
+		return uint256.NewInt(0)
+	}
+	res, overflow := uint256.FromBig(value)
+	if overflow {
+		panic("balance overflow")
+	}
+	if res == nil {
+		return uint256.NewInt(0)
+	}
+	return res
+}
+
+func (s *DBImpl) cacheEnabled() bool {
+	return s.readCache != nil && s.ctx.IsTracing()
+}
+
+func (s *DBImpl) committedCacheEnabled() bool {
+	return s.readCache != nil && len(s.snapshottedCtxs) > 0 && s.snapshottedCtxs[0].IsTracing()
+}
