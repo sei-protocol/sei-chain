@@ -2,13 +2,13 @@ package evmrpc
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/evmrpc/traceprofile"
 	"github.com/tendermint/tendermint/libs/log"
 )
-
-type traceProfileContextKey struct{}
 
 type traceProfile struct {
 	logger    log.Logger
@@ -37,16 +37,7 @@ func newTraceProfile(logger log.Logger, method string, threshold time.Duration, 
 	}
 }
 
-func withTraceProfile(ctx context.Context, profile *traceProfile) context.Context {
-	return context.WithValue(ctx, traceProfileContextKey{}, profile)
-}
-
-func traceProfileFromContext(ctx context.Context) *traceProfile {
-	profile, _ := ctx.Value(traceProfileContextKey{}).(*traceProfile)
-	return profile
-}
-
-func (p *traceProfile) addDuration(name string, duration time.Duration) {
+func (p *traceProfile) AddDuration(name string, duration time.Duration) {
 	if p == nil {
 		return
 	}
@@ -55,7 +46,7 @@ func (p *traceProfile) addDuration(name string, duration time.Duration) {
 	p.durations[name] += duration
 }
 
-func (p *traceProfile) addCount(name string, delta int) {
+func (p *traceProfile) AddCount(name string, delta int) {
 	if p == nil {
 		return
 	}
@@ -71,6 +62,16 @@ func (p *traceProfile) finish(err error) {
 	total := time.Since(p.start)
 	if err == nil && p.threshold > 0 && total < p.threshold {
 		return
+	}
+
+	var dbGetterTotal time.Duration
+	for key, value := range p.durations {
+		if strings.HasPrefix(key, "db_") {
+			dbGetterTotal += value
+		}
+	}
+	if dbGetterTotal > 0 {
+		p.durations["db_getters_total"] = dbGetterTotal
 	}
 
 	p.mu.Lock()
@@ -99,5 +100,5 @@ func (api *DebugAPI) startTraceProfile(ctx context.Context, method string, field
 	}
 	logger := api.ctxProvider(LatestCtxHeight).Logger().With("module", "evmrpc", "conn_type", string(api.connectionType))
 	profile := newTraceProfile(logger, method, api.traceProfileThreshold, fields)
-	return withTraceProfile(ctx, profile), profile.finish
+	return traceprofile.WithRecorder(ctx, profile), profile.finish
 }
