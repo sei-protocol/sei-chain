@@ -347,8 +347,12 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	tracingBackend := *api.backend
+	tracingBackend.ctxProvider = func(height int64) sdk.Context {
+		return api.ctxProvider(height).WithIsTracing(true)
+	}
 	ctx = WithReceiptTraces(ctx, receiptTraces)
-	_, tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	_, tx, blockHash, blockNumber, index, err := tracingBackend.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -360,11 +364,11 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if blockNumber == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
-	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	block, _, err := tracingBackend.BlockByHash(ctx, blockHash)
 	if err != nil {
 		return nil, err
 	}
-	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
+	stateDB, _, err := tracingBackend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
