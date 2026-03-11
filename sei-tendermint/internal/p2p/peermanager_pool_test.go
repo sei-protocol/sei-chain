@@ -13,12 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-type poolFixture struct {
-	p       *poolManager
-	addrs   map[types.NodeID]NodeAddress
-	allowed map[types.NodeID]bool
-}
-
 func inPoolAll(types.NodeID) bool { return true }
 
 func opt[T any](v T, ok bool) utils.Option[T] {
@@ -26,14 +20,6 @@ func opt[T any](v T, ok bool) utils.Option[T] {
 		return utils.Some(v)
 	}
 	return utils.None[T]()
-}
-
-func asSet[T comparable](vals iter.Seq[T]) map[T]bool {
-	s := map[T]bool{}
-	for v := range vals {
-		s[v] = true
-	}
-	return s
 }
 
 func minBy[T any, I cmp.Ordered](vals iter.Seq[T], by func(T) I) utils.Option[T] {
@@ -51,7 +37,7 @@ func minBy[T any, I cmp.Ordered](vals iter.Seq[T], by func(T) I) utils.Option[T]
 // - permit is required for upgrade.
 // - only upgrade dial is allowed when MaxOut is saturated.
 // - no parallel upgrades allowed even if permit is provided.
-func TestPoolManager_TryStartDial_RespectsMaxOut(t *testing.T) {
+func TestPoolManager_TryStartDial_MaxOut(t *testing.T) {
 	rng := utils.TestRng()
 	const maxIn = 0
 	const maxOut = 5 
@@ -105,13 +91,16 @@ func TestPoolManager_TryStartDial_RespectsMaxOut(t *testing.T) {
 	evicted := utils.OrPanic1(pool.Connect(connID{newAddr.NodeID,true})).OrPanic("expected peer to evict")
 	require.Equal(t,connID{lowPriority,true},evicted)
 	
+	t.Log("permit should be cleared")
+	require.False(t,opt(pool.TryStartDial()).IsPresent())
+	
 	t.Log("push the permit again, better peer should be available for dialing")
 	pool.PushUpgradePermit()
 	require.Equal(t,utils.Some(utils.Slice(betterAddr)),opt(pool.TryStartDial()))
 }
 
 // Test checking that pool manager behaves reasonably with MaxOut = 0
-func TestPoolManagerMaxOutZero(t *testing.T) {
+func TestPoolManager_MaxOutZero(t *testing.T) {
 	rng := utils.TestRng()
 	t.Log("populate pool in various ways")
 	pool := newPoolManager(&poolConfig{MaxIn:1,MaxOut:0,FixedAddrs:utils.Slice(makeAddr(rng)), InPool:inPoolAll})
@@ -146,103 +135,81 @@ func TestPoolManager_DialFailed(t *testing.T) {
 // - for inbound the MaxIn is respected.
 // - for inbound duplicates are accepted.
 // - for outbound upgrade a low prio peer is disconnected and permit is cleared
-func TestPoolManagerConnectBehavior(t *testing.T) {
+func TestPoolManager_ConnectDisconnect(t *testing.T) {
 	rng := utils.TestRng()
-	outA, outB := makeNodeID(rng), makeNodeID(rng)
-	inA, inB := makeNodeID(rng), makeNodeID(rng)
-	allowed := map[types.NodeID]bool{
-		outA: true,
-		outB: true,
-		inA:  true,
-		inB:  true,
-	}
-	pool := newPoolManager(&poolConfig{MaxIn:1,MaxOut:1,FixedAddrs:utils.Slice(makeAddrFor(rng,outA),makeAddrFor(rng,outB)),InPool:inPoolAll})
-
-	_, err := pool.Connect(connID{outA,true})
-	require.ErrorIs(t, err, errUnexpectedPeer)
-
-	first := mustStartDialID(t, fixture.p)
-	require.Equal(t, outA, first)
-	mustConnectOutbound(t, fixture.p, first)
-
-	_, err = fixture.p.Connect(connID{NodeID: outB, outbound: true})
-	require.Error(t, err)
-
-	mustConnectInbound(t, fixture.p, inA)
-	_, err = fixture.p.Connect(connID{NodeID: inB, outbound: false})
-	require.ErrorIs(t, err, errTooManyPeers)
-
-	drop := mustConnectInbound(t, fixture.p, inA)
-	prev, ok := drop.Get()
-	require.True(t, ok)
-	require.Equal(t, inA, prev.NodeID)
-
-	firstPriority := fixture.p.priority(outA)
-	var upgradeID types.NodeID
-	for {
-		candidate := makeNodeID(rng)
-		if fixture.p.priority(candidate) > firstPriority {
-			allowed[candidate] = true
-			upgradeID = candidate
-			break
+	fixedAddrs := utils.Slice(makeAddr(rng), makeAddr(rng))
+	pool := newPoolManager(&poolConfig{MaxIn:1,MaxOut:1,FixedAddrs:fixedAddrs,InPool:inPoolAll})
+	
+	t.Log("only dialed addresses succeed Connect")
+	dialed := opt(pool.TryStartDial()).OrPanic("")[0]
+	require.True(t,slices.Contains(fixedAddrs,dialed))
+	for _,addr := range fixedAddrs {
+		evicted,err := pool.Connect(connID{addr.NodeID,true})
+		if addr==dialed {
+			require.NoError(t,err)
+			require.False(t,evicted.IsPresent())
+		} else {
+			require.ErrorIs(t,err,errUnexpectedPeer)
 		}
 	}
-	addr := fixture.register(rng, upgradeID)
-	fixture.p.PushPex(utils.None[types.NodeID](), []NodeAddress{addr})
+	t.Log("duplicate outbound connections are rejected (since they are not dialed)")
+	outConn := connID{dialed.NodeID,true}
+	_,err := pool.Connect(outConn)
+	require.ErrorIs(t,err,errUnexpectedPeer)
+	
+	t.Log("MaxIn is respected")
+	inConn := connID{makeNodeID(rng),false}
+	require.False(t,utils.OrPanic1(pool.Connect(inConn)).IsPresent())
+	_,err = pool.Connect(connID{makeNodeID(rng),false})
+	require.ErrorIs(t,err,errTooManyPeers)
 
-	grantUpgradePermit(fixture.p)
-	upgradeDial := mustStartDialID(t, fixture.p)
-	require.Equal(t, upgradeID, upgradeDial)
+	t.Log("duplicate inbound connection are accepted, replacing the old ones")
+	require.Equal(t,utils.Some(inConn),utils.OrPanic1(pool.Connect(inConn)))
 
-	evicted := mustConnectOutbound(t, fixture.p, upgradeID)
-	left, ok := evicted.Get()
-	require.True(t, ok)
-	require.Equal(t, outA, left.NodeID)
-
-	mustFailStartDial(t, fixture.p)
+	t.Log("only connected addresses succeed Disconnect")
+	for _,outbound := range utils.Slice(true,false) {
+		require.ErrorIs(t,pool.Disconnect(connID{makeNodeID(rng),outbound}),errUnexpectedPeer)
+	}
+	for _,conn := range utils.Slice(inConn,outConn) {
+		require.NoError(t,pool.Disconnect(conn))
+	}
 }
 
 // Test checking connected/dialing addresses are not dialed.
 // Test checking that disconnected/dial failed addresses are immediately available
-//
-//	for dialing again in case no other addresses are available.
-func TestPoolManagerDialAvailability(t *testing.T) {
-	t.Run("skip connected and dialing", func(t *testing.T) {
-		rng := utils.TestRng()
-		a, b, c := makeNodeID(rng), makeNodeID(rng), makeNodeID(rng)
-		allowed := map[types.NodeID]bool{a: true, b: true, c: true}
-		fixture := newPoolFixture(rng, 1, 2, allowed, a, b, c)
+// for dialing again in case no other addresses are available.
+func TestPoolManager_DialAvailability(t *testing.T) {
+	rng := utils.TestRng()
+	var fixedAddrs []NodeAddress
+	for range 4 { fixedAddrs = append(fixedAddrs, makeAddr(rng)) }
+	pool := newPoolManager(&poolConfig{MaxIn:10,MaxOut:10,FixedAddrs:fixedAddrs,InPool:inPoolAll})
+	
+	t.Log("connect inbound, outbound and dial")
+	addr0 := fixedAddrs[0]
+	require.False(t,utils.OrPanic1(pool.Connect(connID{addr0.NodeID,false})).IsPresent())
+	addr1 := opt(pool.TryStartDial()).OrPanic("")[0]
+	addr2 := opt(pool.TryStartDial()).OrPanic("")[0]
 
-		first := mustStartDialID(t, fixture.p)
-		second := mustStartDialID(t, fixture.p)
-		require.NotEqual(t, first, second)
+	t.Log("none of them should be dialed")
+	require.False(t,utils.OrPanic1(pool.Connect(connID{addr1.NodeID,true})).IsPresent())
+	busy := utils.Slice(addr0,addr1,addr2)
+	require.False(t,slices.Contains(busy,opt(pool.TryStartDial()).OrPanic("")[0]))
+	require.False(t,opt(pool.TryStartDial()).IsPresent())
 
-		mustDialFailed(t, fixture.p, second)
-		mustConnectOutbound(t, fixture.p, first)
+	t.Log("reuse after dial failure")
+	require.NoError(t,pool.DialFailed(addr2.NodeID))
+	require.Equal(t,utils.Slice(addr2),opt(pool.TryStartDial()).OrPanic(""))
+	require.False(t,opt(pool.TryStartDial()).IsPresent())
 
-		next := mustStartDialID(t, fixture.p)
-		require.NotEqual(t, first, next)
-	})
+	t.Log("reuse after inbound disconnect")
+	require.NoError(t,pool.Disconnect(connID{addr0.NodeID,false}))
+	require.Equal(t,utils.Slice(addr0),opt(pool.TryStartDial()).OrPanic(""))
+	require.False(t,opt(pool.TryStartDial()).IsPresent())
 
-	t.Run("reuse after failure and disconnect", func(t *testing.T) {
-		rng := utils.TestRng()
-		id := makeNodeID(rng)
-		allowed := map[types.NodeID]bool{id: true}
-		fixture := newPoolFixture(rng, 1, 1, allowed, id)
-
-		first := mustStartDialID(t, fixture.p)
-		require.Equal(t, id, first)
-		mustDialFailed(t, fixture.p, id)
-
-		reDial := mustStartDialID(t, fixture.p)
-		require.Equal(t, id, reDial)
-
-		mustConnectOutbound(t, fixture.p, id)
-		mustDisconnect(t, fixture.p, connID{NodeID: id, outbound: true})
-
-		rerun := mustStartDialID(t, fixture.p)
-		require.Equal(t, id, rerun)
-	})
+	t.Log("reuse after outbound disconnect")
+	require.NoError(t,pool.Disconnect(connID{addr1.NodeID,true}))
+	require.Equal(t,utils.Slice(addr1),opt(pool.TryStartDial()).OrPanic(""))
+	require.False(t,opt(pool.TryStartDial()).IsPresent())
 }
 
 // Test checking that TryStartDial does round robin in priority order
