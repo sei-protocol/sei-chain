@@ -1,6 +1,9 @@
 package threading
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 var _ Pool = (*adHocPool)(nil)
 
@@ -13,7 +16,13 @@ func NewAdHocPool() Pool {
 	return &adHocPool{}
 }
 
-func (p *adHocPool) Submit(_ context.Context, task func()) error {
+func (p *adHocPool) Submit(ctx context.Context, task func()) error {
+	if task == nil {
+		return fmt.Errorf("adhoc pool: nil task")
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	go task()
 	return nil
 }
