@@ -6,9 +6,14 @@ import (
 )
 
 func (s *DBImpl) GetCodeHash(addr common.Address) common.Hash {
+	profile, start := s.startGetterProfile("db_get_code_hash")
+	defer finishGetterProfile(profile, start, "db_get_code_hash")
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	if s.cacheEnabled() {
 		if cached, ok := s.readCache.codeHash[addr]; ok {
+			if profile != nil {
+				profile.AddCount("db_get_code_hash_cache_hit_count", 1)
+			}
 			return cached
 		}
 	}
@@ -20,9 +25,14 @@ func (s *DBImpl) GetCodeHash(addr common.Address) common.Hash {
 }
 
 func (s *DBImpl) GetCode(addr common.Address) []byte {
+	profile, start := s.startGetterProfile("db_get_code")
+	defer finishGetterProfile(profile, start, "db_get_code")
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	if s.cacheEnabled() {
 		if cached, ok := s.readCache.code[addr]; ok {
+			if profile != nil {
+				profile.AddCount("db_get_code_cache_hit_count", 1)
+			}
 			return cloneBytes(cached)
 		}
 	}
@@ -54,9 +64,14 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 }
 
 func (s *DBImpl) GetCodeSize(addr common.Address) int {
+	profile, start := s.startGetterProfile("db_get_code_size")
+	defer finishGetterProfile(profile, start, "db_get_code_size")
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	if s.cacheEnabled() {
 		if cached, ok := s.readCache.codeSize[addr]; ok {
+			if profile != nil {
+				profile.AddCount("db_get_code_size_cache_hit_count", 1)
+			}
 			return cached
 		}
 	}
