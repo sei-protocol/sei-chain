@@ -32,8 +32,8 @@ type StoreConfig struct {
 	DBDirectory          string
 	KeepRecent           int64
 	PruneIntervalSeconds int64
-	BlockFlushInterval   uint64
-	MaxBlocksPerFile     uint64
+	BlockFlushInterval uint64
+	MaxBlocksPerFile   uint64
 }
 
 // DefaultStoreConfig returns the default store configuration.
