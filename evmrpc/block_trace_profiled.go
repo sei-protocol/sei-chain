@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 
 const profiledDefaultTraceTimeout = 5 * time.Second
 const profiledDefaultTraceReexec = uint64(128)
+const maxProfiledTraceWorkers = 16
 
 func shouldUseProfiledBlockTrace(config *tracers.TraceConfig) bool {
 	if config == nil || config.Tracer == nil || *config.Tracer == "" {
@@ -92,7 +94,38 @@ func (api *DebugAPI) profiledTraceBlock(ctx context.Context, block *gethtypes.Bl
 	blockHash := block.Hash()
 	signer := gethtypes.MakeSigner(api.backend.ChainConfig(), block.Number(), block.Time())
 	results := make([]*tracers.TxTraceResult, len(txs))
+	tracedCount := len(txs)
+	if len(metadata) > 0 {
+		tracedCount = 0
+		for _, md := range metadata {
+			if md.ShouldIncludeInTraceResult {
+				tracedCount++
+			}
+		}
+	}
+	threads := min(runtime.NumCPU(), tracedCount)
+	threads = min(threads, maxProfiledTraceWorkers)
+	if threads <= 1 {
+		return api.profiledTraceBlockSequential(ctx, block, metadata, config, statedb, blockCtx, signer, blockHash, results)
+	}
+	if recorder := traceprofile.FromContext(ctx); recorder != nil {
+		recorder.AddCount("trace_block_parallel_workers", threads)
+	}
+	return api.profiledTraceBlockParallel(ctx, block, metadata, config, statedb, signer, blockHash, results, threads)
+}
 
+func (api *DebugAPI) profiledTraceBlockSequential(
+	ctx context.Context,
+	block *gethtypes.Block,
+	metadata []tracersutils.TraceBlockMetadata,
+	config *tracers.TraceConfig,
+	statedb vm.StateDB,
+	blockCtx vm.BlockContext,
+	signer gethtypes.Signer,
+	blockHash gethcommon.Hash,
+	results []*tracers.TxTraceResult,
+) ([]*tracers.TxTraceResult, error) {
+	txs := block.Transactions()
 	traceOne := func(i int, tx *gethtypes.Transaction) {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		txctx := &tracers.Context{
@@ -108,14 +141,12 @@ func (api *DebugAPI) profiledTraceBlock(ctx context.Context, block *gethtypes.Bl
 			results[i] = &tracers.TxTraceResult{TxHash: tx.Hash(), Result: res}
 		}
 	}
-
 	if len(metadata) == 0 {
 		for i, tx := range txs {
 			traceOne(i, tx)
 		}
 		return results, nil
 	}
-
 	for _, md := range metadata {
 		if md.ShouldIncludeInTraceResult {
 			i := md.IdxInEthBlock
@@ -133,6 +164,136 @@ func (api *DebugAPI) profiledTraceBlock(ctx context.Context, block *gethtypes.Bl
 		} else {
 			md.TraceRunnable(statedb)
 		}
+	}
+	return results, nil
+}
+
+type profiledTxTraceTask struct {
+	index   int
+	statedb vm.StateDB
+}
+
+func (api *DebugAPI) profiledTraceBlockParallel(
+	ctx context.Context,
+	block *gethtypes.Block,
+	metadata []tracersutils.TraceBlockMetadata,
+	config *tracers.TraceConfig,
+	statedb vm.StateDB,
+	signer gethtypes.Signer,
+	blockHash gethcommon.Hash,
+	results []*tracers.TxTraceResult,
+	threads int,
+) ([]*tracers.TxTraceResult, error) {
+	txs := block.Transactions()
+	jobs := make(chan *profiledTxTraceTask, threads)
+	var pend sync.WaitGroup
+
+	for th := 0; th < threads; th++ {
+		pend.Add(1)
+		go func() {
+			defer pend.Done()
+			for task := range jobs {
+				tx := txs[task.index]
+				msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
+				txctx := &tracers.Context{
+					BlockHash:   blockHash,
+					BlockNumber: block.Number(),
+					TxIndex:     task.index,
+					TxHash:      tx.Hash(),
+				}
+				blockCtx, err := api.backend.GetBlockContext(ctx, block, task.statedb, api.backend)
+				if err != nil {
+					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
+					continue
+				}
+				res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, task.statedb, config, nil)
+				if err != nil {
+					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
+				} else {
+					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Result: res}
+				}
+			}
+		}()
+	}
+
+	mainBlockCtx, err := api.backend.GetBlockContext(ctx, block, statedb, api.backend)
+	if err != nil {
+		close(jobs)
+		pend.Wait()
+		return nil, err
+	}
+	evm := vm.NewEVM(mainBlockCtx, statedb, api.backend.ChainConfigAtHeight(block.Number().Int64()), vm.Config{}, api.backend.GetCustomPrecompiles(block.Number().Int64()))
+	var failed error
+
+	advanceState := func(i int, tx *gethtypes.Transaction) error {
+		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
+		statedb.SetTxContext(tx.Hash(), i)
+		recorder := traceprofile.FromContext(ctx)
+		if recorder != nil {
+			start := time.Now()
+			recorder.AddCount("trace_tx_advance_count", 1)
+			_, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit))
+			recorder.AddDuration("trace_tx_advance_total", time.Since(start))
+			if err != nil {
+				return err
+			}
+		} else if _, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit)); err != nil {
+			return err
+		}
+		statedb.Finalise(evm.ChainConfig().IsEIP158(block.Number()))
+		return nil
+	}
+
+	feedTraceTask := func(i int) error {
+		task := &profiledTxTraceTask{statedb: statedb.Copy(), index: i}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case jobs <- task:
+			return nil
+		}
+	}
+
+	if len(metadata) == 0 {
+		for i, tx := range txs {
+			if err := feedTraceTask(i); err != nil {
+				failed = err
+				break
+			}
+			if err := advanceState(i, tx); err != nil {
+				failed = err
+				break
+			}
+		}
+	} else {
+		for _, md := range metadata {
+			if md.ShouldIncludeInTraceResult {
+				i := md.IdxInEthBlock
+				if err := feedTraceTask(i); err != nil {
+					failed = err
+					break
+				}
+				if err := advanceState(i, txs[i]); err != nil {
+					failed = err
+					break
+				}
+				continue
+			}
+			if recorder := traceprofile.FromContext(ctx); recorder != nil {
+				start := time.Now()
+				recorder.AddCount("trace_block_runnable_count", 1)
+				md.TraceRunnable(statedb)
+				recorder.AddDuration("trace_block_runnable_total", time.Since(start))
+			} else {
+				md.TraceRunnable(statedb)
+			}
+		}
+	}
+
+	close(jobs)
+	pend.Wait()
+	if failed != nil {
+		return nil, failed
 	}
 	return results, nil
 }
