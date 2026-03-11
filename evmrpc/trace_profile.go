@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc/traceprofile"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 type traceProfile struct {
