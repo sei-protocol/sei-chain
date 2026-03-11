@@ -200,11 +200,8 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
-	if api.traceProfileEnabled && shouldUseProfiledBlockTrace(config) {
-		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
-	} else {
-		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
-	}
+	// Accessing tracersAPI from the embedded DebugAPI
+	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	if returnErr != nil {
 		return
 	}
@@ -235,11 +232,8 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
-	if api.traceProfileEnabled && shouldUseProfiledBlockTrace(config) {
-		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
-	} else {
-		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
-	}
+	// Accessing tracersAPI from the embedded DebugAPI
+	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	if returnErr != nil {
 		return
 	}
@@ -328,11 +322,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
-	if api.traceProfileEnabled && shouldUseProfiledBlockTrace(config) {
-		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
-	} else {
-		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
-	}
+	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	return
 }
 
@@ -349,11 +339,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
-	if api.traceProfileEnabled && shouldUseProfiledBlockTrace(config) {
-		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
-	} else {
-		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
-	}
+	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	return
 }
 
