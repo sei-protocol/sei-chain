@@ -659,6 +659,79 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 	require.NoError(t, changelog.Close())
 }
 
+func TestTruncateAll(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+
+	writeTestData(t, changelog)
+	last, err := changelog.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), last)
+
+	// Remove all entries.
+	require.NoError(t, changelog.TruncateAll())
+
+	// WAL is now empty.
+	first, err := changelog.FirstOffset()
+	require.NoError(t, err)
+	last, err = changelog.LastOffset()
+	require.NoError(t, err)
+	// With AllowEmpty, FirstIndex returns LastIndex+1 when empty.
+	require.True(t, first > last, "expected empty WAL (first > last)")
+
+	// Can write new entries after truncating all.
+	entry := proto.ChangelogEntry{
+		Changesets: []*proto.NamedChangeSet{{Name: "after", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")}}},
+	}
+	require.NoError(t, changelog.Write(entry))
+
+	last, err = changelog.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), last) // continues from previous index
+
+	require.NoError(t, changelog.Close())
+
+	// Reopen and verify.
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err = changelog2.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), first)
+	last, err = changelog2.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), last)
+
+	readEntry, err := changelog2.ReadAt(4)
+	require.NoError(t, err)
+	require.Equal(t, "after", readEntry.Changesets[0].Name)
+}
+
+func TestTruncateAllWithoutAllowEmpty(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	writeTestData(t, changelog)
+
+	// Without AllowEmpty, TruncateAll should fail.
+	err = changelog.TruncateAll()
+	require.Error(t, err)
+}
+
+func TestTruncateAllOnEmptyLog(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	// TruncateAll on an already-empty log is a no-op.
+	require.NoError(t, changelog.TruncateAll())
+}
+
 func TestGetLastIndex(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
