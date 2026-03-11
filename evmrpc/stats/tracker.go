@@ -3,7 +3,6 @@ package stats
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -57,7 +56,6 @@ func InitWSTracker(ctx context.Context, interval time.Duration) {
 }
 
 type tracker struct {
-	logger   slog.Logger
 	ch       chan apiEvent
 	interval time.Duration
 	ctx      context.Context
@@ -96,12 +94,12 @@ func (t *tracker) run() {
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
-	t.logger.Info("stats tracker started", "interval", t.interval.String())
+	logger.Info("stats tracker started", "interval", t.interval.String())
 
 	for {
 		select {
 		case <-t.ctx.Done():
-			t.logger.Info("stats tracker stopping", "reason", t.ctx.Err())
+			logger.Info("stats tracker stopping", "reason", t.ctx.Err())
 			// Report current period before stopping
 			t.reportCurrentPeriod()
 			return
@@ -191,7 +189,7 @@ func (t *tracker) reportPeriodLocked(period *periodStats) {
 	// Always log overall stats, even for periods with no events
 	if period.totalEvents == 0 {
 		// Log overall stats for periods with no requests
-		t.logger.Info("stats",
+		logger.Info("stats",
 			"period", period.periodStart.Format("2006-01-02T15:04:05Z"),
 			"count", 0,
 			"interval", t.interval.String(),
@@ -203,7 +201,7 @@ func (t *tracker) reportPeriodLocked(period *periodStats) {
 	overallSuccessRate := float64(period.totalSuccess) / float64(period.totalEvents) * 100
 
 	// Log overall stats for this period
-	t.logger.Info("stats",
+	logger.Info("stats",
 		"period", period.periodStart.Format("2006-01-02T15:04:05Z"),
 		"count", period.totalEvents,
 		"success_rate_pct", overallSuccessRate,
@@ -217,7 +215,7 @@ func (t *tracker) reportPeriodLocked(period *periodStats) {
 		avgLatencyMs := float64(stats.totalLatency.Nanoseconds()) / float64(stats.count) / 1000000.0
 		maxLatencyMs := float64(stats.maxLatency.Nanoseconds()) / 1000000.0
 
-		t.logger.Info("method stats",
+		logger.Info("method stats",
 			"period", period.periodStart.Format("2006-01-02T15:04:05Z"),
 			"method", method,
 			"count", stats.count,
@@ -255,7 +253,7 @@ func (t *tracker) TrackMessage(method string, connectionType string, startTime t
 	case t.ch <- event:
 	default:
 		// Drop on overflow to not block RPC - log at debug level to avoid spam
-		t.logger.Debug("event channel full, dropping event",
+		logger.Debug("event channel full, dropping event",
 			"method", method,
 			"connection", connectionType)
 	}
@@ -264,7 +262,7 @@ func (t *tracker) TrackMessage(method string, connectionType string, startTime t
 func (t *tracker) Stop() {
 	t.cancel()  // Cancel context to stop the goroutine
 	t.wg.Wait() // Wait for goroutine to finish
-	t.logger.Info("stats tracker stopped")
+	logger.Info("stats tracker stopped")
 }
 
 // RecordAPIInvocation is a simple entry point for recording API calls.
