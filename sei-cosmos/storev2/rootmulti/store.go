@@ -93,6 +93,9 @@ func NewStore(
 	}
 	ctx := context.Background()
 	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
+	if err := scStore.CleanupCrashArtifacts(); err != nil {
+		panic(err)
+	}
 	store := &Store{
 		logger:           logger,
 		scStore:          scStore,
