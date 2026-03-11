@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -255,7 +254,7 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)

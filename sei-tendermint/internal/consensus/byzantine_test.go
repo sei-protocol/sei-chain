@@ -82,7 +82,7 @@ package consensus
 //
 //			// Make Mempool
 //			mempool := mempool.NewTxMempool(
-//				log.NewNopLogger().With("module", "mempool"),
+//				log. logger().With("module", "mempool"),
 //				thisConfig.Mempool,
 //				proxyAppConnMem,
 //			)

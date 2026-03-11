@@ -3,6 +3,7 @@ package errors
 import (
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -132,8 +133,8 @@ func (s *abciTestSuite) TestABCIInfoStacktrace() {
 			if !tc.wantStacktrace {
 				s.Require().Equal(tc.wantErrMsg, log, testName)
 			} else {
-				s.Require().Contains(thisTestSrc, testName)
-				s.Require().Contains(tc.wantErrMsg, testName)
+				s.Require().True(strings.Contains(log, thisTestSrc), testName)
+				s.Require().True(strings.Contains(log, tc.wantErrMsg), testName)
 			}
 		})
 	}
