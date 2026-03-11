@@ -13,8 +13,6 @@ type fixedPool struct {
 	workQueue chan func()
 }
 
-// TODO unit test before merging!
-
 // Create a new work pool.
 func NewFixedPool(
 	// The work pool shuts down when the context is done.
