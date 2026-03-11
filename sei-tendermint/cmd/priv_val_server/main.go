@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	logger = seilog.NewLogger("tendermint", "cmd", "priv_val_server")
+	logger = seilog.NewLogger("tendermint", "cmd", "priv-val-server")
 
 	// Create a metrics registry.
 	reg = prometheus.NewRegistry()

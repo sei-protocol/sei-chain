@@ -24,7 +24,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "ledger_db", "receipt")
+var logger = seilog.NewLogger("db", "ledger-db", "receipt")
 
 // Sentinel errors for consistent error checking.
 var (

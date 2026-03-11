@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "ledger_db", "parquet")
+var logger = seilog.NewLogger("db", "ledger-db", "parquet")
 
 const (
 	maxInt64  = int64(^uint64(0) >> 1)
