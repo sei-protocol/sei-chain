@@ -49,7 +49,7 @@ import (
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 )
 
-var logger = seilog.NewLogger("sei-cosmos", "types", "module")
+var logger = seilog.NewLogger("cosmos", "types", "module")
 
 // AppModuleBasic is the standard form for basic non-dependant elements of an application module.
 type AppModuleBasic interface {

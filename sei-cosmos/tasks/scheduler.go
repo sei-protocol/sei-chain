@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var logger = seilog.NewLogger("sei-cosmos", "tasks")
+var logger = seilog.NewLogger("cosmos", "tasks")
 
 type status string
 

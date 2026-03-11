@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("sei-cosmos", "x", "gov")
+var logger = seilog.NewLogger("cosmos", "x", "gov")
 
 // EndBlocker called every block, process inflation, update validator set.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {

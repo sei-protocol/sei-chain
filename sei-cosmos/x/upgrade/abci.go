@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("sei-cosmos", "x", "upgrade")
+var logger = seilog.NewLogger("cosmos", "x", "upgrade")
 
 // BeginBlock will check if there is a scheduled plan and if it is ready to be executed.
 // If the current height is in the provided set of heights to skip, it will skip and clear the upgrade plan.

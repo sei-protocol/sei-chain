@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	logger = seilog.NewLogger("sei-cosmos", "x", "bank", "keeper")
+	logger = seilog.NewLogger("cosmos", "x", "bank", "keeper")
 
 	_ Keeper = (*BaseKeeper)(nil)
 )

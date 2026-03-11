@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	logger = seilog.NewLogger("sei-wasmd", "x", "wasm", "keeper")
+	logger = seilog.NewLogger("wasmd", "x", "wasm", "keeper")
 
 	_ snapshot.ExtensionSnapshotter = &WasmSnapshotter{}
 )

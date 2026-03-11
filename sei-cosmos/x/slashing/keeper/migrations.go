@@ -13,7 +13,7 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 )
 
-var logger = seilog.NewLogger("sei-cosmos", "x", "slashing", "keeper")
+var logger = seilog.NewLogger("cosmos", "x", "slashing", "keeper")
 
 // Migrator is a struct for handling in-place store migrations.
 type Migrator struct {

@@ -209,10 +209,6 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 		// handled by seilog init.
 	}
 
-	if logLvlStr == "" {
-		logLvlStr = serverCtx.Config.LogLevel
-	}
-
 	if overrideLogLevel {
 		var lvl slog.Level
 		if err := lvl.UnmarshalText([]byte(logLvlStr)); err != nil {
