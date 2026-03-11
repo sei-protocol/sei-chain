@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-var logger = seilog.NewLogger("db", "state_db", "sc", "flatkv")
+var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
 const (
 	// Top-level directory names

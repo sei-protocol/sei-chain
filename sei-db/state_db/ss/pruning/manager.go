@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "state_db", "ss", "pruning")
+var logger = seilog.NewLogger("db", "state-db", "ss", "pruning")
 
 type Manager struct {
 	stateStore    types.StateStore

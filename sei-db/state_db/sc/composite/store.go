@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "state_db", "sc", "composite")
+var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
 
 // EVMStoreName is the module name for the EVM store
 const EVMStoreName = "evm"

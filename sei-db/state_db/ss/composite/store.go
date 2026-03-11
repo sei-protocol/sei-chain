@@ -17,7 +17,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "state_db", "ss", "composite")
+var logger = seilog.NewLogger("db", "state-db", "ss", "composite")
 
 // Compile-time check.
 var _ types.StateStore = (*CompositeStateStore)(nil)

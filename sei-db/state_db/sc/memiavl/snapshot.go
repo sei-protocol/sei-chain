@@ -22,7 +22,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var logger = seilog.NewLogger("db", "state_db", "sc", "memiavl")
+var logger = seilog.NewLogger("db", "state-db", "sc", "memiavl")
 
 const (
 	// SnapshotFileMagic is little endian encoded b"IAVL"
