@@ -98,7 +98,7 @@ func TestPruneOldFilesKeepsTrackingOnDeleteFailure(t *testing.T) {
 	t.Cleanup(func() { removeFile = origRemove })
 
 	// 0 + 500 <= 600, so file pair is prune-eligible.
-	pruned := store.pruneOldFiles(600)
+	pruned := store.PruneOldFiles(600)
 	require.Equal(t, 0, pruned)
 
 	// Receipt file should remain tracked because delete failed.

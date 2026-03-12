@@ -374,8 +374,8 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 			latestVersion := s.latestVersion.Load()
 			pruneBeforeBlock := latestVersion - s.config.KeepRecent
 			if pruneBeforeBlock > 0 {
-				pruned := s.pruneOldFiles(uint64(pruneBeforeBlock))
-				if pruned > 0 && s.log != nil {
+				pruned := s.PruneOldFiles(uint64(pruneBeforeBlock))
+				if pruned > 0 {
 					s.log.Info(fmt.Sprintf("Pruned %d parquet file pairs older than block %d", pruned, pruneBeforeBlock))
 				}
 			}
@@ -394,7 +394,9 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 	}()
 }
 
-func (s *Store) pruneOldFiles(pruneBeforeBlock uint64) int {
+// PruneOldFiles removes parquet file pairs whose data is entirely before
+// pruneBeforeBlock. Returns the number of file pairs removed.
+func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 	// Get list of files to prune from the reader
 	filesToPrune := s.Reader.GetFilesBeforeBlock(pruneBeforeBlock)
 	if len(filesToPrune) == 0 {
