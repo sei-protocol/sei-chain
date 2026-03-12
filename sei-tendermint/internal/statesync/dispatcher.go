@@ -283,7 +283,9 @@ func (l *PeerList) Remove(peer types.NodeID) {
 func (l *PeerList) All() []types.NodeID {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
-	return l.peers
+	peers := make([]types.NodeID, len(l.peers))
+	copy(peers, l.peers)
+	return peers
 }
 
 func (l *PeerList) Contains(id types.NodeID) bool {

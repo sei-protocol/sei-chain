@@ -286,20 +286,13 @@ describe("EVM Precompile Tester", function () {
     describe("EVM Oracle Precompile Tester", function () {
         const OraclePrecompileContract = '0x0000000000000000000000000000000000001008';
         let oracle;
-        let twapsJSON;
-        let exchangeRatesJSON;
 
         before(async function() {
-            // this requires an oracle to run which does not happen outside of an integration test
+            // Oracle checks are only relevant in docker-based integration runs.
             if(!await isDocker()) {
                 this.skip()
                 return;
             }
-            const exchangeRatesContent = await execute("seid q oracle exchange-rates -o json")
-            const twapsContent = await execute("seid q oracle twaps 3600 -o json")
-
-            exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
-            twapsJSON = JSON.parse(twapsContent).oracle_twaps;
 
             const contractABIPath = '../../precompiles/oracle/abi.json';
             const contractABI = require(contractABIPath);
@@ -307,29 +300,26 @@ describe("EVM Precompile Tester", function () {
             oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
         });
 
-        it("Oracle Exchange Rates", async function () {
-            const exchangeRates = await oracle.getExchangeRates();
-            const exchangeRatesLen = exchangeRatesJSON.length;
-            expect(exchangeRates.length).to.equal(exchangeRatesLen);
-
-            for (let i = 0; i < exchangeRatesLen; i++) {
-                expect(exchangeRates[i].denom).to.equal(exchangeRatesJSON[i].denom);
-                expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
-                expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
-                expect(exchangeRates[i].oracleExchangeRateVal.lastUpdateTimestamp).to.exist.and.to.be.gt(0);
+        it("Oracle CLI TWAP query should fail without feeder data", async function () {
+            let error;
+            try {
+                await execute("seid q oracle twaps 3600 -o json");
+            } catch (e) {
+                error = e;
             }
+            expect(error, "twaps query should fail when no feeder is running").to.exist;
+            expect(error.message).to.include("No data for the twap calculation");
         });
 
-        it("Oracle Twaps", async function () {
-            const twaps = await oracle.getOracleTwaps(3600);
-            const twapsLen = twapsJSON.length
-            expect(twaps.length).to.equal(twapsLen);
-
-            for (let i = 0; i < twapsLen; i++) {
-                expect(twaps[i].denom).to.equal(twapsJSON[i].denom);
-                expect(twaps[i].twap).to.be.a('string').and.to.not.be.empty;
-                expect(twaps[i].lookbackSeconds).to.exist.and.to.be.gt(0);
+        it("Oracle precompile TWAP query should hard-fail without feeder data", async function () {
+            let error;
+            try {
+                await oracle.getOracleTwaps(3600);
+            } catch (e) {
+                error = e;
             }
+            expect(error, "precompile twaps query should hard-fail when oracle is retired").to.exist;
+            expect(error.message).to.include("oracle precompile is retired");
         });
     });
 

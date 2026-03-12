@@ -120,3 +120,91 @@ func TestNewTimeoutQC(t *testing.T) {
 		t.Fatalf("tQC.LatestPrepareQC().View() = %v, want %v", gotView, wantView)
 	}
 }
+
+// TestNewTimeoutQC_MixedPrepareQCs verifies quorum-intersection behavior:
+// even if only one vote carries a PrepareQC, NewTimeoutQC picks it up
+// and Verify accepts the result.
+func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	view := View{Index: 0, Number: 0}
+
+	pqc := makePrepareQC(keys, NewPrepareVote(
+		newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
+	))
+
+	// Only keys[0] carries the PrepareQC; the rest carry None.
+	votes := make([]*FullTimeoutVote, len(keys))
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(pqc))
+	for i := 1; i < len(keys); i++ {
+		votes[i] = NewFullTimeoutVote(keys[i], view, utils.None[*PrepareQC]())
+	}
+
+	tqc := NewTimeoutQC(votes)
+	got, ok := tqc.LatestPrepareQC().Get()
+	if !ok {
+		t.Fatal("LatestPrepareQC must be present when at least one vote carries it")
+	}
+	if got.View() != view {
+		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), view)
+	}
+	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+// TestNewTimeoutQC_AllNone verifies that when no vote carries a PrepareQC,
+// the resulting TimeoutQC has None and Verify accepts it.
+func TestNewTimeoutQC_AllNone(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	view := View{Index: 0, Number: 0}
+
+	votes := make([]*FullTimeoutVote, len(keys))
+	for i, k := range keys {
+		votes[i] = NewFullTimeoutVote(k, view, utils.None[*PrepareQC]())
+	}
+
+	tqc := NewTimeoutQC(votes)
+	if tqc.LatestPrepareQC().IsPresent() {
+		t.Fatal("LatestPrepareQC should be None when no vote carries one")
+	}
+	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+// TestTimeoutQCVerify_HighestPrepareQCSelected verifies that when votes carry
+// PrepareQCs at different views, the highest is selected and Verify passes.
+func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	view := View{Index: 0, Number: 5}
+
+	makePQCAt := func(vn ViewNumber) *PrepareQC {
+		pView := View{Index: view.Index, Number: vn}
+		return makePrepareQC(keys, NewPrepareVote(
+			newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
+		))
+	}
+
+	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.
+	votes := make([]*FullTimeoutVote, len(keys))
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(makePQCAt(2)))
+	votes[1] = NewFullTimeoutVote(keys[1], view, utils.Some(makePQCAt(4)))
+	votes[2] = NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]())
+	votes[3] = NewFullTimeoutVote(keys[3], view, utils.None[*PrepareQC]())
+
+	tqc := NewTimeoutQC(votes)
+	got, ok := tqc.LatestPrepareQC().Get()
+	if !ok {
+		t.Fatal("LatestPrepareQC must be present")
+	}
+	wantView := View{Index: 0, Number: 4}
+	if got.View() != wantView {
+		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), wantView)
+	}
+	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
