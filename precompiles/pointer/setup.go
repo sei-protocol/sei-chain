@@ -13,6 +13,7 @@ import (
 	pointerv610 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v610"
 	pointerv614 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v614"
 	pointerv620 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v620"
+	pointerv630 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -30,6 +31,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.1.0":      check(pointerv610.NewPrecompile(keepers)),
 		"v6.1.4":      check(pointerv614.NewPrecompile(keepers)),
 		"v6.2.0":      check(pointerv620.NewPrecompile(keepers)),
+		"v6.3.0":      check(pointerv630.NewPrecompile(keepers)),
 	}
 }
 
