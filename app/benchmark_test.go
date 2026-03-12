@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -17,14 +16,14 @@ import (
 
 func createTestContext() sdk.Context {
 	db := dbm.NewMemDB()
-	logger := log.NewNopLogger()
-	ms := rootmulti.NewStore(db, log.NewNopLogger())
-	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
+
+	ms := rootmulti.NewStore(db)
+	return sdk.NewContext(ms, tmtypes.Header{}, false)
 }
 
 func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	// Create a mock app with benchmark mode enabled
-	logger := log.NewNopLogger()
+
 	app := &App{}
 
 	// Test handler with nil manager (should return empty proposal)
@@ -49,7 +48,7 @@ func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	proposalCh <- testProposal
 
 	app.benchmarkManager = &benchmark.Manager{
-		Logger: benchmark.NewLogger(logger),
+		Logger: benchmark.NewLogger(),
 	}
 	// We can't easily set the proposalCh since it's unexported, so we test the nil case
 
@@ -73,7 +72,7 @@ func TestBenchmarkHelperMethods(t *testing.T) {
 	require.Nil(t, app.BenchmarkLogger())
 
 	// Create a benchmark manager with logger
-	benchLogger := benchmark.NewLogger(log.NewNopLogger())
+	benchLogger := benchmark.NewLogger()
 	app.benchmarkManager = &benchmark.Manager{
 		Logger: benchLogger,
 	}
@@ -89,7 +88,7 @@ func TestBenchmarkHelperMethods(t *testing.T) {
 }
 
 func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	chainID := "pacific-1"
 	liveEVMChainID := int64(1329) // pacific-1's EVM chain ID (live)
 
@@ -102,7 +101,7 @@ func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
 
 	// Test that InitBenchmark panics with live chain ID
 	require.Panics(t, func() {
-		app.InitBenchmark(ctx, chainID, liveEVMChainID, logger)
+		app.InitBenchmark(ctx, chainID, liveEVMChainID)
 	}, "InitBenchmark should panic on live chain ID")
 
 	// Verify nothing was initialized
@@ -110,7 +109,7 @@ func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
 }
 
 func TestInitBenchmark_AllLiveChainIDs(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	liveChainIDs := []struct {
 		chainID     string
 		evmChainID  int64
@@ -129,14 +128,14 @@ func TestInitBenchmark_AllLiveChainIDs(t *testing.T) {
 			ctx := context.Background()
 
 			require.Panics(t, func() {
-				app.InitBenchmark(ctx, tc.chainID, tc.evmChainID, logger)
+				app.InitBenchmark(ctx, tc.chainID, tc.evmChainID)
 			}, "InitBenchmark should panic on live chain ID: %s", tc.description)
 		})
 	}
 }
 
 func TestInitBenchmark_Success(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	chainID := "test-chain"
 	evmChainID := int64(12345) // Non-live chain ID
 
@@ -149,7 +148,7 @@ func TestInitBenchmark_Success(t *testing.T) {
 	defer cancel()
 
 	// Test InitBenchmark with non-live chain ID
-	app.InitBenchmark(ctx, chainID, evmChainID, logger)
+	app.InitBenchmark(ctx, chainID, evmChainID)
 
 	// Verify benchmarkManager is set
 	require.NotNil(t, app.benchmarkManager, "benchmarkManager should be initialized")

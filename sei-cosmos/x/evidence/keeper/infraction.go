@@ -4,9 +4,12 @@ import (
 	"fmt"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "evidence", "keeper")
 
 // HandleEquivocationEvidence implements an equivocation evidence handler. Assuming the
 // evidence is valid, the validator committing the misbehavior will be slashed,
@@ -23,7 +26,7 @@ import (
 // TODO: Some of the invalid constraints listed above may need to be reconsidered
 // in the case of a lunatic attack.
 func (k Keeper) HandleEquivocationEvidence(ctx sdk.Context, evidence *types.Equivocation) {
-	logger := k.Logger(ctx)
+
 	consAddr := evidence.GetConsensusAddress()
 
 	if _, err := k.slashingKeeper.GetPubkey(ctx, consAddr.Bytes()); err != nil {

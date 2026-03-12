@@ -12,12 +12,12 @@ import (
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/google/orderedcode"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -38,10 +38,10 @@ const (
 	prefixPending   = int64(10)
 )
 
+var logger = seilog.NewLogger("tendermint", "internal", "evidence")
+
 // Pool maintains a pool of valid evidence to be broadcasted and committed
 type Pool struct {
-	logger log.Logger
-
 	evidenceStore dbm.DB
 	evidenceList  *clist.CList // concurrent linked-list of evidence
 	evidenceSize  uint32       // amount of pending evidence
@@ -72,11 +72,10 @@ type Pool struct {
 
 // NewPool creates an evidence pool. If using an existing evidence store,
 // it will add all pending evidence to the concurrent list.
-func NewPool(logger log.Logger, evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, metrics *Metrics, eventBus *eventbus.EventBus) *Pool {
+func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, metrics *Metrics, eventBus *eventbus.EventBus) *Pool {
 	return &Pool{
 		blockStore:      blockStore,
 		stateDB:         stateStore,
-		logger:          logger,
 		evidenceStore:   evidenceDB,
 		evidenceList:    clist.New(),
 		consensusBuffer: make([]duplicateVoteSet, 0),
@@ -94,7 +93,7 @@ func (evpool *Pool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64) {
 
 	evidence, size, err := evpool.listEvidence(prefixPending, maxBytes)
 	if err != nil {
-		evpool.logger.Error("failed to retrieve pending evidence", "err", err)
+		logger.Error("failed to retrieve pending evidence", "err", err)
 	}
 
 	return evidence, size
@@ -117,7 +116,7 @@ func (evpool *Pool) Update(ctx context.Context, state sm.State, ev types.Evidenc
 		))
 	}
 
-	evpool.logger.Debug(
+	logger.Debug(
 		"updating evidence pool",
 		"last_block_height", state.LastBlockHeight,
 		"last_block_time", state.LastBlockTime,
@@ -142,11 +141,11 @@ func (evpool *Pool) Update(ctx context.Context, state sm.State, ev types.Evidenc
 
 // AddEvidence checks the evidence is valid and adds it to the pool.
 func (evpool *Pool) AddEvidence(ctx context.Context, ev types.Evidence) error {
-	evpool.logger.Debug("attempting to add evidence", "evidence", ev)
+	logger.Debug("attempting to add evidence", "evidence", ev)
 
 	// We have already verified this piece of evidence - no need to do it again
 	if evpool.isPending(ev) {
-		evpool.logger.Debug("evidence already pending; ignoring", "evidence", ev)
+		logger.Debug("evidence already pending; ignoring", "evidence", ev)
 		return nil
 	}
 
@@ -154,7 +153,7 @@ func (evpool *Pool) AddEvidence(ctx context.Context, ev types.Evidence) error {
 	if evpool.isCommitted(ev) {
 		// This can happen if the peer that sent us the evidence is behind so we
 		// shouldn't punish the peer.
-		evpool.logger.Debug("evidence was already committed; ignoring", "evidence", ev)
+		logger.Debug("evidence was already committed; ignoring", "evidence", ev)
 		return nil
 	}
 
@@ -171,7 +170,7 @@ func (evpool *Pool) AddEvidence(ctx context.Context, ev types.Evidence) error {
 	// 3) Add evidence to clist.
 	evpool.evidenceList.PushBack(ev)
 
-	evpool.logger.Info("verified new evidence of byzantine behavior", "evidence", ev)
+	logger.Info("verified new evidence of byzantine behavior", "evidence", ev)
 	return nil
 }
 
@@ -219,10 +218,10 @@ func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList
 			if err := evpool.addPendingEvidence(ctx, ev); err != nil {
 				// Something went wrong with adding the evidence but we already know it is valid
 				// hence we log an error and continue
-				evpool.logger.Error("failed to add evidence to pending list", "err", err, "evidence", ev)
+				logger.Error("failed to add evidence to pending list", "err", err, "evidence", ev)
 			}
 
-			evpool.logger.Info("check evidence: verified evidence of byzantine behavior", "evidence", ev)
+			logger.Info("check evidence: verified evidence of byzantine behavior", "evidence", ev)
 		}
 
 		// check for duplicate evidence. We cache hashes so we don't have to work them out again.
@@ -307,7 +306,7 @@ func (evpool *Pool) isCommitted(evidence types.Evidence) bool {
 	key := keyCommitted(evidence)
 	ok, err := evpool.evidenceStore.Has(key)
 	if err != nil {
-		evpool.logger.Error("failed to find committed evidence", "err", err)
+		logger.Error("failed to find committed evidence", "err", err)
 	}
 	return ok
 }
@@ -317,7 +316,7 @@ func (evpool *Pool) isPending(evidence types.Evidence) bool {
 	key := keyPending(evidence)
 	ok, err := evpool.evidenceStore.Has(key)
 	if err != nil {
-		evpool.logger.Error("failed to find pending evidence", "err", err)
+		logger.Error("failed to find pending evidence", "err", err)
 	}
 	return ok
 }
@@ -345,7 +344,7 @@ func (evpool *Pool) addPendingEvidence(ctx context.Context, ev types.Evidence) e
 
 	// This should normally never be true
 	if evpool.eventBus == nil {
-		evpool.logger.Debug("event bus is not configured")
+		logger.Debug("event bus is not configured")
 		return nil
 
 	}
@@ -365,7 +364,7 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 	for _, ev := range evidence {
 		if evpool.isPending(ev) {
 			if err := batch.Delete(keyPending(ev)); err != nil {
-				evpool.logger.Error("failed to batch delete pending evidence", "err", err)
+				logger.Error("failed to batch delete pending evidence", "err", err)
 			}
 			blockEvidenceMap[evMapKey(ev)] = struct{}{}
 		}
@@ -377,15 +376,15 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 		h := gogotypes.Int64Value{Value: height}
 		evBytes, err := proto.Marshal(&h)
 		if err != nil {
-			evpool.logger.Error("failed to marshal committed evidence", "key(height/hash)", key, "err", err)
+			logger.Error("failed to marshal committed evidence", "key(height/hash)", key, "err", err)
 			continue
 		}
 
 		if err := evpool.evidenceStore.Set(key, evBytes); err != nil {
-			evpool.logger.Error("failed to save committed evidence", "key(height/hash)", key, "err", err)
+			logger.Error("failed to save committed evidence", "key(height/hash)", key, "err", err)
 		}
 
-		evpool.logger.Debug("marked evidence as committed", "evidence", ev)
+		logger.Debug("marked evidence as committed", "evidence", ev)
 	}
 
 	// check if we need to remove any pending evidence
@@ -395,7 +394,7 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 
 	// remove committed evidence from pending bucket
 	if err := batch.WriteSync(); err != nil {
-		evpool.logger.Error("failed to batch delete pending evidence", "err", err)
+		logger.Error("failed to batch delete pending evidence", "err", err)
 		return
 	}
 
@@ -469,7 +468,7 @@ func (evpool *Pool) removeExpiredPendingEvidence() (int64, time.Time) {
 		return height, time
 	}
 
-	evpool.logger.Debug("removing expired evidence",
+	logger.Debug("removing expired evidence",
 		"height", evpool.State().LastBlockHeight,
 		"time", evpool.State().LastBlockTime,
 		"expired evidence", len(blockEvidenceMap),
@@ -477,7 +476,7 @@ func (evpool *Pool) removeExpiredPendingEvidence() (int64, time.Time) {
 
 	// remove expired evidence from pending bucket
 	if err := batch.WriteSync(); err != nil {
-		evpool.logger.Error("failed to batch delete pending evidence", "err", err)
+		logger.Error("failed to batch delete pending evidence", "err", err)
 		return evpool.State().LastBlockHeight, evpool.State().LastBlockTime
 	}
 
@@ -493,7 +492,7 @@ func (evpool *Pool) batchExpiredPendingEvidence(batch dbm.Batch) (int64, time.Ti
 	blockEvidenceMap := make(map[string]struct{})
 	iter, err := dbm.IteratePrefix(evpool.evidenceStore, prefixToBytes(prefixPending))
 	if err != nil {
-		evpool.logger.Error("failed to iterate over pending evidence", "err", err)
+		logger.Error("failed to iterate over pending evidence", "err", err)
 		return evpool.State().LastBlockHeight, evpool.State().LastBlockTime, blockEvidenceMap
 	}
 	defer func() { _ = iter.Close() }()
@@ -501,7 +500,7 @@ func (evpool *Pool) batchExpiredPendingEvidence(batch dbm.Batch) (int64, time.Ti
 	for ; iter.Valid(); iter.Next() {
 		ev, err := bytesToEv(iter.Value())
 		if err != nil {
-			evpool.logger.Error("failed to transition evidence from protobuf", "err", err, "ev", ev)
+			logger.Error("failed to transition evidence from protobuf", "err", err, "ev", ev)
 			continue
 		}
 
@@ -516,7 +515,7 @@ func (evpool *Pool) batchExpiredPendingEvidence(batch dbm.Batch) (int64, time.Ti
 
 		// else add to the batch
 		if err := batch.Delete(iter.Key()); err != nil {
-			evpool.logger.Error("failed to batch delete evidence", "err", err, "ev", ev)
+			logger.Error("failed to batch delete evidence", "err", err, "ev", ev)
 			continue
 		}
 
@@ -573,13 +572,13 @@ func (evpool *Pool) processConsensusBuffer(ctx context.Context, state sm.State) 
 		case voteSet.VoteA.Height < state.LastBlockHeight:
 			valSet, dbErr := evpool.stateDB.LoadValidators(voteSet.VoteA.Height)
 			if dbErr != nil {
-				evpool.logger.Error("failed to load validator set for conflicting votes",
+				logger.Error("failed to load validator set for conflicting votes",
 					"height", voteSet.VoteA.Height, "err", err)
 				continue
 			}
 			blockMeta := evpool.blockStore.LoadBlockMeta(voteSet.VoteA.Height)
 			if blockMeta == nil {
-				evpool.logger.Error("failed to load block time for conflicting votes", "height", voteSet.VoteA.Height)
+				logger.Error("failed to load block time for conflicting votes", "height", voteSet.VoteA.Height)
 				continue
 			}
 			dve, err = types.NewDuplicateVoteEvidence(
@@ -593,36 +592,36 @@ func (evpool *Pool) processConsensusBuffer(ctx context.Context, state sm.State) 
 			// evidence pool shouldn't expect to get votes from consensus of a height that is above the current
 			// state. If this error is seen then perhaps consider keeping the votes in the buffer and retry
 			// in following heights
-			evpool.logger.Error("inbound duplicate votes from consensus are of a greater height than current state",
+			logger.Error("inbound duplicate votes from consensus are of a greater height than current state",
 				"duplicate vote height", voteSet.VoteA.Height,
 				"state.LastBlockHeight", state.LastBlockHeight)
 			continue
 		}
 		if err != nil {
-			evpool.logger.Error("error in generating evidence from votes", "err", err)
+			logger.Error("error in generating evidence from votes", "err", err)
 			continue
 		}
 
 		// check if we already have this evidence
 		if evpool.isPending(dve) {
-			evpool.logger.Debug("evidence already pending; ignoring", "evidence", dve)
+			logger.Debug("evidence already pending; ignoring", "evidence", dve)
 			continue
 		}
 
 		// check that the evidence is not already committed on chain
 		if evpool.isCommitted(dve) {
-			evpool.logger.Debug("evidence already committed; ignoring", "evidence", dve)
+			logger.Debug("evidence already committed; ignoring", "evidence", dve)
 			continue
 		}
 
 		if err := evpool.addPendingEvidence(ctx, dve); err != nil {
-			evpool.logger.Error("failed to flush evidence from consensus buffer to pending list", "err", err)
+			logger.Error("failed to flush evidence from consensus buffer to pending list", "err", err)
 			continue
 		}
 
 		evpool.evidenceList.PushBack(dve)
 
-		evpool.logger.Info("verified new evidence of byzantine behavior", "evidence", dve)
+		logger.Info("verified new evidence of byzantine behavior", "evidence", dve)
 	}
 	// reset consensus buffer
 	evpool.consensusBuffer = make([]duplicateVoteSet, 0)

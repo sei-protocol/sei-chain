@@ -26,7 +26,6 @@ import (
 	genutilcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
@@ -230,7 +229,7 @@ type appCreator struct {
 }
 
 // newApp is an appCreator
-func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions) servertypes.Application {
+func (a appCreator) newApp(db dbm.DB, traceStore io.Writer, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions) servertypes.Application {
 	var cache sdk.MultiStorePersistentCache
 
 	if cast.ToBool(appOpts.Get(server.FlagInterBlockCache)) {
@@ -258,7 +257,7 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, t
 	}
 
 	return simapp.NewSimApp(
-		logger, db, traceStore, true, skipUpgradeHeights,
+		db, traceStore, true, skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
 		tmConfig,
@@ -280,8 +279,7 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, t
 
 // appExport creates a new simapp (optionally at a given height)
 // and exports state.
-func (a appCreator) appExport(
-	logger log.Logger, db dbm.DB, traceStore io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string,
+func (a appCreator) appExport(db dbm.DB, traceStore io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
 	_ *os.File,
 ) (servertypes.ExportedApp, error) {
@@ -292,13 +290,13 @@ func (a appCreator) appExport(
 	}
 
 	if height != -1 {
-		simApp = simapp.NewSimApp(logger, db, traceStore, false, map[int64]bool{}, homePath, uint(1), nil, a.encCfg, appOpts)
+		simApp = simapp.NewSimApp(db, traceStore, false, map[int64]bool{}, homePath, uint(1), nil, a.encCfg, appOpts)
 
 		if err := simApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
 	} else {
-		simApp = simapp.NewSimApp(logger, db, traceStore, true, map[int64]bool{}, homePath, uint(1), nil, a.encCfg, appOpts)
+		simApp = simapp.NewSimApp(db, traceStore, true, map[int64]bool{}, homePath, uint(1), nil, a.encCfg, appOpts)
 	}
 
 	return simApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)

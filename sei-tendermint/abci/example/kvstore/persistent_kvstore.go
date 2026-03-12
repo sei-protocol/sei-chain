@@ -6,7 +6,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )
 
@@ -22,7 +21,7 @@ type PersistentKVStoreApplication struct {
 	*Application
 }
 
-func NewPersistentKVStoreApplication(logger log.Logger, dbDir string) *PersistentKVStoreApplication {
+func NewPersistentKVStoreApplication(dbDir string) *PersistentKVStoreApplication {
 	db, err := dbm.NewGoLevelDB("kvstore", dbDir)
 	if err != nil {
 		panic(err)
@@ -32,7 +31,6 @@ func NewPersistentKVStoreApplication(logger log.Logger, dbDir string) *Persisten
 		Application: &Application{
 			valAddrToPubKeyMap: make(map[string]cryptoproto.PublicKey),
 			state:              loadState(db),
-			logger:             logger,
 		},
 	}
 }

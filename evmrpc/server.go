@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -35,7 +34,6 @@ type EVMServer interface {
 }
 
 func NewEVMHTTPServer(
-	logger log.Logger,
 	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
@@ -69,9 +67,9 @@ func NewEVMHTTPServer(
 	}
 
 	// Initialize RPC tracker
-	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), config.RPCStatsInterval)
 
-	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
+	httpServer := NewHTTPServer(rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		WriteTimeout:      config.WriteTimeout,
@@ -228,7 +226,6 @@ func NewEVMHTTPServer(
 }
 
 func NewEVMWebSocketServer(
-	logger log.Logger,
 	config evmrpcconfig.Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
@@ -240,16 +237,14 @@ func NewEVMWebSocketServer(
 	homeDir string,
 	stateStore types.StateStore,
 ) (EVMServer, error) {
-	logger = logger.With("module", "evmrpc")
-
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
 
 	// Initialize WebSocket tracker.
-	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), config.RPCStatsInterval)
 
-	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
+	httpServer := NewHTTPServer(rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		WriteTimeout:      config.WriteTimeout,

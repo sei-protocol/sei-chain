@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -105,7 +104,7 @@ func putUint32FromInt(dst []byte, value int) {
 }
 
 // NewWAL creates a new WAL for parquet receipts.
-func NewWAL(logger dbLogger.Logger, dir string) (dbwal.GenericWAL[WALEntry], error) {
+func NewWAL(dir string) (dbwal.GenericWAL[WALEntry], error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
@@ -113,7 +112,6 @@ func NewWAL(logger dbLogger.Logger, dir string) (dbwal.GenericWAL[WALEntry], err
 		context.Background(),
 		encodeWALEntry,
 		decodeWALEntry,
-		logger,
 		dir,
 		dbwal.Config{},
 	)

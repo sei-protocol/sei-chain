@@ -10,13 +10,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), log.NewNopLogger(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
+	store := NewStore(t.TempDir(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -37,7 +36,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	// Mount one IAVL store and load
@@ -124,7 +123,7 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			ssCfg.Enable = tc.ssEnabled
 			ssCfg.AsyncWriteBuffer = 0
 
-			store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+			store := NewStore(home, scCfg, ssCfg, []string{})
 			defer func() { _ = store.Close() }()
 
 			iavlKey1 := types.NewKVStoreKey("iavl_store1")
@@ -236,7 +235,7 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")
@@ -287,7 +286,7 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")
@@ -370,7 +369,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = false
 
-	store := NewStore(home, log.NewNopLogger(), scCfg, ssCfg, []string{})
+	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
 	key := types.NewKVStoreKey("store1")

@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/stretchr/testify/require"
 )
 
 // mockStateStore is a minimal StateStore implementation for testing
@@ -71,7 +69,7 @@ func (m *mockStateStore) Import(version int64, ch <-chan types.SnapshotNode) err
 
 func TestManagerStartStop(t *testing.T) {
 	store := &mockStateStore{latestVersion: 100}
-	manager := NewPruningManager(logger.NewNopLogger(), store, 10, 1)
+	manager := NewPruningManager(store, 10, 1)
 
 	// Start should launch the goroutine
 	manager.Start()
@@ -88,7 +86,7 @@ func TestManagerStartStop(t *testing.T) {
 
 func TestManagerStopIdempotent(t *testing.T) {
 	store := &mockStateStore{latestVersion: 100}
-	manager := NewPruningManager(logger.NewNopLogger(), store, 10, 1)
+	manager := NewPruningManager(store, 10, 1)
 
 	manager.Start()
 	time.Sleep(50 * time.Millisecond)
@@ -101,7 +99,7 @@ func TestManagerStopIdempotent(t *testing.T) {
 
 func TestManagerStartIdempotent(t *testing.T) {
 	store := &mockStateStore{latestVersion: 100}
-	manager := NewPruningManager(logger.NewNopLogger(), store, 10, 1)
+	manager := NewPruningManager(store, 10, 1)
 
 	// Start multiple times should only launch one goroutine
 	manager.Start()
@@ -114,7 +112,7 @@ func TestManagerStartIdempotent(t *testing.T) {
 
 func TestManagerStopConcurrent(t *testing.T) {
 	store := &mockStateStore{latestVersion: 100}
-	manager := NewPruningManager(logger.NewNopLogger(), store, 10, 1)
+	manager := NewPruningManager(store, 10, 1)
 
 	manager.Start()
 	time.Sleep(50 * time.Millisecond)
@@ -135,7 +133,7 @@ func TestManagerDisabledPruning(t *testing.T) {
 	store := &mockStateStore{latestVersion: 100}
 
 	// keepRecent <= 0 should disable pruning
-	manager := NewPruningManager(logger.NewNopLogger(), store, 0, 1)
+	manager := NewPruningManager(store, 0, 1)
 	manager.Start()
 	time.Sleep(50 * time.Millisecond)
 	manager.Stop()
@@ -143,7 +141,7 @@ func TestManagerDisabledPruning(t *testing.T) {
 	require.Equal(t, int32(0), store.pruneCount.Load())
 
 	// pruneInterval <= 0 should also disable pruning
-	manager2 := NewPruningManager(logger.NewNopLogger(), store, 10, 0)
+	manager2 := NewPruningManager(store, 10, 0)
 	manager2.Start()
 	time.Sleep(50 * time.Millisecond)
 	manager2.Stop()

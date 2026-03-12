@@ -8,7 +8,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -36,9 +35,8 @@ func TestGetPubKey(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			logger := log.NewTestingLogger(t)
 
-			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)
+			s := tmgrpc.NewSignerServer(ChainID, tc.pv)
 
 			req := &privvalproto.PubKeyRequest{ChainId: ChainID}
 			resp, err := s.GetPubKey(ctx, req)
@@ -109,9 +107,8 @@ func TestSignVote(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			logger := log.NewTestingLogger(t)
 
-			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)
+			s := tmgrpc.NewSignerServer(ChainID, tc.pv)
 
 			req := &privvalproto.SignVoteRequest{ChainId: ChainID, Vote: tc.have.ToProto()}
 			resp, err := s.SignVote(ctx, req)
@@ -178,9 +175,8 @@ func TestSignProposal(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-			logger := log.NewTestingLogger(t)
 
-			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)
+			s := tmgrpc.NewSignerServer(ChainID, tc.pv)
 
 			req := &privvalproto.SignProposalRequest{ChainId: ChainID, Proposal: tc.have.ToProto()}
 			resp, err := s.SignProposal(ctx, req)

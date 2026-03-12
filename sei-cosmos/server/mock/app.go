@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 
 	bam "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -19,10 +19,12 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
+var logger = seilog.NewLogger("cosmos", "server", "mock")
+
 // NewApp creates a simple mock kvstore app for testing. It should work
 // similar to a real app. Make sure rootDir is empty before running the test,
 // in order to guarantee consistent results
-func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
+func NewApp(rootDir string) (abci.Application, error) {
 	db, err := sdk.NewLevelDB("mock", filepath.Join(rootDir, "data"))
 	if err != nil {
 		return nil, err
@@ -32,7 +34,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	capKeyMainStore := sdk.NewKVStoreKey("main")
 
 	// Create BaseApp.
-	baseApp := bam.NewBaseApp("kvstore", logger, db, decodeTx, nil, &testutil.TestAppOpts{})
+	baseApp := bam.NewBaseApp("kvstore", db, decodeTx, nil, &testutil.TestAppOpts{})
 
 	// Set mounts for BaseApp's MultiStore.
 	baseApp.MountStores(capKeyMainStore)

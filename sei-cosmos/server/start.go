@@ -144,7 +144,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
 				go func() {
-					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+					logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
 					// TODO: Should this be bound to all interfaces?
 					server := &http.Server{
 						Addr:              "localhost:6060",
@@ -153,7 +153,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					}
 					err := server.ListenAndServe()
 					if err != nil {
-						serverCtx.Logger.Error("Error from profiling server", "error", err)
+						logger.Error("Error from profiling server", "error", err)
 					}
 				}()
 			}
@@ -179,14 +179,17 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
 			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
-				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
+				logger.Info("--tracing not passed in, tracing is not enabled")
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			serverCtx.Logger.Info("Creating node metrics provider")
+			logger.Info("Creating node metrics provider")
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
 
-			config, _ := config.GetConfig(serverCtx.Viper)
+			config, err := config.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return err
+			}
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
@@ -198,7 +201,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				}
 			}
 
-			serverCtx.Logger.Info("Starting Process")
+			logger.Info("Starting Process")
 			for {
 				err := startInProcess(
 					serverCtx,
@@ -211,7 +214,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				if !errors.Is(err, ErrShouldRestart) {
 					return err
 				}
-				serverCtx.Logger.Info("restarting node...")
+				logger.Info("restarting node...")
 			}
 		},
 	}
@@ -293,7 +296,7 @@ func startInProcess(
 		}
 
 		cpuProfileCleanup = func() {
-			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
+			logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
 			_ = f.Close()
 		}
@@ -316,11 +319,11 @@ func startInProcess(
 	}
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
-		ctx.Logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
+		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	var tmNode service.Service
@@ -338,10 +341,10 @@ func startInProcess(
 	}
 
 	if gRPCOnly {
-		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
+		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
 		config.GRPC.Enable = true
 	} else {
-		ctx.Logger.Info("starting node with ABCI Tendermint in-process")
+		logger.Info("starting node with ABCI Tendermint in-process")
 		var gen *tmtypes.GenesisDoc
 		if config.Genesis.StreamImport {
 			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
@@ -359,7 +362,6 @@ func startInProcess(
 		tmNode, err = node.New(
 			goCtx,
 			ctx.Config,
-			ctx.Logger,
 			restartEvent,
 			app,
 			gen,
@@ -378,7 +380,7 @@ func startInProcess(
 	// service if API or gRPC is enabled, and avoid doing so in the general
 	// case, because it spawns a new local tendermint RPC client.
 	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		localClient, err := local.New(ctx.Logger, tmNode.(local.NodeService))
+		localClient, err := local.New(tmNode.(local.NodeService))
 		if err != nil {
 			return err
 		}
@@ -391,7 +393,7 @@ func startInProcess(
 	var apiSrv *api.Server
 	if config.API.Enable {
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
-		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
+		apiSrv = api.New(clientCtx)
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -423,7 +425,7 @@ func startInProcess(
 		if config.GRPCWeb.Enable {
 			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
 			if err != nil {
-				ctx.Logger.Error("failed to start grpc-web http server: ", err)
+				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
 		}
@@ -499,9 +501,9 @@ func startInProcess(
 			}
 		}
 
-		ctx.Logger.Info("close any other open resource...")
+		logger.Info("close any other open resource...")
 		if err := app.Close(); err != nil {
-			ctx.Logger.Error("error closing database", "err", err)
+			logger.Error("error closing database", "err", err)
 		}
 	}()
 

@@ -1,17 +1,17 @@
 package pruning
 
 import (
-	"fmt"
 	"math/rand"
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/seilog"
 )
 
+var logger = seilog.NewLogger("db", "state-db", "ss", "pruning")
+
 type Manager struct {
-	logger        logger.Logger
 	stateStore    types.StateStore
 	keepRecent    int64
 	pruneInterval int64
@@ -26,13 +26,11 @@ type Manager struct {
 // NewPruningManager creates a new pruning manager for state store
 // Pruning Manager will periodically prune state store based on keep-recent and prune-interval configs.
 func NewPruningManager(
-	logger logger.Logger,
 	stateStore types.StateStore,
 	keepRecent int64,
 	pruneInterval int64,
 ) *Manager {
 	return &Manager{
-		logger:        logger,
 		stateStore:    stateStore,
 		keepRecent:    keepRecent,
 		pruneInterval: pruneInterval,
@@ -66,7 +64,7 @@ func (m *Manager) pruneLoop() {
 		// Check for stop signal before pruning
 		select {
 		case <-m.stopCh:
-			m.logger.Info("Pruning manager stopped")
+			logger.Info("Pruning manager stopped")
 			return
 		default:
 		}
@@ -77,9 +75,9 @@ func (m *Manager) pruneLoop() {
 		if pruneVersion > 0 {
 			// prune all versions up to and including the pruneVersion
 			if err := m.stateStore.Prune(pruneVersion); err != nil {
-				m.logger.Error("failed to prune versions till", "version", pruneVersion, "err", err)
+				logger.Error("failed to prune versions till", "version", pruneVersion, "err", err)
 			} else {
-				m.logger.Info(fmt.Sprintf("Pruned state store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime)))
+				logger.Info("Pruned state store till version", "version", pruneVersion, "took", time.Since(pruneStartTime))
 			}
 		}
 
@@ -91,7 +89,7 @@ func (m *Manager) pruneLoop() {
 		// Wait with stop signal check
 		select {
 		case <-m.stopCh:
-			m.logger.Info("Pruning manager stopped")
+			logger.Info("Pruning manager stopped")
 			return
 		case <-time.After(sleepDuration):
 			// Continue to next iteration

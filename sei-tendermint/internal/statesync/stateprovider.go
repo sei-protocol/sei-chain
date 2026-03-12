@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
@@ -33,6 +33,8 @@ const (
 
 //go:generate ../../scripts/mockery_generate.sh StateProvider
 
+var logger = seilog.NewLogger("tendermint", "internal", "statesync")
+
 // StateProvider is a provider of trusted state data for bootstrapping a node. This refers
 // to the state.State object, not the state machine. There are two implementations. One
 // uses the P2P layer and the other uses the RPC layer. Both use light client verification.
@@ -51,7 +53,6 @@ type stateProviderRPC struct {
 	initialHeight           int64
 	providers               map[lightprovider.Provider]string
 	verifyLightBlockTimeout time.Duration
-	logger                  log.Logger
 }
 
 // NewRPCStateProvider creates a new StateProvider using a light client and RPC clients.
@@ -62,7 +63,6 @@ func NewRPCStateProvider(
 	verifyLightBlockTimeout time.Duration,
 	servers []string,
 	trustOptions light.TrustOptions,
-	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(servers) < 2 {
@@ -84,12 +84,11 @@ func NewRPCStateProvider(
 	}
 
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
 		return nil, err
 	}
 	return &stateProviderRPC{
-		logger:                  logger,
 		lc:                      lc,
 		initialHeight:           initialHeight,
 		providers:               providerRemotes,
@@ -194,7 +193,7 @@ func (s *stateProviderRPC) State(ctx context.Context, height uint64) (sm.State, 
 	if err != nil {
 		return sm.State{}, fmt.Errorf("unable to create RPC client: %w", err)
 	}
-	rpcclient := lightrpc.NewClient(s.logger, primaryRPC, s.lc)
+	rpcclient := lightrpc.NewClient(primaryRPC, s.lc)
 	result, err := rpcclient.ConsensusParams(ctx, &currentLightBlock.Height)
 	if err != nil {
 		return sm.State{}, fmt.Errorf("unable to fetch consensus parameters for height %v: %w",
@@ -233,7 +232,6 @@ func NewP2PStateProvider(
 	providers []lightprovider.Provider,
 	trustOptions light.TrustOptions,
 	paramsSendCh *p2p.Channel[*pb.Message],
-	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
@@ -241,7 +239,7 @@ func NewP2PStateProvider(
 	}
 
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
 		return nil, err
 	}

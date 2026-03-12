@@ -3,7 +3,6 @@ package consensus
 import (
 	"context"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -23,15 +22,13 @@ type TimeoutTicker interface {
 // Timeouts are scheduled along the tickChan,
 // and fired on the tockChan.
 type timeoutTicker struct {
-	logger   log.Logger
 	tick     utils.Mutex[*utils.AtomicSend[utils.Option[timeoutInfo]]] // for scheduling timeouts
 	tockChan chan timeoutInfo                                          // for notifying about them
 }
 
 // NewTimeoutTicker returns a new TimeoutTicker.
-func NewTimeoutTicker(logger log.Logger) TimeoutTicker {
+func NewTimeoutTicker() TimeoutTicker {
 	tt := &timeoutTicker{
-		logger:   logger,
 		tick:     utils.NewMutex(utils.Alloc(utils.NewAtomicSend(utils.None[timeoutInfo]()))),
 		tockChan: make(chan timeoutInfo),
 	}
@@ -74,11 +71,11 @@ func (t *timeoutTicker) Run(ctx context.Context) error {
 				if !ok {
 					return nil
 				}
-				t.logger.Debug("Internal state machine timeout scheduled", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
+				logger.Debug("Internal state machine timeout scheduled", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 				if err := utils.Sleep(ctx, ti.Duration); err != nil {
 					return err
 				}
-				t.logger.Debug("Internal state machine timeout elapsed ", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
+				logger.Debug("Internal state machine timeout elapsed ", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 				tockSend.Store(utils.Some(ti))
 				return nil
 			})

@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -30,13 +29,12 @@ type WebsocketManager struct {
 	websocket.Upgrader
 
 	funcMap       map[string]*RPCFunc
-	logger        log.Logger
 	wsConnOptions []func(*wsConnection)
 }
 
 // NewWebsocketManager returns a new WebsocketManager that passes a map of
 // functions, connection options and logger to new WS connections.
-func NewWebsocketManager(logger log.Logger, funcMap map[string]*RPCFunc, wsConnOptions ...func(*wsConnection)) *WebsocketManager {
+func NewWebsocketManager(funcMap map[string]*RPCFunc, wsConnOptions ...func(*wsConnection)) *WebsocketManager {
 	return &WebsocketManager{
 		funcMap: funcMap,
 		Upgrader: websocket.Upgrader{
@@ -53,7 +51,6 @@ func NewWebsocketManager(logger log.Logger, funcMap map[string]*RPCFunc, wsConnO
 				return true
 			},
 		},
-		logger:        logger,
 		wsConnOptions: wsConnOptions,
 	}
 }
@@ -65,29 +62,29 @@ func (wm *WebsocketManager) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		// The upgrader has already reported an HTTP error to the client, so we
 		// need only log it.
-		wm.logger.Error("Failed to upgrade connection", "err", err)
+		logger.Error("Failed to upgrade connection", "err", err)
 		return
 	}
 	defer func() {
 		if err := wsConn.Close(); err != nil {
-			wm.logger.Error("Failed to close connection", "err", err)
+			logger.Error("Failed to close connection", "err", err)
 		}
 	}()
 
 	// register connection
-	logger := wm.logger.With("remote", wsConn.RemoteAddr())
-	conn := newWSConnection(wsConn, wm.funcMap, logger, wm.wsConnOptions...)
-	wm.logger.Info("New websocket connection", "remote", conn.remoteAddr)
+	logger := logger.With("remote", wsConn.RemoteAddr())
+	conn := newWSConnection(wsConn, wm.funcMap, wm.wsConnOptions...)
+	logger.Info("New websocket connection", "remote", conn.remoteAddr)
 
 	// starting the conn is blocking
 	if err = conn.Start(r.Context()); err != nil {
-		wm.logger.Error("Failed to start connection", "err", err)
+		logger.Error("Failed to start connection", "err", err)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	if err := conn.Stop(); err != nil {
-		wm.logger.Error("error while stopping connection", "error", err)
+		logger.Error("error while stopping connection", "error", err)
 	}
 }
 
@@ -98,8 +95,6 @@ func (wm *WebsocketManager) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 //
 // In case of an error, the connection is stopped.
 type wsConnection struct {
-	Logger log.Logger
-
 	remoteAddr string
 	baseConn   *websocket.Conn
 	// writeChan is never closed, to allow WriteRPCResponse() to fail.
@@ -133,9 +128,8 @@ type wsConnection struct {
 // description of how to configure ping period and pong wait time. NOTE: if the
 // write buffer is full, pongs may be dropped, which may cause clients to
 // disconnect. see https://github.com/gorilla/websocket/issues/97
-func newWSConnection(baseConn *websocket.Conn, funcMap map[string]*RPCFunc, logger log.Logger, options ...func(*wsConnection)) *wsConnection {
+func newWSConnection(baseConn *websocket.Conn, funcMap map[string]*RPCFunc, options ...func(*wsConnection)) *wsConnection {
 	wsc := &wsConnection{
-		Logger:          logger,
 		remoteAddr:      baseConn.RemoteAddr().String(),
 		baseConn:        baseConn,
 		funcMap:         funcMap,
@@ -259,10 +253,10 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 				err = fmt.Errorf("WSJSONRPC: %v", r)
 			}
 			req := rpctypes.NewRequest(uriReqID)
-			wsc.Logger.Error("Panic in WSJSONRPC handler", "err", err, "stack", string(debug.Stack()))
+			logger.Error("Panic in WSJSONRPC handler", "err", err, "stack", string(debug.Stack()))
 			if err := wsc.WriteRPCResponse(writeCtx,
 				req.MakeErrorf(rpctypes.CodeInternalError, "Panic in handler: %v", err)); err != nil {
-				wsc.Logger.Error("error writing RPC response", "err", err)
+				logger.Error("error writing RPC response", "err", err)
 			}
 			go wsc.readRoutine(ctx)
 		}
@@ -279,18 +273,18 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 		default:
 			// reset deadline for every type of message (control or data)
 			if err := wsc.baseConn.SetReadDeadline(time.Now().Add(wsc.readWait)); err != nil {
-				wsc.Logger.Error("failed to set read deadline", "err", err)
+				logger.Error("failed to set read deadline", "err", err)
 			}
 
 			_, r, err := wsc.baseConn.NextReader()
 			if err != nil {
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					wsc.Logger.Info("Client closed the connection")
+					logger.Info("Client closed the connection")
 				} else {
-					wsc.Logger.Error("Failed to read request", "err", err)
+					logger.Error("Failed to read request", "err", err)
 				}
 				if err := wsc.Stop(); err != nil {
-					wsc.Logger.Error("error closing websocket connection", "err", err)
+					logger.Error("error closing websocket connection", "err", err)
 				}
 				close(wsc.readRoutineQuit)
 				return
@@ -302,7 +296,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 			if err != nil {
 				if err := wsc.WriteRPCResponse(writeCtx,
 					request.MakeErrorf(rpctypes.CodeParseError, "unmarshaling request: %v", err)); err != nil {
-					wsc.Logger.Error("error writing RPC response", "err", err)
+					logger.Error("error writing RPC response", "err", err)
 				}
 				continue
 			}
@@ -310,7 +304,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 			// A Notification is a Request object without an "id" member.
 			// The Server MUST NOT reply to a Notification, including those that are within a batch request.
 			if request.IsNotification() {
-				wsc.Logger.Debug(
+				logger.Debug(
 					"WSJSONRPC received a notification, skipping... (please send a non-empty ID if you want to call a method)",
 					"req", request,
 				)
@@ -322,7 +316,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 			if rpcFunc == nil {
 				if err := wsc.WriteRPCResponse(writeCtx,
 					request.MakeErrorf(rpctypes.CodeMethodNotFound, "method %s not found", request.Method)); err != nil {
-					wsc.Logger.Error("error writing RPC response", "err", err)
+					logger.Error("error writing RPC response", "err", err)
 				}
 				continue
 			}
@@ -339,7 +333,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 				resp = request.MakeError(result, err)
 			}
 			if err := wsc.WriteRPCResponse(writeCtx, resp); err != nil {
-				wsc.Logger.Error("error writing RPC response", "err", err)
+				logger.Error("error writing RPC response", "err", err)
 			}
 		}
 	}
@@ -369,22 +363,22 @@ func (wsc *wsConnection) writeRoutine(ctx context.Context) {
 		case m := <-pongs:
 			err := wsc.writeMessageWithDeadline(websocket.PongMessage, []byte(m))
 			if err != nil {
-				wsc.Logger.Info("Failed to write pong (client may disconnect)", "err", err)
+				logger.Info("Failed to write pong (client may disconnect)", "err", err)
 			}
 		case <-pingTicker.C:
 			err := wsc.writeMessageWithDeadline(websocket.PingMessage, []byte{})
 			if err != nil {
-				wsc.Logger.Error("Failed to write ping", "err", err)
+				logger.Error("Failed to write ping", "err", err)
 				return
 			}
 		case msg := <-wsc.writeChan:
 			data, err := json.Marshal(msg)
 			if err != nil {
-				wsc.Logger.Error("Failed to marshal RPCResponse to JSON", "msg", msg, "err", err)
+				logger.Error("Failed to marshal RPCResponse to JSON", "msg", msg, "err", err)
 				continue
 			}
 			if err = wsc.writeMessageWithDeadline(websocket.TextMessage, data); err != nil {
-				wsc.Logger.Error("Failed to write response", "msg", msg, "err", err)
+				logger.Error("Failed to write response", "msg", msg, "err", err)
 				return
 			}
 		}
