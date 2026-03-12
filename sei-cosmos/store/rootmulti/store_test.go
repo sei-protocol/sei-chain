@@ -7,7 +7,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
@@ -22,7 +21,7 @@ import (
 
 func TestStoreType(t *testing.T) {
 	db := dbm.NewMemDB()
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 	store.MountStoreWithDB(types.NewKVStoreKey("store1"), types.StoreTypeIAVL, db)
 }
 
@@ -45,7 +44,7 @@ func TestGetCommitKVStore(t *testing.T) {
 
 func TestStoreMount(t *testing.T) {
 	db := dbm.NewMemDB()
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 
 	key1 := types.NewKVStoreKey("store1")
 	key2 := types.NewKVStoreKey("store2")
@@ -668,7 +667,7 @@ var (
 )
 
 func newMultiStoreWithMounts(db dbm.DB, pruningOpts types.PruningOptions) *Store {
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 	store.pruningOpts = pruningOpts
 
 	store.MountStoreWithDB(testStoreKey1, types.StoreTypeIAVL, nil)
@@ -679,7 +678,7 @@ func newMultiStoreWithMounts(db dbm.DB, pruningOpts types.PruningOptions) *Store
 }
 
 func newMultiStoreWithModifiedMounts(db dbm.DB, pruningOpts types.PruningOptions) (*Store, *types.StoreUpgrades) {
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 	store.pruningOpts = pruningOpts
 
 	store.MountStoreWithDB(types.NewKVStoreKey("store1"), types.StoreTypeIAVL, nil)

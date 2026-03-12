@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -175,8 +174,6 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempoolOption) *TxMempool {
 	t.Helper()
 
-	logger := log.NewNopLogger()
-
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
 	require.NoError(t, err)
 	cfg.Mempool.CacheSize = cacheSize
@@ -184,7 +181,7 @@ func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempo
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return NewTxMempool(logger.With("test", t.Name()), cfg.Mempool, app, NewTestPeerEvictor(), options...)
+	return NewTxMempool(cfg.Mempool, app, NewTestPeerEvictor(), options...)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {

@@ -281,7 +281,6 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 			require.NoError(t, err)
 		} else {
 			reactor, err := NewReactor(
-				node.Logger,
 				node.Router,
 				testSendInterval,
 			)
@@ -347,7 +346,6 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 		})
 		nodeID := node.NodeID
 		reactor, err := NewReactor(
-			node.Logger,
 			node.Router,
 			testSendInterval,
 		)

@@ -22,7 +22,7 @@ import (
 func TestInvalidMsg(t *testing.T) {
 	h := bank.NewHandler(nil)
 
-	res, err := h(sdk.NewContext(nil, tmproto.Header{}, false, nil), testdata.NewTestMsg())
+	res, err := h(sdk.NewContext(nil, tmproto.Header{}, false), testdata.NewTestMsg())
 	require.Error(t, err)
 	require.Nil(t, res)
 

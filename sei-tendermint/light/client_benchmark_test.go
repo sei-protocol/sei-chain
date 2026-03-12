@@ -8,7 +8,6 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
@@ -72,8 +71,6 @@ func BenchmarkSequence(b *testing.B) {
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)
 	genesisBlock, _ := benchmarkFullNode.LightBlock(ctx, 1)
 
-	logger := log.NewTestingLogger(b)
-
 	c, err := light.NewClient(
 		ctx,
 		chainID,
@@ -86,7 +83,6 @@ func BenchmarkSequence(b *testing.B) {
 		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 		light.SequentialVerification(),
 	)
 	if err != nil {
@@ -108,8 +104,6 @@ func BenchmarkBisection(b *testing.B) {
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)
 	genesisBlock, _ := benchmarkFullNode.LightBlock(ctx, 1)
 
-	logger := log.NewTestingLogger(b)
-
 	c, err := light.NewClient(
 		b.Context(),
 		chainID,
@@ -122,7 +116,6 @@ func BenchmarkBisection(b *testing.B) {
 		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	if err != nil {
 		b.Fatal(err)
@@ -144,8 +137,6 @@ func BenchmarkBackwards(b *testing.B) {
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)
 	trustedBlock, _ := benchmarkFullNode.LightBlock(ctx, 0)
 
-	logger := log.NewTestingLogger(b)
-
 	c, err := light.NewClient(
 		ctx,
 		chainID,
@@ -158,7 +149,6 @@ func BenchmarkBackwards(b *testing.B) {
 		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	if err != nil {
 		b.Fatal(err)

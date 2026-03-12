@@ -510,7 +510,7 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
 		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
@@ -522,7 +522,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, Config{
+		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), Config{
 			Fsync: false,
 		})
 		_, err := store.LoadVersion(0, false)
@@ -558,7 +558,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 		SnapshotInterval:   5,
 		SnapshotKeepRecent: 2,
 	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -582,7 +582,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 		SnapshotInterval:   10,
 		SnapshotKeepRecent: 2,
 	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -609,7 +609,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{SnapshotInterval: 0}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -701,7 +701,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
 		dir := t.TempDir()
-		s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+		s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
 		_, err := s.LoadVersion(0, false)
 		require.NoError(t, err)
 
@@ -825,7 +825,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 func TestStoreFsyncEnabled(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{Fsync: true}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -846,7 +846,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -866,7 +866,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 func TestWALRecordsChangesets(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
