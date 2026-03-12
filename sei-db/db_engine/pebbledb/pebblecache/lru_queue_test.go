@@ -8,7 +8,7 @@ import (
 )
 
 func TestLRUQueueIsolatesFromCallerMutation(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 
 	key := []byte("a")
 	lru.Push(key, 1)
@@ -18,19 +18,19 @@ func TestLRUQueueIsolatesFromCallerMutation(t *testing.T) {
 }
 
 func TestNewLRUQueueStartsEmpty(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 
 	require.Equal(t, 0, lru.GetCount())
 	require.Equal(t, 0, lru.GetTotalSize())
 }
 
 func TestPopLeastRecentlyUsedPanicsOnEmptyQueue(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	require.Panics(t, func() { lru.PopLeastRecentlyUsed() })
 }
 
 func TestPopLeastRecentlyUsedPanicsAfterDrain(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("x"), 1)
 	lru.PopLeastRecentlyUsed()
 
@@ -38,7 +38,7 @@ func TestPopLeastRecentlyUsedPanicsAfterDrain(t *testing.T) {
 }
 
 func TestPushSingleElement(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("only"), 42)
 
 	require.Equal(t, 1, lru.GetCount())
@@ -47,7 +47,7 @@ func TestPushSingleElement(t *testing.T) {
 }
 
 func TestPushDuplicateDecreasesSize(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("k"), 100)
 	lru.Push([]byte("k"), 30)
 
@@ -56,7 +56,7 @@ func TestPushDuplicateDecreasesSize(t *testing.T) {
 }
 
 func TestPushDuplicateMovesToBack(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 1)
 	lru.Push([]byte("c"), 1)
@@ -70,7 +70,7 @@ func TestPushDuplicateMovesToBack(t *testing.T) {
 }
 
 func TestPushZeroSize(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("z"), 0)
 
 	require.Equal(t, 1, lru.GetCount())
@@ -80,7 +80,7 @@ func TestPushZeroSize(t *testing.T) {
 }
 
 func TestPushEmptyKey(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte(""), 5)
 
 	require.Equal(t, 1, lru.GetCount())
@@ -88,7 +88,7 @@ func TestPushEmptyKey(t *testing.T) {
 }
 
 func TestPushRepeatedUpdatesToSameKey(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("k"), 1)
 	lru.Push([]byte("k"), 2)
 	lru.Push([]byte("k"), 3)
@@ -99,7 +99,7 @@ func TestPushRepeatedUpdatesToSameKey(t *testing.T) {
 }
 
 func TestTouchNonexistentKeyIsNoop(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 1)
 
 	lru.Touch([]byte("missing"))
@@ -109,14 +109,14 @@ func TestTouchNonexistentKeyIsNoop(t *testing.T) {
 }
 
 func TestTouchOnEmptyQueueIsNoop(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Touch([]byte("ghost"))
 
 	require.Equal(t, 0, lru.GetCount())
 }
 
 func TestTouchSingleElement(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("solo"), 10)
 	lru.Touch([]byte("solo"))
 
@@ -125,7 +125,7 @@ func TestTouchSingleElement(t *testing.T) {
 }
 
 func TestTouchDoesNotAffectSizeOrCount(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 3)
 	lru.Push([]byte("b"), 7)
 
@@ -136,7 +136,7 @@ func TestTouchDoesNotAffectSizeOrCount(t *testing.T) {
 }
 
 func TestMultipleTouchesChangeOrder(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 1)
 	lru.Push([]byte("c"), 1)
@@ -151,7 +151,7 @@ func TestMultipleTouchesChangeOrder(t *testing.T) {
 }
 
 func TestTouchAlreadyMostRecentIsNoop(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 1)
 
@@ -162,7 +162,7 @@ func TestTouchAlreadyMostRecentIsNoop(t *testing.T) {
 }
 
 func TestPopDecrementsCountAndSize(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 10)
 	lru.Push([]byte("b"), 20)
 	lru.Push([]byte("c"), 30)
@@ -179,7 +179,7 @@ func TestPopDecrementsCountAndSize(t *testing.T) {
 }
 
 func TestPopFIFOOrderWithoutTouches(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	keys := []string{"first", "second", "third", "fourth"}
 	for _, k := range keys {
 		lru.Push([]byte(k), 1)
@@ -191,7 +191,7 @@ func TestPopFIFOOrderWithoutTouches(t *testing.T) {
 }
 
 func TestPushAfterDrain(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 5)
 	lru.PopLeastRecentlyUsed()
 
@@ -204,7 +204,7 @@ func TestPushAfterDrain(t *testing.T) {
 }
 
 func TestPushPreviouslyPoppedKey(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("recycled"), 5)
 	lru.PopLeastRecentlyUsed()
 
@@ -216,7 +216,7 @@ func TestPushPreviouslyPoppedKey(t *testing.T) {
 }
 
 func TestInterleavedPushAndPop(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 2)
@@ -232,7 +232,7 @@ func TestInterleavedPushAndPop(t *testing.T) {
 }
 
 func TestTouchThenPushSameKey(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 1)
 	lru.Push([]byte("b"), 1)
 
@@ -245,7 +245,7 @@ func TestTouchThenPushSameKey(t *testing.T) {
 }
 
 func TestBinaryKeyData(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	k1 := []byte{0x00, 0xFF, 0x01}
 	k2 := []byte{0x00, 0xFF, 0x02}
 
@@ -260,7 +260,7 @@ func TestBinaryKeyData(t *testing.T) {
 }
 
 func TestCallerMutationAfterTouchDoesNotAffectQueue(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	key := []byte("abc")
 	lru.Push(key, 1)
 
@@ -271,13 +271,13 @@ func TestCallerMutationAfterTouchDoesNotAffectQueue(t *testing.T) {
 }
 
 func TestManyEntries(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	n := 1000
 	totalSize := 0
 
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("key-%04d", i)
-		lru.Push([]byte(k), i+1)
+		lru.Push([]byte(k), uint64(i+1))
 		totalSize += i + 1
 	}
 
@@ -294,7 +294,7 @@ func TestManyEntries(t *testing.T) {
 }
 
 func TestPushUpdatedSizeThenPopVerifySizeAccounting(t *testing.T) {
-	lru := NewLRUQueue()
+	lru := newLRUQueue()
 	lru.Push([]byte("a"), 10)
 	lru.Push([]byte("b"), 20)
 	lru.Push([]byte("a"), 5) // decrease a's size from 10 to 5

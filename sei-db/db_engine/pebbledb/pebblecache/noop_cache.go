@@ -1,6 +1,10 @@
 package pebblecache
 
-import "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+)
 
 var _ Cache = (*noOpCache)(nil)
 
@@ -22,13 +26,20 @@ func (c *noOpCache) Get(key []byte, _ bool) ([]byte, bool, error) {
 }
 
 func (c *noOpCache) BatchGet(keys map[string]types.BatchGetResult) error {
+	var firstErr error
 	for k := range keys {
-		val, found, err := c.readFunc([]byte(k))
+		val, _, err := c.readFunc([]byte(k))
 		if err != nil {
 			keys[k] = types.BatchGetResult{Error: err}
+			if firstErr == nil {
+				firstErr = err
+			}
 		} else {
-			keys[k] = types.BatchGetResult{Value: val, Found: found}
+			keys[k] = types.BatchGetResult{Value: val}
 		}
+	}
+	if firstErr != nil {
+		return fmt.Errorf("unable to batch get: %w", firstErr)
 	}
 	return nil
 }
