@@ -3,6 +3,7 @@ run-name: UCI / Go Lint
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - main
