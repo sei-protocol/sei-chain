@@ -30,7 +30,6 @@ func StartServer(address string) (*grpc.Server, error) {
 		logger.Info("Admin gRPC server started", "address", listener.Addr())
 		if err := grpcSrv.Serve(listener); err != nil {
 			logger.Error("Admin gRPC server stopped erroneously", "err", err)
-			fmt.Printf("admin server exited: %v\n", err)
 		}
 	}()
 
