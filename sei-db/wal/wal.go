@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/tidwall/wal"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
 
 // The size of internal channel buffers if the provided buffer size is less than 1.
@@ -175,7 +177,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		errChan: errChan,
 	}
 
-	err := interruptiblePush(walLog.ctx, walLog.writeChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.writeChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push write request: %w", err)
 	}
@@ -185,7 +187,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		return nil
 	}
 
-	err, pullErr := interruptiblePull(walLog.ctx, errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull write error: %w", pullErr)
 	}
@@ -366,12 +368,12 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 		errChan: make(chan error, 1),
 	}
 
-	err := interruptiblePush(walLog.ctx, walLog.truncateChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.truncateChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push truncate request: %w", err)
 	}
 
-	err, pullErr := interruptiblePull(walLog.ctx, req.errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, req.errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull truncate error: %w", pullErr)
 	}
@@ -526,7 +528,7 @@ func (walLog *WAL[T]) drain() {
 // Shut down the WAL. Sends a close request to the main loop so in-flight writes (and other work)
 // can complete before teardown. Idempotent.
 func (walLog *WAL[T]) Close() error {
-	_ = interruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
+	_ = threading.InterruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
 	// If error is non-nil then this is not the first call to Close(), no problem since Close() is idempotent
 
 	err := <-walLog.closeErrChan
@@ -618,28 +620,4 @@ func (walLog *WAL[T]) mainLoop() {
 		}
 	}
 	walLog.closeErrChan <- closeErr
-}
-
-// Push to a channel, returning an error if the context is cancelled before the value is pushed.
-func interruptiblePush[T any](ctx context.Context, ch chan T, value T) error {
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled: %w", ctx.Err())
-	case ch <- value:
-		return nil
-	}
-}
-
-// Pull from a channel, returning an error if the context is cancelled before the value is pulled.
-func interruptiblePull[T any](ctx context.Context, ch <-chan T) (T, error) {
-	var zero T
-	select {
-	case <-ctx.Done():
-		return zero, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case value, ok := <-ch:
-		if !ok {
-			return zero, fmt.Errorf("channel closed")
-		}
-		return value, nil
-	}
 }
