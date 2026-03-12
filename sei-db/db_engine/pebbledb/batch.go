@@ -39,8 +39,8 @@ func (pb *pebbleBatch) Set(key, value []byte) error {
 
 func (pb *pebbleBatch) Delete(key []byte) error {
 	pb.pendingCacheUpdates = append(pb.pendingCacheUpdates, pebblecache.CacheUpdate{
-		Key:      key,
-		IsDelete: true,
+		Key:   key,
+		Value: nil,
 	})
 	return pb.b.Delete(key, nil)
 }

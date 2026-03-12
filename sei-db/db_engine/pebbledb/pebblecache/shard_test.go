@@ -21,7 +21,7 @@ import (
 
 // newTestShard creates a shard backed by a simple in-memory map.
 // The returned readFunc map can be populated before calling Get.
-func newTestShard(t *testing.T, maxSize int, store map[string][]byte) *shard {
+func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) *shard {
 	t.Helper()
 	readFunc := func(key []byte) ([]byte, bool, error) {
 		v, ok := store[string(key)]
@@ -49,12 +49,6 @@ func TestNewShardValid(t *testing.T) {
 func TestNewShardZeroMaxSize(t *testing.T) {
 	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, nil }
 	_, err := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 0)
-	require.Error(t, err)
-}
-
-func TestNewShardNegativeMaxSize(t *testing.T) {
-	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, nil }
-	_, err := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, -10)
 	require.Error(t, err)
 }
 
@@ -407,7 +401,7 @@ func TestBatchSetMixedSetAndDelete(t *testing.T) {
 
 	s.BatchSet([]CacheUpdate{
 		{Key: []byte("keep"), Value: []byte("updated")},
-		{Key: []byte("remove"), IsDelete: true},
+		{Key: []byte("remove"), Value: nil},
 		{Key: []byte("new"), Value: []byte("fresh")},
 	})
 
@@ -451,7 +445,7 @@ func TestBatchGetAllCached(t *testing.T) {
 
 	for k, want := range map[string]string{"a": "1", "b": "2"} {
 		r := keys[k]
-		require.True(t, r.Found, "key=%q", k)
+		require.True(t, r.IsFound(), "key=%q", k)
 		require.Equal(t, want, string(r.Value), "key=%q", k)
 	}
 }
@@ -468,7 +462,7 @@ func TestBatchGetAllFromDB(t *testing.T) {
 
 	for k, want := range map[string]string{"x": "10", "y": "20"} {
 		r := keys[k]
-		require.True(t, r.Found, "key=%q", k)
+		require.True(t, r.IsFound(), "key=%q", k)
 		require.Equal(t, want, string(r.Value), "key=%q", k)
 	}
 }
@@ -485,9 +479,9 @@ func TestBatchGetMixedCachedAndDB(t *testing.T) {
 	}
 	require.NoError(t, s.BatchGet(keys))
 
-	require.True(t, keys["cached"].Found)
+	require.True(t, keys["cached"].IsFound())
 	require.Equal(t, "from-cache", string(keys["cached"].Value))
-	require.True(t, keys["db-key"].Found)
+	require.True(t, keys["db-key"].IsFound())
 	require.Equal(t, "from-db", string(keys["db-key"].Value))
 }
 
@@ -498,7 +492,7 @@ func TestBatchGetNotFoundKeys(t *testing.T) {
 		"nope": {},
 	}
 	require.NoError(t, s.BatchGet(keys))
-	require.False(t, keys["nope"].Found)
+	require.False(t, keys["nope"].IsFound())
 }
 
 func TestBatchGetDeletedKeys(t *testing.T) {
@@ -511,7 +505,7 @@ func TestBatchGetDeletedKeys(t *testing.T) {
 		"del": {},
 	}
 	require.NoError(t, s.BatchGet(keys))
-	require.False(t, keys["del"].Found)
+	require.False(t, keys["del"].IsFound())
 }
 
 func TestBatchGetDBError(t *testing.T) {
@@ -817,5 +811,5 @@ func TestSetDeleteThenBatchGet(t *testing.T) {
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	require.NoError(t, s.BatchGet(keys))
-	require.False(t, keys["k"].Found)
+	require.False(t, keys["k"].IsFound())
 }

@@ -283,7 +283,7 @@ func TestCacheBatchSetMixedSetAndDelete(t *testing.T) {
 
 	err := c.BatchSet([]CacheUpdate{
 		{Key: []byte("keep"), Value: []byte("updated")},
-		{Key: []byte("remove"), IsDelete: true},
+		{Key: []byte("remove"), Value: nil},
 		{Key: []byte("new"), Value: []byte("fresh")},
 	})
 	require.NoError(t, err)
@@ -331,9 +331,9 @@ func TestCacheBatchGetAllCached(t *testing.T) {
 	keys := map[string]types.BatchGetResult{"a": {}, "b": {}}
 	require.NoError(t, c.BatchGet(keys))
 
-	require.True(t, keys["a"].Found)
+	require.True(t, keys["a"].IsFound())
 	require.Equal(t, "1", string(keys["a"].Value))
-	require.True(t, keys["b"].Found)
+	require.True(t, keys["b"].IsFound())
 	require.Equal(t, "2", string(keys["b"].Value))
 }
 
@@ -344,9 +344,9 @@ func TestCacheBatchGetAllFromDB(t *testing.T) {
 	keys := map[string]types.BatchGetResult{"x": {}, "y": {}}
 	require.NoError(t, c.BatchGet(keys))
 
-	require.True(t, keys["x"].Found)
+	require.True(t, keys["x"].IsFound())
 	require.Equal(t, "10", string(keys["x"].Value))
-	require.True(t, keys["y"].Found)
+	require.True(t, keys["y"].IsFound())
 	require.Equal(t, "20", string(keys["y"].Value))
 }
 
@@ -359,9 +359,9 @@ func TestCacheBatchGetMixedCachedAndDB(t *testing.T) {
 	keys := map[string]types.BatchGetResult{"cached": {}, "db-key": {}}
 	require.NoError(t, c.BatchGet(keys))
 
-	require.True(t, keys["cached"].Found)
+	require.True(t, keys["cached"].IsFound())
 	require.Equal(t, "from-cache", string(keys["cached"].Value))
-	require.True(t, keys["db-key"].Found)
+	require.True(t, keys["db-key"].IsFound())
 	require.Equal(t, "from-db", string(keys["db-key"].Value))
 }
 
@@ -370,7 +370,7 @@ func TestCacheBatchGetNotFoundKeys(t *testing.T) {
 
 	keys := map[string]types.BatchGetResult{"nope": {}}
 	require.NoError(t, c.BatchGet(keys))
-	require.False(t, keys["nope"].Found)
+	require.False(t, keys["nope"].IsFound())
 }
 
 func TestCacheBatchGetDeletedKey(t *testing.T) {
@@ -381,7 +381,7 @@ func TestCacheBatchGetDeletedKey(t *testing.T) {
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	require.NoError(t, c.BatchGet(keys))
-	require.False(t, keys["k"].Found)
+	require.False(t, keys["k"].IsFound())
 }
 
 func TestCacheBatchGetDBError(t *testing.T) {
@@ -511,7 +511,7 @@ func TestCacheBatchSetThenBatchGetManyKeys(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		k := fmt.Sprintf("key-%03d", i)
 		want := fmt.Sprintf("val-%03d", i)
-		require.True(t, keys[k].Found, "key=%q", k)
+		require.True(t, keys[k].IsFound(), "key=%q", k)
 		require.Equal(t, want, string(keys[k].Value), "key=%q", k)
 		require.NoError(t, keys[k].Error, "key=%q", k)
 	}
@@ -661,17 +661,17 @@ func TestCacheBatchGetAfterBatchSetWithDeletes(t *testing.T) {
 
 	err := c.BatchSet([]CacheUpdate{
 		{Key: []byte("a"), Value: []byte("updated")},
-		{Key: []byte("b"), IsDelete: true},
+		{Key: []byte("b"), Value: nil},
 	})
 	require.NoError(t, err)
 
 	keys := map[string]types.BatchGetResult{"a": {}, "b": {}, "c": {}}
 	require.NoError(t, c.BatchGet(keys))
 
-	require.True(t, keys["a"].Found)
+	require.True(t, keys["a"].IsFound())
 	require.Equal(t, "updated", string(keys["a"].Value))
-	require.False(t, keys["b"].Found)
-	require.True(t, keys["c"].Found)
+	require.False(t, keys["b"].IsFound())
+	require.True(t, keys["c"].IsFound())
 	require.Equal(t, "3", string(keys["c"].Value))
 }
 

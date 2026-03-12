@@ -117,9 +117,9 @@ func TestNoOpBatchGetAllFound(t *testing.T) {
 	keys := map[string]types.BatchGetResult{"a": {}, "b": {}}
 	require.NoError(t, c.BatchGet(keys))
 
-	require.True(t, keys["a"].Found)
+	require.True(t, keys["a"].IsFound())
 	require.Equal(t, "1", string(keys["a"].Value))
-	require.True(t, keys["b"].Found)
+	require.True(t, keys["b"].IsFound())
 	require.Equal(t, "2", string(keys["b"].Value))
 }
 
@@ -128,7 +128,7 @@ func TestNoOpBatchGetNotFound(t *testing.T) {
 
 	keys := map[string]types.BatchGetResult{"x": {}}
 	require.NoError(t, c.BatchGet(keys))
-	require.False(t, keys["x"].Found)
+	require.False(t, keys["x"].IsFound())
 }
 
 func TestNoOpBatchGetError(t *testing.T) {
@@ -138,7 +138,9 @@ func TestNoOpBatchGetError(t *testing.T) {
 	})
 
 	keys := map[string]types.BatchGetResult{"k": {}}
-	require.NoError(t, c.BatchGet(keys))
+	err := c.BatchGet(keys)
+	require.Error(t, err)
+	require.ErrorIs(t, err, dbErr)
 	require.Error(t, keys["k"].Error)
 }
 

@@ -31,7 +31,7 @@ type shard struct {
 	readFunc func(key []byte) ([]byte, bool, error)
 
 	// The maximum size of this cache, in bytes.
-	maxSize int
+	maxSize uint64
 
 	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *CacheMetrics
@@ -40,7 +40,6 @@ type shard struct {
 // The result of a read from the underlying database.
 type readResult struct {
 	value []byte
-	found bool
 	err   error
 }
 
@@ -79,7 +78,7 @@ func NewShard(
 	ctx context.Context,
 	readPool threading.Pool,
 	readFunc func(key []byte) ([]byte, bool, error),
-	maxSize int,
+	maxSize uint64,
 ) (*shard, error) {
 
 	if maxSize <= 0 {
@@ -92,7 +91,7 @@ func NewShard(
 		readFunc: readFunc,
 		lock:     sync.Mutex{},
 		data:     make(map[string]*shardEntry),
-		gcQueue:  NewLRUQueue(),
+		gcQueue:  newLRUQueue(),
 		maxSize:  maxSize,
 	}, nil
 }
@@ -154,7 +153,7 @@ func (s *shard) getScheduled(entry *shardEntry) ([]byte, bool, error) {
 	if result.err != nil {
 		return nil, false, fmt.Errorf("failed to read value from database: %w", result.err)
 	}
-	return result.value, result.found, nil
+	return result.value, result.value != nil, nil
 }
 
 // Handles Get for a key not yet read. Schedules the read and waits. Lock must be held; releases it.
@@ -166,8 +165,8 @@ func (s *shard) getUnknown(entry *shardEntry, key []byte) ([]byte, bool, error) 
 	s.metrics.reportCacheMisses(1)
 	startTime := time.Now()
 	err := s.readPool.Submit(s.ctx, func() {
-		value, found, readErr := s.readFunc(key)
-		entry.injectValue(key, readResult{value: value, found: found, err: readErr})
+		value, _, readErr := s.readFunc(key)
+		entry.injectValue(key, readResult{value: value, err: readErr})
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to schedule read: %w", err)
@@ -181,7 +180,7 @@ func (s *shard) getUnknown(entry *shardEntry, key []byte) ([]byte, bool, error) 
 	if result.err != nil {
 		return nil, false, result.err
 	}
-	return result.value, result.found, nil
+	return result.value, result.value != nil, nil
 }
 
 // This method is called by the read scheduler when a value becomes available.
@@ -192,15 +191,15 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 		if result.err != nil {
 			// Don't cache errors — reset so the next caller retries.
 			delete(se.shard.data, string(key))
-		} else if !result.found {
+		} else if result.value == nil {
 			se.status = statusDeleted
 			se.value = nil
-			se.shard.gcQueue.Push(key, len(key))
+			se.shard.gcQueue.Push(key, uint64(len(key)))
 			se.shard.evictUnlocked()
 		} else {
 			se.status = statusAvailable
 			se.value = result.value
-			se.shard.gcQueue.Push(key, len(key)+len(result.value))
+			se.shard.gcQueue.Push(key, uint64(len(key)+len(result.value))) //nolint:gosec // G115: len is non-negative
 			se.shard.evictUnlocked()
 		}
 	}
@@ -245,11 +244,8 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		entry := s.getEntry([]byte(key))
 
 		switch entry.status {
-		case statusAvailable:
-			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value), Found: true}
-			hits++
-		case statusDeleted:
-			keys[key] = types.BatchGetResult{Found: false}
+		case statusAvailable | statusDeleted:
+			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value)}
 			hits++
 		case statusScheduled:
 			pending = append(pending, pendingRead{
@@ -288,8 +284,8 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		if pending[i].needsSchedule {
 			p := &pending[i]
 			err := s.readPool.Submit(s.ctx, func() {
-				value, found, readErr := s.readFunc([]byte(p.key))
-				p.entry.valueChan <- readResult{value: value, found: found, err: readErr}
+				value, _, readErr := s.readFunc([]byte(p.key))
+				p.entry.valueChan <- readResult{value: value, err: readErr}
 			})
 			if err != nil {
 				return fmt.Errorf("failed to schedule read: %w", err)
@@ -308,7 +304,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		if result.err != nil {
 			keys[pending[i].key] = types.BatchGetResult{Error: result.err}
 		} else {
-			keys[pending[i].key] = types.BatchGetResult{Value: result.value, Found: result.found}
+			keys[pending[i].key] = types.BatchGetResult{Value: result.value}
 		}
 	}
 
@@ -330,14 +326,14 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		if result.err != nil {
 			// Don't cache errors — reset so the next caller retries.
 			delete(s.data, reads[i].key)
-		} else if !result.found {
+		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
-			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key))
+			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)))
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			s.gcQueue.Push([]byte(reads[i].key), len(reads[i].key)+len(result.value))
+			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)+len(result.value))) //nolint:gosec // G115
 		}
 	}
 	s.evictUnlocked()
@@ -354,7 +350,7 @@ func (s *shard) evictUnlocked() {
 }
 
 // getSizeInfo returns the current size (bytes) and entry count under the shard lock.
-func (s *shard) getSizeInfo() (bytes int, entries int) {
+func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.gcQueue.GetTotalSize(), s.gcQueue.GetCount()
@@ -373,7 +369,7 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 	entry.status = statusAvailable
 	entry.value = value
 
-	s.gcQueue.Push(key, len(key)+len(value))
+	s.gcQueue.Push(key, uint64(len(key)+len(value))) //nolint:gosec // G115
 	s.evictUnlocked()
 }
 
@@ -381,7 +377,7 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 func (s *shard) BatchSet(entries []CacheUpdate) {
 	s.lock.Lock()
 	for i := range entries {
-		if entries[i].IsDelete {
+		if entries[i].IsDelete() {
 			s.deleteUnlocked(entries[i].Key)
 		} else {
 			s.setUnlocked(entries[i].Key, entries[i].Value)
@@ -403,6 +399,6 @@ func (s *shard) deleteUnlocked(key []byte) {
 	entry.status = statusDeleted
 	entry.value = nil
 
-	s.gcQueue.Push(key, len(key))
+	s.gcQueue.Push(key, uint64(len(key)))
 	s.evictUnlocked()
 }

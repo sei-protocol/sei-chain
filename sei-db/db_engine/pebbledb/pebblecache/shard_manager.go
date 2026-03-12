@@ -10,7 +10,7 @@ var ErrNumShardsNotPowerOfTwo = errors.New("numShards must be a power of two and
 
 // A utility for assigning keys to shard indices.
 type shardManager struct {
-	// A random seed that makmes it hard for an attacker to predict the shard index and to skew the distribution.
+	// A random seed that makes it hard for an attacker to predict the shard index and to skew the distribution.
 	seed maphash.Seed
 	// Used to perform a quick modulo operation to get the shard index (since numShards is a power of two)
 	mask uint64
@@ -19,8 +19,8 @@ type shardManager struct {
 }
 
 // Creates a new Sharder. Number of shards must be a power of two and greater than 0.
-func NewShardManager(numShards uint64) (*shardManager, error) {
-	if numShards <= 0 || (numShards&(numShards-1)) != 0 {
+func newShardManager(numShards uint64) (*shardManager, error) {
+	if numShards == 0 || (numShards&(numShards-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
 	}
 
@@ -38,7 +38,6 @@ func NewShardManager(numShards uint64) (*shardManager, error) {
 func (s *shardManager) Shard(addr []byte) uint64 {
 	h := s.pool.Get().(*maphash.Hash)
 	h.SetSeed(s.seed)
-	h.Reset()
 	_, _ = h.Write(addr)
 	x := h.Sum64()
 	s.pool.Put(h)

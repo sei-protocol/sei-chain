@@ -73,13 +73,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
-					storageOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
+					storageOld[keyStr] = types.BatchGetResult{Value: nil}
 				} else {
 					s.storageWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
-					storageOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
+					storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
 				}
 
 				// LtHash pair: internal key directly
@@ -101,7 +101,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if _, seen := oldAccountRawValues[addrStr]; !seen {
 					result := accountOld[addrKey]
-					if result.Found {
+					if result.IsFound() {
 						oldAccountRawValues[addrStr] = result.Value
 					} else {
 						oldAccountRawValues[addrStr] = nil
@@ -112,7 +112,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				if paw == nil {
 					var existingValue AccountValue
 					result := accountOld[addrKey]
-					if result.Found && result.Value != nil {
+					if result.IsFound() && result.Value != nil {
 						av, err := DecodeAccountValue(result.Value)
 						if err != nil {
 							return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
@@ -158,13 +158,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
-					codeOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
+					codeOld[keyStr] = types.BatchGetResult{Value: nil}
 				} else {
 					s.codeWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
-					codeOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
+					codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
 				}
 
 				// LtHash pair: internal key directly
@@ -184,13 +184,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						key:      keyBytes,
 						isDelete: true,
 					}
-					legacyOld[keyStr] = types.BatchGetResult{Found: true, Value: nil}
+					legacyOld[keyStr] = types.BatchGetResult{Value: nil}
 				} else {
 					s.legacyWrites[keyStr] = &pendingKVWrite{
 						key:   keyBytes,
 						value: pair.Value,
 					}
-					legacyOld[keyStr] = types.BatchGetResult{Found: true, Value: pair.Value}
+					legacyOld[keyStr] = types.BatchGetResult{Value: pair.Value}
 				}
 
 				legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
@@ -514,9 +514,9 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 
 	pendingKVResult := func(pw *pendingKVWrite) types.BatchGetResult {
 		if pw.isDelete {
-			return types.BatchGetResult{Found: true, Value: nil}
+			return types.BatchGetResult{Value: nil}
 		}
-		return types.BatchGetResult{Found: true, Value: pw.value}
+		return types.BatchGetResult{Value: pw.value}
 	}
 
 	// Partition changeset keys: resolve from pending writes when available
@@ -550,7 +550,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 					continue
 				}
 				if paw, ok := s.accountWrites[k]; ok {
-					accountOld[k] = types.BatchGetResult{Found: true, Value: EncodeAccountValue(paw.value)}
+					accountOld[k] = types.BatchGetResult{Value: EncodeAccountValue(paw.value)}
 				} else {
 					accountBatch[k] = types.BatchGetResult{}
 				}

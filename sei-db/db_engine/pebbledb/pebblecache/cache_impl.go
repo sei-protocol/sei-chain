@@ -55,7 +55,7 @@ func NewCache(
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
-	shardManager, err := NewShardManager(uint64(shardCount))
+	shardManager, err := newShardManager(uint64(shardCount))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create shard manager: %w", err)
 	}
@@ -66,7 +66,7 @@ func NewCache(
 
 	shards := make([]*shard, shardCount)
 	for i := 0; i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readPool, readFunc, sizePerShard)
+		shards[i], err = NewShard(ctx, readPool, readFunc, uint64(sizePerShard))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -90,11 +90,11 @@ func NewCache(
 	return c, nil
 }
 
-func (c *cache) getCacheSizeInfo() (bytes int64, entries int64) {
+func (c *cache) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
 		b, e := s.getSizeInfo()
-		bytes += int64(b)
-		entries += int64(e)
+		bytes += b
+		entries += e
 	}
 	return bytes, entries
 }

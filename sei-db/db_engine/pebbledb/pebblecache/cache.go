@@ -2,18 +2,7 @@ package pebblecache
 
 import "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 
-// CacheUpdate describes a single key-value mutation to apply to the cache.
-type CacheUpdate struct {
-	// The key to update.
-	Key []byte
-	// The value to set. If nil, the key will be deleted.
-	Value []byte
-	// If true, the key will be deleted.
-	// If false, the key will be set to the given value.
-	IsDelete bool
-}
-
-// Cache describes a cache kapable of being used by a FlatKV store.
+// Cache describes a cache capable of being used by a FlatKV store.
 type Cache interface {
 
 	// Get returns the value for the given key, or (nil, false) if not found.
@@ -40,4 +29,17 @@ type Cache interface {
 
 	// BatchSet applies the given updates to the cache.
 	BatchSet(updates []CacheUpdate) error
+}
+
+// CacheUpdate describes a single key-value mutation to apply to the cache.
+type CacheUpdate struct {
+	// The key to update.
+	Key []byte
+	// The value to set. If nil, the key will be deleted.
+	Value []byte
+}
+
+// IsDelete returns true if the update is a delete operation.
+func (u *CacheUpdate) IsDelete() bool {
+	return u.Value == nil
 }

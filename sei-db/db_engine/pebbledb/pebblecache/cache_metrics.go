@@ -44,7 +44,7 @@ func newCacheMetrics(
 	ctx context.Context,
 	cacheName string,
 	scrapeInterval time.Duration,
-	getSize func() (bytes int64, entries int64),
+	getSize func() (bytes uint64, entries uint64),
 ) *CacheMetrics {
 	meter := otel.Meter(cacheMeterName)
 
@@ -115,7 +115,7 @@ func (cm *CacheMetrics) reportCacheMissLatency(latency time.Duration) {
 func (cm *CacheMetrics) collectLoop(
 	ctx context.Context,
 	interval time.Duration,
-	getSize func() (bytes int64, entries int64),
+	getSize func() (bytes uint64, entries uint64),
 ) {
 
 	if cm == nil {
@@ -129,8 +129,8 @@ func (cm *CacheMetrics) collectLoop(
 			return
 		case <-ticker.C:
 			bytes, entries := getSize()
-			cm.sizeBytes.Record(ctx, bytes, cm.attrs)
-			cm.sizeEntries.Record(ctx, entries, cm.attrs)
+			cm.sizeBytes.Record(ctx, int64(bytes), cm.attrs)     //nolint:gosec // G115: safe, cache size fits int64
+			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec // G115: safe, entry count fits int64
 		}
 	}
 }

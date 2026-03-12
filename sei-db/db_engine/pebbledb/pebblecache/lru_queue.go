@@ -6,16 +6,16 @@ import "container/list"
 type lruQueue struct {
 	order     *list.List
 	entries   map[string]*list.Element
-	totalSize int
+	totalSize uint64
 }
 
 type lruQueueEntry struct {
 	key  string
-	size int
+	size uint64
 }
 
 // Create a new LRU queue.
-func NewLRUQueue() *lruQueue {
+func newLRUQueue() *lruQueue {
 	return &lruQueue{
 		order:   list.New(),
 		entries: make(map[string]*list.Element),
@@ -27,7 +27,7 @@ func (lru *lruQueue) Push(
 	// the key in the cache that was recently interacted with
 	key []byte,
 	// the size of the key + value
-	size int,
+	size uint64,
 ) {
 	if elem, ok := lru.entries[string(key)]; ok {
 		entry := elem.Value.(*lruQueueEntry)
@@ -46,7 +46,7 @@ func (lru *lruQueue) Push(
 	lru.totalSize += size
 }
 
-// Signal that an entry has been interated with, moving it to the to the back of the queue
+// Signal that an entry has been interated with, moving it to the back of the queue
 // (i.e. making it so it doesn't get popped soon).
 func (lru *lruQueue) Touch(key []byte) {
 	elem, ok := lru.entries[string(key)]
@@ -57,13 +57,13 @@ func (lru *lruQueue) Touch(key []byte) {
 }
 
 // Returns the total size of all entries in the LRU queue.
-func (lru *lruQueue) GetTotalSize() int {
+func (lru *lruQueue) GetTotalSize() uint64 {
 	return lru.totalSize
 }
 
 // Returns a count of the number of entries in the LRU queue, where each entry counts for 1 regardless of size.
-func (lru *lruQueue) GetCount() int {
-	return len(lru.entries)
+func (lru *lruQueue) GetCount() uint64 {
+	return uint64(len(lru.entries))
 }
 
 // Pops a single element out of the queue. The element removed is the entry least recently passed to Update().
