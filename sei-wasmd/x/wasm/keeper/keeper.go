@@ -14,6 +14,7 @@ import (
 
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"golang.org/x/mod/semver"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -21,13 +22,12 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
-	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
-
 	v152 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152"
 	v155 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // contractMemoryLimit is the memory limit of each contract execution (in MiB)
@@ -1145,7 +1145,7 @@ func (k Keeper) emitCW721OwnerBeforeTransferIfApplicable(ctx sdk.Context, contra
 		if err != nil {
 			return
 		}
-		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && strings.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
+		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && semver.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
 			ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		}
 		resBz, err := k.QuerySmart(ctx, contractAddress, ownerQueryBz)
