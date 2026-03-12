@@ -15,9 +15,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+var logger = seilog.NewLogger("cosmos", "tasks")
 
 type status string
 
@@ -331,7 +334,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	}
 	s.metrics.maxIncarnation = s.maxIncarnation
 
-	ctx.Logger().Info("occ scheduler", "height", ctx.BlockHeight(), "txs", len(tasks), "latency_ms", time.Since(startTime).Milliseconds(), "retries", s.metrics.retries, "maxIncarnation", s.maxIncarnation, "iterations", iterations, "sync", s.synchronous, "workers", s.workers)
+	logger.Info("occ scheduler", "height", ctx.BlockHeight(), "txs", len(tasks), "latency_ms", time.Since(startTime).Milliseconds(), "retries", s.metrics.retries, "maxIncarnation", s.maxIncarnation, "iterations", iterations, "sync", s.synchronous, "workers", s.workers)
 
 	return s.collectResponses(tasks), nil
 }

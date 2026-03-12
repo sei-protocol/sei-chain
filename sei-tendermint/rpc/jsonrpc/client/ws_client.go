@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
+
+var logger = seilog.NewLogger("tendermint", "rpc", "jsonrpc", "client")
 
 // wsOptions carries optional settings for a websocket connection.
 type wsOptions struct {
@@ -37,8 +39,7 @@ var defaultWSOptions = wsOptions{
 //
 // WSClient is safe for concurrent use by multiple goroutines.
 type WSClient struct {
-	Logger log.Logger
-	conn   *websocket.Conn
+	conn *websocket.Conn
 
 	Address  string // IP:PORT or /path/to/socket
 	Endpoint string // /websocket/url/endpoint
@@ -101,7 +102,6 @@ func NewWS(remoteAddr, endpoint string) (*WSClient, error) {
 	}
 
 	c := &WSClient{
-		Logger:               log.NewNopLogger(),
 		Address:              parsedURL.GetTrimmedHostWithPath(),
 		Dialer:               dialFn,
 		Endpoint:             endpoint,
@@ -176,7 +176,7 @@ func (c *WSClient) IsReconnecting() bool {
 func (c *WSClient) Send(ctx context.Context, request rpctypes.RPCRequest) error {
 	select {
 	case c.send <- request:
-		c.Logger.Info("sent a request", "req", request)
+		logger.Info("sent a request", "req", request)
 		// c.mtx.Lock()
 		// c.sentIDs[request.ID.(types.JSONRPCIntID)] = true
 		// c.mtx.Unlock()
@@ -241,7 +241,7 @@ func (c *WSClient) reconnect(ctx context.Context) error {
 		jitter := time.Duration(mrand.Float64() * float64(time.Second)) // 1s == (1e9 ns)
 		backoffDuration := jitter + ((1 << attempt) * time.Second)
 
-		c.Logger.Info("reconnecting", "attempt", attempt+1, "backoff_duration", backoffDuration)
+		logger.Info("reconnecting", "attempt", attempt+1, "backoff_duration", backoffDuration)
 		timer.Reset(backoffDuration)
 		select {
 		case <-ctx.Done():
@@ -251,9 +251,9 @@ func (c *WSClient) reconnect(ctx context.Context) error {
 
 		err := c.dial()
 		if err != nil {
-			c.Logger.Error("failed to redial", "err", err)
+			logger.Error("failed to redial", "err", err)
 		} else {
-			c.Logger.Info("reconnected")
+			logger.Info("reconnected")
 			if c.onReconnect != nil {
 				go c.onReconnect()
 			}
@@ -280,17 +280,17 @@ func (c *WSClient) processBacklog() error {
 	case request := <-c.backlog:
 		if c.writeWait > 0 {
 			if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeWait)); err != nil {
-				c.Logger.Error("failed to set write deadline", "err", err)
+				logger.Error("failed to set write deadline", "err", err)
 			}
 		}
 		if err := c.conn.WriteJSON(request); err != nil {
-			c.Logger.Error("failed to resend request", "err", err)
+			logger.Error("failed to resend request", "err", err)
 			c.reconnectAfter <- err
 			// requeue request
 			c.backlog <- request
 			return err
 		}
-		c.Logger.Info("resend a request", "req", request)
+		logger.Info("resend a request", "req", request)
 	default:
 	}
 	return nil
@@ -305,9 +305,9 @@ func (c *WSClient) reconnectRoutine(ctx context.Context) {
 			// wait until writeRoutine and readRoutine finish
 			c.wg.Wait()
 			if err := c.reconnect(ctx); err != nil {
-				c.Logger.Error("failed to reconnect", "err", err, "original_err", originalError)
+				logger.Error("failed to reconnect", "err", err, "original_err", originalError)
 				if err = c.Stop(); err != nil {
-					c.Logger.Error("failed to stop conn", "error", err)
+					logger.Error("failed to stop conn", "error", err)
 				}
 
 				return
@@ -354,11 +354,11 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 		case request := <-c.send:
 			if c.writeWait > 0 {
 				if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeWait)); err != nil {
-					c.Logger.Error("failed to set write deadline", "err", err)
+					logger.Error("failed to set write deadline", "err", err)
 				}
 			}
 			if err := c.conn.WriteJSON(request); err != nil {
-				c.Logger.Error("failed to send request", "err", err)
+				logger.Error("failed to send request", "err", err)
 				c.reconnectAfter <- err
 				// add request to the backlog, so we don't lose it
 				c.backlog <- request
@@ -367,11 +367,11 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 		case <-ticker.C:
 			if c.writeWait > 0 {
 				if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeWait)); err != nil {
-					c.Logger.Error("failed to set write deadline", "err", err)
+					logger.Error("failed to set write deadline", "err", err)
 				}
 			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				c.Logger.Error("failed to write ping", "err", err)
+				logger.Error("failed to write ping", "err", err)
 				c.reconnectAfter <- err
 				return
 			}
@@ -382,7 +382,7 @@ func (c *WSClient) writeRoutine(ctx context.Context) {
 				websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			); err != nil {
-				c.Logger.Error("failed to write message", "err", err)
+				logger.Error("failed to write message", "err", err)
 			}
 			return
 		}
@@ -401,7 +401,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 		// reset deadline for every message type (control or data)
 		if c.readWait > 0 {
 			if err := c.conn.SetReadDeadline(time.Now().Add(c.readWait)); err != nil {
-				c.Logger.Error("failed to set read deadline", "err", err)
+				logger.Error("failed to set read deadline", "err", err)
 			}
 		}
 		_, data, err := c.conn.ReadMessage()
@@ -410,7 +410,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 				return
 			}
 
-			c.Logger.Error("failed to read response", "err", err)
+			logger.Error("failed to read response", "err", err)
 			close(c.readRoutineQuit)
 			c.reconnectAfter <- err
 			return
@@ -419,7 +419,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 		var response rpctypes.RPCResponse
 		err = json.Unmarshal(data, &response)
 		if err != nil {
-			c.Logger.Error("failed to parse response", "err", err, "data", string(data))
+			logger.Error("failed to parse response", "err", err, "data", string(data))
 			continue
 		}
 
@@ -433,7 +433,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 		// c.wg.Wait() in c.Stop(). Note we rely on Quit being closed so that it sends unlimited Quit signals to stop
 		// both readRoutine and writeRoutine
 
-		c.Logger.Info("got response", "id", response.ID, "result", response.Result)
+		logger.Info("got response", "id", response.ID, "result", response.Result)
 
 		select {
 		case <-ctx.Done():

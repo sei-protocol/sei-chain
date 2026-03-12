@@ -13,7 +13,6 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
@@ -21,7 +20,6 @@ import (
 )
 
 func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	// primary performs a lunatic attack
 	var (
@@ -93,7 +91,6 @@ func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -136,8 +133,6 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-
-			logger := log.NewNopLogger()
 
 			// primary performs an equivocation attack
 			var (
@@ -209,7 +204,6 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 				[]provider.Provider{mockWitness},
 				dbs.New(dbm.NewMemDB()),
 				5*time.Minute,
-				light.Logger(logger),
 				tc.lightOption,
 			)
 			require.NoError(t, err)
@@ -239,7 +233,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
 	witnessHeaders, witnessValidators, chainKeys := genLightBlocksWithKeys(t, latestHeight, valSize, 2, bTime)
 	for _, unusedHeader := range []int64{3, 5, 6, 8} {
@@ -308,7 +301,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		[]provider.Provider{mockWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
 	)
@@ -370,7 +362,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		[]provider.Provider{mockLaggingWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
 	)
@@ -395,8 +386,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 	headers, vals, _ = genLightBlocksWithKeys(t, 1, 5, 2, bTime)
 	mockWitness := mockNodeFromHeadersAndVals(headers, vals)
 
-	logger := log.NewNopLogger()
-
 	_, err = light.NewClient(
 		ctx,
 		chainID,
@@ -409,7 +398,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match primary")
@@ -421,7 +409,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 // => verification should be successful but two unresponsive witnesses should be blacklisted
 func TestClientDivergentTraces2(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
 	headers, vals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
 	mockPrimaryNode := mockNodeFromHeadersAndVals(headers, vals)
@@ -441,7 +428,6 @@ func TestClientDivergentTraces2(t *testing.T) {
 		[]provider.Provider{mockDeadNode, mockDeadNode, mockPrimaryNode},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -457,7 +443,6 @@ func TestClientDivergentTraces2(t *testing.T) {
 // => creation should succeed, but the verification should fail
 // nolint: dupl
 func TestClientDivergentTraces3(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
@@ -485,7 +470,6 @@ func TestClientDivergentTraces3(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -500,7 +484,6 @@ func TestClientDivergentTraces3(t *testing.T) {
 // It should be ignored
 // nolint: dupl
 func TestClientDivergentTraces4(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
@@ -528,7 +511,6 @@ func TestClientDivergentTraces4(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 

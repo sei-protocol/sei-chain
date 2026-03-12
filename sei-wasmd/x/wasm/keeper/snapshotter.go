@@ -11,14 +11,18 @@ import (
 	snapshot "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
-var _ snapshot.ExtensionSnapshotter = &WasmSnapshotter{}
+var (
+	logger = seilog.NewLogger("wasmd", "x", "wasm", "keeper")
+
+	_ snapshot.ExtensionSnapshotter = &WasmSnapshotter{}
+)
 
 // SnapshotFormat format 1 is just gzipped wasm byte code for each item payload. No protobuf envelope, no metadata.
 const SnapshotFormat = 1
@@ -58,7 +62,7 @@ func (ws *WasmSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) e
 	}
 	defer cacheMS.Close()
 
-	ctx := sdk.NewContext(cacheMS, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(cacheMS, tmproto.Header{}, false)
 	seenBefore := make(map[string]bool)
 	var rerr error
 
@@ -116,7 +120,7 @@ func restoreV1(ctx sdk.Context, k *Keeper, compressedCode []byte, num int) error
 	if err != nil {
 		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
-	ctx.Logger().Info(fmt.Sprintf("Restored %d WASM code with checksum %X", num, checkSum))
+	logger.Info("Restored WASM code with checksum", "code", num, "checksum", checkSum)
 	return nil
 }
 
@@ -126,7 +130,7 @@ func finalizeV1(ctx sdk.Context, k *Keeper) error {
 		_, err := k.GetByteCode(ctx, id)
 		if err != nil {
 			e := fmt.Sprintf("Could not find byte code for ID %d hash %X: %s", id, info.CodeHash, err)
-			ctx.Logger().Error(e)
+			logger.Error(e)
 			errCheckingExistence = errors.New(e)
 		}
 
@@ -148,7 +152,7 @@ func (ws *WasmSnapshotter) processAllItems(
 		return snapshot.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrInvalidHeight, "height %d exceeds max int64", height)
 	}
 	// #nosec G115 -- height is bounds checked above
-	ctx := sdk.NewContext(ws.cms, tmproto.Header{Height: int64(height)}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(ws.cms, tmproto.Header{Height: int64(height)}, false)
 
 	// keep the last item here... if we break, it will either be empty (if we hit io.EOF)
 	// or contain the last item (if we hit payload == nil)

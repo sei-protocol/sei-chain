@@ -138,7 +138,7 @@ func (k Keeper) SendPacket(
 
 	EmitSendPacketEvent(ctx, packet, channel, timeoutHeight)
 
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet sent",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -312,7 +312,7 @@ func (k Keeper) RecvPacket(
 	}
 
 	// log that a packet has been received & executed
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet received",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -388,7 +388,7 @@ func (k Keeper) WriteAcknowledgement(
 	)
 
 	// log that a packet acknowledgement has been written
-	k.Logger(ctx).Info(
+	logger.Info(
 		"acknowledgement written",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -531,7 +531,7 @@ func (k Keeper) AcknowledgePacket(
 	k.deletePacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
 	// log that a packet has been acknowledged
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet acknowledged",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),

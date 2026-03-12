@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -24,7 +23,7 @@ func testConfig() config.StateStoreConfig {
 func openTestStore(t *testing.T) types.StateStore {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := NewEVMStateStore(dir, testConfig(), logger.NewNopLogger())
+	store, err := NewEVMStateStore(dir, testConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 	return store

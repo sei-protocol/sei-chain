@@ -12,7 +12,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/stretchr/testify/assert"
@@ -85,7 +84,7 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 			cfg.Backend = "parquet"
 			cfg.DBDirectory = t.TempDir()
 
-			store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+			store, err := NewReceiptStore(cfg, storeKey)
 			require.NoError(t, err)
 
 			pqStore := extractParquetStore(t, store)
@@ -137,7 +136,7 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 
 			// --- Reopen and verify recovery ---
 
-			store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+			store, err = NewReceiptStore(cfg, storeKey)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = store.Close() })
 
@@ -218,7 +217,7 @@ func TestCrashRecoveryStress(t *testing.T) {
 			nextBlock := uint64(1)
 
 			for crash := 0; crash < numCrashes; crash++ {
-				store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+				store, err := NewReceiptStore(cfg, storeKey)
 				require.NoError(t, err)
 
 				pqStore := extractParquetStore(t, store)
@@ -261,7 +260,7 @@ func TestCrashRecoveryStress(t *testing.T) {
 
 			// Final reopen: every block (including crash blocks) should be
 			// recoverable because the WAL entry is always written first.
-			store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+			store, err := NewReceiptStore(cfg, storeKey)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = store.Close() })
 
@@ -300,7 +299,7 @@ func TestSlowFlushWithConcurrentReads(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 

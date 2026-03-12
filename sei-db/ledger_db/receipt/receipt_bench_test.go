@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -40,7 +39,7 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 	cfg.PruneIntervalSeconds = 10
 	cfg.Backend = receiptBackendPebble
 
-	store, err := newReceiptBackend(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := newReceiptBackend(cfg, storeKey)
 	if err != nil {
 		b.Fatalf("failed to create receipt store: %v", err)
 	}

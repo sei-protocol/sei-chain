@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -68,14 +67,11 @@ func setup(
 	cfg := config.DefaultStateSyncConfig()
 	cfg.LightBlockResponseTimeout = 100 * time.Millisecond
 
-	logger, _ := log.NewDefaultLogger("plain", "debug")
-
 	n := network.Nodes()[0]
 	reactor, err := NewReactor(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
-		logger.With("component", "reactor"),
 		conn,
 		n.Router,
 		stateStore,
@@ -92,7 +88,6 @@ func setup(
 
 	if setSyncer {
 		reactor.syncer = &syncer{
-			logger:        logger,
 			stateProvider: stateProvider,
 			conn:          conn,
 			snapshots:     newSnapshotPool(),

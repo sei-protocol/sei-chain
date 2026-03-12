@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 
@@ -53,7 +52,7 @@ func (c *fakeConn) Close() {
 }
 
 func makePeerManager(selfID types.NodeID, options *RouterOptions) *peerManager[*fakeConn] {
-	return newPeerManager[*fakeConn](log.NewNopLogger(), selfID, options)
+	return newPeerManager[*fakeConn](selfID, options)
 }
 
 var selfID = types.NodeIDFromPubKey(ed25519.TestSecretKey([]byte{12, 43}).Public())

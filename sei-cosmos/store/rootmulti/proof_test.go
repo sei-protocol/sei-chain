@@ -5,7 +5,6 @@ import (
 
 	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
@@ -16,7 +15,7 @@ import (
 func TestVerifyIAVLStoreQueryProof(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
-	iStore, err := iavl.LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
+	iStore, err := iavl.LoadStore(db, types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
 	store := iStore.(*iavl.Store)
 	require.Nil(t, err)
 	store.Set([]byte("MYKEY"), []byte("MYVALUE"))
@@ -59,7 +58,7 @@ func TestVerifyIAVLStoreQueryProof(t *testing.T) {
 func TestVerifyMultiStoreQueryProof(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
 
 	store.MountStoreWithDB(iavlStoreKey, types.StoreTypeIAVL, nil)
@@ -114,7 +113,7 @@ func TestVerifyMultiStoreQueryProof(t *testing.T) {
 func TestVerifyMultiStoreQueryProofAbsence(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
-	store := NewStore(db, log.NewNopLogger())
+	store := NewStore(db)
 	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
 
 	store.MountStoreWithDB(iavlStoreKey, types.StoreTypeIAVL, nil)

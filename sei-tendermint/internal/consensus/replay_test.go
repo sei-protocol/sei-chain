@@ -27,7 +27,6 @@ import (
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -102,7 +101,6 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
-		log.NewNopLogger(),
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -228,7 +226,6 @@ func crashWALandCheckLiveness(
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
-		log.NewNopLogger(),
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -642,7 +639,6 @@ func testHandshakeReplay(
 
 	cfg := sim.Config
 
-	logger := log.NewNopLogger()
 	if testValidatorsChange {
 		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_m", t.Name(), mode))
 		require.NoError(t, err)
@@ -680,7 +676,6 @@ func testHandshakeReplay(
 	state = buildTMStateFromChain(
 		ctx,
 		t,
-		logger,
 		sim.Mempool,
 		sim.Evpool,
 		stateStore,
@@ -691,7 +686,7 @@ func testHandshakeReplay(
 	)
 	latestAppHash := state.AppHash
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	app := kvstore.NewApplication()
@@ -717,7 +712,7 @@ func testHandshakeReplay(
 	// now start the app using the handshake - it should sync
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 	err = handshaker.Handshake(ctx, app)
 	if expectError {
 		require.Error(t, err)
@@ -764,7 +759,7 @@ func applyBlock(
 	eventBus *eventbus.EventBus,
 ) sm.State {
 	testPartSize := types.BlockPartSizeBytes
-	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -825,7 +820,6 @@ func buildAppStateFromChain(
 func buildTMStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	logger log.Logger,
 	mempool mempool.Mempool,
 	evpool sm.EvidencePool,
 	stateStore sm.Store,
@@ -848,7 +842,7 @@ func buildTMStateFromChain(
 
 	require.NoError(t, stateStore.Save(state))
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	switch mode {
@@ -885,7 +879,6 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_test_")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 	privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 	require.NoError(t, err)
 	const appVersion = 0x0
@@ -901,9 +894,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 
 	store.chain = blocks
 
-	logger := log.NewNopLogger()
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	// 2. Tendermint must panic if app returns wrong hash for the first block
@@ -912,7 +903,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- 0x03
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
-		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 		assert.Error(t, h.Handshake(ctx, app))
 	}
 
@@ -922,7 +913,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- RANDOM HASH
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
-		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 		require.Error(t, h.Handshake(ctx, app))
 	}
 }
@@ -1118,14 +1109,13 @@ func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 func TestHandshakeUpdatesValidators(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	votePower := 10 + int64(rand.Uint32())
 	val, _, err := factory.Validator(ctx, votePower)
 	require.NoError(t, err)
 	vals := types.NewValidatorSet([]*types.Validator{val})
 	app := &initChainApp{vals: types.TM2PB.ValidatorUpdates(vals)}
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_test_")
@@ -1145,7 +1135,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 
-	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 	require.NoError(t, handshaker.Handshake(ctx, app), "error on abci handshake")
 
 	// reload the state, check the validator set was updated

@@ -1,10 +1,7 @@
 package module
 
 import (
-	"fmt"
-
 	"github.com/gogo/protobuf/grpc"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -105,7 +102,7 @@ func (c configurator) runModuleMigrations(ctx sdk.Context, moduleName string, fr
 		if !found {
 			return sdkerrors.Wrapf(sdkerrors.ErrNotFound, "no migration found for module %s from version %d to version %d", moduleName, i, i+1)
 		}
-		ctx.Logger().Info(fmt.Sprintf("migrating module %s from version %d to version %d", moduleName, i, i+1))
+		logger.Info("migrating module from version to version", "module", moduleName, "from-version", i, "to-version", i+1)
 
 		err := migrateFn(ctx)
 		if err != nil {

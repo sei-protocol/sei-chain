@@ -2,7 +2,6 @@ package blocksync
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -24,14 +23,12 @@ import (
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
-	logger  log.Logger
 	nodes   []types.NodeID
 
 	reactors map[types.NodeID]*Reactor
@@ -53,9 +50,7 @@ func setup(
 	require.True(t, numNodes >= 1,
 		"must specify at least one block height (nodes)")
 
-	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:   logger.With("module", "block_sync", "testCase", t.Name()),
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		nodes:    make([]types.NodeID, 0, numNodes),
 		reactors: make(map[types.NodeID]*Reactor, numNodes),
@@ -89,8 +84,6 @@ func makeReactor(
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
-	logger := log.NewNopLogger()
-
 	app := abci.NewBaseApplication()
 
 	blockDB := dbm.NewMemDB()
@@ -114,12 +107,11 @@ func makeReactor(
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(&mempool.TxStore{})
 
-	eventbus := eventbus.NewDefault(logger)
+	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -129,7 +121,6 @@ func makeReactor(
 	)
 
 	r, err := NewReactor(
-		logger,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -232,7 +223,6 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
@@ -267,7 +257,6 @@ func TestReactor_SyncTime(t *testing.T) {
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
@@ -355,14 +344,12 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			mockBlockStore.On("Height").Return(tt.selfHeight)
 
 			blockPool := &BlockPool{
-				logger:        log.TestingLogger(),
 				height:        tt.selfHeight,
 				maxPeerHeight: tt.maxPeerHeight,
 			}
 
 			restart := utils.NewAtomicSend(false)
 			r := &Reactor{
-				logger:                    log.TestingLogger(),
 				store:                     mockBlockStore,
 				pool:                      blockPool,
 				blocksBehindThreshold:     tt.blocksBehindThreshold,
