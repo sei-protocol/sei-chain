@@ -26,8 +26,11 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 )
+
+var logger = seilog.NewLogger("evmrpc")
 
 const TxSearchPerPage = 10
 
@@ -968,7 +971,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s: %v", txHashEntry.hash.Hex(), err))
+			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
 		}
 

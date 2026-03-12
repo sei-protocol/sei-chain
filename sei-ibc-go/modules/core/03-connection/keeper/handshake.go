@@ -7,12 +7,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/seilog"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
+
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "03-connection", "keeper")
 
 // ConnOpenInit initialises a connection attempt on chain A. The generated connection identifier
 // is returned.
@@ -49,7 +52,7 @@ func (k Keeper) ConnOpenInit(
 		return "", err
 	}
 
-	k.Logger(ctx).Info("connection state updated", "connection-id", connectionID, "previous-state", "NONE", "new-state", "INIT")
+	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", "NONE", "new-state", "INIT")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "connection", "open-init")
@@ -191,7 +194,7 @@ func (k Keeper) ConnOpenTry(
 	}
 
 	k.SetConnection(ctx, connectionID, connection)
-	k.Logger(ctx).Info("connection state updated", "connection-id", connectionID, "previous-state", previousConnection.State.String(), "new-state", "TRYOPEN")
+	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", previousConnection.State.String(), "new-state", "TRYOPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "connection", "open-try")
@@ -293,7 +296,7 @@ func (k Keeper) ConnOpenAck(
 		return err
 	}
 
-	k.Logger(ctx).Info("connection state updated", "connection-id", connectionID, "previous-state", connection.State.String(), "new-state", "OPEN")
+	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", connection.State.String(), "new-state", "OPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "connection", "open-ack")
@@ -349,7 +352,7 @@ func (k Keeper) ConnOpenConfirm(
 	// Update ChainB's connection to Open
 	connection.State = types.OPEN
 	k.SetConnection(ctx, connectionID, connection)
-	k.Logger(ctx).Info("connection state updated", "connection-id", connectionID, "previous-state", "TRYOPEN", "new-state", "OPEN")
+	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", "TRYOPEN", "new-state", "OPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "connection", "open-confirm")

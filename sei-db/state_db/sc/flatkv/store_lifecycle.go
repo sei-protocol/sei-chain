@@ -88,7 +88,7 @@ func (s *CommitStore) Close() error {
 		return err
 	}
 
-	s.log.Info("FlatKV store closed")
+	logger.Info("FlatKV store closed")
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 	}
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), readOnlyDirPrefix) {
-			s.log.Info("removing orphaned readonly dir", "dir", e.Name())
+			logger.Info("removing orphaned readonly dir", "dir", e.Name())
 			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
 		}
 	}

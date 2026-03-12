@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -26,18 +25,16 @@ var _ types.StateStore = (*EVMStateStore)(nil)
 type EVMStateStore struct {
 	subDBs map[EVMStoreType]types.StateStore
 	dir    string
-	logger logger.Logger
 }
 
 // NewEVMStateStore opens 5 StateStore instances (one per EVM sub-type) using the
 // backend resolved from ssConfig.Backend (PebbleDB by default, RocksDB with build tag).
-func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig, log logger.Logger) (*EVMStateStore, error) {
+func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
 	store := &EVMStateStore{
 		subDBs: make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
 		dir:    dir,
-		logger: log,
 	}
 
 	for _, storeType := range AllEVMStoreTypes() {

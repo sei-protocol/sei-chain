@@ -8,7 +8,10 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "staking", "keeper")
 
 // GetDelegation returns a specific delegation.
 func (k Keeper) GetDelegation(ctx sdk.Context,
@@ -656,9 +659,7 @@ func (k Keeper) Delegate(
 		newVotingPowerRatio := validatorNewTotalPower.ToDec().Quo(newTotalPower.ToDec())
 		maxVotingPowerRatio := k.MaxVotingPowerRatio(ctx)
 		if newVotingPowerRatio.GT(maxVotingPowerRatio) {
-			k.Logger(ctx).Error(
-				fmt.Sprintf("validator's voting power ratio exceeds the max allowed ratio: %s > %s\n", newVotingPowerRatio.String(), maxVotingPowerRatio.String()),
-			)
+			logger.Error("validator's voting power ratio exceeds the max allowed ratio", "current", newVotingPowerRatio, "max", maxVotingPowerRatio)
 			return sdk.ZeroDec(), types.ErrExceedMaxVotingPowerRatio
 		}
 	}

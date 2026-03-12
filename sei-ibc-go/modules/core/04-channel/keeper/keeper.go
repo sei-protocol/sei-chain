@@ -10,7 +10,6 @@ import (
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	db "github.com/tendermint/tm-db"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
@@ -72,11 +71,6 @@ func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
 	var inbound bool
 	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
 	return inbound
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
 }
 
 // GenerateChannelIdentifier returns the next channel identifier.

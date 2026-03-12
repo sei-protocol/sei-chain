@@ -278,7 +278,7 @@ func (k *Keeper) WriteReceipt(
 
 	if perr := stateDB.GetPrecompileError(); perr != nil {
 		if receipt.Status > 0 {
-			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+			logger.Error("Transaction succeeded in execution but has precompile error ", "tx", receipt.TxHashHex, "err", perr)
 		} else {
 			// append precompile error to VM error
 			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())

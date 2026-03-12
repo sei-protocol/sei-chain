@@ -9,7 +9,6 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -87,21 +86,9 @@ func StartTendermint(
 	for _, opt := range opts {
 		opt(nodeOpts)
 	}
-	var logger log.Logger
-	if nodeOpts.suppressStdout {
-		logger = log.NewNopLogger()
-	} else {
-		var err error
-		logger, err = log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-		if err != nil {
-			return nil, func(_ context.Context) error { cancel(); return nil }, err
-		}
-
-	}
 	tmNode, err := node.New(
 		ctx,
 		conf,
-		logger,
 		func() {},
 		app,
 		nil,

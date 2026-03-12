@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	pqgo "github.com/parquet-go/parquet-go"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +36,7 @@ func (m *mockParquetWAL) Replay(_, _ uint64, _ func(index uint64, entry WALEntry
 func (m *mockParquetWAL) Close() error { return nil }
 
 func TestNewStoreAppliesConfiguredIntervals(t *testing.T) {
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory:        t.TempDir(),
 		BlockFlushInterval: 7,
 		MaxBlocksPerFile:   11,
@@ -54,7 +53,7 @@ func TestNewStoreAppliesConfiguredIntervals(t *testing.T) {
 }
 
 func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory: t.TempDir(),
 	})
 	require.NoError(t, err)
@@ -66,7 +65,7 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 }
 
 func TestPruneOldFilesKeepsTrackingOnDeleteFailure(t *testing.T) {
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory: t.TempDir(),
 	})
 	require.NoError(t, err)
@@ -120,7 +119,7 @@ func TestCorruptLastFileDeletedOnStartup(t *testing.T) {
 	corruptLog := filepath.Join(dir, "logs_1100.parquet")
 	require.NoError(t, os.WriteFile(corruptLog, []byte("not a parquet file"), 0o644))
 
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory: dir,
 	})
 	require.NoError(t, err)
@@ -152,7 +151,7 @@ func TestCorruptLogFileUntracksReceiptCounterpart(t *testing.T) {
 	corruptLog := filepath.Join(dir, "logs_600.parquet")
 	require.NoError(t, os.WriteFile(corruptLog, []byte("not a parquet file"), 0o644))
 
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory: dir,
 	})
 	require.NoError(t, err)
@@ -171,7 +170,7 @@ func TestCorruptLogFileUntracksReceiptCounterpart(t *testing.T) {
 func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory: dir,
 	})
 	require.NoError(t, err)

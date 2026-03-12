@@ -3,8 +3,6 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -33,11 +31,6 @@ func NewKeeper(cdc codec.BinaryCodec, key sdk.StoreKey, sk types.StakingKeeper, 
 		sk:         sk,
 		paramspace: paramspace,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // AddPubkey sets a address-pubkey relation

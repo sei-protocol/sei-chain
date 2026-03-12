@@ -30,7 +30,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "ante")
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
@@ -174,13 +177,13 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	case ethtypes.LegacyTxType:
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	}

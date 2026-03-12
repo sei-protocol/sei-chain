@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,12 +25,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 
-	"bytes"
-	"encoding/hex"
-	"strconv"
-
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -323,7 +321,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
+	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +359,6 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		dbm.NewMemDB(),
 		nil,
 		true,
@@ -434,7 +431,6 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -488,7 +484,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -538,7 +533,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -606,7 +600,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	db := dbm.NewMemDB()
 	encCdc := MakeEncodingConfig()
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,

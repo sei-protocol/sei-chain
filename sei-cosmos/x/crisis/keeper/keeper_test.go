@@ -10,15 +10,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 )
-
-func TestLogger(t *testing.T) {
-	app := seiapp.Setup(t, false, false, false)
-
-	ctx := app.NewContext(true, tmproto.Header{})
-	require.Equal(t, ctx.Logger().With("module", "x/"+types.ModuleName), app.CrisisKeeper.Logger(ctx))
-}
 
 func TestInvariants(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)

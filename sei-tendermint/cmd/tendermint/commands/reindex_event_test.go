@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/lib/pq" // for the psql sink
@@ -26,8 +25,8 @@ const (
 	base   int64 = 2
 )
 
-func setupReIndexEventCmd(ctx context.Context, conf *config.Config, logger log.Logger) *cobra.Command {
-	cmd := MakeReindexEventCommand(conf, logger)
+func setupReIndexEventCmd(ctx context.Context, conf *config.Config) *cobra.Command {
+	cmd := MakeReindexEventCommand(conf)
 
 	reIndexEventCmd := &cobra.Command{
 		Use: cmd.Use,
@@ -176,12 +175,11 @@ func TestReIndexEvent(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 	conf := config.DefaultConfig()
 
 	for _, tc := range testCases {
 		err := eventReIndex(
-			setupReIndexEventCmd(ctx, conf, logger),
+			setupReIndexEventCmd(ctx, conf),
 			eventReIndexArgs{
 				sinks:       []indexer.EventSink{mockEventSink},
 				blockStore:  mockBlockStore,

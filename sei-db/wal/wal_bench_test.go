@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/tidwall/wal"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
 func makePayload(size int) []byte {
@@ -86,7 +84,7 @@ func BenchmarkWALWrapperWrite(b *testing.B) {
 
 			b.Run(name, func(b *testing.B) {
 				dir := b.TempDir()
-				w, err := NewWAL(b.Context(), marshal, unmarshal, logger.NewNopLogger(), dir, Config{
+				w, err := NewWAL(b.Context(), marshal, unmarshal, dir, Config{
 					WriteBufferSize: bufSize,
 				})
 				if err != nil {

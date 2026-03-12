@@ -6,21 +6,22 @@ import (
 	"time"
 
 	"github.com/rs/cors"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "inspect", "rpc")
 
 // Server defines parameters for running an Inspector rpc server.
 type Server struct {
 	Addr    string // TCP address to listen on, ":http" if empty
 	Handler http.Handler
-	Logger  log.Logger
 	Config  *config.RPCConfig
 }
 
@@ -29,13 +30,12 @@ type eventBusUnsubscriber interface {
 }
 
 // Routes returns the set of routes used by the Inspector server.
-func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, es []indexer.EventSink, logger log.Logger) core.RoutesMap {
+func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, es []indexer.EventSink) core.RoutesMap {
 	env := &core.Environment{
 		Config:     cfg,
 		EventSinks: es,
 		StateStore: s,
 		BlockStore: bs,
-		Logger:     logger,
 	}
 	return core.RoutesMap{
 		"blockchain":       server.NewRPCFunc(env.BlockchainInfo),
@@ -54,24 +54,23 @@ func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, es []index
 // Handler returns the http.Handler configured for use with an Inspector server. Handler
 // registers the routes on the http.Handler and also registers the websocket handler
 // and the CORS handler if specified by the configuration options.
-func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap, logger log.Logger) http.Handler {
+func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	mux := http.NewServeMux()
-	wmLogger := logger.With("protocol", "websocket")
 
 	var eventBus eventBusUnsubscriber
 
 	websocketDisconnectFn := func(remoteAddr string) {
 		err := eventBus.UnsubscribeAll(context.Background(), remoteAddr)
 		if err != nil && err != pubsub.ErrSubscriptionNotFound {
-			wmLogger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "err", err)
+			logger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "err", err)
 		}
 	}
-	wm := server.NewWebsocketManager(logger, routes,
+	wm := server.NewWebsocketManager(routes,
 		server.OnDisconnect(websocketDisconnectFn),
 		server.ReadLimit(rpcConfig.MaxBodyBytes))
 	mux.HandleFunc("/websocket", wm.WebsocketHandler)
 
-	server.RegisterRPCFuncs(mux, routes, logger)
+	server.RegisterRPCFuncs(mux, routes)
 	var rootHandler http.Handler = mux
 	if rpcConfig.IsCorsEnabled() {
 		rootHandler = addCORSHandler(rpcConfig, mux)
@@ -101,7 +100,7 @@ func (srv *Server) ListenAndServe(ctx context.Context) error {
 		_ = listener.Close()
 	}()
 
-	return server.Serve(ctx, listener, srv.Handler, srv.Logger, serverRPCConfig(srv.Config))
+	return server.Serve(ctx, listener, srv.Handler, serverRPCConfig(srv.Config))
 }
 
 // ListenAndServeTLS listens on the address specified in srv.Addr. ListenAndServeTLS handles
@@ -115,7 +114,7 @@ func (srv *Server) ListenAndServeTLS(ctx context.Context, certFile, keyFile stri
 		<-ctx.Done()
 		_ = listener.Close()
 	}()
-	return server.ServeTLS(ctx, listener, srv.Handler, certFile, keyFile, srv.Logger, serverRPCConfig(srv.Config))
+	return server.ServeTLS(ctx, listener, srv.Handler, certFile, keyFile, serverRPCConfig(srv.Config))
 }
 
 func serverRPCConfig(r *config.RPCConfig) *server.Config {
