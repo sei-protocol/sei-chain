@@ -276,3 +276,15 @@ enable_test_api = true
 
 # Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
 max_concurrent_simulation_calls = 0
+
+###############################################################################
+###                       Admin Configuration (Auto-managed)                ###
+###############################################################################
+
+[admin]
+
+# Enable the admin gRPC server for runtime log level control.
+admin_enabled = false
+
+# Listen address for the admin gRPC server. Must be a loopback address.
+admin_address = "127.0.0.1:9095"

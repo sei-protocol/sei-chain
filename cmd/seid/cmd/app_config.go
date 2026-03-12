@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/sei-protocol/sei-chain/admin"
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
@@ -31,6 +32,7 @@ type CustomAppConfig struct {
 	ETHBlockTest    blocktest.Config              `mapstructure:"eth_block_test"`
 	EvmQuery        querier.Config                `mapstructure:"evm_query"`
 	LightInvariance seiapp.LightInvarianceConfig  `mapstructure:"light_invariance"`
+	Admin           admin.Config                  `mapstructure:"admin"`
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
@@ -49,5 +51,6 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
 		ETHBlockTest:    blocktest.DefaultConfig,
 		EvmQuery:        querier.DefaultConfig,
 		LightInvariance: seiapp.DefaultLightInvarianceConfig,
+		Admin:           admin.DefaultConfig,
 	}
 }
