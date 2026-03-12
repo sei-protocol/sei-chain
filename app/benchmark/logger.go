@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 // Logger tracks benchmark metrics and periodically logs statistics.
@@ -28,14 +26,11 @@ type Logger struct {
 	maxBlockProcessTime   time.Duration // Maximum block processing time in the window
 	totalBlockProcessTime time.Duration // Sum of all block processing times in the window
 	blockProcessCount     int64         // Number of block processing times recorded
-	logger                log.Logger
 }
 
 // NewLogger creates a new benchmark logger.
-func NewLogger(logger log.Logger) *Logger {
-	return &Logger{
-		logger: logger,
-	}
+func NewLogger() *Logger {
+	return &Logger{}
 }
 
 // Increment records transaction count and block timing information.
@@ -213,7 +208,7 @@ func (l *Logger) FlushLog() {
 	now := time.Now()
 	stats, _ := l.getAndResetStats(now)
 
-	l.logger.Info("benchmark",
+	logger.Info("benchmark",
 		"txs", stats.txCount,
 		"blocks", stats.blockCount,
 		"height", stats.latestHeight,

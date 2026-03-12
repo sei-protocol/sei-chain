@@ -59,7 +59,6 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 			}
 
 			app := appCreator(
-				ctx.Logger,
 				db,
 				nil,
 				nil,

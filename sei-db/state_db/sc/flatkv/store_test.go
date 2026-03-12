@@ -67,8 +67,8 @@ func setupTestDB(t *testing.T) types.KeyValueDB {
 func setupTestStore(t *testing.T) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	return s
 }
@@ -77,8 +77,8 @@ func setupTestStore(t *testing.T) *CommitStore {
 func setupTestStoreWithConfig(t *testing.T, cfg Config) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	return s
 }
@@ -97,8 +97,8 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 
 func TestStoreOpenClose(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, s.Close())
@@ -106,8 +106,8 @@ func TestStoreOpenClose(t *testing.T) {
 
 func TestStoreClose(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	// Close should succeed
@@ -301,8 +301,8 @@ func TestStorePersistence(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	// Write and close
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s1.LoadVersion(0)
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	cs := makeChangeSet(key, value, false)
@@ -311,8 +311,8 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen and verify
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(0)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -428,18 +428,18 @@ func TestStoreRollbackNoSnapshot(t *testing.T) {
 func TestFileLockPreventsDoubleOpen(t *testing.T) {
 	dir := t.TempDir()
 
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s1.LoadVersion(0)
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(0)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err, "second open on same dir should fail due to file lock")
 	require.Contains(t, err.Error(), "file lock")
 
 	require.NoError(t, s1.Close())
 
-	_, err = s2.LoadVersion(0)
+	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err, "should succeed after first store releases lock")
 	require.NoError(t, s2.Close())
 }
@@ -450,8 +450,8 @@ func TestFileLockPreventsDoubleOpen(t *testing.T) {
 
 func TestClearChangelog(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -475,8 +475,8 @@ func TestClearChangelog(t *testing.T) {
 
 func TestCloseDBsOnlyIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, s.closeDBsOnly())
@@ -493,8 +493,8 @@ func TestCloseDBsOnlyIdempotent(t *testing.T) {
 func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
 	dir := t.TempDir()
 
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s1.LoadVersion(0)
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s1, Address{0x01}, Slot{0x01}, []byte{0x01})
@@ -502,8 +502,8 @@ func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
 	require.NoError(t, s1.WriteSnapshot(""))
 	require.NoError(t, s1.Close())
 
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(100)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(100, false)
 	require.Error(t, err, "loading version beyond WAL should fail")
 }
 
@@ -514,8 +514,8 @@ func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
 func TestReopenReusesWorkingDir(t *testing.T) {
 	dir := t.TempDir()
 
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
@@ -527,8 +527,8 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	_, err = os.Stat(basePath)
 	require.NoError(t, err, "SNAPSHOT_BASE should exist after close")
 
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(0)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -541,8 +541,8 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 
 func TestWalOffsetForVersionFastPath(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -563,8 +563,8 @@ func TestWalOffsetForVersionFastPath(t *testing.T) {
 
 func TestWalOffsetForVersionBeforeWAL(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -579,8 +579,8 @@ func TestWalOffsetForVersionBeforeWAL(t *testing.T) {
 
 func TestWalOffsetForVersionNotFound(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -597,8 +597,8 @@ func TestWalOffsetForVersionNotFound(t *testing.T) {
 
 func TestCatchupFromSpecificVersion(t *testing.T) {
 	dir := t.TempDir()
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s1.LoadVersion(0)
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
@@ -609,8 +609,8 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	require.NoError(t, s1.WriteSnapshot(""))
 	require.NoError(t, s1.Close())
 
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(0)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -658,8 +658,8 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err := s1.LoadVersion(0)
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
@@ -677,8 +677,8 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	hash := s1.RootHash()
 	require.NoError(t, s1.Close())
 
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, DefaultConfig())
-	_, err = s2.LoadVersion(0)
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -696,4 +696,265 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	v, ok = s2.Get(codeKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
+}
+
+// =============================================================================
+// ReadOnly LoadVersion Tests
+// =============================================================================
+
+func TestReadOnlyBasicLoadAndRead(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+	key := memiavlStorageKey(addr, slot)
+	value := []byte{0xCC}
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	require.Equal(t, int64(1), ro.Version())
+	got, found := ro.Get(key)
+	require.True(t, found)
+	require.Equal(t, value, got)
+	require.NotNil(t, ro.RootHash())
+	require.Len(t, ro.RootHash(), 32)
+}
+
+func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := writer.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xCC}
+	slot := Slot{0xDD}
+	key := memiavlStorageKey(addr, slot)
+	value := []byte{0xEE}
+
+	require.NoError(t, writer.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	commitAndCheck(t, writer)
+	require.NoError(t, writer.Close())
+
+	fresh := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	ro, err := fresh.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	require.Equal(t, int64(1), ro.Version())
+	got, found := ro.Get(key)
+	require.True(t, found)
+	require.Equal(t, value, got)
+}
+
+func TestReadOnlyAtSpecificVersion(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), Config{SnapshotInterval: 2, SnapshotKeepRecent: 10})
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0x11}
+	slot := Slot{0x22}
+	key := memiavlStorageKey(addr, slot)
+
+	for i := byte(1); i <= 5; i++ {
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			makeChangeSet(key, []byte{i}, false),
+		}))
+		commitAndCheck(t, s)
+	}
+
+	ro, err := s.LoadVersion(3, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	require.Equal(t, int64(3), ro.Version())
+	got, found := ro.Get(key)
+	require.True(t, found)
+	require.Equal(t, []byte{3}, got)
+}
+
+func TestReadOnlyWriteGuards(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+	key := memiavlStorageKey(addr, slot)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	require.ErrorIs(t, ro.ApplyChangeSets(nil), errReadOnly)
+	_, err = ro.Commit()
+	require.ErrorIs(t, err, errReadOnly)
+	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
+	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
+	_, err = ro.(*CommitStore).Importer(1)
+	require.ErrorIs(t, err, errReadOnly)
+
+	_, err = ro.LoadVersion(0, true)
+	require.ErrorIs(t, err, errReadOnly)
+}
+
+func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+	key := memiavlStorageKey(addr, slot)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	commitAndCheck(t, s)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{3}, false)}))
+	commitAndCheck(t, s)
+
+	require.Equal(t, int64(3), s.Version())
+
+	require.Equal(t, int64(1), ro.Version())
+	got, found := ro.Get(key)
+	require.True(t, found)
+	require.Equal(t, []byte{1}, got)
+}
+
+func TestReadOnlyConcurrentInstances(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), Config{SnapshotInterval: 2, SnapshotKeepRecent: 10})
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0x11}
+	slot := Slot{0x22}
+	key := memiavlStorageKey(addr, slot)
+
+	for i := byte(1); i <= 4; i++ {
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			makeChangeSet(key, []byte{i}, false),
+		}))
+		commitAndCheck(t, s)
+	}
+
+	ro1, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro1.Close()
+
+	ro2, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro2.Close()
+
+	require.Equal(t, int64(4), ro1.Version())
+	require.Equal(t, int64(4), ro2.Version())
+
+	g1, ok1 := ro1.Get(key)
+	g2, ok2 := ro2.Get(key)
+	require.True(t, ok1)
+	require.True(t, ok2)
+	require.Equal(t, []byte{4}, g1)
+	require.Equal(t, []byte{4}, g2)
+}
+
+func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+	key := memiavlStorageKey(addr, slot)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	commitAndCheck(t, s)
+
+	_, err = s.LoadVersion(999, true)
+	require.Error(t, err)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v)
+
+	got, found := s.Get(key)
+	require.True(t, found)
+	require.Equal(t, []byte{2}, got)
+}
+
+func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xAA}
+	slot := Slot{0xBB}
+	key := memiavlStorageKey(addr, slot)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	commitAndCheck(t, s)
+
+	roStore, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+
+	roCommit := roStore.(*CommitStore)
+	tmpDir := roCommit.readOnlyWorkDir
+	require.DirExists(t, tmpDir)
+
+	require.NoError(t, roStore.Close())
+	require.NoDirExists(t, tmpDir)
+}
+
+func TestCleanupOrphanedReadOnlyDirs(t *testing.T) {
+	dir := t.TempDir()
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	defer func() { require.NoError(t, s.Close()) }()
+
+	fkvDir := s.flatkvDir()
+	require.NoError(t, os.MkdirAll(fkvDir, 0o755))
+
+	// Simulate orphaned dirs left by a crash.
+	orphan1 := filepath.Join(fkvDir, "readonly-old1")
+	orphan2 := filepath.Join(fkvDir, "readonly-old2")
+	require.NoError(t, os.Mkdir(orphan1, 0o755))
+	require.NoError(t, os.Mkdir(orphan2, 0o755))
+
+	require.NoError(t, s.CleanupOrphanedReadOnlyDirs())
+
+	require.NoDirExists(t, orphan1)
+	require.NoDirExists(t, orphan2)
+
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+}
+
+func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
+	dir := t.TempDir()
+	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	defer func() { require.NoError(t, s1.Close()) }()
+	require.NoError(t, s1.CleanupOrphanedReadOnlyDirs())
+
+	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	defer func() { require.NoError(t, s2.Close()) }()
+
+	err := s2.CleanupOrphanedReadOnlyDirs()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "acquire file lock")
 }

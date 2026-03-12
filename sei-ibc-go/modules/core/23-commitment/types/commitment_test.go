@@ -6,7 +6,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -21,7 +20,7 @@ type MerkleTestSuite struct {
 
 func (suite *MerkleTestSuite) SetupTest() {
 	db := dbm.NewMemDB()
-	suite.store = rootmulti.NewStore(db, log.NewNopLogger())
+	suite.store = rootmulti.NewStore(db)
 
 	suite.storeKey = storetypes.NewKVStoreKey("iavlStoreKey")
 

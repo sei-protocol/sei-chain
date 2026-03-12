@@ -6,7 +6,6 @@ import (
 	cosmostypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	xparamtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
@@ -27,9 +26,7 @@ func TestPrioritizerTestSuite(t *testing.T) {
 
 func (s *PrioritizerTestSuite) SetupTest() {
 	s.KeeperTestHelper.Setup()
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, "info")
-	require.NoError(s.T(), err)
-	s.prioritizer = app.NewSeiTxPrioritizer(logger, &s.App.EvmKeeper, &s.App.UpgradeKeeper, &s.App.ParamsKeeper)
+	s.prioritizer = app.NewSeiTxPrioritizer(&s.App.EvmKeeper, &s.App.UpgradeKeeper, &s.App.ParamsKeeper)
 }
 
 var (

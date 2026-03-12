@@ -348,7 +348,7 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 		if err := updateCurrentSymlink(flatkvDir, snapName); err != nil {
 			return "", fmt.Errorf("recover orphaned snapshot symlink: %w", err)
 		}
-		s.log.Info("FlatKV: recovered orphaned snapshot", "snapshot", snapName)
+		logger.Info("FlatKV: recovered orphaned snapshot", "snapshot", snapName)
 		return filepath.Join(flatkvDir, snapName), nil
 	}
 
@@ -373,7 +373,7 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 // previous partial attempt are skipped, so recovery from a mid-migration
 // crash completes the remaining moves.
 func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
-	s.log.Info("FlatKV: migrating from flat layout to snapshot layout")
+	logger.Info("FlatKV: migrating from flat layout to snapshot layout")
 
 	// Determine version for the snapshot name. The metadata DB might still
 	// be at the flat location or might have been moved in a prior attempt.
@@ -414,7 +414,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 		return "", fmt.Errorf("migration: update current symlink: %w", err)
 	}
 
-	s.log.Info("FlatKV: migration complete", "snapshot", snapName)
+	logger.Info("FlatKV: migration complete", "snapshot", snapName)
 	return snapDir, nil
 }
 
@@ -423,6 +423,9 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 // (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
 // The dir parameter is ignored; snapshots are always stored alongside the live data.
 func (s *CommitStore) WriteSnapshot(_ string) error {
+	if s.readOnly {
+		return errReadOnly
+	}
 	version := s.committedVersion
 	if version <= 0 {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
@@ -482,14 +485,14 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 	// instead of re-cloning from the snapshot and replaying the full WAL gap.
 	workDir := filepath.Join(dir, workingDirName)
 	if err := writeSnapshotBase(workDir, snapDir); err != nil {
-		s.log.Error("failed to update SNAPSHOT_BASE", "err", err)
+		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
 	}
 
 	s.pruneSnapshots(dir, version)
 
 	success = true
 	s.lastSnapshotTime = time.Now()
-	s.log.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
+	logger.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
 	return nil
 }
 
@@ -514,9 +517,9 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
 	for _, v := range older[keep:] {
 		snapPath := filepath.Join(dir, snapshotName(v))
 		if err := atomicRemoveDir(snapPath); err != nil {
-			s.log.Error("prune snapshot failed", "version", v, "err", err)
+			logger.Error("prune snapshot failed", "version", v, "err", err)
 		} else {
-			s.log.Info("pruned old snapshot", "version", v)
+			logger.Info("pruned old snapshot", "version", v)
 		}
 	}
 }
@@ -530,7 +533,10 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
 // completes, the next restart will simply re-run catchup against the
 // already-truncated WAL, converging to targetVersion.
 func (s *CommitStore) Rollback(targetVersion int64) error {
-	s.log.Info("FlatKV Rollback", "targetVersion", targetVersion)
+	if s.readOnly {
+		return errReadOnly
+	}
+	logger.Info("FlatKV Rollback", "targetVersion", targetVersion)
 
 	dir := s.flatkvDir()
 
@@ -595,13 +601,13 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		if v > targetVersion {
 			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
-				s.log.Error("failed to remove snapshot", "version", v, "err", err)
+				logger.Error("failed to remove snapshot", "version", v, "err", err)
 			}
 		}
 		return false, nil
 	})
 
-	s.log.Info("FlatKV Rollback complete", "version", s.committedVersion)
+	logger.Info("FlatKV Rollback complete", "version", s.committedVersion)
 	return nil
 }
 
@@ -656,6 +662,6 @@ func (s *CommitStore) tryTruncateWAL() {
 	}
 
 	if err := s.changelog.TruncateBefore(off); err != nil {
-		s.log.Error("failed to truncate WAL", "err", err, "truncateOffset", off)
+		logger.Error("failed to truncate WAL", "err", err, "truncateOffset", off)
 	}
 }

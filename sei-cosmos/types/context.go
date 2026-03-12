@@ -8,7 +8,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv"
@@ -33,7 +32,6 @@ type Context struct {
 	chainID           string
 	txBytes           []byte
 	txSum             [32]byte
-	logger            log.Logger
 	voteInfo          []abci.VoteInfo
 	gasMeter          GasMeter
 	gasEstimate       uint64
@@ -110,10 +108,6 @@ func (c Context) TxBytes() []byte {
 
 func (c Context) TxSum() [32]byte {
 	return c.txSum
-}
-
-func (c Context) Logger() log.Logger {
-	return c.logger
 }
 
 func (c Context) VoteInfos() []abci.VoteInfo {
@@ -254,7 +248,7 @@ func (c Context) ConsensusParams() *tmproto.ConsensusParams {
 }
 
 // create a new context
-func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log.Logger) Context {
+func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool) Context {
 	// https://github.com/gogo/protobuf/issues/519
 	header.Time = header.Time.UTC()
 	return Context{
@@ -263,7 +257,6 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		header:          header,
 		chainID:         header.ChainID,
 		checkTx:         isCheckTx,
-		logger:          logger,
 		gasMeter:        NewInfiniteGasMeter(1, 1),
 		minGasPrice:     DecCoins{},
 		eventManager:    NewEventManager(),
@@ -336,12 +329,6 @@ func (c Context) WithTxBytes(txBytes []byte) Context {
 
 func (c Context) WithTxSum(txSum [32]byte) Context {
 	c.txSum = txSum
-	return c
-}
-
-// WithLogger returns a Context with an updated logger.
-func (c Context) WithLogger(logger log.Logger) Context {
-	c.logger = logger
 	return c
 }
 

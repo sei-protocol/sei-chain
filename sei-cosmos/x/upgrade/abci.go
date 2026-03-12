@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -9,7 +10,10 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "upgrade")
 
 // BeginBlock will check if there is a scheduled plan and if it is ready to be executed.
 // If the current height is in the provided set of heights to skip, it will skip and clear the upgrade plan.
@@ -73,7 +77,7 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 
 	details, err := plan.UpgradeDetails()
 	if err != nil {
-		ctx.Logger().Error("failed to parse upgrade details", "err", err)
+		logger.Error("failed to parse upgrade details", "err", err)
 	}
 
 	// If running a pending minor release, apply the upgrade if handler is present
@@ -82,7 +86,7 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 		// if not yet present, then emit a scheduled log (every 100 blocks, to reduce logs)
 		if !k.HasHandler(plan.Name) && !k.IsSkipHeight(plan.Height) {
 			if ctx.BlockHeight()%100 == 0 {
-				ctx.Logger().Info(BuildUpgradeScheduledMsg(plan))
+				logger.Info(BuildUpgradeScheduledMsg(plan))
 			}
 		}
 		return
@@ -91,7 +95,7 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	// if we have a handler for a non-minor upgrade, that means it updated too early and must stop
 	if k.HasHandler(plan.Name) {
 		downgradeMsg := fmt.Sprintf("BINARY UPDATED BEFORE TRIGGER! UPGRADE \"%s\" - in binary but not executed on chain", plan.Name)
-		ctx.Logger().Error(downgradeMsg)
+		logger.Error(downgradeMsg)
 		panic(downgradeMsg)
 	}
 }
@@ -106,20 +110,24 @@ func panicUpgradeNeeded(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 	}
 
 	upgradeMsg := BuildUpgradeNeededMsg(plan)
-	ctx.Logger().Error(upgradeMsg)
+	logger.Error(upgradeMsg)
+	// Emit the raw upgrade message to stderr so that cosmovisor's log scanner
+	// can match it. Structured log handlers (JSON, text) escape the inner
+	// double-quotes, which breaks the cosmovisor upgrade regex.
+	fmt.Fprintln(os.Stderr, upgradeMsg)
 
 	panic(upgradeMsg)
 }
 
 func applyUpgrade(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
-	ctx.Logger().Info(fmt.Sprintf("applying upgrade \"%s\" at %s", plan.Name, plan.DueAt()))
+	logger.Info("applying upgrade", "name", plan.Name, "at", plan.DueAt())
 	k.ApplyUpgrade(ctx, plan)
 }
 
 // skipUpgrade logs a message that the upgrade has been skipped and clears the upgrade plan.
 func skipUpgrade(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 	skipUpgradeMsg := fmt.Sprintf("UPGRADE \"%s\" SKIPPED at %d: %s", plan.Name, plan.Height, plan.Info)
-	ctx.Logger().Info(skipUpgradeMsg)
+	logger.Info(skipUpgradeMsg)
 	k.ClearUpgradePlan(ctx)
 }
 

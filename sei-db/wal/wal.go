@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/tidwall/wal"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
 // The size of internal channel buffers if the provided buffer size is less than 1.
@@ -29,7 +27,6 @@ type WAL[T any] struct {
 	dir       string
 	log       *wal.Log
 	config    Config
-	logger    logger.Logger
 	marshal   MarshalFn[T]
 	unmarshal UnmarshalFn[T]
 
@@ -91,6 +88,10 @@ type Config struct {
 	// If true, make a deep copy of the data for every write. If false, then it is not safe to modify the data after
 	// reading/writing it.
 	DeepCopyEnabled bool
+
+	// AllowEmpty permits removing all entries via TruncateAll.
+	// When false (default), at least one entry must remain after truncation.
+	AllowEmpty bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -110,13 +111,13 @@ func NewWAL[T any](
 	ctx context.Context,
 	marshal MarshalFn[T],
 	unmarshal UnmarshalFn[T],
-	logger logger.Logger,
 	dir string,
 	config Config,
 ) (*WAL[T], error) {
 	log, err := open(dir, &wal.Options{
-		NoSync: !config.FsyncEnabled,
-		NoCopy: !config.DeepCopyEnabled,
+		NoSync:     !config.FsyncEnabled,
+		NoCopy:     !config.DeepCopyEnabled,
+		AllowEmpty: config.AllowEmpty,
 	})
 	if err != nil {
 		return nil, err
@@ -142,7 +143,6 @@ func NewWAL[T any](
 		dir:            dir,
 		log:            log,
 		config:         config,
-		logger:         logger,
 		marshal:        marshal,
 		unmarshal:      unmarshal,
 		writeBatchSize: writeBatchSize,
@@ -335,6 +335,27 @@ func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 		return fmt.Errorf("WAL encountered an error and is now shut down: %w", *backgroundErr)
 	}
 	return walLog.sendTruncate(true, index)
+}
+
+// TruncateAll removes every entry from the log.
+// Requires AllowEmpty to be set in Config; returns an error otherwise.
+func (walLog *WAL[T]) TruncateAll() error {
+	backgroundErr := walLog.asyncError.Load()
+	if backgroundErr != nil {
+		return fmt.Errorf("WAL encountered an error and is now shut down: %w", *backgroundErr)
+	}
+	last, err := walLog.LastOffset()
+	if err != nil {
+		return err
+	}
+	first, err := walLog.FirstOffset()
+	if err != nil {
+		return err
+	}
+	if first == 0 && last == 0 {
+		return nil // already empty
+	}
+	return walLog.sendTruncate(true, last+1)
 }
 
 // sendTruncate sends a truncate request to the main loop and waits for completion.

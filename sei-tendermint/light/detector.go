@@ -36,7 +36,7 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 		witnessesToRemove    = make([]int, 0)
 		witnessesToBlacklist = make([]provider.Provider, 0)
 	)
-	c.logger.Debug("running detector against trace", "finalizeBlockHeight", lastVerifiedHeader.Height,
+	logger.Debug("running detector against trace", "finalizeBlockHeight", lastVerifiedHeader.Height,
 		"finalizeBlockHash", lastVerifiedHeader.Hash, "length", len(primaryTrace))
 	c.providerMutex.Lock()
 	defer c.providerMutex.Unlock()
@@ -76,7 +76,7 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 			witnessesToBlacklist = append(witnessesToBlacklist, c.witnesses[e.WitnessIndex])
 
 		case errBadWitness:
-			c.logger.Info("witness returned an error during header comparison, removing...",
+			logger.Info("witness returned an error during header comparison, removing...",
 				"witness", c.witnesses[e.WitnessIndex], "err", err)
 			witnessesToRemove = append(witnessesToRemove, e.WitnessIndex)
 			witnessesToBlacklist = append(witnessesToBlacklist, c.witnesses[e.WitnessIndex])
@@ -84,7 +84,7 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 			if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
 				return e
 			}
-			c.logger.Info("error in light block request to witness", "err", err)
+			logger.Info("error in light block request to witness", "err", err)
 		}
 	}
 
@@ -214,7 +214,7 @@ func (c *Client) compareNewLightBlockWithWitness(ctx context.Context, errc chan 
 		return
 	}
 
-	c.logger.Debug("matching header received by witness", "height", l.Height, "witness", witnessIndex)
+	logger.Debug("matching header received by witness", "height", l.Height, "witness", witnessIndex)
 	errc <- nil
 }
 
@@ -222,7 +222,7 @@ func (c *Client) compareNewLightBlockWithWitness(ctx context.Context, errc chan 
 func (c *Client) sendEvidence(ctx context.Context, ev *types.LightClientAttackEvidence, receiver provider.Provider) {
 	err := receiver.ReportEvidence(ctx, ev)
 	if err != nil {
-		c.logger.Error("failed to report evidence to provider", "ev", ev, "provider", receiver)
+		logger.Error("failed to report evidence to provider", "ev", ev, "provider", receiver)
 	}
 }
 
@@ -244,7 +244,7 @@ func (c *Client) handleConflictingHeaders(
 		now,
 	)
 	if err != nil {
-		c.logger.Info("error validating witness's divergent header", "witness", supportingWitness, "err", err)
+		logger.Info("error validating witness's divergent header", "witness", supportingWitness, "err", err)
 		return nil
 	}
 
@@ -252,12 +252,12 @@ func (c *Client) handleConflictingHeaders(
 	// and generate evidence against the primary that we can send to the witness
 	commonBlock, trustedBlock := witnessTrace[0], witnessTrace[len(witnessTrace)-1]
 	evidenceAgainstPrimary := newLightClientAttackEvidence(primaryBlock, trustedBlock, commonBlock)
-	c.logger.Error("ATTEMPTED ATTACK DETECTED. Sending evidence againt primary by witness", "ev", evidenceAgainstPrimary,
+	logger.Error("ATTEMPTED ATTACK DETECTED. Sending evidence againt primary by witness", "ev", evidenceAgainstPrimary,
 		"primary", c.primary, "witness", supportingWitness)
 	c.sendEvidence(ctx, evidenceAgainstPrimary, supportingWitness)
 
 	if primaryBlock.Commit.Round != witnessTrace[len(witnessTrace)-1].Commit.Round {
-		c.logger.Info("The light client has detected, and prevented, an attempted amnesia attack." +
+		logger.Info("The light client has detected, and prevented, an attempted amnesia attack." +
 			" We think this attack is pretty unlikely, so if you see it, that's interesting to us." +
 			" Can you let us know by opening an issue through https://github.com/tendermint/tendermint/issues/new?")
 	}
@@ -273,14 +273,14 @@ func (c *Client) handleConflictingHeaders(
 		now,
 	)
 	if err != nil {
-		c.logger.Info("error validating primary's divergent header", "primary", c.primary, "err", err)
+		logger.Info("error validating primary's divergent header", "primary", c.primary, "err", err)
 		return ErrLightClientAttack
 	}
 
 	// We now use the primary trace to create evidence against the witness and send it to the primary
 	commonBlock, trustedBlock = primaryTrace[0], primaryTrace[len(primaryTrace)-1]
 	evidenceAgainstWitness := newLightClientAttackEvidence(witnessBlock, trustedBlock, commonBlock)
-	c.logger.Error("Sending evidence against witness by primary", "ev", evidenceAgainstWitness,
+	logger.Error("Sending evidence against witness by primary", "ev", evidenceAgainstWitness,
 		"primary", c.primary, "witness", supportingWitness)
 	c.sendEvidence(ctx, evidenceAgainstWitness, c.primary)
 	// We return the error and don't process anymore witnesses

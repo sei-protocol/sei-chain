@@ -57,7 +57,7 @@ func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr
 			// if it's not an OutOfGas error, raise it again
 			if _, ok := r.(sdk.ErrorOutOfGas); !ok {
 				// log it to get the original stack trace somewhere (as panic(r) keeps message but stacktrace to here
-				moduleLogger(ctx).Info("SubMsg rethrowing panic: %#v", r)
+				logger.Info("SubMsg rethrowing panic", "err", r)
 				panic(r)
 			}
 			ctx.GasMeter().ConsumeGas(gasLimit, "Sub-Message OutOfGas panic")
@@ -134,7 +134,7 @@ func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk
 			}
 		} else {
 			// Issue #759 - we don't return error string for worries of non-determinism
-			moduleLogger(ctx).Info("Redacting submessage error", "cause", err)
+			logger.Info("Redacting submessage error", "cause", err)
 			result = wasmvmtypes.SubMsgResult{
 				Err: redactError(err).Error(),
 			}

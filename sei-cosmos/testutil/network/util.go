@@ -25,7 +25,6 @@ import (
 )
 
 func startInProcess(cfg Config, val *Validator) error {
-	logger := val.Ctx.Logger
 	tmCfg := val.Ctx.Config
 	tmCfg.Instrumentation.Prometheus = false
 
@@ -54,7 +53,6 @@ func startInProcess(cfg Config, val *Validator) error {
 	tmNode, err := node.New(
 		val.GoCtx,
 		tmCfg,
-		logger,
 		func() {},
 		app,
 		defaultGensis,
@@ -73,7 +71,7 @@ func startInProcess(cfg Config, val *Validator) error {
 	val.tmNode = tmNode
 
 	if val.RPCAddress != "" {
-		localClient, _ := local.New(logger, tmNode.(local.NodeService))
+		localClient, _ := local.New(tmNode.(local.NodeService))
 		val.RPCClient = localClient
 	}
 
@@ -90,7 +88,7 @@ func startInProcess(cfg Config, val *Validator) error {
 	}
 
 	if val.APIAddress != "" {
-		apiSrv := api.New(val.ClientCtx, logger.With("module", "api-server"))
+		apiSrv := api.New(val.ClientCtx)
 		app.RegisterAPIRoutes(apiSrv, val.AppConfig.API)
 
 		errCh := make(chan error)

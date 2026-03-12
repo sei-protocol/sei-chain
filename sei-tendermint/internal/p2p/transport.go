@@ -72,7 +72,7 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *ConnV2) error {
 		if err := conn.mconn.Send(ctx, m.ChannelID, bz); err != nil {
 			return err
 		}
-		r.logger.Debug("sent message", "peer", conn.peerInfo.NodeID, "message", m.Message)
+		logger.Debug("sent message", "peer", conn.peerInfo.NodeID, "message", m.Message)
 	}
 }
 
@@ -88,7 +88,7 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 			ch, ok := chs[chID]
 			if !ok {
 				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
-				r.logger.Debug("dropping message for unknown channel", "peer", conn.peerInfo.NodeID, "channel", chID)
+				logger.Debug("dropping message for unknown channel", "peer", conn.peerInfo.NodeID, "channel", chID)
 				continue
 			}
 
@@ -104,7 +104,7 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				"chID", fmt.Sprint(chID),
 				"peer_id", string(conn.peerInfo.NodeID),
 				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(gogoproto.Size(msg)))
-			r.logger.Debug("received message", "peer", conn.peerInfo.NodeID, "message", msg)
+			logger.Debug("received message", "peer", conn.peerInfo.NodeID, "message", msg)
 		}
 	}
 }
@@ -117,7 +117,6 @@ func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo ty
 		sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 		peerChannels: toChannelIDs(peerInfo.Channels),
 		mconn: conn.NewMConnection(
-			r.logger.With("peer", Endpoint{hConn.conn.RemoteAddr()}.NodeAddress(peerInfo.NodeID)),
 			hConn.conn,
 			r.getChannelDescs(),
 			r.options.Connection,
@@ -127,7 +126,7 @@ func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo ty
 		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
 	defer r.peerManager.Disconnected(conn)
-	r.logger.Info("peer connected", "peer", conn.PeerInfo().NodeID, "endpoint", conn)
+	logger.Info("peer connected", "peer", conn.PeerInfo().NodeID, "endpoint", conn)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
 		s.SpawnNamed("connSendRoutine", func() error { return r.connSendRoutine(ctx, conn) })

@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -48,7 +47,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 		ZeroCopy:        true,
 		CreateIfMissing: false,
 	}
-	db, err := memiavl.OpenDB(logger.NewNopLogger(), height, opts)
+	db, err := memiavl.OpenDB(height, opts)
 	if err != nil {
 		panic(err)
 	}

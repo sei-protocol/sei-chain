@@ -20,9 +20,11 @@ import (
 // - codeDB: key=addr, value=bytecode
 // - legacyDB: key=full original key (with prefix), value=raw value
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	s.phaseTimer.SetPhase("apply_change_sets_prepare")
+	if s.readOnly {
+		return errReadOnly
+	}
 
-	// Save original changesets for changelog
+	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	// Collect LtHash pairs per DB (using internal key format)
@@ -231,6 +233,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
+	if s.readOnly {
+		return 0, errReadOnly
+	}
 	// Auto-increment version
 	version := s.committedVersion + 1
 
@@ -268,7 +273,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
 		s.phaseTimer.SetPhase("commit_write_snapshot")
 		if err := s.WriteSnapshot(""); err != nil {
-			s.log.Error("auto snapshot failed", "version", version, "err", err)
+			logger.Error("auto snapshot failed", "version", version, "err", err)
 		}
 	}
 
@@ -278,7 +283,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	}
 
 	s.phaseTimer.SetPhase("commit_done")
-	s.log.Info("Committed version", "version", version)
+	logger.Info("Committed version", "version", version)
 	return version, nil
 }
 
