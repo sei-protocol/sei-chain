@@ -661,7 +661,7 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 
 func TestTruncateAll(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
 	require.NoError(t, err)
 
 	writeTestData(t, changelog)
@@ -693,7 +693,7 @@ func TestTruncateAll(t *testing.T) {
 	require.NoError(t, changelog.Close())
 
 	// Reopen and verify.
-	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
 
@@ -711,7 +711,7 @@ func TestTruncateAll(t *testing.T) {
 
 func TestTruncateAllWithoutAllowEmpty(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
@@ -724,7 +724,7 @@ func TestTruncateAllWithoutAllowEmpty(t *testing.T) {
 
 func TestTruncateAllOnEmptyLog(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{AllowEmpty: true})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
