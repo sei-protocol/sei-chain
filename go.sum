@@ -1811,6 +1811,8 @@ github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vA
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
 github.com/sei-protocol/seilog v0.0.1 h1:JnFaHavtwq20JgfhQnVtJSi40TQBYiOMY4s2kB4BCsw=
 github.com/sei-protocol/seilog v0.0.1/go.mod h1:CKg58wraWnB3gRxWQ0v1rIVr0gmDHjkfP1bM2giKFFU=
+github.com/sei-protocol/seilog v0.0.3 h1:Zi7oWXdX5jv92dY8n482xH032LtNebC89Y+qYZlBn0Y=
+github.com/sei-protocol/seilog v0.0.3/go.mod h1:CKg58wraWnB3gRxWQ0v1rIVr0gmDHjkfP1bM2giKFFU=
 github.com/sei-protocol/tm-db v0.0.4 h1:7Y4EU62Xzzg6wKAHEotm7SXQR0aPLcGhKHkh3qd0tnk=
 github.com/sei-protocol/tm-db v0.0.4/go.mod h1:PWsIWOTwdwC7Ow/GUvx8HgUJTO691pBuorIQD8JvwAs=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
