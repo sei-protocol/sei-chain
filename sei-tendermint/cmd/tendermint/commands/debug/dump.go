@@ -8,16 +8,18 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 )
 
-func getDumpCmd(logger log.Logger) *cobra.Command {
+var logger = seilog.NewLogger("tendermint", "cmd", "tendermint", "commands", "debug")
+
+func getDumpCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dump [output-directory]",
 		Short: "Continuously poll a Tendermint process and dump debugging data into a single location",
@@ -73,7 +75,7 @@ if enabled.`,
 				outDir:   outDir,
 				profAddr: profAddr,
 			}
-			dumpDebugData(ctx, logger, rpc, dumpArgs)
+			dumpDebugData(ctx, rpc, dumpArgs)
 
 			ticker := time.NewTicker(time.Duration(frequency) * time.Second) //nolint: gosec
 			defer ticker.Stop()
@@ -81,7 +83,7 @@ if enabled.`,
 			for ctx.Err() == nil {
 				select {
 				case <-ticker.C:
-					dumpDebugData(ctx, logger, rpc, dumpArgs)
+					dumpDebugData(ctx, rpc, dumpArgs)
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -110,7 +112,7 @@ type dumpDebugDataArgs struct {
 	profAddr string
 }
 
-func dumpDebugData(ctx context.Context, logger log.Logger, rpc *rpchttp.HTTP, args dumpDebugDataArgs) {
+func dumpDebugData(ctx context.Context, rpc *rpchttp.HTTP, args dumpDebugDataArgs) {
 	start := time.Now().UTC()
 
 	tmpDir, err := os.MkdirTemp(args.outDir, "tendermint_debug_tmp")

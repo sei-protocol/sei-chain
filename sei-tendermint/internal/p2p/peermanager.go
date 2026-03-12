@@ -3,13 +3,14 @@ package p2p
 import (
 	"context"
 	"errors"
-	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 
 type connSet[C peerConn] = im.Map[types.NodeID, C]
 
@@ -105,7 +106,6 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 // * Connected(conn) -> [communicate] -> Disconnected(conn)
 // For adding new peer addrs, call AddAddrs().
 type peerManager[C peerConn] struct {
-	logger          log.Logger
 	options         *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	isPrivate       map[types.NodeID]bool
@@ -117,8 +117,9 @@ type peerManager[C peerConn] struct {
 
 func (p *peerManager[C]) LogState() {
 	for inner := range p.inner.Lock() {
-		p.logger.Info("p2p connections",
-			"regular", fmt.Sprintf("%v/%v", len(inner.regular.conns), p.options.maxConns()),
+		logger.Info("p2p connections",
+			"regular", len(inner.regular.conns),
+			"regular-max", p.options.maxConns(),
 			"unconditional", len(inner.persistent.conns),
 		)
 	}
@@ -176,7 +177,7 @@ func (m *peerManager[C]) Subscribe() *peerUpdatesRecv[C] {
 	}
 }
 
-func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
+func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	inner := &peerManagerInner[C]{
 		options:      options,
 		isPersistent: map[types.NodeID]bool{},
@@ -216,7 +217,6 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 		}
 	}
 	return &peerManager[C]{
-		logger:          logger,
 		options:         options,
 		isBlockSyncPeer: isBlockSyncPeer,
 		isPrivate:       isPrivate,

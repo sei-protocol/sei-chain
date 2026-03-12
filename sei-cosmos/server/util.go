@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -18,7 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/debug"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	tmlog "github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -40,22 +41,13 @@ const ServerContextKey = sdk.ContextKey("server.context")
 
 var (
 	ErrShouldRestart = errors.New("node should be restarted")
-	logger           tmlog.Logger
+	logger           = seilog.NewLogger("cosmos", "server")
 )
-
-func init() {
-	var err error
-	logger, err = tmlog.NewDefaultLogger(tmlog.LogFormatPlain, tmlog.LogLevelInfo)
-	if err != nil {
-		panic(fmt.Sprintf("failed to initialize logger: %v", err))
-	}
-}
 
 // server context
 type Context struct {
 	Viper  *viper.Viper
 	Config *tmcfg.Config
-	Logger tmlog.Logger
 }
 
 // ErrorCode contains the exit code for server exit.
@@ -71,12 +63,11 @@ func NewDefaultContext() *Context {
 	return NewContext(
 		viper.New(),
 		tmcfg.DefaultConfig(),
-		logger,
 	)
 }
 
-func NewContext(v *viper.Viper, config *tmcfg.Config, logger tmlog.Logger) *Context {
-	return &Context{v, config, logger}
+func NewContext(v *viper.Viper, config *tmcfg.Config) *Context {
+	return &Context{Viper: v, Config: config}
 }
 
 func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) {
@@ -186,18 +177,44 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 	}
 
 	logLvlFormat := serverCtx.Viper.GetString(flags.FlagLogFormat)
-	if logLvlFormat == "" {
-		logLvlFormat = serverCtx.Config.LogFormat
+	if logLvlFormat != "" {
+		// For logging efficiency, seilog takes the log format at the time of
+		// initialization and intentionally does not provide the ability to dynamically
+		// alter log format at runtime. This means seilog can operate with
+		// zero-allocations during logging operation.
+		logger.Warn("log_format flag is deprecated, please use SEI_LOG_FORMAT and SEI_LOG_OUTPUT environment variables instead.")
 	}
 
 	logLvlStr := serverCtx.Viper.GetString(flags.FlagLogLevel)
-	if logLvlStr == "" {
+
+	// The order of extrapolation priority for log level is:
+	// 1. explicit flag
+	// 2. env var
+	// 3. seid config
+	//
+	// Here, we check if flag is explicitly set first, if so override all log levels to it.
+	// If not, check if env var is set in which case it is already picked up by seilog; nothing to do.
+	// Otherwise, make sure to set the log level to what's configured in the config files.
+	var overrideLogLevel bool
+	switch {
+	case logLvlStr != "":
+		// CLI flag set; take presence.
+		overrideLogLevel = true
+	case os.Getenv("SEI_LOG_LEVEL") == "":
+		// No CLI flag and no env var; fall back to config
 		logLvlStr = serverCtx.Config.LogLevel
+		overrideLogLevel = true
+	default:
+		// Do nothing, since flag was not set but env var was non-empty, which gets
+		// handled by seilog init.
 	}
 
-	serverCtx.Logger, err = tmlog.NewDefaultLogger(logLvlFormat, logLvlStr)
-	if err != nil {
-		return fmt.Errorf("failed to initialize logger: %w", err)
+	if overrideLogLevel {
+		var lvl slog.Level
+		if err := lvl.UnmarshalText([]byte(logLvlStr)); err != nil {
+			return fmt.Errorf("failed to parse log level (%s): %w", logLvlStr, err)
+		}
+		seilog.SetDefaultLevel(lvl, true)
 	}
 
 	return SetCmdServerContext(cmd, serverCtx)
@@ -328,24 +345,20 @@ func AddCommands(
 		panic(err)
 	}
 
-	logger, err := tmlog.NewDefaultLogger(conf.LogFormat, conf.LogLevel)
-	if err != nil {
-		panic(err)
-	}
 	tendermintCmd.AddCommand(
 		ShowNodeIDCmd(),
 		ShowValidatorCmd(),
 		ShowAddressCmd(),
 		VersionCmd(),
 		commands.MakeGenValidatorCommand(),
-		commands.MakeReindexEventCommand(conf, logger),
-		commands.MakeLightCommand(conf, logger),
-		commands.MakeResetCommand(conf, logger),
-		commands.MakeUnsafeResetAllCommand(conf, logger),
+		commands.MakeReindexEventCommand(conf),
+		commands.MakeLightCommand(conf),
+		commands.MakeResetCommand(conf),
+		commands.MakeUnsafeResetAllCommand(conf),
 		commands.GenNodeKeyCmd,
-		commands.MakeInspectCommand(conf, logger),
-		commands.MakeKeyMigrateCommand(conf, logger),
-		debug.GetDebugCommand(logger),
+		commands.MakeInspectCommand(conf),
+		commands.MakeKeyMigrateCommand(conf),
+		debug.GetDebugCommand(),
 		commands.NewCompletionCmd(tendermintCmd, true),
 	)
 

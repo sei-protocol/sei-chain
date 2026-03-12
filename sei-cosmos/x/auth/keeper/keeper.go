@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -89,11 +87,6 @@ func NewAccountKeeper(
 		paramSubspace: paramstore,
 		permAddrs:     permAddrs,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (ak AccountKeeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // GetPubKey Returns the PubKey of the account at address

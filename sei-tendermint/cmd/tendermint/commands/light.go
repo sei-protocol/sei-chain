@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,7 +16,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	lproxy "github.com/sei-protocol/sei-chain/sei-tendermint/light/proxy"
@@ -25,7 +25,7 @@ import (
 )
 
 // LightCmd constructs the base command called when invoked without any subcommands.
-func MakeLightCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+func MakeLightCommand(conf *config.Config) *cobra.Command {
 	var (
 		listenAddr         string
 		primaryAddr        string
@@ -138,7 +138,7 @@ for applications built w/ Cosmos SDK).
 				return fmt.Errorf("can't parse trust level: %w", err)
 			}
 
-			options := []light.Option{light.Logger(logger)} //nolint:prealloc
+			var options []light.Option //nolint:prealloc
 
 			vo := light.SkippingVerification(trustLevel)
 			if sequential {
@@ -178,7 +178,7 @@ for applications built w/ Cosmos SDK).
 				cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
 			}
 
-			p, err := lproxy.NewProxy(c, listenAddr, primaryAddr, cfg, logger, lrpc.KeyPathFn(lrpc.DefaultMerkleKeyPathFn()))
+			p, err := lproxy.NewProxy(c, listenAddr, primaryAddr, cfg, lrpc.KeyPathFn(lrpc.DefaultMerkleKeyPathFn()))
 			if err != nil {
 				return err
 			}
@@ -221,8 +221,8 @@ for applications built w/ Cosmos SDK).
 		"trusting period that headers can be verified within. Should be significantly less than the unbonding period")
 	cmd.Flags().Int64Var(&trustedHeight, "height", 1, "Trusted header's height")
 	cmd.Flags().BytesHexVar(&trustedHash, "hash", []byte{}, "Trusted header's hash")
-	cmd.Flags().StringVar(&logLevel, "log-level", log.LogLevelInfo, "The logging level (debug|info|warn|error|fatal)")
-	cmd.Flags().StringVar(&logFormat, "log-format", log.LogFormatPlain, "The logging format (text|json)")
+	cmd.Flags().StringVar(&logLevel, "log-level", slog.LevelInfo.String(), "The logging level (debug|info|warn|error|fatal)")
+	cmd.Flags().StringVar(&logFormat, "log-format", "json", "The logging format (text|json)")
 	cmd.Flags().StringVar(&trustLevelStr, "trust-level", "1/3",
 		"trust level. Must be between 1/3 and 3/3",
 	)

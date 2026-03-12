@@ -32,7 +32,6 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -226,7 +225,7 @@ func createAndStartServer(t *testing.T, conf *evmrpc.HTTPConfig, ws bool, wsConf
 	if timeouts == nil {
 		timeouts = &rpc.DefaultHTTPTimeouts
 	}
-	srv := evmrpc.NewHTTPServer(log.NewNopLogger(), *timeouts)
+	srv := evmrpc.NewHTTPServer(*timeouts)
 	assert.NoError(t, srv.EnableRPC(apis(), *conf))
 	if ws {
 		assert.NoError(t, srv.EnableWS(nil, *wsConf))

@@ -5,7 +5,10 @@ import (
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("x", "evm", "migrations")
 
 // This migration is to fix total supply mismatch caused by mishandled
 // ante surplus
@@ -22,7 +25,7 @@ func FixTotalSupply(ctx sdk.Context, k *keeper.Keeper) error {
 	})
 	weiInUsei, weiRemainder := bankkeeper.SplitUseiWeiAmount(totalWeiBalance)
 	if !weiRemainder.IsZero() {
-		ctx.Logger().Error("wei total supply has been compromised as well; rounding up and adding to reserve")
+		logger.Error("wei total supply has been compromised as well; rounding up and adding to reserve")
 		if err := k.BankKeeper().AddWei(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), bankkeeper.OneUseiInWei.Sub(weiRemainder)); err != nil {
 			return err
 		}

@@ -13,6 +13,7 @@ import (
 
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -35,17 +36,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
 var (
+	logger = seilog.NewLogger("cosmos", "storev2", "rootmulti")
+
 	_ types.CommitMultiStore = (*Store)(nil)
 	_ types.Queryable        = (*Store)(nil)
 )
 
 type Store struct {
-	logger         log.Logger
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
@@ -67,7 +68,6 @@ type VersionedChangesets struct {
 
 func NewStore(
 	homeDir string,
-	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
 	gigaKeys []string,
@@ -92,12 +92,11 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, logger, scConfig)
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		panic(err)
 	}
 	store := &Store{
-		logger:           logger,
 		scStore:          scStore,
 		storesParams:     make(map[types.StoreKey]storeParams),
 		storeKeys:        make(map[string]types.StoreKey),
@@ -107,7 +106,7 @@ func NewStore(
 		histProofLimiter: limiter,
 	}
 	if ssConfig.Enable {
-		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
+		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}
@@ -322,7 +321,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
 			tree := scStore.GetChildStoreByName(k.Name())
-			stores[k] = commitment.NewStore(tree, rs.logger)
+			stores[k] = commitment.NewStore(tree)
 		}
 	}
 	rs.mtx.RUnlock()
@@ -489,7 +488,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
-		return types.CommitKVStore(commitment.NewStore(tree, rs.logger)), nil
+		return types.CommitKVStore(commitment.NewStore(tree)), nil
 	case types.StoreTypeDB:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeTransient:
@@ -601,13 +600,13 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	)
 	if latest {
 		// latest never needs historical LoadVersion clone
-		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.logger))
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
-			rs.logger.Debug("Failed to acquire historical proof permit", "err", err)
+			logger.Debug("Failed to acquire historical proof permit", "err", err)
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
@@ -631,7 +630,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		}
 		defer func() { _ = scStore.Close() }()
 
-		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.logger))
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 
@@ -830,7 +829,7 @@ loop:
 				restoreErr = err
 				break loop
 			}
-			rs.logger.Info(fmt.Sprintf("Start restoring store: %s", storeKey))
+			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
@@ -878,7 +877,7 @@ loop:
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
-			rs.logger.Error("Failed to set earliest version during DB restore", "err", err)
+			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
 
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 )
 
@@ -49,7 +48,6 @@ type SignerDialerEndpoint struct {
 // dialer and respond to any signature requests over the connection
 // using the given privVal.
 func NewSignerDialerEndpoint(
-	logger log.Logger,
 	dialer SocketDialer,
 	options ...SignerServiceEndpointOption,
 ) *SignerDialerEndpoint {
@@ -59,9 +57,8 @@ func NewSignerDialerEndpoint(
 		retryWait:      defaultRetryWaitMilliseconds * time.Millisecond,
 		maxConnRetries: defaultMaxDialRetries,
 	}
-	sd.logger = logger
 
-	sd.BaseService = *service.NewBaseService(logger, "SignerDialerEndpoint", sd)
+	sd.BaseService = *service.NewBaseService("SignerDialerEndpoint", sd)
 	sd.timeoutReadWrite = defaultTimeoutReadWriteSeconds * time.Second
 
 	for _, optionFunc := range options {
@@ -90,7 +87,7 @@ func (sd *SignerDialerEndpoint) ensureConnection(ctx context.Context) error {
 
 		if err != nil {
 			retries++
-			sd.logger.Debug("SignerDialer: Reconnection failed", "retries", retries, "max", sd.maxConnRetries, "err", err)
+			logger.Debug("SignerDialer: Reconnection failed", "retries", retries, "max", sd.maxConnRetries, "err", err)
 
 			// Wait between retries
 			timer.Reset(sd.retryWait)
@@ -101,12 +98,12 @@ func (sd *SignerDialerEndpoint) ensureConnection(ctx context.Context) error {
 			}
 		} else {
 			sd.SetConnection(conn)
-			sd.logger.Debug("SignerDialer: Connection Ready")
+			logger.Debug("SignerDialer: Connection Ready")
 			return nil
 		}
 	}
 
-	sd.logger.Debug("SignerDialer: Max retries exceeded", "retries", retries, "max", sd.maxConnRetries)
+	logger.Debug("SignerDialer: Max retries exceeded", "retries", retries, "max", sd.maxConnRetries)
 
 	return ErrNoConnection
 }

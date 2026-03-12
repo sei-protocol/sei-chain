@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -25,7 +24,7 @@ func TestRegisterMsgService(t *testing.T) {
 
 	// Create an encoding config that doesn't register testdata Msg services.
 	encCfg := app.MakeEncodingConfig()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
+	app := baseapp.NewBaseApp("test", db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	require.Panics(t, func() {
 		testdata.RegisterMsgServer(
@@ -48,7 +47,7 @@ func TestRegisterMsgServiceTwice(t *testing.T) {
 	// Setup baseapp.
 	db := dbm.NewMemDB()
 	encCfg := app.MakeEncodingConfig()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
+	app := baseapp.NewBaseApp("test", db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 
@@ -75,7 +74,7 @@ func TestMsgService(t *testing.T) {
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 	db := dbm.NewMemDB()
 	decoder := encCfg.TxConfig.TxDecoder()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, decoder, nil, &testutil.TestAppOpts{})
+	app := baseapp.NewBaseApp("test", db, decoder, nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterMsgServer(
 		app.MsgServiceRouter(),

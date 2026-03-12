@@ -158,7 +158,7 @@ func (k Keeper) TimeoutExecuted(
 		k.SetChannel(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), channel)
 	}
 
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet timed-out",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),

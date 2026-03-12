@@ -2,7 +2,6 @@ package ante
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
@@ -271,21 +270,21 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		}
 		acc := p.accountKeeper.GetAccount(ctx, signer)
 		if acc.GetPubKey() == nil {
-			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			logger.Error("missing pubkey for signer", "signer", signer)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
-			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			logger.Debug("failed to parse pubkey for account, likely due to the fact that it isn't on secp256k1 curve", "account", acc.GetPubKey(), "err", err)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			logger.Error("failed to get EVM address from pubkey", "err", err)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
@@ -296,7 +295,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.evmKeeper.BankKeeper(), p.accountKeeper)
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
+			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return ctx, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"golang.org/x/sync/errgroup"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -155,7 +154,7 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 
 	started := make(chan struct{})
 	hung := newHungSnapshotter(started)
-	mgr := snapshots.NewManager(store, hung, log.NewNopLogger())
+	mgr := snapshots.NewManager(store, hung)
 
 	var eg errgroup.Group
 	eg.Go(func() error {

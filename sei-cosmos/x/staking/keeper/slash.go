@@ -29,7 +29,6 @@ import (
 //	Infraction was committed at the current height or at a past height,
 //	not at a height in the future
 func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, infractionHeight int64, power int64, slashFactor sdk.Dec) {
-	logger := k.Logger(ctx)
 
 	if slashFactor.IsNegative() {
 		panic(fmt.Errorf("attempted to slash with a negative slash factor: %v", slashFactor))
@@ -50,7 +49,7 @@ func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, infractionHeigh
 		// Log the slash attempt for future reference (maybe we should tag it too)
 		logger.Error(
 			"WARNING: ignored attempt to slash a nonexistent validator; we recommend you investigate immediately",
-			"validator", consAddr.String(),
+			"validator", consAddr,
 		)
 		return
 	}
@@ -153,7 +152,6 @@ func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, infractionHeigh
 func (k Keeper) Jail(ctx sdk.Context, consAddr sdk.ConsAddress) {
 	validator := k.mustGetValidatorByConsAddr(ctx, consAddr)
 	k.jailValidator(ctx, validator)
-	logger := k.Logger(ctx)
 	logger.Info("validator jailed", "validator", consAddr)
 }
 
@@ -161,7 +159,6 @@ func (k Keeper) Jail(ctx sdk.Context, consAddr sdk.ConsAddress) {
 func (k Keeper) Unjail(ctx sdk.Context, consAddr sdk.ConsAddress) {
 	validator := k.mustGetValidatorByConsAddr(ctx, consAddr)
 	k.unjailValidator(ctx, validator)
-	logger := k.Logger(ctx)
 	logger.Info("validator un-jailed", "validator", consAddr)
 }
 
