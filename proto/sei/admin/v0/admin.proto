@@ -2,7 +2,6 @@ syntax = "proto3";
 package seiprotocol.seichain.admin.v0;
 
 import "gogoproto/gogo.proto";
-import "google/api/annotations.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/admin/types";
 
