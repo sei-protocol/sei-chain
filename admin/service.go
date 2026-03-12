@@ -40,7 +40,7 @@ func (s *service) SetLogLevel(_ context.Context, req *types.SetLogLevelRequest) 
 	return &types.SetLogLevelResponse{
 		Pattern:  req.Pattern,
 		Level:    req.Level,
-		Affected: int32(affected), //nolint:gpsec
+		Affected: int32(affected), //nolint:gosec
 	}, nil
 }
 
