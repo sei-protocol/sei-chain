@@ -274,7 +274,7 @@ func TestStoreIteratorMultipleKeys(t *testing.T) {
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: pairs,
 		},
