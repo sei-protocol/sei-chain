@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -19,7 +18,7 @@ func benchmarkParquetWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) 
 	cfg.PruneIntervalSeconds = 10
 	cfg.Backend = receiptBackendParquet
 
-	store, err := newReceiptBackend(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := newReceiptBackend(cfg, storeKey)
 	if err != nil {
 		b.Fatalf("failed to create receipt store: %v", err)
 	}

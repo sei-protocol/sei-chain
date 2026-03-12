@@ -8,7 +8,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -30,11 +29,10 @@ type EventBus struct {
 }
 
 // NewDefault returns a new event bus with default options.
-func NewDefault(l log.Logger) *EventBus {
-	logger := l.With("module", "eventbus")
-	pubsub := tmpubsub.NewServer(l, tmpubsub.BufferCapacity(DefaultBufferCapacity))
+func NewDefault() *EventBus {
+	pubsub := tmpubsub.NewServer(tmpubsub.BufferCapacity(DefaultBufferCapacity))
 	b := &EventBus{pubsub: pubsub}
-	b.BaseService = *service.NewBaseService(logger, "EventBus", b)
+	b.BaseService = *service.NewBaseService("EventBus", b)
 	return b
 }
 

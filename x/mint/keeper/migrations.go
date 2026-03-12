@@ -6,7 +6,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("x", "mint", "keeper")
 
 // Migrator is a struct for handling in-place store migrations.
 type Migrator struct {
@@ -45,7 +48,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		LastMintHeight:      uint64(v2Minter.GetLastMintHeight()), //nolint:gosec
 		LastMintAmount:      v2Minter.LastMintAmount.RoundInt().Uint64(),
 	}
-	ctx.Logger().Info("Migrating minter from v2 to v3", "v2Minter", v2Minter.String(), "v3Minter", v3Minter.String())
+	logger.Info("Migrating minter from v2 to v3", "v2Minter", v2Minter, "v3Minter", v3Minter)
 	m.keeper.SetMinter(ctx, v3Minter)
 
 	// Migrate TokenReleaseSchedule
@@ -63,7 +66,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
-	ctx.Logger().Info("Migrating mint params from v2 to v3", "v2TokenReleaseSchedules", v2TokenReleaseSchedules, "v2MintDenom", v2MintDenom)
+	logger.Info("Migrating mint params from v2 to v3", "v2TokenReleaseSchedules", v2TokenReleaseSchedules, "v2MintDenom", v2MintDenom)
 
 	v3TokenReleaseSchedule := make([]types.ScheduledTokenRelease, 0, len(v2TokenReleaseSchedules))
 	for _, v2TokenReleaseSchedule := range v2TokenReleaseSchedules {
@@ -79,7 +82,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		TokenReleaseSchedule: v3TokenReleaseSchedule,
 	}
 	m.keeper.SetParams(ctx, v3Params)
-	ctx.Logger().Info("Migrating mint module from v2 to v3", "v3Params", v3Params.String())
+	logger.Info("Migrating mint module from v2 to v3", "v3Params", v3Params)
 
 	return nil
 }

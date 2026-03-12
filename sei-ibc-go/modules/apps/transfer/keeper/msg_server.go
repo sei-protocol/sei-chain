@@ -4,9 +4,12 @@ import (
 	"context"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )
+
+var logger = seilog.NewLogger("ibc-go", "modules", "apps", "transfer", "keeper")
 
 var _ types.MsgServer = Keeper{}
 
@@ -26,7 +29,7 @@ func (k Keeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.
 		return nil, err
 	}
 
-	k.Logger(ctx).Info("IBC fungible token transfer", "token", msg.Token.Denom, "amount", msg.Token.Amount.String(), "sender", msg.Sender, "receiver", msg.Receiver)
+	logger.Info("IBC fungible token transfer", "token", msg.Token.Denom, "amount", msg.Token.Amount, "sender", msg.Sender, "receiver", msg.Receiver)
 
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(

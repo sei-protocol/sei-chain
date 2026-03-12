@@ -10,14 +10,16 @@ import (
 	"time"
 
 	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p", "conn")
 
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
@@ -94,8 +96,6 @@ The byte id and the relative priorities of each `Channel` are configured upon
 initialization of the connection.
 */
 type MConnection struct {
-	logger log.Logger
-
 	conn      Conn
 	sendQueue utils.Watch[*sendQueue]
 	recvPong  utils.Mutex[*utils.AtomicSend[bool]]
@@ -172,13 +172,11 @@ func (q *sendQueue) setFlush(t time.Time) {
 
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
 func NewMConnection(
-	logger log.Logger,
 	conn Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
 	return &MConnection{
-		logger:    logger,
 		conn:      conn,
 		sendQueue: utils.NewWatch(newSendQueue(chDescs)),
 		recvCh:    make(chan mConnMessage),
@@ -212,7 +210,7 @@ func (c *MConnection) String() string {
 // WARNING: takes ownership of msgBytes
 // TODO(gprusak): fix the ownership
 func (c *MConnection) Send(ctx context.Context, chID ChannelID, msgBytes []byte) error {
-	c.logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
+	logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
 	for q, ctrl := range c.sendQueue.Lock() {
 		ch, ok := q.channels[chID]
 		if !ok {
@@ -365,7 +363,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 				return err
 			}
 		} else {
-			c.logger.Debug("Flush", "conn", c)
+			logger.Debug("Flush", "conn", c)
 			if err := c.conn.Flush(ctx); err != nil {
 				return fmt.Errorf("bufWriter.Flush(): %w", err)
 			}
@@ -413,13 +411,13 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 			if !castOk || !ok {
 				return errBadChannel{fmt.Errorf("unknown channel %X", p.PacketMsg.ChannelId)}
 			}
-			c.logger.Debug("Read PacketMsg", "conn", c, "packet", packet)
+			logger.Debug("Read PacketMsg", "conn", c, "packet", packet)
 			msgBytes, err := ch.pushMsg(p.PacketMsg)
 			if err != nil {
 				return fmt.Errorf("recvPacketMsg(): %v", err)
 			}
 			if msgBytes != nil {
-				c.logger.Debug("Received bytes", "chID", channelID, "msgBytes", msgBytes)
+				logger.Debug("Received bytes", "chID", channelID, "msgBytes", msgBytes)
 				if err := utils.Send(ctx, c.recvCh, mConnMessage{
 					channelID: channelID,
 					payload:   msgBytes,

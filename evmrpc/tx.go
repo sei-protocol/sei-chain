@@ -240,8 +240,8 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			if etx != nil && etx.Hash() == hash {
 				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
 				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
-					sdkCtx.Logger().Error("failed to recover sender", "err", err, "tx", etx.Hash().Hex()) // codecov:ignore
-					return nil, err                                                                       // codecov:ignore
+					logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
+					return nil, err                                                        // codecov:ignore
 				}
 				v, r, s := etx.RawSignatureValues()
 				res := export.RPCTransaction{

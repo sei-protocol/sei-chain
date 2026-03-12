@@ -13,8 +13,4 @@ const (
 	PB = TB * 1024
 	// EB is the number of bytes in an exabyte.
 	EB = PB * 1024
-	// ZB is the number of bytes in a zettabyte.
-	ZB = EB * 1024
-	// YB is the number of bytes in a yottabyte.
-	YB = ZB * 1024
 )

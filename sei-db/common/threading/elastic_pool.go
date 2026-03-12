@@ -20,6 +20,7 @@ var _ Pool = (*elasticPool)(nil)
 // goroutine if all workers are busy.
 type elasticPool struct {
 	workQueue chan func()
+	ctx       context.Context
 }
 
 // NewElasticPool creates a pool with the given number of warm workers. Submitted
@@ -33,6 +34,7 @@ func NewElasticPool(
 	workQueue := make(chan func())
 	ep := &elasticPool{
 		workQueue: workQueue,
+		ctx:       ctx,
 	}
 
 	for i := 0; i < warmWorkers; i++ {
@@ -41,27 +43,27 @@ func NewElasticPool(
 
 	go func() {
 		<-ctx.Done()
-		close(workQueue)
+		for i := 0; i < warmWorkers; i++ {
+			workQueue <- nil
+		}
 	}()
 
 	return ep
 }
 
-func (ep *elasticPool) Submit(ctx context.Context, task func()) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("elastic pool is shut down")
-		}
-	}()
-
+func (ep *elasticPool) Submit(ctx context.Context, task func()) error {
+	if task == nil {
+		return fmt.Errorf("elastic pool: nil task")
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-ep.ctx.Done():
+		return fmt.Errorf("elastic pool is shut down")
 	case ep.workQueue <- task:
 		return nil
 	default:
-		// We hit this case when all workers are busy. Under standard operation, this should
-		// be fairly rare, but it's not catastrophic if it happens.
+		// All warm workers are busy; spawn a temporary goroutine.
 		go task()
 		return nil
 	}
@@ -69,6 +71,9 @@ func (ep *elasticPool) Submit(ctx context.Context, task func()) (err error) {
 
 func (ep *elasticPool) worker() {
 	for task := range ep.workQueue {
+		if task == nil {
+			return
+		}
 		task()
 	}
 }

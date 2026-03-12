@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
@@ -142,7 +141,6 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 		1024*1024, // 1MB buffer
 		int64(tree.root.Size()),
 		nil, // no rate limiting
-		logger.NewNopLogger(),
 		func(w *snapshotWriter) (uint32, error) {
 			if tree.root == nil {
 				return 0, nil

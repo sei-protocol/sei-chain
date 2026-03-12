@@ -1,7 +1,6 @@
 package evidence
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -9,7 +8,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "evidence")
 
 // BeginBlocker iterates through and handles any newly discovered evidence of
 // misbehavior submitted by Tendermint. Currently, only equivocation is handled.
@@ -25,7 +27,7 @@ func BeginBlocker(ctx sdk.Context, byzantineValidators []abci.Misbehavior, k kee
 			k.HandleEquivocationEvidence(ctx, evidence.(*types.Equivocation))
 
 		default:
-			k.Logger(ctx).Error(fmt.Sprintf("ignored unknown evidence type: %s", tmEvidence.Type))
+			logger.Error("ignored unknown evidence type", "type", tmEvidence.Type)
 		}
 	}
 }

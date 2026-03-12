@@ -280,7 +280,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
 		s.phaseTimer.SetPhase("commit_write_snapshot")
 		if err := s.WriteSnapshot(""); err != nil {
-			s.log.Error("auto snapshot failed", "version", version, "err", err)
+			logger.Error("auto snapshot failed", "version", version, "err", err)
 		}
 	}
 
@@ -290,7 +290,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	}
 
 	s.phaseTimer.SetPhase("commit_done")
-	s.log.Info("Committed version", "version", version)
+	logger.Info("Committed version", "version", version)
 	return version, nil
 }
 

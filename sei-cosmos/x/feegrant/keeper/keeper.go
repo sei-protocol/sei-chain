@@ -1,10 +1,6 @@
 package keeper
 
 import (
-	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -29,11 +25,6 @@ func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak feegrant.Account
 		storeKey:   storeKey,
 		authKeeper: ak,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", feegrant.ModuleName))
 }
 
 // GrantAllowance creates a new grant

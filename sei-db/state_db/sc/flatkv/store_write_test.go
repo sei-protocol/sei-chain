@@ -522,7 +522,7 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		cfg := DefaultTestConfig(t)
-		store, err := NewCommitStore(t.Context(), nil, cfg)
+		store, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -536,7 +536,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		cfg := DefaultTestConfig(t)
 		cfg.Fsync = false
-		store, err := NewCommitStore(t.Context(), nil, cfg)
+		store, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -569,7 +569,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -592,7 +592,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cfg.SnapshotInterval = 10
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -620,7 +620,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cfg.SnapshotInterval = 0
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -713,7 +713,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
 		cfg := DefaultTestConfig(t)
-		s, err := NewCommitStore(t.Context(), nil, cfg)
+		s, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = s.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -838,7 +838,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 func TestStoreFsyncEnabled(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cfg.Fsync = true
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -860,7 +860,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -881,7 +881,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 func TestWALRecordsChangesets(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), nil, cfg)
+	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)

@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
@@ -14,7 +13,7 @@ import (
 func TestSnapshotTimeThrottling(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:        100,     // Small interval for testing
 			SnapshotMinTimeInterval: 60 * 60, // 1 hour minimum time interval (in seconds)
@@ -70,7 +69,7 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config:          Config{SnapshotInterval: 100},
 		Dir:             dir,
 		CreateIfMissing: true,
@@ -156,7 +155,7 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 func TestSnapshotWithShortTimeInterval(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:        100,
 			SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
@@ -51,11 +50,11 @@ func TestInitCmd(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()
-			logger := log.NewNopLogger()
+
 			cfg, err := genutiltest.CreateDefaultTendermintConfig(home)
 			require.NoError(t, err)
 
-			serverCtx := server.NewContext(viper.New(), cfg, logger)
+			serverCtx := server.NewContext(viper.New(), cfg)
 			interfaceRegistry := types.NewInterfaceRegistry()
 			marshaler := codec.NewProtoCodec(interfaceRegistry)
 			clientCtx := client.Context{}.
@@ -85,11 +84,11 @@ func TestInitCmd(t *testing.T) {
 
 func TestInitRecover(t *testing.T) {
 	home := t.TempDir()
-	logger := log.NewNopLogger()
+
 	cfg, err := genutiltest.CreateDefaultTendermintConfig(home)
 	require.NoError(t, err)
 
-	serverCtx := server.NewContext(viper.New(), cfg, logger)
+	serverCtx := server.NewContext(viper.New(), cfg)
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
 	clientCtx := client.Context{}.
@@ -116,11 +115,11 @@ func TestInitRecover(t *testing.T) {
 
 func TestEmptyState(t *testing.T) {
 	home := t.TempDir()
-	logger := log.NewNopLogger()
+
 	cfg, err := genutiltest.CreateDefaultTendermintConfig(home)
 	require.NoError(t, err)
 
-	serverCtx := server.NewContext(viper.New(), cfg, logger)
+	serverCtx := server.NewContext(viper.New(), cfg)
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
 	clientCtx := client.Context{}.

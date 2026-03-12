@@ -13,9 +13,14 @@ import (
 	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/seilog"
 )
 
-var _ Keeper = (*BaseKeeper)(nil)
+var (
+	logger = seilog.NewLogger("giga", "deps", "xbank", "keeper")
+
+	_ Keeper = (*BaseKeeper)(nil)
+)
 
 // Keeper defines a module interface that facilitates the transfer of coins
 // between accounts.
@@ -319,7 +324,7 @@ func (k BaseKeeper) SendCoinsFromModuleToModule(
 		return nil
 	}
 
-	k.Logger(ctx).Debug("Sending coins from module to module", "sender", senderModule, "sender_address", senderAddr.String(), "recipient", recipientModule, "recipient_address", recipientAcc.GetAddress().String(), "amount", amt.String())
+	logger.Debug("Sending coins from module to module", "sender", senderModule, "sender_address", senderAddr, "recipient", recipientModule, "recipient_address", recipientAcc.GetAddress(), "amount", amt)
 
 	return k.SendCoins(ctx, senderAddr, recipientAcc.GetAddress(), amt)
 }
@@ -403,12 +408,12 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 		amount, ok := moduleAddrBalanceMap[moduleBech32Addr]
 		if !ok {
 			err := fmt.Errorf("failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
-			ctx.Logger().Error(err.Error())
+			logger.Error(err.Error())
 			panic(err)
 		}
 		err := k.AddCoins(ctx, sdk.MustAccAddressFromBech32(moduleBech32Addr), amount, true)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to add coin=%s to module address=%s, error is: %s", amount, moduleBech32Addr, err))
+			logger.Error("Failed to add coin to module address", "coin", amount, "address", moduleBech32Addr, "err", err)
 			panic(err)
 		}
 	}
@@ -467,7 +472,7 @@ func (k BaseKeeper) UndelegateCoinsFromModuleToAccount(
 func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins, addFn AddFn) error {
 	err := k.mintCoinsRestrictionFn(ctx, amounts)
 	if err != nil {
-		ctx.Logger().Error(fmt.Sprintf("Module %q attempted to mint coins %s it doesn't have permission for, error %v", moduleName, amounts, err))
+		logger.Error("Module attempted to mint coins it doesn't have permission for", "module", moduleName, "coins", amounts, "err", err)
 		return err
 	}
 	acc := k.ak.GetModuleAccount(ctx, moduleName)
@@ -489,8 +494,7 @@ func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.
 		k.SetSupply(ctx, supply)
 	}
 
-	logger := k.Logger(ctx)
-	logger.Info("minted coins from module account", "amount", amounts.String(), "from", moduleName)
+	logger.Info("minted coins from module account", "amount", amounts, "from", moduleName)
 
 	// emit mint event
 	ctx.EventManager().EmitEvent(
@@ -539,8 +543,7 @@ func (k BaseKeeper) destroyCoins(ctx sdk.Context, moduleName string, amounts sdk
 		k.SetSupply(ctx, supply)
 	}
 
-	logger := k.Logger(ctx)
-	logger.Info("burned tokens from module account", "amount", amounts.String(), "from", moduleName)
+	logger.Info("burned tokens from module account", "amount", amounts, "from", moduleName)
 
 	// emit burn event
 	ctx.EventManager().EmitEvent(

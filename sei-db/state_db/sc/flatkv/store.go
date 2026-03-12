@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -20,9 +20,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/seilog"
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
 const (
 	// Top-level directory names
@@ -70,8 +73,8 @@ type pendingAccountWrite struct {
 type CommitStore struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	log    logger.Logger
-	config *Config
+	config Config
+	dbDir  string
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
@@ -129,13 +132,8 @@ var _ Store = (*CommitStore)(nil)
 // Call LoadVersion to open and initialize.
 func NewCommitStore(
 	ctx context.Context,
-	log logger.Logger,
 	cfg *Config,
 ) (*CommitStore, error) {
-
-	if log == nil {
-		log = logger.NewNopLogger()
-	}
 
 	cfg.InitializeDataDirectories()
 
@@ -158,8 +156,6 @@ func NewCommitStore(
 	return &CommitStore{
 		ctx:               ctx,
 		cancel:            cancel,
-		log:               log,
-		config:            cfg,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
@@ -184,7 +180,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	if readOnly {
 		if s.readOnly {
@@ -223,7 +219,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
 			}
 		} else {
-			s.log.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
+			logger.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
 		}
 		// Force a fresh working dir clone: the working dir may contain data
 		// beyond targetVersion from a previous open-to-latest.
@@ -247,7 +243,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 // requested version.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
 	roCfg := s.config.Copy()
-	ro, err := NewCommitStore(s.ctx, s.log, roCfg)
+	ro, err := NewCommitStore(s.ctx, roCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -267,7 +263,7 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	defer func() {
 		if retErr != nil {
 			if closeErr := ro.Close(); closeErr != nil {
-				s.log.Error("failed to close readonly store during error cleanup", "err", closeErr)
+				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
 			}
 		}
 	}()
@@ -333,7 +329,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	s.readOnly = true
 
-	s.log.Info("FlatKV readonly store opened", "version", s.committedVersion,
+	logger.Info("FlatKV readonly store opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
 	return nil
 }
@@ -408,7 +404,7 @@ func (s *CommitStore) open() (retErr error) {
 		return err
 	}
 
-	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
+	logger.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
 	return nil
 }
 
@@ -497,7 +493,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 
 	if changelogRoot != "" {
 		changelogPath := filepath.Join(changelogRoot, changelogDir)
-		s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
+		s.changelog, err = wal.NewChangelogWAL(changelogPath, wal.Config{
 			WriteBufferSize: 0,
 			KeepRecent:      0,
 			PruneInterval:   0,
@@ -562,7 +558,7 @@ func (s *CommitStore) clearChangelog() error {
 		return fmt.Errorf("remove changelog dir: %w", err)
 	}
 	var err error
-	s.changelog, err = wal.NewChangelogWAL(s.log, dir, wal.Config{})
+	s.changelog, err = wal.NewChangelogWAL(dir, wal.Config{})
 	if err != nil {
 		return fmt.Errorf("reopen changelog: %w", err)
 	}

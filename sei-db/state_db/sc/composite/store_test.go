@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -42,7 +41,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test", EVMStoreName})
 
@@ -92,7 +91,7 @@ func TestEmptyChangesets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
@@ -114,7 +113,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
@@ -152,7 +151,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
@@ -188,7 +187,7 @@ func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
@@ -225,7 +224,7 @@ func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
@@ -249,7 +248,7 @@ func TestGetVersions(t *testing.T) {
 	}
 	require.NoError(t, cs.Close())
 
-	cs2, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs2.Initialize([]string{"test"})
 
@@ -262,7 +261,7 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 

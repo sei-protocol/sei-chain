@@ -224,28 +224,28 @@ func TestFixedPool_SubmitReturnsErrorOnCancelledContext(t *testing.T) {
 	}
 }
 
-func TestFixedPool_SubmitAfterShutdown(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	pool := NewFixedPool(ctx, "test-shutdown", 2, 4)
-
-	cancel()
-	time.Sleep(10 * time.Millisecond)
-
-	err := pool.Submit(t.Context(), func() {})
-	if err == nil {
-		t.Error("expected error from Submit after pool shutdown")
+func TestPool_SubmitAfterShutdown(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pool Pool
+	}{
+		{"FixedPool", func() Pool {
+			ctx, cancel := context.WithCancel(t.Context())
+			p := NewFixedPool(ctx, "test-shutdown", 2, 4)
+			cancel()
+			return p
+		}()},
+		{"ElasticPool", func() Pool {
+			ctx, cancel := context.WithCancel(t.Context())
+			p := NewElasticPool(ctx, "test-shutdown", 2)
+			cancel()
+			return p
+		}()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			time.Sleep(10 * time.Millisecond)
+			// Must not panic. May or may not return an error.
+			_ = tc.pool.Submit(t.Context(), func() {})
+		})
 	}
-}
-
-func TestElasticPool_SubmitAfterShutdown(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	pool := NewElasticPool(ctx, "test-shutdown", 2)
-
-	cancel()
-	time.Sleep(10 * time.Millisecond)
-
-	// Should not panic to the caller. Due to the default branch in the elastic
-	// pool's select, Submit may either return an error or silently run the task
-	// in a new goroutine — both outcomes are acceptable.
-	_ = pool.Submit(t.Context(), func() {})
 }

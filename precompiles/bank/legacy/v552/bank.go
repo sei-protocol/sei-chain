@@ -14,7 +14,6 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
@@ -388,8 +387,4 @@ func (Precompile) IsTransaction(method string) bool {
 	default:
 		return false
 	}
-}
-
-func (p Precompile) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("precompile", "bank")
 }

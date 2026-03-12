@@ -1,7 +1,6 @@
 package store
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cache"
@@ -10,11 +9,11 @@ import (
 )
 
 func NewCommitMultiStore(db dbm.DB) types.CommitMultiStore {
-	return rootmulti.NewStore(db, log.NewNopLogger())
+	return rootmulti.NewStore(db)
 }
 
 func NewCommitMultiStoreWithArchival(db dbm.DB, archivalDb dbm.DB, archivalVersion int64) types.CommitMultiStore {
-	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion, log.NewNopLogger())
+	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion)
 }
 
 func NewCommitKVStoreCacheManager() types.MultiStorePersistentCache {

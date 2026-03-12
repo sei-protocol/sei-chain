@@ -12,7 +12,6 @@ import (
 	cosmosante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
@@ -27,12 +26,10 @@ type SeiTxPrioritizer struct {
 	evmKeeper     *evmkeeper.Keeper
 	upgradeKeeper *upgradekeeper.Keeper
 	paramsKeeper  *paramskeeper.Keeper
-	logger        log.Logger
 }
 
-func NewSeiTxPrioritizer(logger log.Logger, ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
+func NewSeiTxPrioritizer(ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
 	return &SeiTxPrioritizer{
-		logger:        logger,
 		evmKeeper:     ek,
 		upgradeKeeper: uk,
 		paramsKeeper:  pk,
@@ -46,7 +43,7 @@ func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_prior
 			// vectors where a malicious actor crafts a transaction that panics the
 			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
 			// back to zero priority in this case and log the panic for monitoring purposes.
-			s.logger.Error("tx prioritizer panicked. Falling back on no priority", "error", r)
+			logger.Error("tx prioritizer panicked. Falling back on no priority", "err", r)
 			_priorityHint = 0
 			_err = nil
 		}

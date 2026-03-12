@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
@@ -14,7 +13,7 @@ import (
 
 func newMemTestKVStore(t *testing.T) types.KVStore {
 	db := dbm.NewMemDB()
-	store, err := iavl.LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
+	store, err := iavl.LoadStore(db, types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
 	require.NoError(t, err)
 	return store
 }

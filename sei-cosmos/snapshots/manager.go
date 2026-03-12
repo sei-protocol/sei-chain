@@ -12,8 +12,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "snapshots")
 
 const (
 	opNone     operation = ""
@@ -50,7 +52,6 @@ type restoreDone struct {
 //     errors via io.Pipe.CloseWithError().
 type Manager struct {
 	store      *Store
-	logger     log.Logger
 	multistore types.Snapshotter
 	extensions map[string]types.ExtensionSnapshotter
 
@@ -63,9 +64,8 @@ type Manager struct {
 }
 
 // NewManager creates a new manager.
-func NewManager(store *Store, multistore types.Snapshotter, logger log.Logger) *Manager {
+func NewManager(store *Store, multistore types.Snapshotter) *Manager {
 	return &Manager{
-		logger:     logger,
 		store:      store,
 		multistore: multistore,
 		extensions: make(map[string]types.ExtensionSnapshotter),
@@ -189,7 +189,7 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 	}
 	defer func() { _ = streamWriter.Close() }()
 	if err := m.multistore.Snapshot(height, streamWriter); err != nil {
-		m.logger.Error("Snapshot creation failed", "err", err)
+		logger.Error("Snapshot creation failed", "err", err)
 		streamWriter.CloseWithError(err)
 		return
 	}
@@ -289,7 +289,7 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 			err:      err,
 		}
 		close(chDone)
-		m.logger.Info(fmt.Sprintf("Restoring snapshot for version %d took %s", snapshot.Height, time.Since(startTime)))
+		logger.Info("Restoring snapshot for version", "version", snapshot.Height, "took", time.Since(startTime))
 	}()
 
 	m.chRestore = chChunks

@@ -7,11 +7,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "internal", "libs", "service")
+
 	_ Service = (*BaseService)(nil)
 )
 
@@ -73,7 +75,7 @@ Typical usage:
 		fs := &FooService{
 			// init
 		}
-		fs.BaseService = *NewBaseService(log, "FooService", fs)
+		fs.BaseService = *NewBaseService( "FooService", fs)
 		return fs
 	}
 
@@ -87,19 +89,17 @@ Typical usage:
 	}
 */
 type BaseService struct {
-	logger log.Logger
-	name   string
+	name string
 	// The "subclass" of BaseService
 	impl  Implementation
 	inner atomic.Pointer[baseService]
 }
 
 // NewBaseService creates a new BaseService.
-func NewBaseService(logger log.Logger, name string, impl Implementation) *BaseService {
+func NewBaseService(name string, impl Implementation) *BaseService {
 	return &BaseService{
-		logger: logger,
-		name:   name,
-		impl:   impl,
+		name: name,
+		impl: impl,
 	}
 }
 
@@ -114,7 +114,7 @@ func (bs *BaseService) Start(ctx context.Context) error {
 		return nil
 	}
 
-	bs.logger.Debug("starting service", "service", bs.name, "impl", bs.name)
+	logger.Debug("starting service", "service", bs.name, "impl", bs.name)
 	// Currently sei-tendermint services (and tests) rely on the fact that OnStart is called with
 	// exactly the same context as Start.
 	if err := bs.impl.OnStart(ctx); err != nil {
@@ -125,10 +125,10 @@ func (bs *BaseService) Start(ctx context.Context) error {
 	go func() {
 		<-inner.ctx.Done()
 		inner.cancel() // free the context.
-		bs.logger.Debug("stopping service", "service", bs.name)
+		logger.Debug("stopping service", "service", bs.name)
 		bs.impl.OnStop()
 		inner.wg.Wait() // wait for all spawned tasks to finish
-		bs.logger.Info("stopped service", "service", bs.name)
+		logger.Info("stopped service", "service", bs.name)
 		close(inner.done)
 	}()
 	return nil
@@ -162,7 +162,7 @@ func (bs *BaseService) Spawn(name string, task func(ctx context.Context) error) 
 	go func() {
 		defer inner.wg.Done()
 		if err := utils.IgnoreCancel(task(inner.ctx)); err != nil {
-			bs.logger.Error("task failed", "name", name, "service", bs.name, "error", err)
+			logger.Error("task failed", "name", name, "service", bs.name, "error", err)
 		}
 	}()
 }
