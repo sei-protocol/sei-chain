@@ -11,7 +11,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
@@ -68,7 +67,7 @@ type (
 
 	// AppCreator is a function that allows us to lazily initialize an
 	// application using various configurations.
-	AppCreator func(log.Logger, dbm.DB, io.Writer, *tmcfg.Config, AppOptions) Application
+	AppCreator func(dbm.DB, io.Writer, *tmcfg.Config, AppOptions) Application
 
 	// ModuleInitFlags takes a start command and adds modules specific init flags.
 	ModuleInitFlags func(startCmd *cobra.Command)
@@ -89,5 +88,5 @@ type (
 	// AppExporter is a function that dumps all app state to
 	// JSON-serializable structure and returns the current validator set.
 	// If a file is specified,
-	AppExporter func(log.Logger, dbm.DB, io.Writer, int64, bool, []string, AppOptions, *os.File) (ExportedApp, error)
+	AppExporter func(dbm.DB, io.Writer, int64, bool, []string, AppOptions, *os.File) (ExportedApp, error)
 )

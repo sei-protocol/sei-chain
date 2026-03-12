@@ -24,7 +24,7 @@ func TestPriorityAnteDecorator(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with normal priority
 	newCtx, err := chainedHandler(
@@ -41,7 +41,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with too high priority, should be auto capped
 	newCtx, err := chainedHandler(
@@ -62,7 +62,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with zero priority, should be bumped up to oracle priority
 	newCtx, err := chainedHandler(

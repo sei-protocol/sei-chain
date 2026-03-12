@@ -1,20 +1,17 @@
 package keeper
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 type Keeper struct {
@@ -30,11 +27,6 @@ func NewKeeper(storeKey sdk.StoreKey, cdc codec.BinaryCodec, router *baseapp.Msg
 		cdc:      cdc,
 		router:   router,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", authz.ModuleName))
 }
 
 // getGrant returns grant stored at skey.

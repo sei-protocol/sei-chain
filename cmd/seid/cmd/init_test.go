@@ -14,7 +14,6 @@ import (
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
@@ -293,7 +292,7 @@ func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -313,7 +312,7 @@ func TestLoadOrWriteGenesis_WrongChainID(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	_, err = loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err = loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "chain_id")
 }
@@ -325,7 +324,7 @@ func TestLoadOrWriteGenesis_PathIsDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(genFile, 0755))
 
 	encCfg := app.MakeEncodingConfig()
-	_, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err := loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "directory")
 }
@@ -338,7 +337,7 @@ func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
 	require.True(t, genesis.IsWellKnown(chainID), "atlantic-2 should be well-known")
 	encCfg := app.MakeEncodingConfig()
 
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -358,7 +357,7 @@ func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
 	require.NoError(t, existing.SaveAs(genFile))
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	// Should be overwritten
@@ -373,7 +372,7 @@ func TestLoadOrWriteGenesis_UnknownChainWritesDefault(t *testing.T) {
 	require.False(t, genesis.IsWellKnown(chainID), "custom-chain-1 should not be well-known")
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)

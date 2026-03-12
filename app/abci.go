@@ -182,7 +182,7 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 	scheduler := tasks.NewScheduler(app.ConcurrencyWorkers(), app.TracingInfo, app.DeliverTx)
 	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
 	if err != nil {
-		ctx.Logger().Error("error while processing scheduler", "err", err)
+		logger.Error("error while processing scheduler", "err", err)
 		panic(err)
 	}
 	for _, tx := range txRes {

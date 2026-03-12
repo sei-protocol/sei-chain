@@ -23,7 +23,6 @@ import (
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -36,11 +35,10 @@ var (
 
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
-	logger := log.NewNopLogger()
 
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, _ := makeState(t, 1, 1)
@@ -58,7 +56,7 @@ func TestApplyBlock(t *testing.T) {
 		mock.Anything,
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(nil)
-	blockExec := sm.NewBlockExecutor(stateStore, logger, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -79,7 +77,6 @@ func TestApplyBlock(t *testing.T) {
 func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	app := &testApp{}
 
 	state, stateDB, privVals := makeState(t, 7, 1)
@@ -115,10 +112,10 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 				mock.Anything).Return(nil)
 			mp.On("TxStore").Return(nil)
 
-			eventBus := eventbus.NewDefault(logger)
+			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -149,7 +146,6 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -237,12 +233,12 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(nil)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -265,20 +261,18 @@ func TestProcessProposal(t *testing.T) {
 	ctx := t.Context()
 
 	app := abcimocks.NewApplication(t)
-	logger := log.NewNopLogger()
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	mp := &mpmocks.Mempool{}
 	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -477,7 +471,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
 
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -496,12 +489,11 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
 	mp.On("TxStore").Return(nil)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -556,9 +548,8 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, _ := makeState(t, 1, 1)
@@ -568,7 +559,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -598,9 +588,7 @@ func TestEmptyPrepareProposal(t *testing.T) {
 	ctx := t.Context()
 	var err error
 
-	logger := log.NewNopLogger()
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	app := abcimocks.NewApplication(t)
@@ -624,7 +612,6 @@ func TestEmptyPrepareProposal(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -646,8 +633,7 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -674,7 +660,6 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		evpool,
@@ -698,8 +683,7 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 	ctx := t.Context()
 	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -723,7 +707,6 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		evpool,
@@ -750,8 +733,7 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 	ctx := t.Context()
 	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -778,7 +760,6 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		evpool,
@@ -802,8 +783,7 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	ctx := t.Context()
 	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -820,7 +800,6 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		evpool,
@@ -893,7 +872,6 @@ func (app *panicApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeB
 // TestCreateProposalBlockPanicRecovery tests that panics are recovered and converted to errors
 func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	ctx := context.Background()
-	logger := log.NewNopLogger()
 
 	// Create the panicking app
 	app := &panicApp{}
@@ -902,7 +880,7 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 	defer eventBus.Stop()
 
@@ -912,7 +890,6 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},

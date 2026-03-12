@@ -12,7 +12,7 @@ import (
 
 	"github.com/tidwall/wal"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
 
 // The size of internal channel buffers if the provided buffer size is less than 1.
@@ -29,7 +29,6 @@ type WAL[T any] struct {
 	dir       string
 	log       *wal.Log
 	config    Config
-	logger    logger.Logger
 	marshal   MarshalFn[T]
 	unmarshal UnmarshalFn[T]
 
@@ -91,6 +90,10 @@ type Config struct {
 	// If true, make a deep copy of the data for every write. If false, then it is not safe to modify the data after
 	// reading/writing it.
 	DeepCopyEnabled bool
+
+	// AllowEmpty permits removing all entries via TruncateAll.
+	// When false (default), at least one entry must remain after truncation.
+	AllowEmpty bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -110,13 +113,13 @@ func NewWAL[T any](
 	ctx context.Context,
 	marshal MarshalFn[T],
 	unmarshal UnmarshalFn[T],
-	logger logger.Logger,
 	dir string,
 	config Config,
 ) (*WAL[T], error) {
 	log, err := open(dir, &wal.Options{
-		NoSync: !config.FsyncEnabled,
-		NoCopy: !config.DeepCopyEnabled,
+		NoSync:     !config.FsyncEnabled,
+		NoCopy:     !config.DeepCopyEnabled,
+		AllowEmpty: config.AllowEmpty,
 	})
 	if err != nil {
 		return nil, err
@@ -142,7 +145,6 @@ func NewWAL[T any](
 		dir:            dir,
 		log:            log,
 		config:         config,
-		logger:         logger,
 		marshal:        marshal,
 		unmarshal:      unmarshal,
 		writeBatchSize: writeBatchSize,
@@ -175,7 +177,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		errChan: errChan,
 	}
 
-	err := interruptiblePush(walLog.ctx, walLog.writeChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.writeChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push write request: %w", err)
 	}
@@ -185,7 +187,7 @@ func (walLog *WAL[T]) Write(entry T) error {
 		return nil
 	}
 
-	err, pullErr := interruptiblePull(walLog.ctx, errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull write error: %w", pullErr)
 	}
@@ -337,6 +339,27 @@ func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 	return walLog.sendTruncate(true, index)
 }
 
+// TruncateAll removes every entry from the log.
+// Requires AllowEmpty to be set in Config; returns an error otherwise.
+func (walLog *WAL[T]) TruncateAll() error {
+	backgroundErr := walLog.asyncError.Load()
+	if backgroundErr != nil {
+		return fmt.Errorf("WAL encountered an error and is now shut down: %w", *backgroundErr)
+	}
+	last, err := walLog.LastOffset()
+	if err != nil {
+		return err
+	}
+	first, err := walLog.FirstOffset()
+	if err != nil {
+		return err
+	}
+	if first == 0 && last == 0 {
+		return nil // already empty
+	}
+	return walLog.sendTruncate(true, last+1)
+}
+
 // sendTruncate sends a truncate request to the main loop and waits for completion.
 func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 	req := &truncateRequest{
@@ -345,12 +368,12 @@ func (walLog *WAL[T]) sendTruncate(before bool, index uint64) error {
 		errChan: make(chan error, 1),
 	}
 
-	err := interruptiblePush(walLog.ctx, walLog.truncateChan, req)
+	err := threading.InterruptiblePush(walLog.ctx, walLog.truncateChan, req)
 	if err != nil {
 		return fmt.Errorf("failed to push truncate request: %w", err)
 	}
 
-	err, pullErr := interruptiblePull(walLog.ctx, req.errChan)
+	err, pullErr := threading.InterruptiblePull(walLog.ctx, req.errChan)
 	if pullErr != nil {
 		return fmt.Errorf("failed to pull truncate error: %w", pullErr)
 	}
@@ -505,7 +528,7 @@ func (walLog *WAL[T]) drain() {
 // Shut down the WAL. Sends a close request to the main loop so in-flight writes (and other work)
 // can complete before teardown. Idempotent.
 func (walLog *WAL[T]) Close() error {
-	_ = interruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
+	_ = threading.InterruptiblePush(walLog.ctx, walLog.closeReqChan, struct{}{})
 	// If error is non-nil then this is not the first call to Close(), no problem since Close() is idempotent
 
 	err := <-walLog.closeErrChan
@@ -597,28 +620,4 @@ func (walLog *WAL[T]) mainLoop() {
 		}
 	}
 	walLog.closeErrChan <- closeErr
-}
-
-// Push to a channel, returning an error if the context is cancelled before the value is pushed.
-func interruptiblePush[T any](ctx context.Context, ch chan T, value T) error {
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled: %w", ctx.Err())
-	case ch <- value:
-		return nil
-	}
-}
-
-// Pull from a channel, returning an error if the context is cancelled before the value is pulled.
-func interruptiblePull[T any](ctx context.Context, ch <-chan T) (T, error) {
-	var zero T
-	select {
-	case <-ctx.Done():
-		return zero, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case value, ok := <-ch:
-		if !ok {
-			return zero, fmt.Errorf("channel closed")
-		}
-		return value, nil
-	}
 }

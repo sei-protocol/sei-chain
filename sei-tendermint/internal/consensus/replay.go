@@ -11,9 +11,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "consensus")
 
 // Functionality to replay blocks and messages on recovery from a crash.
 // There are two general failure scenarios:
@@ -38,7 +40,7 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 		// Skip meta messages which exist for demarcating boundaries.
 		return nil
 	case types.EventDataRoundState:
-		cs.logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
+		logger.Info("Replay: New Step", "height", m.Height, "round", m.Round, "step", m.Step)
 	case msgInfo:
 		peerID := m.PeerID
 		if peerID == "" {
@@ -47,19 +49,19 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 		switch msg := m.Msg.(type) {
 		case *ProposalMessage:
 			p := msg.Proposal
-			cs.logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header",
+			logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header",
 				p.BlockID.PartSetHeader, "pol", p.POLRound, "peer", peerID)
 		case *BlockPartMessage:
-			cs.logger.Info("Replay: BlockPart", "height", msg.Height, "round", msg.Round, "peer", peerID)
+			logger.Info("Replay: BlockPart", "height", msg.Height, "round", msg.Round, "peer", peerID)
 		case *VoteMessage:
 			v := msg.Vote
-			cs.logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type,
+			logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type,
 				"blockID", v.BlockID, "peer", peerID)
 		}
 
 		cs.handleMsg(ctx, m, false)
 	case timeoutInfo:
-		cs.logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
+		logger.Info("Replay: Timeout", "height", m.Height, "round", m.Round, "step", m.Step, "dur", m.Duration)
 		roundState := cs.roundState.CopyInternal()
 		cs.handleTimeout(ctx, m, *roundState)
 	default:
@@ -86,7 +88,7 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	if gotHeight != csHeight {
 		return fmt.Errorf("last height in WAL is %v, want %v", gotHeight, csHeight)
 	}
-	cs.logger.Info("Catchup by replaying consensus messages", "height", csHeight)
+	logger.Info("Catchup by replaying consensus messages", "height", csHeight)
 	for _, msg := range msgs {
 		// NOTE: since the priv key is set when the msgs are received
 		// it will attempt to eg double sign but we can just ignore it
@@ -95,7 +97,7 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 			return err
 		}
 	}
-	cs.logger.Info("Replay: Done")
+	logger.Info("Replay: Done")
 	return nil
 }
 
@@ -137,13 +139,11 @@ type Handshaker struct {
 	store        sm.BlockStore
 	eventBus     *eventbus.EventBus
 	genDoc       *types.GenesisDoc
-	logger       log.Logger
 
 	nBlocks int // number of blocks applied to the state
 }
 
 func NewHandshaker(
-	logger log.Logger,
 	stateStore sm.Store,
 	state sm.State,
 	store sm.BlockStore,
@@ -156,7 +156,6 @@ func NewHandshaker(
 		store:        store,
 		eventBus:     eventBus,
 		genDoc:       genDoc,
-		logger:       logger,
 	}
 }
 
@@ -181,7 +180,7 @@ func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) 
 	appHash := res.LastBlockAppHash
 
 	appHashString := fmt.Sprintf("%X", appHash)
-	h.logger.Info("ABCI Handshake App Info",
+	logger.Info("ABCI Handshake App Info",
 		"height", blockHeight,
 		"hash", appHashString,
 		"software-version", res.Version,
@@ -199,7 +198,7 @@ func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) 
 		return fmt.Errorf("error on replay: %w", err)
 	}
 
-	h.logger.Info("Completed ABCI Handshake - Tendermint and App are synced",
+	logger.Info("Completed ABCI Handshake - Tendermint and App are synced",
 		"appHeight", blockHeight, "hash", appHashString)
 
 	// TODO: (on restart) replay mempool
@@ -220,7 +219,7 @@ func (h *Handshaker) ReplayBlocks(
 	storeBlockBase := h.store.Base()
 	storeBlockHeight := h.store.Height()
 	stateBlockHeight := state.LastBlockHeight
-	h.logger.Info(
+	logger.Info(
 		"ABCI Replay Blocks",
 		"appHeight",
 		appBlockHeight,
@@ -350,7 +349,7 @@ func (h *Handshaker) ReplayBlocks(
 			// so replayBlock with the real app.
 			// NOTE: We could instead use the cs.WAL on cs.Start,
 			// but we'd have to allow the WAL to replay a block that wrote it's #ENDHEIGHT
-			h.logger.Info("Replay last block using real app")
+			logger.Info("Replay last block using real app")
 			state, err = h.replayBlock(ctx, state, storeBlockHeight, appClient)
 			if err != nil {
 				return nil, err
@@ -366,7 +365,7 @@ func (h *Handshaker) ReplayBlocks(
 			}
 			mockApp := newMockProxyApp(appHash, finalizeBlockResponses)
 
-			h.logger.Info("Replay last block using mock app")
+			logger.Info("Replay last block using mock app")
 			state, err = h.replayBlock(ctx, state, storeBlockHeight, mockApp)
 			if err != nil {
 				return nil, err
@@ -410,7 +409,7 @@ func (h *Handshaker) replayBlocks(
 		firstBlock = state.InitialHeight
 	}
 	for i := firstBlock; i <= finalBlock; i++ {
-		h.logger.Info("Applying block", "height", i)
+		logger.Info("Applying block", "height", i)
 		block := h.store.LoadBlock(i)
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
 		if len(appHash) > 0 {
@@ -422,15 +421,15 @@ func (h *Handshaker) replayBlocks(
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, h.logger, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 			appHash, err = sm.ExecCommitBlock(ctx,
-				blockExec, appClient, block, h.logger, h.stateStore, h.genDoc.InitialHeight, state)
+				blockExec, appClient, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
 				return nil, err
 			}
 		} else {
 			appHash, err = sm.ExecCommitBlock(ctx,
-				nil, appClient, block, h.logger, h.stateStore, h.genDoc.InitialHeight, state)
+				nil, appClient, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
 				return nil, err
 			}
@@ -465,7 +464,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, h.logger, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)
@@ -490,7 +489,7 @@ func (h *Handshaker) replayEvents(height int64) error {
 	if err != nil {
 		return err
 	}
-	sm.FireEvents(h.logger, h.eventBus, block, meta.BlockID, res, validatorUpdates)
+	sm.FireEvents(h.eventBus, block, meta.BlockID, res, validatorUpdates)
 	return nil
 }
 

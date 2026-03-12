@@ -7,12 +7,14 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
+
+var logger = seilog.NewLogger("tendermint", "node")
 
 // New constructs a tendermint node. The provided app runs in the same
 // process as the tendermint node and will be wrapped in a local ABCI client
@@ -22,7 +24,6 @@ import (
 func New(
 	ctx context.Context,
 	conf *config.Config,
-	logger log.Logger,
 	restartEvent func(),
 	app abci.Application,
 	gen *tmtypes.GenesisDoc,
@@ -58,13 +59,11 @@ func New(
 			app,
 			genProvider,
 			config.DefaultDBProvider,
-			logger,
 			tracerProviderOptions,
 			nodeMetrics,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
-			logger,
 			conf,
 			config.DefaultDBProvider,
 			nodeKey,

@@ -6,17 +6,18 @@ import (
 	"context"
 	"fmt"
 	"math"
-
 	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
 
 // EVMStoreName is the module name for the EVM store
 const EVMStoreName = "evm"
@@ -27,7 +28,6 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
-	logger logger.Logger
 
 	// cosmosCommitter is the Cosmos (memiavl) backend - always initialized
 	cosmosCommitter *memiavl.CommitStore
@@ -48,14 +48,12 @@ type CompositeCommitStore struct {
 func NewCompositeCommitStore(
 	ctx context.Context,
 	homeDir string,
-	logger logger.Logger,
 	cfg config.StateCommitConfig,
 ) *CompositeCommitStore {
 	// Always initialize the Cosmos backend (creates struct only, not opened)
-	cosmosCommitter := memiavl.NewCommitStore(homeDir, logger, cfg.MemIAVLConfig)
+	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
 	store := &CompositeCommitStore{
-		logger:          logger,
 		cosmosCommitter: cosmosCommitter,
 		homeDir:         homeDir,
 		config:          cfg,
@@ -65,7 +63,7 @@ func NewCompositeCommitStore(
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
 		flatkvPath := filepath.Join(homeDir, "data", "flatkv")
-		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, logger, cfg.FlatKVConfig)
+		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, cfg.FlatKVConfig)
 	}
 
 	return store
@@ -110,7 +108,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 
 	if readOnly {
 		newStore := &CompositeCommitStore{
-			logger:          cs.logger,
 			cosmosCommitter: cosmosCommitter,
 			homeDir:         cs.homeDir,
 			config:          cs.config,
@@ -118,7 +115,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				cs.logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
+				logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
 					"version", targetVersion, "err", err)
 			} else {
 				newStore.evmCommitter = evmStore

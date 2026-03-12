@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -42,11 +40,6 @@ func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.Ac
 		storeKey: storeKey,
 		ak:       ak,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k BaseViewKeeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // GetKVStore returns the appropriate KVStore based on the UseRegularStore flag.

@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "crisis", "keeper")
 
 // Keeper - crisis keeper
 type Keeper struct {
@@ -42,11 +43,6 @@ func NewKeeper(
 	}
 }
 
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
-}
-
 // RegisterRoute register the routes for each of the invariants
 func (k *Keeper) RegisterRoute(moduleName, route string, invar sdk.Invariant) {
 	invarRoute := types.NewInvarRoute(moduleName, route, invar)
@@ -70,7 +66,6 @@ func (k Keeper) Invariants() []sdk.Invariant {
 // AssertInvariants asserts all registered invariants. If any invariant fails,
 // the method panics.
 func (k Keeper) AssertInvariants(ctx sdk.Context) {
-	logger := k.Logger(ctx)
 
 	start := time.Now()
 	invarRoutes := k.Routes()

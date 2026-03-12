@@ -9,7 +9,6 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -32,7 +31,6 @@ type ConnSet = connSet[*ConnV2]
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
 	*service.BaseService
-	logger log.Logger
 
 	metrics *Metrics
 	lc      *metricsLabelCache
@@ -63,7 +61,6 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 
 // NewRouter creates a new Router.
 func NewRouter(
-	logger log.Logger,
 	metrics *Metrics,
 	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
@@ -74,7 +71,7 @@ func NewRouter(
 		return nil, err
 	}
 	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
+	peerManager := newPeerManager[*ConnV2](selfID, options)
 	peerDB, err := newPeerDB(db, options.maxPeers())
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
@@ -85,7 +82,6 @@ func NewRouter(
 		}
 	}
 	router := &Router{
-		logger:           logger,
 		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
@@ -99,7 +95,7 @@ func NewRouter(
 	if gigaCfg, ok := options.Giga.Get(); ok {
 		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
-	router.BaseService = service.NewBaseService(logger, "router", router)
+	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
 }
 
@@ -253,7 +249,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					release()
 					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -316,7 +312,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 							}
 							return nil
 						})
-						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
+						logger.Error("r.runConn(outbound)", "addr", addr, "err", err)
 						return nil
 					})
 				}
@@ -364,7 +360,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	r.logger.Error("evicting", "peer", id, "err", err)
+	logger.Error("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 
@@ -388,7 +384,7 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		defer cancel()
 	}
 
-	r.logger.Debug("dialing peer address", "peer", addr)
+	logger.Debug("dialing peer address", "peer", addr)
 	endpoints, err := addr.Resolve(resolveCtx)
 	if err != nil {
 		return tcp.Conn{}, fmt.Errorf("address.Resolve(): %w", err)
@@ -409,10 +405,10 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		}
 		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
 		if err != nil {
-			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
+			logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
+		logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return c, nil
 	}
 	return tcp.Conn{}, errors.New("all endpoints failed")

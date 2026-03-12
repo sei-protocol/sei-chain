@@ -308,7 +308,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 	return func(height uint64) common.Hash {
 		if height > math.MaxInt64 {
-			ctx.Logger().Error("Sei block height is bounded by int64 range")
+			logger.Error("Sei block height is bounded by int64 range")
 			return common.Hash{}
 		}
 		h := int64(height)

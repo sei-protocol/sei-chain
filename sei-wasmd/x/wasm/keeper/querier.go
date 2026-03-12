@@ -191,7 +191,7 @@ func (q grpcQuerier) SmartContractState(c context.Context, req *types.QuerySmart
 				err = sdkerrors.ErrPanic
 			}
 			rsp = nil
-			moduleLogger(ctx).
+			logger.
 				Debug("smart query contract",
 					"error", "recovering panic",
 					"contract-address", req.Address,

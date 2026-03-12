@@ -7,17 +7,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/scripts/keymigrate"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/scripts/scmigrate"
 )
 
-func MakeKeyMigrateCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+func MakeKeyMigrateCommand(conf *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "key-migrate",
 		Short: "Run Database key migration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return RunDatabaseMigration(cmd.Context(), logger, conf)
+			return RunDatabaseMigration(cmd.Context(), conf)
 		},
 	}
 
@@ -27,7 +26,7 @@ func MakeKeyMigrateCommand(conf *config.Config, logger log.Logger) *cobra.Comman
 	return cmd
 }
 
-func RunDatabaseMigration(ctx context.Context, logger log.Logger, conf *config.Config) error {
+func RunDatabaseMigration(ctx context.Context, conf *config.Config) error {
 	contexts := []string{
 		// this is ordered to put
 		// the more ephemeral tables first to

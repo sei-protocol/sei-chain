@@ -90,7 +90,7 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 	if deleted > 0 {
 		seimetrics.IncrEvmZeroStoragePrunedKeys(deletedMetric)
 		seimetrics.IncrEvmZeroStoragePrunedBytes(bytesPruned)
-		ctx.Logger().Info("pruned zero storage slots", "processed", processed, "deleted", deleted, "bytes_saved", bytesPruned)
+		logger.Info("pruned zero storage slots", "processed", processed, "deleted", deleted, "bytes_saved", bytesPruned)
 	}
 	return processed, deleted
 }
