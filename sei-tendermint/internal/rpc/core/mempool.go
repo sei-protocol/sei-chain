@@ -114,7 +114,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 			count++
 			select {
 			case <-ctx.Done():
-				env.Logger.Error("error on broadcastTxCommit",
+				logger.Error("error on broadcastTxCommit",
 					"duration", time.Since(startAt),
 					"err", err)
 				return &coretypes.ResultBroadcastTxCommit{

@@ -21,7 +21,6 @@ func HandleCommunityPoolSpendProposal(ctx sdk.Context, k Keeper, p *types.Commun
 		return err
 	}
 
-	logger := k.Logger(ctx)
 	logger.Info("transferred from the community pool to recipient", "amount", p.Amount.String(), "recipient", p.Recipient)
 
 	return nil

@@ -13,7 +13,6 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	typesparams "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
@@ -48,7 +47,7 @@ func TestMigrate2to3(t *testing.T) {
 	oldCreateDenomFeeWhitelistPrefix := []byte(strings.Join([]string{oldCreateDenomFeeWhitelistKey, ""}, KeySeparator))
 	oldCreatorSpecificPrefix := []byte(strings.Join([]string{oldCreateDenomFeeWhitelistKey, "creator", ""}, KeySeparator))
 
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false)
 	if !paramsSubspace.HasKeyTable() {
 		paramsSubspace = paramsSubspace.WithKeyTable(types.ParamKeyTable())
 	}
@@ -98,7 +97,7 @@ func TestMigrate3To4(t *testing.T) {
 func TestMigrate4To5(t *testing.T) {
 	stateStore, keeper := getStoreAndKeeper(t)
 	m := NewMigrator(keeper)
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false)
 	err := m.Migrate4to5(ctx)
 	require.NoError(t, err)
 	require.NotPanics(t, func() { m.keeper.GetParams(ctx) })

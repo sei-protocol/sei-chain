@@ -10,7 +10,6 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
@@ -30,7 +29,7 @@ func setupReceiptStore(t *testing.T) (receipt.ReceiptStore, sdk.Context, storety
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
-	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store, ctx, storeKey
@@ -60,24 +59,24 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	storeKey := storetypes.NewKVStoreKey("evm")
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = ""
-	store, err := receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.Error(t, err)
 	require.Nil(t, store)
 
 	cfg.DBDirectory = t.TempDir()
 	cfg.Backend = "rocksdb"
-	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.Error(t, err)
 	require.Nil(t, store)
 
 	cfg.Backend = "pebble"
-	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 
 	cfg.Backend = "parquet"
-	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
@@ -151,7 +150,7 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 	cfg.KeepRecent = 0
 	cfg.Backend = "pebble"
 
-	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -186,7 +185,7 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	changelogPath := dbutils.GetChangelogPath(dir)
 	require.NoError(t, os.MkdirAll(changelogPath, 0o750))
 
-	stream, err := wal.NewChangelogWAL(dbLogger.NewNopLogger(), changelogPath, wal.Config{})
+	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
 	require.NoError(t, err)
 
 	txHash1 := common.HexToHash("0x20")
@@ -219,7 +218,7 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	require.NoError(t, db.SetLatestVersion(1))
-	require.NoError(t, receipt.RecoverReceiptStore(dbLogger.NewNopLogger(), changelogPath, db))
+	require.NoError(t, receipt.RecoverReceiptStore(changelogPath, db))
 	require.Equal(t, int64(2), db.GetLatestVersion())
 
 	bz, err := db.Get(types.ReceiptStoreKey, db.GetLatestVersion(), types.ReceiptKey(txHash2))

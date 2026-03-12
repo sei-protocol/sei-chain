@@ -203,7 +203,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
 				// If we can't calculate the ratio, use 0.0 as fallback
-				sdkCtx.Logger().Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
+				logger.Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
 			} else {
 				gasUsedRatio = calculatedRatio

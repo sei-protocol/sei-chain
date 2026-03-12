@@ -8,11 +8,9 @@ import (
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
 // Keeper defines the IBC fungible transfer keeper
@@ -73,11 +71,6 @@ func NewKeeperWithAddressHandler(
 		panic("the IBC transfer module address handler has not been set")
 	}
 	return keeper
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+host.ModuleName+"-"+types.ModuleName)
 }
 
 // GetTransferAccount returns the ICS20 - transfers ModuleAccount

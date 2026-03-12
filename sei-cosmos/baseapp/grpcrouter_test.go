@@ -4,18 +4,15 @@ import (
 	"context"
 	"testing"
 
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/app"
+	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestGRPCGatewayRouter(t *testing.T) {
@@ -25,7 +22,7 @@ func TestGRPCGatewayRouter(t *testing.T) {
 	testdata.RegisterQueryServer(qr, testdata.QueryImpl{})
 	helper := &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: qr,
-		Ctx:             sdk.NewContext(nil, tmproto.Header{}, false, nil).WithContext(context.Background()),
+		Ctx:             sdk.NewContext(nil, tmproto.Header{}, false).WithContext(context.Background()),
 	}
 	client := testdata.NewQueryClient(helper)
 
@@ -56,7 +53,7 @@ func TestRegisterQueryServiceTwice(t *testing.T) {
 	// Setup baseapp.
 	db := dbm.NewMemDB()
 	encCfg := app.MakeEncodingConfig()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
+	app := baseapp.NewBaseApp("test", db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 
