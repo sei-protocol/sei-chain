@@ -281,7 +281,7 @@ max_concurrent_simulation_calls = 0
 ###                       Admin Configuration (Auto-managed)                ###
 ###############################################################################
 
-[admin]
+[admin_server]
 
 # Enable the admin gRPC server for runtime log level control.
 admin_enabled = false

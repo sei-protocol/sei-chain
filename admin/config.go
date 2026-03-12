@@ -29,10 +29,10 @@ var DefaultConfig = Config{
 // ReadConfig reads admin config from app options (Viper-backed).
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	cfg := DefaultConfig
-	if v := opts.Get("admin.admin_enabled"); v != nil {
+	if v := opts.Get("admin_server.admin_enabled"); v != nil {
 		cfg.Enabled = cast.ToBool(v)
 	}
-	if v := opts.Get("admin.admin_address"); v != nil {
+	if v := opts.Get("admin_server.admin_address"); v != nil {
 		if s := cast.ToString(v); s != "" {
 			cfg.Address = s
 		}
@@ -67,7 +67,7 @@ const ConfigTemplate = `
 ###                       Admin Configuration (Auto-managed)                ###
 ###############################################################################
  
-[admin]
+[admin_server]
  
 # Enable the admin gRPC server for runtime log level control.
 admin_enabled = {{ .Admin.Enabled }}

@@ -32,7 +32,7 @@ type CustomAppConfig struct {
 	ETHBlockTest    blocktest.Config              `mapstructure:"eth_block_test"`
 	EvmQuery        querier.Config                `mapstructure:"evm_query"`
 	LightInvariance seiapp.LightInvarianceConfig  `mapstructure:"light_invariance"`
-	Admin           admin.Config                  `mapstructure:"admin"`
+	Admin           admin.Config                  `mapstructure:"admin_server"`
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
