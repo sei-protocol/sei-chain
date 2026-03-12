@@ -1176,7 +1176,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1190,7 +1190,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	hashBefore := s.RootHash()
 	require.NoError(t, s.Close())
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -1207,7 +1207,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1244,7 +1244,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	hashBefore := s.RootHash()
 	require.NoError(t, s.Close())
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -1280,7 +1280,7 @@ func TestWALTruncationThenRollback(t *testing.T) {
 		SnapshotInterval:   5,
 		SnapshotKeepRecent: 1,
 	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), nil, cfg)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1321,7 +1321,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 		SnapshotKeepRecent: 1,
 	}
 
-	s := NewCommitStore(t.Context(), dbDir, nil, cfg)
+	s := NewCommitStore(t.Context(), dbDir, cfg)
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1333,7 +1333,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	hashBefore := s.RootHash()
 	require.NoError(t, s.Close())
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, cfg)
+	s2 := NewCommitStore(context.Background(), dbDir, cfg)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -1357,7 +1357,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -1376,7 +1376,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	}
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
 }
@@ -1389,7 +1389,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -1409,7 +1409,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	require.NoError(t, db2.Close())
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err, "open should fail when global metadata is corrupted")
 }
@@ -1422,7 +1422,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1434,7 +1434,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	walDir := filepath.Join(dbDir, changelogDir)
 	require.NoError(t, os.RemoveAll(walDir))
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -1454,7 +1454,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -1478,7 +1478,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	// Remove SNAPSHOT_BASE to force re-clone from corrupted snapshot.
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err, "open should fail when LocalMeta is corrupted (invalid size)")
 	require.Contains(t, err.Error(), "invalid LocalMeta size")
@@ -1492,7 +1492,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, nil, DefaultConfig())
+	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1530,7 +1530,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
 	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
-	s2 := NewCommitStore(context.Background(), dbDir, nil, DefaultConfig())
+	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(2, false)
 	require.Error(t, err, "LoadVersion should fail: WAL corrupted, can't reach requested version")
 }
