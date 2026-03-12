@@ -9,20 +9,11 @@ option go_package = "github.com/sei-protocol/sei-chain/admin/types";
 // AdminService provides runtime administration endpoints.
 service AdminService {
   // SetLogLevel changes the log level for loggers matching a pattern.
-  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {
-    option (google.api.http) = {
-      put: "/sei-protocol/seichain/admin/v0/log_level"
-      body: "*"
-    };
-  };
+  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
   // GetLogLevel returns the current log level for a specific logger.
-  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {
-    option (google.api.http).get = "/sei-protocol/seichain/admin/v0/log_level";
-  };
+  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {}
   // ListLoggers returns all registered loggers and their current levels.
-  rpc ListLoggers(ListLoggersRequest) returns (ListLoggersResponse) {
-    option (google.api.http).get = "/sei-protocol/seichain/admin/v0/loggers";
-  };
+  rpc ListLoggers(ListLoggersRequest) returns (ListLoggersResponse) {}
 }
 
 message SetLogLevelRequest {
