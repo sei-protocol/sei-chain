@@ -1,3 +1,3 @@
-// Not data-dependent: empty block hash returns null on any chain.
+// Ethereum spec: non-existent/empty block hash returns result=null, not error. Test fails if Sei returns error.
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockReceipts","params":["0x0000000000000000000000000000000000000000000000000000000000000000"]}
 << {"jsonrpc":"2.0","id":1,"result":null}
