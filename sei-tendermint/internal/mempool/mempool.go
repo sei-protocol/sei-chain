@@ -743,7 +743,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
-			"tx", wtx.tx,
+			"tx", wtx.tx.Key(),
 			"peer_id", txInfo.SenderNodeID,
 			"code", res.Code,
 			"post_check_err", err,
@@ -763,7 +763,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		if wtx := txmp.txStore.GetTxBySender(sender); wtx != nil {
 			logger.Error(
 				"rejected incoming good transaction; tx already exists for sender",
-				"tx", wtx.tx,
+				"tx", wtx.tx.Key(),
 				"sender", sender,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
@@ -784,8 +784,8 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			wtx.removeHandler(true)
 			logger.Error(
 				"rejected incoming good transaction; mempool full",
-				"tx", wtx.tx,
-				"err", err.Error(),
+				"tx", wtx.tx.Key(),
+				"err", err,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
 			return nil
@@ -825,7 +825,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		logger.Debug(
 			"inserted good transaction",
 			"priority", wtx.priority,
-			"tx", wtx.tx,
+			"tx", wtx.tx.Key(),
 			"height", txmp.height,
 			"num_txs", txmp.NumTxsNotPending(),
 		)
@@ -894,7 +894,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 			logger.Debug(
 				"existing transaction no longer valid; failed re-CheckTx callback",
 				"priority", wtx.priority,
-				"tx", wtx.tx,
+				"tx", wtx.tx.Key(),
 				"err", err,
 				"code", res.Code,
 			)
@@ -1087,7 +1087,7 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 	logger.Info(
 		"transaction expired",
 		"priority", wtx.priority,
-		"tx", wtx.tx,
+		"tx", wtx.tx.Key(),
 		"address", wtx.evmAddress,
 		"evm", wtx.isEVM,
 		"nonce", wtx.evmNonce,

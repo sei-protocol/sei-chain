@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -25,6 +26,10 @@ func (txKey *TxKey) ToProto() *tmproto.TxKey {
 	}
 
 	return tp
+}
+
+func (txKey *TxKey) String() string {
+	return tmbytes.HexBytes(txKey[:]).String()
 }
 
 // TxKeyFromProto takes a protobuf representation of TxKey &
