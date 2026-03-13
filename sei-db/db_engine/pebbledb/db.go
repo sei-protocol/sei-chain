@@ -13,7 +13,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	dbcache "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/cache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
