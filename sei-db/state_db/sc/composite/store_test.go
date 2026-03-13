@@ -258,6 +258,7 @@ func TestGetVersions(t *testing.T) {
 func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
