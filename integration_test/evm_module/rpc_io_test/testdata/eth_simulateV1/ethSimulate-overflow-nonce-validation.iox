@@ -1,3 +1,0 @@
-// test to overflow nonce-validation
->> {"jsonrpc":"2.0","id":1,"method":"eth_simulateV1","params":[{"blockStateCalls":[{"stateOverrides":{"0xc000000000000000000000000000000000000000":{"nonce":"0xffffffffffffffff"}},"calls":[{"from":"0xc000000000000000000000000000000000000000","to":"0xc100000000000000000000000000000000000000"},{"from":"0xc000000000000000000000000000000000000000","to":"0xc100000000000000000000000000000000000000"}]}],"validation":true},"latest"]}
-<< {"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"err: nonce has max value: address 0xC000000000000000000000000000000000000000, nonce: 18446744073709551615 (supplied gas 50000000)"}}

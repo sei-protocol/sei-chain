@@ -733,12 +733,10 @@ func TestSyncer_applyChunks_RejectSenders(t *testing.T) {
 				rts.reactor.syncer.applyChunks(ctx, chunks, fetchStartTime) //nolint:errcheck // purposefully ignore error
 			}()
 
-			time.Sleep(50 * time.Millisecond)
-
-			s1peers := rts.reactor.syncer.snapshots.GetPeers(s1)
-			if err := utils.TestDiff([]types.NodeID{peerAID, peerCID}, s1peers); err != nil {
-				t.Fatal(err)
-			}
+			require.Eventually(t, func() bool {
+				s1peers := rts.reactor.syncer.snapshots.GetPeers(s1)
+				return utils.TestDiff([]types.NodeID{peerAID, peerCID}, s1peers) == nil
+			}, 5*time.Second, 10*time.Millisecond)
 			require.NoError(t, chunks.Close())
 			app.AssertExpectations(t)
 		})

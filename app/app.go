@@ -27,6 +27,7 @@ import (
 	ethparams "github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -100,6 +101,7 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
+	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
@@ -430,6 +432,8 @@ type App struct {
 	encodingConfig        appparams.EncodingConfig
 	legacyEncodingConfig  appparams.EncodingConfig
 	evmRPCConfig          evmrpcconfig.Config
+	adminConfig           admin.Config
+	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -702,6 +706,10 @@ func New(
 	app.evmRPCConfig, err = evmrpcconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	app.adminConfig, err = admin.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading admin config due to %s", err))
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
@@ -1066,6 +1074,11 @@ func (app *App) HandleClose() error {
 			logger.Error("failed to close receipt store", "err", err)
 			errs = append(errs, fmt.Errorf("failed to close receipt store: %w", err))
 		}
+	}
+
+	// Stop admin gRPC server
+	if app.adminServer != nil {
+		app.adminServer.GracefulStop()
 	}
 
 	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
@@ -2325,6 +2338,16 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 				panic(err)
 			}
 		}()
+	}
+
+	if app.adminConfig.Enabled {
+		srv, err := admin.StartServer(app.adminConfig.Address)
+		if err != nil {
+			panic(fmt.Sprintf("failed to start admin server: %s", err))
+		}
+		app.adminServer = srv
+	} else {
+		logger.Debug("Admin gRPC server is disabled")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/google/orderedcode"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
@@ -170,7 +171,7 @@ func (evpool *Pool) AddEvidence(ctx context.Context, ev types.Evidence) error {
 	// 3) Add evidence to clist.
 	evpool.evidenceList.PushBack(ev)
 
-	logger.Info("verified new evidence of byzantine behavior", "evidence", ev)
+	logger.Info("verified new evidence of byzantine behavior", "evidence_hash", tmbytes.HexBytes(ev.Hash()))
 	return nil
 }
 
@@ -218,10 +219,10 @@ func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList
 			if err := evpool.addPendingEvidence(ctx, ev); err != nil {
 				// Something went wrong with adding the evidence but we already know it is valid
 				// hence we log an error and continue
-				logger.Error("failed to add evidence to pending list", "err", err, "evidence", ev)
+				logger.Error("failed to add evidence to pending list", "evidence_hash", tmbytes.HexBytes(ev.Hash()), "err", err)
 			}
 
-			logger.Info("check evidence: verified evidence of byzantine behavior", "evidence", ev)
+			logger.Info("check evidence: verified evidence of byzantine behavior", "evidence_hash", tmbytes.HexBytes(ev.Hash()))
 		}
 
 		// check for duplicate evidence. We cache hashes so we don't have to work them out again.
@@ -621,7 +622,7 @@ func (evpool *Pool) processConsensusBuffer(ctx context.Context, state sm.State) 
 
 		evpool.evidenceList.PushBack(dve)
 
-		logger.Info("verified new evidence of byzantine behavior", "evidence", dve)
+		logger.Info("verified new evidence of byzantine behavior", "evidence_hash", tmbytes.HexBytes(dve.Hash()))
 	}
 	// reset consensus buffer
 	evpool.consensusBuffer = make([]duplicateVoteSet, 0)
