@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -261,4 +262,66 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	kind, _ := evm.ParseEVMKey(nodes[0].Key)
 	require.Equal(t, evm.EVMKeyNonce, kind)
 	require.Equal(t, nonceVal, nodes[0].Value)
+}
+
+func TestImportSurvivesReopen(t *testing.T) {
+	src := setupTestStore(t)
+	defer src.Close()
+
+	addr := Address{0xDD}
+	slot := Slot{0xEE}
+
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageVal := []byte{0xFF}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
+
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: storageKey, Value: storageVal},
+			{Key: nonceKey, Value: nonceVal},
+		}}},
+	}))
+	commitAndCheck(t, src)
+	srcHash := src.RootHash()
+
+	exp, err := src.Exporter(1)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	// Import into a fresh store at a known directory.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, flatkvRootDir)
+
+	s1 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	_, err = s1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	imp, err := s1.Importer(1)
+	require.NoError(t, err)
+	require.NoError(t, imp.AddModule("evm_flatkv"))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	require.NoError(t, imp.Close())
+	require.NoError(t, s1.Close())
+
+	// Reopen from the same directory — data must survive.
+	s2 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	_, err = s2.LoadVersion(1, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(1), s2.Version())
+
+	got, found := s2.Get(storageKey)
+	require.True(t, found, "storage key must survive reopen")
+	require.Equal(t, storageVal, got)
+
+	got, found = s2.Get(nonceKey)
+	require.True(t, found, "nonce key must survive reopen")
+	require.Equal(t, nonceVal, got)
+
+	require.Equal(t, srcHash, s2.RootHash())
 }
