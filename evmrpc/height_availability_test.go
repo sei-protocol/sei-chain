@@ -140,6 +140,34 @@ func TestGetBlockByHashNotFoundReturnsNull(t *testing.T) {
 	require.Nil(t, result)
 }
 
+// TestGetBlockReceiptsNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash
+// returns (nil, nil) so RPC responds with result: null (see get-block-receipts-empty.iox, get-block-receipts-not-found.iox).
+func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	base := newHeightTestClient(latest+5, earliest, latest)
+	notFoundHashHex := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+	client := &blockNotFoundTestClient{
+		heightTestClient: base,
+		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
+	}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	// Empty hash: short-circuit, result null
+	receipts, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.Hash{}, true))
+	require.NoError(t, err)
+	require.Nil(t, receipts)
+
+	// Non-existent hash (client returns Block: nil): result null
+	receipts, err = api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.HexToHash(notFoundHashHex), true))
+	require.NoError(t, err)
+	require.Nil(t, receipts)
+}
+
 func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 	t.Parallel()
 

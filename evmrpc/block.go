@@ -249,8 +249,15 @@ func (a *BlockAPI) getBlockByNumber(
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
+	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
+	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
+		return nil, nil
+	}
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
+	if errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
