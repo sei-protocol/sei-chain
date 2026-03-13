@@ -20,6 +20,19 @@ type IterOptions struct {
 	UpperBound []byte
 }
 
+// BatchGetResult describes the result of a single key lookup within a BatchGet call.
+type BatchGetResult struct {
+	// The value for the given key. If nil, the key was not found (but no error occurred).
+	Value []byte
+	// The error, if any, that occurred during the read.
+	Error error
+}
+
+// IsFound returns true if the key was found (i.e. Value is not nil).
+func (b BatchGetResult) IsFound() bool {
+	return b.Value != nil
+}
+
 // OpenOptions configures opening a DB.
 //
 // NOTE: This is intentionally minimal today. Most performance-critical knobs
