@@ -481,7 +481,6 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 	cdc := encodingConfig.Marshaler
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
