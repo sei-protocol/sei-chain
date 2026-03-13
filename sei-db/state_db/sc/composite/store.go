@@ -19,8 +19,13 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
 
-// EVMStoreName is the module name for the EVM store
+// EVMStoreName is the module name for the EVM store in memiavl.
 const EVMStoreName = "evm"
+
+// EVMFlatKVStoreName is the module name used when exporting/importing
+// EVM data from the FlatKV backend. Treated as a separate module in
+// state-sync snapshots so that import routes data exclusively to FlatKV.
+const EVMFlatKVStoreName = "evm_flatkv"
 
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)
@@ -270,8 +275,22 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-	// TODO: Add evm committer for exporter
-	return cs.cosmosCommitter.Exporter(version)
+
+	cosmosExporter, err := cs.cosmosCommitter.Exporter(version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
+	}
+
+	var evmExporter types.Exporter
+	if cs.evmCommitter != nil && cs.config.WriteMode == config.SplitWrite {
+		evmExporter, err = cs.evmCommitter.Exporter(version)
+		if err != nil {
+			_ = cosmosExporter.Close()
+			return nil, fmt.Errorf("failed to create evm exporter: %w", err)
+		}
+	}
+
+	return NewExporter(cosmosExporter, evmExporter), nil
 }
 
 // Importer returns an importer for state sync
