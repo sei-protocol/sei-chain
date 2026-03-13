@@ -176,7 +176,7 @@ func (c *WSClient) IsReconnecting() bool {
 func (c *WSClient) Send(ctx context.Context, request rpctypes.RPCRequest) error {
 	select {
 	case c.send <- request:
-		logger.Info("sent a request", "method", request.Method, "id", request.ID)
+		logger.Info("sent a request", "method", request.Method, "id", request.ID())
 		// c.mtx.Lock()
 		// c.sentIDs[request.ID.(types.JSONRPCIntID)] = true
 		// c.mtx.Unlock()
@@ -290,7 +290,7 @@ func (c *WSClient) processBacklog() error {
 			c.backlog <- request
 			return err
 		}
-		logger.Info("resend a request", "method", request.Method, "id", request.ID)
+		logger.Info("resend a request", "method", request.Method, "id", request.ID())
 	default:
 	}
 	return nil
