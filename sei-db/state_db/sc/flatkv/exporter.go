@@ -26,6 +26,11 @@ const (
 // KVExporter exports all committed EVM data from a read-only FlatKV store
 // as SnapshotNode items. Keys are emitted in memiavl EVM format so the
 // importer can feed them through ApplyChangeSets unchanged.
+//
+// All emitted SnapshotNodes carry the export version and Height=0 (leaf).
+// This intentionally flattens version history: state sync only transfers the
+// latest state at a given height, not the full edit history.
+//
 // The caller must Close the exporter when done.
 type KVExporter struct {
 	store   *CommitStore
@@ -82,7 +87,10 @@ func (e *KVExporter) Next() (interface{}, error) {
 		value := bytes.Clone(e.currentIter.Value())
 		e.currentIter.Next()
 
-		nodes := e.convertToNodes(e.currentDB, key, value)
+		nodes, err := e.convertToNodes(e.currentDB, key, value)
+		if err != nil {
+			return nil, err
+		}
 		if len(nodes) == 0 {
 			continue
 		}
@@ -109,6 +117,10 @@ func (e *KVExporter) Close() error {
 	return nil
 }
 
+// openIterForDB returns an iterator over all user data in the given DB,
+// excluding internal metadata. metaKeyLowerBound() returns {0x00, 0x00} which
+// skips the single-byte DBLocalMetaKey ({0x00}) while including all user keys
+// (minimum 20 bytes for an EVM address).
 func (e *KVExporter) openIterForDB(db exportDBKind) (dbtypes.KeyValueDBIterator, error) {
 	var kvDB dbtypes.KeyValueDB
 	switch db {
@@ -131,27 +143,25 @@ func (e *KVExporter) openIterForDB(db exportDBKind) (dbtypes.KeyValueDBIterator,
 	})
 }
 
-func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) []*types.SnapshotNode {
+func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*types.SnapshotNode, error) {
 	switch db {
 	case exportDBAccount:
 		return e.accountToNodes(key, value)
 	case exportDBCode:
-		return e.codeToNodes(key, value)
+		return e.codeToNodes(key, value), nil
 	case exportDBStorage:
-		return e.storageToNodes(key, value)
+		return e.storageToNodes(key, value), nil
 	case exportDBLegacy:
-		return e.legacyToNodes(key, value)
+		return e.legacyToNodes(key, value), nil
 	default:
-		return nil
+		return nil, nil
 	}
 }
 
-func (e *KVExporter) accountToNodes(key, value []byte) []*types.SnapshotNode {
+func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
 	av, err := DecodeAccountValue(value)
 	if err != nil {
-		logger.Error("skip corrupt account entry during export",
-			"key", fmt.Sprintf("%x", key), "err", err)
-		return nil
+		return nil, fmt.Errorf("corrupt account entry key=%x: %w", key, err)
 	}
 
 	var nodes []*types.SnapshotNode
@@ -178,7 +188,7 @@ func (e *KVExporter) accountToNodes(key, value []byte) []*types.SnapshotNode {
 		})
 	}
 
-	return nodes
+	return nodes, nil
 }
 
 func (e *KVExporter) codeToNodes(key, value []byte) []*types.SnapshotNode {

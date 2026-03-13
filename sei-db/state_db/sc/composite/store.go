@@ -290,7 +290,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 		}
 	}
 
-	return NewExporter(cosmosExporter, evmExporter), nil
+	return NewExporter(cosmosExporter, evmExporter)
 }
 
 // Importer returns an importer for state sync
@@ -303,7 +303,8 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	if cs.evmCommitter != nil {
 		evmImporter, err = cs.evmCommitter.Importer(version)
 		if err != nil {
-			return nil, err
+			_ = cosmosImporter.Close()
+			return nil, fmt.Errorf("failed to create evm importer: %w", err)
 		}
 	}
 	compositeImporter := NewImporter(cosmosImporter, evmImporter)

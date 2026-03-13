@@ -2,6 +2,7 @@ package composite
 
 import (
 	"errors"
+	"fmt"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -19,6 +20,10 @@ const (
 
 // SnapshotExporter coordinates export from cosmos (memiavl) and flatKV backends.
 //
+// Next() returns items in stream order. Each item is either:
+//   - string: a module name header that starts a new module section
+//   - *types.SnapshotNode: a leaf key/value belonging to the current module
+//
 // FlatKV data is exported as a separate "evm_flatkv" module appended after all
 // cosmos modules complete. This keeps the two backends fully independent in the
 // snapshot stream.
@@ -28,12 +33,17 @@ type SnapshotExporter struct {
 	phase          exportPhase
 }
 
-func NewExporter(cosmosExporter types.Exporter, evmExporter types.Exporter) *SnapshotExporter {
+// NewExporter creates a composite exporter. cosmosExporter must not be nil.
+// evmExporter may be nil when FlatKV is not active.
+func NewExporter(cosmosExporter types.Exporter, evmExporter types.Exporter) (*SnapshotExporter, error) {
+	if cosmosExporter == nil {
+		return nil, fmt.Errorf("cosmosExporter must not be nil")
+	}
 	return &SnapshotExporter{
 		cosmosExporter: cosmosExporter,
 		evmExporter:    evmExporter,
 		phase:          phaseCosmos,
-	}
+	}, nil
 }
 
 func (s *SnapshotExporter) Next() (interface{}, error) {
