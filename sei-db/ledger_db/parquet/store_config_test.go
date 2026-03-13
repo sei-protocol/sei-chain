@@ -65,7 +65,7 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 }
 
 func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
-	store, err := NewStore(dbLogger.NewNopLogger(), StoreConfig{
+	store, err := NewStore(StoreConfig{
 		DBDirectory:          t.TempDir(),
 		KeepRecent:           123,
 		PruneIntervalSeconds: 9,

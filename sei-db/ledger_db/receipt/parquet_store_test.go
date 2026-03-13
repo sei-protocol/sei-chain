@@ -189,7 +189,7 @@ func TestParquetReceiptStoreUsesConfiguredDirectory(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	txHash := common.HexToHash("0x31")

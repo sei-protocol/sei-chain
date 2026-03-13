@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -37,6 +36,7 @@ func (f *failingEVMStore) Rollback(int64) error                          { retur
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
 func (f *failingEVMStore) Close() error                                  { return nil }
 
 func TestCompositeStoreBasicOperations(t *testing.T) {
@@ -228,7 +228,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 			cfg.WriteMode = tt.writeMode
 			cfg.EnableLatticeHash = tt.enableLattice
 
-			cs := NewCompositeCommitStore(t.Context(), dir, logger.NewNopLogger(), cfg)
+			cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 			cs.Initialize([]string{"test", EVMStoreName})
 			_, err := cs.LoadVersion(0, false)
 			require.NoError(t, err)
