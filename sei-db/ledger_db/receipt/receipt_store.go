@@ -85,6 +85,25 @@ func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) 
 	return newCachedReceiptStore(backend), nil
 }
 
+// BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.
+// Returns "" if store is nil or the backend type is unknown.
+func BackendTypeName(store ReceiptStore) string {
+	if store == nil {
+		return ""
+	}
+	if c, ok := store.(*cachedReceiptStore); ok {
+		store = c.backend
+	}
+	switch store.(type) {
+	case *parquetReceiptStore:
+		return receiptBackendParquet
+	case *receiptStore:
+		return receiptBackendPebble
+	default:
+		return "unknown"
+	}
+}
+
 func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if config.DBDirectory == "" {
 		return nil, errors.New("receipt store db directory not configured")
@@ -97,6 +116,7 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
+		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
