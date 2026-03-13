@@ -1455,6 +1455,15 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
+					// Handle panics by type (matches OCC path in makeGigaDeliverTx)
+					if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
+						result = &abci.ExecTxResult{
+							Code: sdkerrors.ErrOutOfGas.ABCICode(),
+							Log:  fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+						}
+						return
+					}
+					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
 					logger.Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
 					result = &abci.ExecTxResult{
 						Code: sdkerrors.ErrPanic.ABCICode(),
