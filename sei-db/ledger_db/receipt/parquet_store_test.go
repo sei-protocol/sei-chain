@@ -183,6 +183,31 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 }
 
+func TestParquetReceiptStoreUsesConfiguredDirectory(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x31")
+	receipt := makeTestReceipt(txHash, 11, 0, common.HexToAddress("0x401"), nil)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(11), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, receiptFiles, "receipt parquet files should be written under the configured db directory")
+
+	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, logFiles, "log parquet files should be written under the configured db directory")
+}
+
 func TestParquetFilePruning(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
