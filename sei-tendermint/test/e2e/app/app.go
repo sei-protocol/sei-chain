@@ -358,6 +358,7 @@ func (app *Application) ProcessProposal(_ context.Context, req *abci.RequestProc
 		_, _, err := parseTx(tx)
 		if err != nil {
 			logger.Error("malformed transaction in ProcessProposal", "len-bytes", len(tx), "err", err)
+			logger.Debug("malformed transaction in ProcessProposal", "tx", tx, "err", err)
 			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
 		}
 	}
