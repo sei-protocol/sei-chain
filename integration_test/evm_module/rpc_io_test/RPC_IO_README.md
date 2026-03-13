@@ -12,6 +12,48 @@ Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suit
 
 When the target is localhost, the script sends one EVM tx and deploys one contract inside the node container before `go test`, so data-dependent `.iox` tests have block/tx/contract. Default RPC URL: `http://127.0.0.1:8545` (override with `SEI_EVM_RPC_URL`).
 
+### Comparing legacy vs giga (RPC parity)
+
+To check that **giga** behaves like **legacy** at the spec level (same methods return result vs error):
+
+**How you know which executor you're hitting:** The test suite does **not** detect or label whether the node uses giga or legacy. It only sends JSON-RPC to the URL in `SEI_EVM_RPC_URL`. You determine which executor is under test by how you started the node or which URL you pass. For parity, run once against a node you know is legacy and once against a node you know is giga, then compare.
+
+**Running a local cluster with Giga enabled:** Pass env vars into `make docker-cluster-start` so the nodes start with the giga executor:
+
+```bash
+# All 4 nodes use Giga (and OCC). Foreground:
+GIGA_EXECUTOR=true GIGA_OCC=true make docker-cluster-start
+
+# Same, but run cluster in background so you can run the RPC test script:
+GIGA_EXECUTOR=true GIGA_OCC=true DOCKER_DETACH=true make docker-cluster-start
+# Wait for build/generated/launch.complete (4 lines), then:
+./integration_test/evm_module/scripts/evm_rpc_tests.sh
+```
+
+Without `GIGA_EXECUTOR` and `GIGA_OCC`, the cluster uses the legacy (V2) executor. The Makefile passes these through to `docker compose`; the node image uses them in `docker/localnode/scripts/step4_config_override.sh`.
+
+1. Run the suite against the **legacy** endpoint and record the final report:
+   ```bash
+   SEI_EVM_RPC_URL=<legacy_url> ./integration_test/evm_module/scripts/evm_rpc_tests.sh
+   ```
+   At the end you'll see a block like:
+   ```
+   ========== Sei EVM RPC .io/.iox test report ==========
+     Total:  ...
+     Passed: ...
+     Failed: ...
+     Skipped: ...
+     Pass rate: ...%
+   =======================================================
+   ```
+2. Run the same suite against the **giga** endpoint:
+   ```bash
+   SEI_EVM_RPC_URL=<giga_url> ./integration_test/evm_module/scripts/evm_rpc_tests.sh
+   ```
+3. Compare **Total**, **Passed**, **Failed**, and **Skipped**. Same numbers ⇒ spec parity for that run. Any difference indicates a method that returns result on one node and error on the other (or vice versa).
+
+For a fair comparison, both endpoints should serve the **same chain** (same genesis and blocks). If using the script’s seed (deploy tx), run the script once to create the seed on one node; for the second run you can point at the other node only if it has the same chain and the same block containing that deploy (e.g. two nodes in the same network).
+
 ## Test mix
 
 
