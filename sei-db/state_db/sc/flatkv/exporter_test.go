@@ -138,7 +138,6 @@ func TestExporterCodeKeys(t *testing.T) {
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())
 
-	// code key, but also account gets a nonce entry (nonce=0)
 	var codeNodes []*types.SnapshotNode
 	for _, n := range nodes {
 		kind, _ := evm.ParseEVMKey(n.Key)
@@ -177,6 +176,8 @@ func TestExporterRoundTrip(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
+	srcHash := s.RootHash()
+
 	// --- Export ---
 	exp, err := s.Exporter(1)
 	require.NoError(t, err)
@@ -213,6 +214,9 @@ func TestExporterRoundTrip(t *testing.T) {
 	got, found = s2.Get(codeHashKey)
 	require.True(t, found, "codehash key should exist after import")
 	require.Equal(t, codeHashVal, got)
+
+	// LtHash should match source since import recomputes it via ApplyChangeSets
+	require.Equal(t, srcHash, s2.RootHash())
 
 	require.NoError(t, s2.Close())
 }

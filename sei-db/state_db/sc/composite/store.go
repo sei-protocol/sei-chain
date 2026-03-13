@@ -282,7 +282,7 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	}
 
 	var evmExporter types.Exporter
-	if cs.evmCommitter != nil && cs.config.WriteMode == config.SplitWrite {
+	if cs.evmCommitter != nil && (cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite) {
 		evmExporter, err = cs.evmCommitter.Exporter(version)
 		if err != nil {
 			_ = cosmosExporter.Close()

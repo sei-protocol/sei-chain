@@ -24,7 +24,9 @@ const (
 )
 
 // KVExporter exports all committed EVM data from a read-only FlatKV store
-// as SnapshotNode items. The caller must Close the exporter when done.
+// as SnapshotNode items. Keys are emitted in memiavl EVM format so the
+// importer can feed them through ApplyChangeSets unchanged.
+// The caller must Close the exporter when done.
 type KVExporter struct {
 	store   *CommitStore
 	version int64
