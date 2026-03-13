@@ -117,7 +117,7 @@ type benchMethod struct {
 	name   string
 	params func() []interface{}
 	weight int
-	heavy  bool // heavy methods get dedicated sequential + concurrent phases
+	heavy  bool // heavy methods get dedicated concurrent phases
 }
 
 func (m *benchMethod) call(endpoint string) (string, time.Duration, error) {
@@ -553,7 +553,7 @@ func main() {
 	flag.Parse()
 
 	if endpoint == "" {
-		fmt.Fprintf(os.Stderr, "Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-requests 100] [-methods debug_traceBlockByNumber,eth_getBalance]\n")
+		fmt.Fprintf(os.Stderr, "Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-requests 100] [-methods debug_traceBlockByNumber,eth_getLogs]\n")
 		os.Exit(1)
 	}
 
@@ -616,30 +616,41 @@ func main() {
 	fmt.Printf("Discovered %d blocks, %d transactions, %d unique addresses\n",
 		len(blocks), len(allTxHashes), len(allAddresses))
 
-	// Discover real storage slots from traced transactions
 	var allStorageSlots []storageSlot
-	if traceDiscover > 0 && len(allTxHashes) > 0 {
-		fmt.Printf("\n--- Discovering storage slots (tracing %d txs) ---\n", min(traceDiscover, len(allTxHashes)))
-		allStorageSlots = discoverStorageSlots(endpoint, allTxHashes, traceDiscover)
-		fmt.Printf("Discovered %d unique storage slots\n", len(allStorageSlots))
-	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	var rngMu sync.Mutex
+	randomIntn := func(n int) int {
+		rngMu.Lock()
+		defer rngMu.Unlock()
+		return rng.Intn(n)
+	}
 	latestHex := fmt.Sprintf("0x%x", latestBlock)
-	randBlock := func() *BlockInfo { return blocks[rng.Intn(len(blocks))] }
-	randAddr := func() string { return allAddresses[rng.Intn(len(allAddresses))] }
+	randBlock := func() *BlockInfo { return blocks[randomIntn(len(blocks))] }
+	randAddr := func() string { return allAddresses[randomIntn(len(allAddresses))] }
 	randTxHash := func() string {
 		if len(allTxHashes) == 0 {
 			return ""
 		}
-		return allTxHashes[rng.Intn(len(allTxHashes))]
+		return allTxHashes[randomIntn(len(allTxHashes))]
 	}
 	randStorageParams := func() []interface{} {
 		if len(allStorageSlots) > 0 {
-			s := allStorageSlots[rng.Intn(len(allStorageSlots))]
+			s := allStorageSlots[randomIntn(len(allStorageSlots))]
 			return []interface{}{s.Address, s.Slot, latestHex}
 		}
-		return []interface{}{randAddr(), fmt.Sprintf("0x%064x", rng.Intn(10)), latestHex}
+		return []interface{}{randAddr(), fmt.Sprintf("0x%064x", randomIntn(10)), latestHex}
+	}
+	randLogsParams := func() []interface{} {
+		start := randomIntn(len(blocks))
+		maxWindow := min(5, len(blocks)-start)
+		end := start + randomIntn(maxWindow)
+		fromBlock := blocks[end].Number
+		toBlock := blocks[start].Number
+		return []interface{}{map[string]interface{}{
+			"fromBlock": fmt.Sprintf("0x%x", fromBlock),
+			"toBlock":   fmt.Sprintf("0x%x", toBlock),
+		}}
 	}
 
 	// =========================================================================
@@ -648,6 +659,7 @@ func main() {
 	allMethods := []benchMethod{
 		{"debug_traceBlockByNumber", func() []interface{} { return []interface{}{fmt.Sprintf("0x%x", randBlock().Number)} }, 10, true},
 		{"debug_traceTransaction", func() []interface{} { return []interface{}{randTxHash()} }, 10, true},
+		{"eth_getLogs", func() []interface{} { return randLogsParams() }, 20, true},
 		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 25, false},
 		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
 		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
@@ -684,6 +696,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "No methods selected\n")
 		os.Exit(1)
 	}
+	hasMethod := func(name string) bool {
+		for _, m := range allMethods {
+			if m.name == name {
+				return true
+			}
+		}
+		return false
+	}
+
+	if hasMethod("eth_getStorageAt") && traceDiscover > 0 && len(allTxHashes) > 0 {
+		fmt.Printf("\n--- Discovering storage slots (tracing %d txs) ---\n", min(traceDiscover, len(allTxHashes)))
+		allStorageSlots = discoverStorageSlots(endpoint, allTxHashes, traceDiscover)
+		fmt.Printf("Discovered %d unique storage slots\n", len(allStorageSlots))
+	}
 
 	fmt.Printf("  methods:     ")
 	for i, m := range allMethods {
@@ -697,55 +723,53 @@ func main() {
 	// =========================================================================
 	// Phase 1: Per-block trace — one trace per discovered block, prints each result
 	// =========================================================================
-	fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
-	fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
-	fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
-	perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
-	perBlockSamples := make([]PerBlockTraceSample, 0, len(blocks))
-	for _, b := range blocks {
-		hexNum := fmt.Sprintf("0x%x", b.Number)
-		resp, lat, err := rpcCall(endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
-		if err == nil && resp != nil && resp.Error != nil {
-			err = fmt.Errorf("rpc: %s", resp.Error.Message)
+	if hasMethod("debug_traceBlockByNumber") {
+		fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
+		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
+		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
+		perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
+		perBlockSamples := make([]PerBlockTraceSample, 0, len(blocks))
+		for _, b := range blocks {
+			hexNum := fmt.Sprintf("0x%x", b.Number)
+			resp, lat, err := rpcCall(endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
+			if err == nil && resp != nil && resp.Error != nil {
+				err = fmt.Errorf("rpc: %s", resp.Error.Message)
+			}
+			perBlockStats.Total++
+			perBlockStats.Latencies = append(perBlockStats.Latencies, lat)
+			errStr := ""
+			if err != nil {
+				perBlockStats.Errors++
+				errStr = fmt.Sprintf("  ERR: %v", err)
+			}
+			avgGasPerTx := 0.0
+			if len(b.Transactions) > 0 {
+				avgGasPerTx = float64(b.GasUsed) / float64(len(b.Transactions))
+			}
+			perBlockSamples = append(perBlockSamples, PerBlockTraceSample{
+				Block:   b.Number,
+				Txs:     len(b.Transactions),
+				GasUsed: b.GasUsed,
+				Latency: lat,
+			})
+			fmt.Printf("  %-12d  %-6d  %-12d  %-12.1f  %s%s\n",
+				b.Number, len(b.Transactions), b.GasUsed, avgGasPerTx, lat.Round(time.Millisecond), errStr)
 		}
-		perBlockStats.Total++
-		perBlockStats.Latencies = append(perBlockStats.Latencies, lat)
-		errStr := ""
-		if err != nil {
-			perBlockStats.Errors++
-			errStr = fmt.Sprintf("  ERR: %v", err)
+		totalTime := time.Duration(0)
+		for _, lat := range perBlockStats.Latencies {
+			totalTime += lat
 		}
-		avgGasPerTx := 0.0
-		if len(b.Transactions) > 0 {
-			avgGasPerTx = float64(b.GasUsed) / float64(len(b.Transactions))
-		}
-		perBlockSamples = append(perBlockSamples, PerBlockTraceSample{
-			Block:   b.Number,
-			Txs:     len(b.Transactions),
-			GasUsed: b.GasUsed,
-			Latency: lat,
-		})
-		fmt.Printf("  %-12d  %-6d  %-12d  %-12.1f  %s%s\n",
-			b.Number, len(b.Transactions), b.GasUsed, avgGasPerTx, lat.Round(time.Millisecond), errStr)
-	}
-	perBlockStats.Duration = perBlockStats.Latencies[len(perBlockStats.Latencies)-1] // just for rps calc
-	for _, l := range perBlockStats.Latencies {
-		perBlockStats.Duration = max(perBlockStats.Duration, l)
-	}
-	totalTime := time.Duration(0)
-	for _, l := range perBlockStats.Latencies {
-		totalTime += l
-	}
-	perBlockStats.Duration = totalTime
-	printStats("Per-block trace summary", map[string]*LatencyStats{"debug_traceBlockByNumber": perBlockStats})
-	if plotDir != "" {
-		paths, err := writePerBlockTracePlots(plotDir, perBlockSamples)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to write plots: %v\n", err)
-		} else {
-			fmt.Printf("\nWrote per-block trace plots:\n")
-			for _, path := range paths {
-				fmt.Printf("  %s\n", path)
+		perBlockStats.Duration = totalTime
+		printStats("Per-block trace summary", map[string]*LatencyStats{"debug_traceBlockByNumber": perBlockStats})
+		if plotDir != "" {
+			paths, err := writePerBlockTracePlots(plotDir, perBlockSamples)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to write plots: %v\n", err)
+			} else {
+				fmt.Printf("\nWrote per-block trace plots:\n")
+				for _, path := range paths {
+					fmt.Printf("  %s\n", path)
+				}
 			}
 		}
 	}
@@ -799,7 +823,7 @@ func main() {
 	totalMixed := requestsPer * 3
 	fmt.Printf("\n--- Mixed workload (concurrent x%d, %d total reqs) ---\n", concurrency, totalMixed)
 	stats := runConcurrent(concurrency, totalMixed, func(_ int) (string, time.Duration, error) {
-		r := rng.Intn(totalWeight)
+		r := randomIntn(totalWeight)
 		cumulative := 0
 		for i := range allMethods {
 			cumulative += allMethods[i].weight
