@@ -6,11 +6,11 @@
 
 | Metric    | Count |
 | --------- | ----- |
-| Total     | 162   |
-| Passed    | 133   |
+| Total     | 164   |
+| Passed    | 135   |
 | Failed    | 29    |
 | Skipped   | 0     |
-| Pass rate | 82.1% |
+| Pass rate | 82.3% |
 
 ## Failed tests by endpoint (29)
 
@@ -58,4 +58,4 @@
 | **EIP1559 in eth_call** | eth_call (call-callenv-options-eip1559) | RPC: accept maxFeePerGas/maxPriorityFeePerGas and return result |
 | **Other** | eth_createAccessList (3), eth_estimateGas (2), eth_estimateGasAfterCalls, eth_getBlockByNumber (notfound), eth_getProof (3), eth_getTransactionBy*Index (2) | Investigate; fix RPC or env (e.g. funded “from”, parse, IAVL store, tx index) |
 
-*Removed fixtures (not in suite): call-revert-abi-error.io, call-revert-abi-panic.io, estimate-call-abi-error.io, estimate-failed-call.io. Revert coverage: call-revert-abi-error-sei.iox, estimate-call-abi-error-sei.iox (use __REVERTER__). eth_simulateV1 folder is not under testdata.*
+*Removed fixtures (not in suite): call-revert-abi-error.io, call-revert-abi-panic.io, estimate-call-abi-error.io, estimate-failed-call.io. Revert coverage: call-revert-abi-error-sei.iox, call-revert-abi-panic-sei.iox, estimate-call-abi-error-sei.iox, estimate-call-abi-panic-sei.iox (use __REVERTER__). eth_simulateV1 folder is not under testdata.*

@@ -1,6 +1,6 @@
 # EVM RPC .io / .iox tests
 
-Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **163 tests** from `testdata/` against a live RPC endpoint.
+Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **164 tests** from `testdata/` against a live RPC endpoint.
 
 ## How to run
 
@@ -19,7 +19,7 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **.io**   | ~50   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
 | **.iox**  | ~114  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
-| **Total** | 163   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
+| **Total** | 164   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -65,7 +65,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 
 *Source:* **Eth exec api** = from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) (`.io`); **Sei** = Sei-generated (`.iox` or Sei-added `.io`).
 
-### Passed tests (134)
+### Passed tests (135)
 
 
 | Endpoint                               | Test                                                           | Source       |
@@ -229,7 +229,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_estimateGasAfterCalls          | estimateGasAfterCalls.iox                                                         | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
 | eth_getBlockByHash                 | get-block-by-empty-hash.iox                                                       | FAIL   | Sei          | Block not found        | error code=-32000 message="could not find block for hash 0000000000000000000000000000000000000000000000000000000000000000" |
 | eth_getBlockByHash                 | get-block-by-notfound-hash.iox                                                    | FAIL   | Sei          | Block not found        | error code=-32000 message="could not find block for hash 00000000000000000000000000000000000000000000DEADBEEF" |
-| eth_getBlockByNumber               | get-block-notfound.iox                                                            | FAIL   | Sei          | Block not available    | error code=-32000 message="requested height 1000 is not yet available; safe latest is 47" |
+| eth_getBlockByNumber               | get-block-notfound.iox                                                            | FAIL   | Sei          | Block not available    | error code=-32000 message="requested height 1000 is not yet available; safe latest is 655" |
 | eth_getBlockReceipts               | get-block-receipts-empty.iox                                                      | FAIL   | Sei          | Block not found        | error code=-32000 message="could not find block for hash 0000000000000000000000000000000000000000000000000000000000000000" |
 | eth_getBlockReceipts               | get-block-receipts-not-found.iox                                                  | FAIL   | Sei          | Block not found        | error code=-32000 message="could not find block for hash 00000000000000000000000000000000000000000000DEADBEEF" |
 | eth_getBlockTransactionCountByHash | get-genesis.iox                                                                   | FAIL   | Sei          | Block not found        | error code=-32000 message="could not find block for hash F9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E" |
@@ -260,11 +260,11 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 
 | Metric          | Previous run | Latest run |
 | --------------- | ------------ | ---------- |
-| **Total tests** | 255          | 163        |
-| **Passed**      | 157          | 134        |
+| **Total tests** | 255          | 164        |
+| **Passed**      | 157          | 135        |
 | **Failed**      | 98           | 29         |
 | **Skipped**     | 0            | 0          |
-| **Pass rate**   | 61.6%        | 82.2%      |
+| **Pass rate**   | 61.6%        | 82.3%      |
 
 
 
@@ -274,7 +274,7 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 | **Endpoints with at least one pass** | ~60                                                                                                                         |
 | **Missing / untested endpoints**    | None in this suite. Every method folder under `testdata/` is exercised; skips and failures are per-test, not per-endpoint. |
 
-**Why 71 → 70 endpoints?** Earlier documentation sometimes referred to **71** endpoints. The difference is **eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed,so the current suite has **70** endpoint folders.
+**eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **70** endpoint folders.
 
 
 *Results are from a single local run; re-run `evm_rpc_tests.sh` to refresh.*
