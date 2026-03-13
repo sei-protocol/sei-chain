@@ -65,8 +65,11 @@ func (api *DebugAPI) profiledTraceBlock(
 	if block.NumberU64() == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
+	if !block.Number().IsInt64() {
+		return nil, fmt.Errorf("block number exceeds int64: %s", block.Number())
+	}
 
-	parent, _, err := api.backend.BlockByNumber(ctx, rpc.BlockNumber(block.NumberU64()-1))
+	parent, _, err := api.backend.BlockByNumber(ctx, rpc.BlockNumber(block.Number().Int64()-1))
 	if err != nil {
 		return nil, err
 	}
