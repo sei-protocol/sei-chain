@@ -28,7 +28,7 @@ func (txKey *TxKey) ToProto() *tmproto.TxKey {
 	return tp
 }
 
-func (txKey *TxKey) String() string {
+func (txKey TxKey) String() string {
 	return tmbytes.HexBytes(txKey[:]).String()
 }
 
