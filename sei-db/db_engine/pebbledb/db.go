@@ -13,7 +13,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/pebblecache"
+	dbcache "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/cache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -21,28 +21,21 @@ import (
 type pebbleDB struct {
 	db            *pebble.DB
 	metricsCancel context.CancelFunc
-	cache         pebblecache.Cache
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
-// Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
+// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
 func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
-	// Used to determine the ordering of keys in the database.
 	comparer *pebble.Comparer,
-	// A work pool for reading from the DB.
-	readPool threading.Pool,
-	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
-	miscPool threading.Pool,
 ) (_ types.KeyValueDB, err error) {
 
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	// Internal pebbleDB block cache, used to cache uncompressed SSTable data blocks in memory.
 	pebbleCache := pebble.NewCache(int64(config.BlockCacheSize))
 	defer pebbleCache.Unref()
 
@@ -91,71 +84,91 @@ func Open(
 		return nil, err
 	}
 
-	readFunction := func(key []byte) ([]byte, bool, error) {
-		val, closer, err := db.Get(key)
-		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
-				return nil, false, nil
-			}
-			return nil, false, fmt.Errorf("failed to read from pebble: %w", err)
-		}
-		cloned := bytes.Clone(val)
-		_ = closer.Close()
-		return cloned, true, nil
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	if config.EnableMetrics {
 		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
-	var cache pebblecache.Cache
-	if config.CacheSize == 0 {
-		cache = pebblecache.NewNoOpCache(readFunction)
-	} else {
-		var cacheName string
-		if config.EnableMetrics {
-			cacheName = filepath.Base(config.DataDir)
-		}
-
-		cache, err = pebblecache.NewCache(
-			ctx,
-			readFunction,
-			config.CacheShardCount,
-			config.CacheSize,
-			readPool,
-			miscPool,
-			cacheName,
-			config.MetricsScrapeInterval)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create flatcache: %w", err)
-		}
-	}
-
 	return &pebbleDB{
 		db:            db,
 		metricsCancel: cancel,
-		cache:         cache,
 	}, nil
 }
 
-func (p *pebbleDB) Get(key []byte) ([]byte, error) {
-	val, found, err := p.cache.Get(key, true)
+// OpenCached opens a Pebble-backed DB and wraps it with a read-through cache.
+// Cache behaviour is controlled by config: when CacheSize is 0 a no-op cache
+// is used, otherwise a sharded LRU cache is created.
+func OpenWithCache(
+	ctx context.Context,
+	config *PebbleDBConfig,
+	comparer *pebble.Comparer,
+	readPool threading.Pool,
+	miscPool threading.Pool,
+) (types.KeyValueDB, error) {
+	db, err := Open(ctx, config, comparer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get value from cache: %w", err)
-	}
-	if !found {
-		return nil, errorutils.ErrNotFound
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	return val, nil
+	readFunc := func(key []byte) ([]byte, bool, error) {
+		val, getErr := db.Get(key)
+		if getErr != nil {
+			if errorutils.IsNotFound(getErr) {
+				return nil, false, nil
+			}
+			return nil, false, getErr
+		}
+		return val, true, nil
+	}
+
+	var cacheName string
+	if config.EnableMetrics {
+		cacheName = filepath.Base(config.DataDir)
+	}
+
+	cache, err := dbcache.BuildCache(
+		ctx,
+		readFunc,
+		config.CacheShardCount,
+		config.CacheSize,
+		readPool,
+		miscPool,
+		cacheName,
+		config.MetricsScrapeInterval,
+	)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
+	return dbcache.NewCachedKeyValueDB(db, cache), nil
+}
+
+func (p *pebbleDB) Get(key []byte) ([]byte, error) {
+	val, closer, err := p.db.Get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, errorutils.ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to get value from database: %w", err)
+	}
+	cloned := bytes.Clone(val)
+	_ = closer.Close()
+	return cloned, nil
 }
 
 func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
-	err := p.cache.BatchGet(keys)
-	if err != nil {
-		return fmt.Errorf("failed to get values from cache: %w", err)
+	for k := range keys {
+		val, err := p.Get([]byte(k))
+		if err != nil {
+			if errorutils.IsNotFound(err) {
+				keys[k] = types.BatchGetResult{}
+			} else {
+				keys[k] = types.BatchGetResult{Error: err}
+			}
+		} else {
+			keys[k] = types.BatchGetResult{Value: val}
+		}
 	}
 	return nil
 }
@@ -165,7 +178,6 @@ func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to set value in database: %w", err)
 	}
-	p.cache.Set(key, value)
 	return nil
 }
 
@@ -174,7 +186,6 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete value in database: %w", err)
 	}
-	p.cache.Delete(key)
 	return nil
 }
 

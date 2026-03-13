@@ -9,7 +9,6 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -280,8 +279,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		// Create an actual PebbleDB so Open works
 		cfg := pebbledb.DefaultTestConfig(t)
 		cfg.DataDir = dbPath
-		db, err := pebbledb.Open(t.Context(), &cfg, pebble.DefaultComparer,
-			threading.NewAdHocPool(), threading.NewAdHocPool())
+		db, err := pebbledb.Open(t.Context(), &cfg, pebble.DefaultComparer)
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -347,8 +345,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = accountDBPath
 	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer)
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
 	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))

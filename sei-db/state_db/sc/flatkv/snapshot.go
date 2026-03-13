@@ -382,8 +382,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	metaCfg := s.config.MetadataDBConfig
 	metaCfg.DataDir = filepath.Join(flatkvDir, metadataDir)
 	tmpMeta, err := pebbledb.Open(
-		s.ctx, &metaCfg, pebble.DefaultComparer,
-		s.readPool, s.miscPool)
+		s.ctx, &metaCfg, pebble.DefaultComparer)
 	if err == nil {
 		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
 		_ = tmpMeta.Close()

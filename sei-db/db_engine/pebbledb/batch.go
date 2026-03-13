@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/pebblecache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -12,36 +11,20 @@ import (
 // Important: Callers must call Close() after Commit() to release batch resources,
 // even if Commit() succeeds. Failure to Close() will leak memory.
 type pebbleBatch struct {
-	b     *pebble.Batch
-	cache pebblecache.Cache
-
-	// Writes are tracked so the cache can be updated after a successful commit.
-	pendingCacheUpdates []pebblecache.CacheUpdate
+	b *pebble.Batch
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
-func newPebbleBatch(db *pebble.DB, cache pebblecache.Cache) *pebbleBatch {
-	return &pebbleBatch{b: db.NewBatch(), cache: cache}
-}
-
 func (p *pebbleDB) NewBatch() types.Batch {
-	return newPebbleBatch(p.db, p.cache)
+	return &pebbleBatch{b: p.db.NewBatch()}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
-	pb.pendingCacheUpdates = append(pb.pendingCacheUpdates, pebblecache.CacheUpdate{
-		Key:   key,
-		Value: value,
-	})
 	return pb.b.Set(key, value, nil)
 }
 
 func (pb *pebbleBatch) Delete(key []byte) error {
-	pb.pendingCacheUpdates = append(pb.pendingCacheUpdates, pebblecache.CacheUpdate{
-		Key:   key,
-		Value: nil,
-	})
 	return pb.b.Delete(key, nil)
 }
 
@@ -50,11 +33,6 @@ func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
-	err = pb.cache.BatchSet(pb.pendingCacheUpdates)
-	if err != nil {
-		return fmt.Errorf("failed to set cache: %w", err)
-	}
-	pb.pendingCacheUpdates = nil
 	return nil
 }
 
@@ -64,7 +42,6 @@ func (pb *pebbleBatch) Len() int {
 
 func (pb *pebbleBatch) Reset() {
 	pb.b.Reset()
-	pb.pendingCacheUpdates = nil
 }
 
 func (pb *pebbleBatch) Close() error {

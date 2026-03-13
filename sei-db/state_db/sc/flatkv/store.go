@@ -433,7 +433,7 @@ func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.Key
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-	db, err := pebbledb.Open(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
+	db, err := pebbledb.OpenWithCache(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}

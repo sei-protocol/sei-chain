@@ -12,9 +12,9 @@ type PebbleDBConfig struct {
 	// The directory to store the database files. This has no default value and must be provided.
 	DataDir string
 	// The size of key-value cache, in bytes.
-	CacheSize int
+	CacheSize uint64
 	// The number of shards in the key-value cache. Must be a power of two and greater than 0.
-	CacheShardCount int
+	CacheShardCount uint64
 	// The size of pebbleDB's internal block cache, in bytes.
 	BlockCacheSize int
 	// Whether to enable metrics.
@@ -38,9 +38,6 @@ func DefaultConfig() PebbleDBConfig {
 func (c *PebbleDBConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
-	}
-	if c.CacheSize < 0 {
-		return fmt.Errorf("cache size must not be negative")
 	}
 	if c.CacheSize > 0 && (c.CacheShardCount&(c.CacheShardCount-1)) != 0 {
 		return fmt.Errorf("cache shard count must be a power of two or 0")

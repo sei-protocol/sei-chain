@@ -18,7 +18,7 @@ import (
 func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
 	for _, mode := range []struct {
 		name      string
-		cacheSize int
+		cacheSize uint64
 	}{
 		{"cached", 16 * unit.MB},
 		{"uncached", 0},
@@ -33,7 +33,8 @@ func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
 
 func openDB(t *testing.T, cfg *PebbleDBConfig) types.KeyValueDB {
 	t.Helper()
-	db, err := Open(t.Context(), cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := OpenWithCache(t.Context(), cfg, pebble.DefaultComparer,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
@@ -220,7 +221,7 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 	}
 
 	cfg := DefaultTestConfig(t)
-	db, err := Open(t.Context(), &cfg, &cmp, threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := OpenWithCache(t.Context(), &cfg, &cmp, threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -265,7 +266,8 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	db, err := Open(t.Context(), &cfg, pebble.DefaultComparer, threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := OpenWithCache(t.Context(), &cfg, pebble.DefaultComparer,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
