@@ -9,9 +9,7 @@ package shadowreplay
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -26,49 +24,56 @@ import (
 // Options configures a shadow replay run.
 type Options struct {
 	// SourceRPC is the HTTP RPC endpoint of the archival source node.
-	// Must retain FinalizeBlockResponses (min-retain-blocks=0).
 	SourceRPC string
 
 	// StartHeight is the first block to replay.
-	// Must equal snapshot height + 1; validated on startup.
+	// Ignored when resuming from a checkpoint.
 	StartHeight int64
 
 	// EndHeight is the last block height to replay (inclusive).
 	// Set to 0 to run continuously, polling for new blocks.
 	EndHeight int64
 
-	// Output receives newline-delimited ComparisonRecord JSON.
-	// Defaults to os.Stdout when nil.
-	Output io.Writer
-}
+	// CheckpointPath, when set, enables crash-recovery checkpointing.
+	CheckpointPath string
 
-// ComparisonRecord is the per-block output written to Options.Output as NDJSON.
-type ComparisonRecord struct {
-	Height    int64  `json:"height"`
-	Status    string `json:"status"` // "match" or "diverge"
-	AppHash   string `json:"app_hash,omitempty"`
-	TxCount   int    `json:"tx_count,omitempty"`
-	ElapsedMs int64  `json:"elapsed_ms,omitempty"`
+	// OutputDir, when set, enables NDJSON file output with rotation.
+	// Divergence files are written to OutputDir/divergences/.
+	OutputDir string
 
-	// Divergence detail fields (only when Status=="diverge")
-	Kind              string      `json:"kind,omitempty"`    // "AppHash" | "tx"
-	TxIndex           int         `json:"tx_index,omitempty"`
-	TxHash            string      `json:"tx_hash,omitempty"`
-	Field             string      `json:"field,omitempty"`
-	Want              interface{} `json:"want,omitempty"`
-	Got               interface{} `json:"got,omitempty"`
-	BlockAppHashMatch bool        `json:"block_app_hash_match,omitempty"`
+	// MetricsAddr is the address for the Prometheus metrics HTTP server
+	// (e.g. ":9090"). Empty disables metrics.
+	MetricsAddr string
+
+	// ChainID is used as a Prometheus label. Defaults to "unknown".
+	ChainID string
 }
 
 // Run executes shadow replay from opts.StartHeight to opts.EndHeight (or forever).
-//
-// dbDir must be the chain home's data directory (e.g. $CHAIN_HOME/data).
-// appConn must be a started local ABCI client wrapping the shadow Sei app
-// (already loaded from the same dbDir via snapshot sync).
 func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger log.Logger, opts Options) error {
-	if opts.Output == nil {
-		opts.Output = os.Stdout
+	if opts.ChainID == "" {
+		opts.ChainID = "unknown"
 	}
+
+	// Set up metrics.
+	var metrics *Metrics
+	if opts.MetricsAddr != "" {
+		metrics = NewMetrics(opts.ChainID)
+		if err := metrics.Serve(opts.MetricsAddr); err != nil {
+			return fmt.Errorf("starting metrics server: %w", err)
+		}
+		defer metrics.Stop()
+		logger.Info("metrics server started", "addr", opts.MetricsAddr)
+	} else {
+		metrics = NoopMetrics()
+	}
+
+	// Set up output.
+	output, err := NewOutputWriter(opts.OutputDir, os.Stdout)
+	if err != nil {
+		return fmt.Errorf("creating output writer: %w", err)
+	}
+	defer output.Close()
 
 	// Open the state DB from the snapshot-seeded chain home.
 	stateDB, err := dbm.NewDB("state", dbm.GoLevelDBBackend, dbDir)
@@ -83,11 +88,41 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 	if err != nil {
 		return fmt.Errorf("loading state: %w", err)
 	}
-	if state.LastBlockHeight != opts.StartHeight-1 {
-		return fmt.Errorf("height mismatch: snapshot state is at %d, but StartHeight is %d (expected snapshot height+1)",
-			state.LastBlockHeight, opts.StartHeight)
-	}
 	initialHeight := state.InitialHeight
+
+	// Determine start height: checkpoint takes priority.
+	startHeight := opts.StartHeight
+	epoch := NewEpochState()
+	startedAt := time.Now()
+	var blocksReplayed int64
+	var totalDivergences int64
+
+	if opts.CheckpointPath != "" {
+		cp, err := LoadCheckpoint(opts.CheckpointPath)
+		if err != nil {
+			return fmt.Errorf("loading checkpoint: %w", err)
+		}
+		if cp != nil {
+			startHeight = cp.LastHeight + 1
+			blocksReplayed = cp.BlocksReplayed
+			totalDivergences = cp.Divergences
+			startedAt = cp.StartedAt
+			if cp.Epoch == EpochDiverged {
+				epoch.Current = EpochDiverged
+				epoch.OriginHeight = cp.EpochOrigin
+			}
+			logger.Info("resuming from checkpoint",
+				"height", startHeight,
+				"blocks_replayed", blocksReplayed,
+				"epoch", epoch.Current,
+			)
+		}
+	}
+
+	if state.LastBlockHeight != startHeight-1 {
+		return fmt.Errorf("height mismatch: state is at %d, but start height is %d (expected state = start-1)",
+			state.LastBlockHeight, startHeight)
+	}
 
 	// Connect to source archival node.
 	src, err := httpclient.New(opts.SourceRPC)
@@ -95,11 +130,20 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		return fmt.Errorf("creating source RPC client for %q: %w", opts.SourceRPC, err)
 	}
 
-	enc := json.NewEncoder(opts.Output)
+	logger.Info("shadow replay starting",
+		"start_height", startHeight,
+		"end_height", opts.EndHeight,
+		"source_rpc", opts.SourceRPC,
+		"output_dir", opts.OutputDir,
+		"checkpoint", opts.CheckpointPath,
+	)
 
-	for height := opts.StartHeight; ; height++ {
+	bpsStart := time.Now()
+	bpsCount := int64(0)
+
+	for height := startHeight; ; height++ {
 		if opts.EndHeight > 0 && height > opts.EndHeight {
-			logger.Info("shadow-replay complete", "heights_replayed", height-opts.StartHeight)
+			logger.Info("shadow-replay complete", "heights_replayed", blocksReplayed)
 			return nil
 		}
 
@@ -109,20 +153,16 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		default:
 		}
 
-		// Fetch the block at this height from the source, polling until available.
 		block, err := fetchBlockWithRetry(ctx, src, height, logger)
 		if err != nil {
 			return err
 		}
 
-		// Fetch canonical tx results.
 		resultsResp, err := src.BlockResults(ctx, &height)
 		if err != nil {
 			return fmt.Errorf("fetching block_results at height %d: %w", height, err)
 		}
 
-		// Fetch next block to extract the expected AppHash.
-		// (AppHash for block N is stored in block N+1's header.)
 		nextHeight := height + 1
 		nextBlock, err := fetchBlockWithRetry(ctx, src, nextHeight, logger)
 		if err != nil {
@@ -132,15 +172,11 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 
 		start := time.Now()
 
-		// Execute and commit the block on the shadow app.
 		gotAppHash, txResults, err := sm.ExecCommitBlockFull(ctx, appConn, block, logger, stateStore, initialHeight)
 		if err != nil {
 			return fmt.Errorf("ExecCommitBlockFull at height %d: %w", height, err)
 		}
 
-		// Advance the state so buildLastCommitInfo finds correct validators next iteration.
-		// Note: full validator set updates require ApplyBlock; this is sufficient for
-		// mainnet replay where validator set changes are infrequent.
 		state.AppHash = gotAppHash
 		state.LastBlockHeight = height
 		if err := stateStore.Save(state); err != nil {
@@ -148,73 +184,101 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		}
 
 		elapsedMs := time.Since(start).Milliseconds()
+		appHashMatch := string(gotAppHash) == string(expectedAppHash)
 
-		rec := ComparisonRecord{
-			Height:    height,
-			Status:    "match",
-			AppHash:   hex.EncodeToString(gotAppHash),
-			TxCount:   len(txResults),
-			ElapsedMs: elapsedMs,
+		// Epoch tracking.
+		isNewOrigin := epoch.Transition(appHashMatch, height)
+
+		// Build tx hashes for comparison.
+		txHashes := make([]string, len(block.Txs))
+		for i, tx := range block.Txs {
+			txHashes[i] = hex.EncodeToString(tx.Hash())
 		}
 
-		// Block-level AppHash comparison.
-		if string(gotAppHash) != string(expectedAppHash) {
-			rec.Status = "diverge"
-			rec.Kind = "AppHash"
-			rec.Want = hex.EncodeToString(expectedAppHash)
-			rec.Got = hex.EncodeToString(gotAppHash)
-			logger.Error("AppHash divergence", "height", height, "want", rec.Want, "got", rec.Got)
-			_ = enc.Encode(rec)
-			continue
+		// Compare.
+		var divs []Divergence
+
+		if !appHashMatch && isNewOrigin {
+			divs = append(divs, Divergence{
+				Scope:     ScopeBlock,
+				Severity:  SeverityCritical,
+				Field:     "app_hash",
+				Canonical: hex.EncodeToString(expectedAppHash),
+				Replay:    hex.EncodeToString(gotAppHash),
+			})
+			logger.Error("app hash divergence (new origin)", "height", height)
 		}
 
-		// Per-transaction comparison.
-		diverged := false
-		for i, got := range txResults {
-			if i >= len(resultsResp.TxsResults) {
-				break
+		// Tx-level comparison runs in both clean and diverged epochs to
+		// detect independent divergences even when app hash is cascading.
+		txDivs := CompareTxResults(resultsResp.TxsResults, txResults, txHashes)
+		divs = append(divs, txDivs...)
+
+		// Compute total gas.
+		var gasTotal int64
+		for _, tx := range txResults {
+			gasTotal += tx.GasUsed
+		}
+
+		comp := &BlockComparison{
+			Height:       height,
+			Timestamp:    time.Now().UTC().Format(time.RFC3339),
+			AppHashMatch: appHashMatch,
+			CanonicalApp: hex.EncodeToString(expectedAppHash),
+			ReplayApp:    hex.EncodeToString(gotAppHash),
+			TxCount:      len(txResults),
+			GasUsedTotal: gasTotal,
+			ElapsedMs:    elapsedMs,
+			Epoch:        epoch.Current,
+			Divergences:  divs,
+		}
+
+		if epoch.Current == EpochDiverged {
+			comp.DivergenceOrigin = epoch.OriginHeight
+			comp.BlocksSinceDivergent = epoch.BlocksSince(height)
+		}
+
+		blocksReplayed++
+		totalDivergences += int64(len(divs))
+
+		// Metrics.
+		metrics.RecordBlock(comp)
+
+		bpsCount++
+		if elapsed := time.Since(bpsStart).Seconds(); elapsed >= 10 {
+			metrics.BlocksPerSecond.Set(float64(bpsCount) / elapsed)
+			bpsStart = time.Now()
+			bpsCount = 0
+		}
+
+		// Output.
+		if err := output.WriteBlock(comp); err != nil {
+			return fmt.Errorf("writing output at height %d: %w", height, err)
+		}
+
+		// Checkpoint every 100 blocks.
+		if opts.CheckpointPath != "" && blocksReplayed%100 == 0 {
+			cp := &Checkpoint{
+				LastHeight:     height,
+				LastAppHash:    hex.EncodeToString(gotAppHash),
+				StartedAt:      startedAt,
+				BlocksReplayed: blocksReplayed,
+				Divergences:    totalDivergences,
+				Epoch:          epoch.Current,
+				EpochOrigin:    epoch.OriginHeight,
 			}
-			want := resultsResp.TxsResults[i]
-			txHash := hex.EncodeToString(block.Txs[i].Hash())
-
-			var field string
-			var wantVal, gotVal interface{}
-
-			switch {
-			case got.Code != want.Code:
-				field, wantVal, gotVal = "Code", want.Code, got.Code
-			case got.GasUsed != want.GasUsed:
-				field, wantVal, gotVal = "GasUsed", want.GasUsed, got.GasUsed
-			case string(got.Data) != string(want.Data):
-				field, wantVal, gotVal = "Data", hex.EncodeToString(want.Data), hex.EncodeToString(got.Data)
-			case got.Codespace != want.Codespace:
-				field, wantVal, gotVal = "Codespace", want.Codespace, got.Codespace
-			case len(got.Events) != len(want.Events):
-				field = "Events"
-				wantVal = fmt.Sprintf("count=%d", len(want.Events))
-				gotVal = fmt.Sprintf("count=%d", len(got.Events))
-			}
-
-			if field != "" {
-				txRec := ComparisonRecord{
-					Height:            height,
-					Status:            "diverge",
-					Kind:              "tx",
-					TxIndex:           i,
-					TxHash:            txHash,
-					Field:             field,
-					Want:              wantVal,
-					Got:               gotVal,
-					BlockAppHashMatch: true,
-				}
-				logger.Error("tx divergence", "height", height, "tx_index", i, "field", field)
-				_ = enc.Encode(txRec)
-				diverged = true
+			if err := SaveCheckpoint(opts.CheckpointPath, cp); err != nil {
+				logger.Error("failed to save checkpoint", "err", err)
 			}
 		}
 
-		if !diverged {
-			_ = enc.Encode(rec)
+		if len(divs) > 0 {
+			logger.Info("block divergences",
+				"height", height,
+				"count", len(divs),
+				"max_severity", MaxSeverity(divs),
+				"epoch", epoch.Current,
+			)
 		}
 	}
 }

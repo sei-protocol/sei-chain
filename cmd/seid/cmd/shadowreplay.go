@@ -11,21 +11,26 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/spf13/cast"
+	"github.com/spf13/cobra"
+
 	"github.com/sei-protocol/sei-chain/app"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	tmlog "github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/shadowreplay"
-	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"github.com/spf13/cast"
-	"github.com/spf13/cobra"
 )
 
 const (
 	flagSourceRPC   = "source-rpc"
 	flagStartHeight = "start-height"
 	flagEndHeight   = "end-height"
+	flagCheckpoint  = "checkpoint"
+	flagOutputDir   = "output-dir"
+	flagMetricsAddr = "metrics-addr"
+	flagChainID     = "chain-id"
 )
 
 // ShadowReplayCmd returns the cobra command for shadow replay.
@@ -38,7 +43,14 @@ and re-executes them against a locally seeded chain state using the Giga executi
 
 For each block it compares AppHash and per-transaction results (Code, GasUsed, Data,
 Codespace, Events) against the canonical results from the source node and emits a
-newline-delimited JSON stream of ComparisonRecords to stdout.
+newline-delimited JSON stream of BlockComparison records.
+
+Phase 1 features:
+  - Continuous mode: set --end-height=0 to replay indefinitely, polling for new blocks.
+  - Checkpoint/resume: set --checkpoint to persist progress and resume after restarts.
+  - Prometheus metrics: set --metrics-addr to expose replay progress and divergence metrics.
+  - File output: set --output-dir for rotating NDJSON files and per-divergence records.
+  - Divergence epochs: cascading app-hash divergences are tracked as epochs to avoid alert fatigue.
 
 The --home directory must contain chain state seeded via snapshot sync.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -51,6 +63,10 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 			sourceRPC := serverCtx.Viper.GetString(flagSourceRPC)
 			startHeight := serverCtx.Viper.GetInt64(flagStartHeight)
 			endHeight := serverCtx.Viper.GetInt64(flagEndHeight)
+			checkpointPath := serverCtx.Viper.GetString(flagCheckpoint)
+			outputDir := serverCtx.Viper.GetString(flagOutputDir)
+			metricsAddr := serverCtx.Viper.GetString(flagMetricsAddr)
+			chainID := serverCtx.Viper.GetString(flagChainID)
 
 			if sourceRPC == "" {
 				return fmt.Errorf("--%s is required", flagSourceRPC)
@@ -101,9 +117,13 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 			appConn := abciclient.NewLocalClient(logger, seiApp)
 
 			opts := shadowreplay.Options{
-				SourceRPC:   sourceRPC,
-				StartHeight: startHeight,
-				EndHeight:   endHeight,
+				SourceRPC:      sourceRPC,
+				StartHeight:    startHeight,
+				EndHeight:      endHeight,
+				CheckpointPath: checkpointPath,
+				OutputDir:      outputDir,
+				MetricsAddr:    metricsAddr,
+				ChainID:        chainID,
 			}
 
 			dataDir := filepath.Join(home, "data")
@@ -114,7 +134,11 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "Chain home directory (must contain snapshot-seeded state)")
 	cmd.Flags().String(flagSourceRPC, "", "Archival source node RPC endpoint, e.g. http://pacific-replay-0:26657 (required)")
 	cmd.Flags().Int64(flagStartHeight, 0, "First block height to replay; must equal snapshot height + 1 (required)")
-	cmd.Flags().Int64(flagEndHeight, 0, "Last block height to replay (0 = run continuously to tip)")
+	cmd.Flags().Int64(flagEndHeight, 0, "Last block height to replay; 0 = run continuously to tip")
+	cmd.Flags().String(flagCheckpoint, "", "Path to checkpoint file for crash-recovery resume")
+	cmd.Flags().String(flagOutputDir, "", "Directory for NDJSON block files and divergence records")
+	cmd.Flags().String(flagMetricsAddr, "", "Address for Prometheus metrics HTTP server (e.g. :9090)")
+	cmd.Flags().String(flagChainID, "pacific-1", "Chain ID for Prometheus metric labels")
 
 	return cmd
 }
