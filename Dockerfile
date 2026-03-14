@@ -25,6 +25,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 ENV CGO_ENABLED=1
+
+RUN go run giga/executor/lib/gen/main.go giga/executor/lib/
+
 ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
 ARG GO_BUILD_ARGS=""
@@ -49,5 +52,6 @@ RUN apt-get update && \
 COPY --from=builder /go/bin/seid /usr/bin/
 COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
+COPY --from=builder /go/src/sei-chain/giga/executor/lib/*.so /go/src/sei-chain/giga/executor/lib/
 
 ENTRYPOINT ["/usr/bin/seid"]
