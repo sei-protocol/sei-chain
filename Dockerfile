@@ -47,6 +47,7 @@ FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --only-upgrade libstdc++6 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /usr/bin/
