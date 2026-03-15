@@ -43,7 +43,19 @@ type BlockComparison struct {
 	DivergenceOrigin     int64  `json:"divergence_origin_height,omitempty"`
 	BlocksSinceDivergent int64  `json:"blocks_since_divergence,omitempty"`
 
+	Summary     BlockSummary `json:"summary"`
 	Divergences []Divergence `json:"divergences"`
+}
+
+// BlockSummary provides aggregate counts by tx type and divergence severity.
+type BlockSummary struct {
+	EVMTxCount      int `json:"evm_tx_count"`
+	CosmosTxCount   int `json:"cosmos_tx_count"`
+	FallbackTxCount int `json:"fallback_tx_count"`
+	CriticalCount   int `json:"critical_count"`
+	ConcerningCount int `json:"concerning_count"`
+	InfoCount       int `json:"info_count"`
+	BenignCount     int `json:"benign_count"`
 }
 
 // Divergence captures a single field-level difference between canonical and
@@ -99,10 +111,40 @@ func (e *EpochState) BlocksSince(currentHeight int64) int64 {
 	return currentHeight - e.OriginHeight
 }
 
+// TxClass identifies the execution path a transaction took through the Giga engine.
+type TxClass string
+
+const (
+	TxClassEVM      TxClass = "evm"
+	TxClassCosmos   TxClass = "cosmos"
+	TxClassFallback TxClass = "fallback"
+)
+
+// classifyTx determines whether a tx was processed by the Giga EVM executor,
+// the Cosmos SDK path, or fell back from Giga to V2.
+//
+// Heuristic: if canonical has events but replay has none, Giga's EVM path
+// executed the tx (it doesn't emit ABCI events). If both have events but with
+// ordering differences, the block likely fell back to V2. If both have zero
+// events, it's a Cosmos tx with no events.
+func classifyTx(canonical, replay *abci.ExecTxResult) TxClass {
+	cEvents := len(canonical.Events)
+	rEvents := len(replay.Events)
+
+	if cEvents > 0 && rEvents == 0 {
+		return TxClassEVM
+	}
+	if cEvents > 0 && rEvents > 0 && rEvents != cEvents {
+		return TxClassFallback
+	}
+	return TxClassCosmos
+}
+
 // CompareTxResults compares canonical vs replay transaction results for a
-// single block and returns all detected divergences.
-func CompareTxResults(canonical []*abci.ExecTxResult, replay []*abci.ExecTxResult, txHashes []string) []Divergence {
+// single block and returns all detected divergences plus a block summary.
+func CompareTxResults(canonical []*abci.ExecTxResult, replay []*abci.ExecTxResult, txHashes []string) ([]Divergence, BlockSummary) {
 	var divs []Divergence
+	var summary BlockSummary
 
 	minLen := len(canonical)
 	if len(replay) < minLen {
@@ -127,13 +169,37 @@ func CompareTxResults(canonical []*abci.ExecTxResult, replay []*abci.ExecTxResul
 		if i < len(txHashes) {
 			txHash = txHashes[i]
 		}
-		divs = append(divs, compareSingleTx(i, txHash, want, got)...)
+
+		txClass := classifyTx(want, got)
+		switch txClass {
+		case TxClassEVM:
+			summary.EVMTxCount++
+		case TxClassCosmos:
+			summary.CosmosTxCount++
+		case TxClassFallback:
+			summary.FallbackTxCount++
+		}
+
+		divs = append(divs, compareSingleTx(i, txHash, string(txClass), want, got)...)
 	}
 
-	return divs
+	for _, d := range divs {
+		switch d.Severity {
+		case SeverityCritical:
+			summary.CriticalCount++
+		case SeverityConcerning:
+			summary.ConcerningCount++
+		case SeverityInfo:
+			summary.InfoCount++
+		case SeverityBenign:
+			summary.BenignCount++
+		}
+	}
+
+	return divs, summary
 }
 
-func compareSingleTx(idx int, txHash string, want, got *abci.ExecTxResult) []Divergence {
+func compareSingleTx(idx int, txHash string, txType string, want, got *abci.ExecTxResult) []Divergence {
 	var divs []Divergence
 
 	if want.Code != got.Code {
@@ -147,6 +213,7 @@ func compareSingleTx(idx int, txHash string, want, got *abci.ExecTxResult) []Div
 			Field:     "code",
 			TxIndex:   idx,
 			TxHash:    txHash,
+			TxType:    txType,
 			Canonical: want.Code,
 			Replay:    got.Code,
 		})
@@ -169,6 +236,7 @@ func compareSingleTx(idx int, txHash string, want, got *abci.ExecTxResult) []Div
 			Field:     "gas_used",
 			TxIndex:   idx,
 			TxHash:    txHash,
+			TxType:    txType,
 			Canonical: want.GasUsed,
 			Replay:    got.GasUsed,
 			Detail:    fmt.Sprintf("delta=%.4f%%", delta*100),
@@ -182,41 +250,72 @@ func compareSingleTx(idx int, txHash string, want, got *abci.ExecTxResult) []Div
 			Field:     "data",
 			TxIndex:   idx,
 			TxHash:    txHash,
+			TxType:    txType,
 			Canonical: hex.EncodeToString(want.Data),
 			Replay:    hex.EncodeToString(got.Data),
 		})
 	}
 
 	if want.Codespace != got.Codespace {
+		sev := SeverityConcerning
+		// Giga doesn't propagate the SDK codespace for failed EVM txs.
+		if txType == string(TxClassEVM) && want.Codespace == "sdk" && got.Codespace == "" {
+			sev = SeverityInfo
+		}
 		divs = append(divs, Divergence{
 			Scope:     ScopeTx,
-			Severity:  SeverityConcerning,
+			Severity:  sev,
 			Field:     "codespace",
 			TxIndex:   idx,
 			TxHash:    txHash,
+			TxType:    txType,
 			Canonical: want.Codespace,
 			Replay:    got.Codespace,
 		})
 	}
 
-	divs = append(divs, compareEvents(idx, txHash, want.Events, got.Events)...)
+	divs = append(divs, compareEvents(idx, txHash, txType, want.Events, got.Events)...)
 
 	return divs
 }
 
-func compareEvents(txIdx int, txHash string, want, got []abci.Event) []Divergence {
+// isAnteHandlerSwap detects the known tx/signer event ordering difference
+// between canonical and Giga's Cosmos path. Returns true if events at indices
+// i and i+1 are a complementary swap of the "tx" and "signer" event types.
+func isAnteHandlerSwap(want, got []abci.Event, i int) bool {
+	if i+1 >= len(want) || i+1 >= len(got) {
+		return false
+	}
+	return want[i].Type == "tx" && want[i+1].Type == "signer" &&
+		got[i].Type == "signer" && got[i+1].Type == "tx"
+}
+
+func compareEvents(txIdx int, txHash string, txType string, want, got []abci.Event) []Divergence {
 	var divs []Divergence
 
 	if len(want) != len(got) {
+		sev := SeverityConcerning
+		// Giga EVM path intentionally skips ABCI event emission.
+		if txType == string(TxClassEVM) && len(got) == 0 {
+			sev = SeverityInfo
+		}
 		divs = append(divs, Divergence{
 			Scope:     ScopeEvent,
-			Severity:  SeverityConcerning,
+			Severity:  sev,
 			Field:     "event_count",
 			TxIndex:   txIdx,
 			TxHash:    txHash,
+			TxType:    txType,
 			Canonical: len(want),
 			Replay:    len(got),
+			Detail:    fmt.Sprintf("tx_type=%s", txType),
 		})
+	}
+
+	// For EVM txs with zero replay events, skip per-event comparison entirely
+	// since we already captured the count divergence above.
+	if txType == string(TxClassEVM) && len(got) == 0 {
+		return divs
 	}
 
 	minLen := len(want)
@@ -224,17 +323,43 @@ func compareEvents(txIdx int, txHash string, want, got []abci.Event) []Divergenc
 		minLen = len(got)
 	}
 
+	skipNext := false
 	for i := 0; i < minLen; i++ {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+
 		wantEv := want[i]
 		gotEv := got[i]
 
 		if wantEv.Type != gotEv.Type {
+			// Detect known ante-handler tx/signer swap and collapse into
+			// a single benign divergence instead of two concerning ones.
+			if isAnteHandlerSwap(want, got, i) {
+				divs = append(divs, Divergence{
+					Scope:     ScopeEvent,
+					Severity:  SeverityBenign,
+					Field:     "event_type_swap",
+					TxIndex:   txIdx,
+					TxHash:    txHash,
+					TxType:    txType,
+					EventIdx:  i,
+					Canonical: fmt.Sprintf("%s,%s", want[i].Type, want[i+1].Type),
+					Replay:    fmt.Sprintf("%s,%s", got[i].Type, got[i+1].Type),
+					Detail:    "ante-handler event reordering (benign)",
+				})
+				skipNext = true
+				continue
+			}
+
 			divs = append(divs, Divergence{
 				Scope:     ScopeEvent,
 				Severity:  SeverityConcerning,
 				Field:     "event_type",
 				TxIndex:   txIdx,
 				TxHash:    txHash,
+				TxType:    txType,
 				EventType: wantEv.Type,
 				EventIdx:  i,
 				Canonical: wantEv.Type,
@@ -247,6 +372,13 @@ func compareEvents(txIdx int, txHash string, want, got []abci.Event) []Divergenc
 	}
 
 	return divs
+}
+
+// anteHandlerAttrs are attributes that move between events due to ante-handler
+// reordering in Giga. Missing/extra occurrences of these keys are benign.
+var anteHandlerAttrs = map[string]bool{
+	"fee": true, "fee_payer": true,
+	"acc_seq": true, "signature": true,
 }
 
 func compareEventAttrs(txIdx int, txHash string, evtIdx int, evtType string, want, got []abci.EventAttribute) []Divergence {
@@ -265,9 +397,15 @@ func compareEventAttrs(txIdx int, txHash string, evtIdx int, evtType string, wan
 	for k, wantVal := range wantMap {
 		gotVal, ok := gotMap[k]
 		if !ok {
+			sev := SeverityConcerning
+			detail := "attribute present in canonical but missing in replay"
+			if anteHandlerAttrs[k] {
+				sev = SeverityBenign
+				detail = "ante-handler attribute reshuffled (benign)"
+			}
 			divs = append(divs, Divergence{
 				Scope:     ScopeEvent,
-				Severity:  SeverityConcerning,
+				Severity:  sev,
 				Field:     "event_attr_missing",
 				TxIndex:   txIdx,
 				TxHash:    txHash,
@@ -276,7 +414,7 @@ func compareEventAttrs(txIdx int, txHash string, evtIdx int, evtType string, wan
 				AttrKey:   k,
 				Canonical: wantVal,
 				Replay:    nil,
-				Detail:    "attribute present in canonical but missing in replay",
+				Detail:    detail,
 			})
 		} else if wantVal != gotVal {
 			divs = append(divs, Divergence{
@@ -296,9 +434,14 @@ func compareEventAttrs(txIdx int, txHash string, evtIdx int, evtType string, wan
 
 	for k, gotVal := range gotMap {
 		if _, ok := wantMap[k]; !ok {
+			sev := SeverityBenign
+			detail := "attribute present in replay but missing in canonical"
+			if anteHandlerAttrs[k] {
+				detail = "ante-handler attribute reshuffled (benign)"
+			}
 			divs = append(divs, Divergence{
 				Scope:     ScopeEvent,
-				Severity:  SeverityBenign,
+				Severity:  sev,
 				Field:     "event_attr_extra",
 				TxIndex:   txIdx,
 				TxHash:    txHash,
@@ -307,7 +450,7 @@ func compareEventAttrs(txIdx int, txHash string, evtIdx int, evtType string, wan
 				AttrKey:   k,
 				Canonical: nil,
 				Replay:    gotVal,
-				Detail:    "attribute present in replay but missing in canonical",
+				Detail:    detail,
 			})
 		}
 	}

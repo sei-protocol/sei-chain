@@ -211,7 +211,7 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 
 		// Tx-level comparison runs in both clean and diverged epochs to
 		// detect independent divergences even when app hash is cascading.
-		txDivs := CompareTxResults(resultsResp.TxsResults, txResults, txHashes)
+		txDivs, summary := CompareTxResults(resultsResp.TxsResults, txResults, txHashes)
 		divs = append(divs, txDivs...)
 
 		// Compute total gas.
@@ -230,6 +230,7 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 			GasUsedTotal: gasTotal,
 			ElapsedMs:    elapsedMs,
 			Epoch:        epoch.Current,
+			Summary:      summary,
 			Divergences:  divs,
 		}
 
