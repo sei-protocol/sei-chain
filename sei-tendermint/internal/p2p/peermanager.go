@@ -228,7 +228,6 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 					return addrs, nil
 				}
 			}
-			logger.Info("no addrs available, WAITING")
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
 			}
