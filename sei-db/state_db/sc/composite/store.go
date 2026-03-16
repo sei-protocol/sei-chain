@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -20,12 +21,12 @@ import (
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
 
 // EVMStoreName is the module name for the EVM store in memiavl.
-const EVMStoreName = "evm"
+const EVMStoreName = commonevm.EVMStoreKey
 
 // EVMFlatKVStoreName is the module name used when exporting/importing
 // EVM data from the FlatKV backend. Treated as a separate module in
 // state-sync snapshots so that import routes data exclusively to FlatKV.
-const EVMFlatKVStoreName = "evm_flatkv"
+const EVMFlatKVStoreName = commonevm.EVMFlatKVStoreKey
 
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)

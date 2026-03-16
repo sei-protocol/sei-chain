@@ -191,7 +191,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 
-	require.NoError(t, imp.AddModule("evm_flatkv"))
+	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
@@ -300,7 +300,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	imp, err := s1.Importer(1)
 	require.NoError(t, err)
-	require.NoError(t, imp.AddModule("evm_flatkv"))
+	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}

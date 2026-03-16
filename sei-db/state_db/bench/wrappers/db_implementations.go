@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -12,7 +13,7 @@ import (
 	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 )
 
-const EVMStoreName = "evm"
+const EVMStoreName = commonevm.EVMStoreKey
 
 type DBType string
 
