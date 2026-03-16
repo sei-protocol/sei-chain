@@ -1,6 +1,9 @@
 package dbcache
 
-import "container/list"
+import (
+	"container/list"
+	"fmt"
+)
 
 // Implements a queue-like abstraction with LRU semantics. Not thread safe.
 type lruQueue struct {
@@ -31,6 +34,10 @@ func (lru *lruQueue) Push(
 ) {
 	if elem, ok := lru.entries[string(key)]; ok {
 		entry := elem.Value.(*lruQueueEntry)
+		if size < entry.size {
+			// should be impossible
+			panic(fmt.Errorf("size tracking is corrupted: size %d < entry.size %d", size, entry.size))
+		}
 		lru.totalSize += size - entry.size
 		entry.size = size
 		lru.order.MoveToBack(elem)
@@ -46,7 +53,7 @@ func (lru *lruQueue) Push(
 	lru.totalSize += size
 }
 
-// Signal that an entry has been interated with, moving it to the back of the queue
+// Signal that an entry has been interacted with, moving it to the back of the queue
 // (i.e. making it so it doesn't get popped soon).
 func (lru *lruQueue) Touch(key []byte) {
 	elem, ok := lru.entries[string(key)]
@@ -78,6 +85,10 @@ func (lru *lruQueue) PopLeastRecentlyUsed() string {
 	lru.order.Remove(elem)
 	entry := elem.Value.(*lruQueueEntry)
 	delete(lru.entries, entry.key)
+	if entry.size > lru.totalSize {
+		// should be impossible
+		panic(fmt.Errorf("size tracking is corrupted: entry.size %d > totalSize %d", entry.size, lru.totalSize))
+	}
 	lru.totalSize -= entry.size
 	return entry.key
 }

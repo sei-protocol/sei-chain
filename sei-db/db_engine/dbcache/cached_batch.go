@@ -35,6 +35,9 @@ func (cb *cachedBatch) Commit(opts types.WriteOptions) error {
 		return err
 	}
 	if err := cb.cache.BatchSet(cb.pending); err != nil {
+		// A cache write can only fail during a shutdown when the cache's context is cancelled,
+		// or when the cache's work pools have their contexts cancelled. Continuing to use the
+		// cache after shutdown is not permissible, and so this method must return an error.
 		return fmt.Errorf("failed to update cache after commit: %w", err)
 	}
 	cb.pending = nil
