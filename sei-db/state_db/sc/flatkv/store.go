@@ -159,6 +159,7 @@ func NewCommitStore(
 	return &CommitStore{
 		ctx:               ctx,
 		cancel:            cancel,
+		config:            *cfg,
 		localMeta:         make(map[string]*LocalMeta),
 		accountWrites:     make(map[string]*pendingAccountWrite),
 		codeWrites:        make(map[string]*pendingKVWrite),
