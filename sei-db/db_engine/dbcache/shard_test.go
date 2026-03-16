@@ -423,8 +423,8 @@ func TestBatchSetEmpty(t *testing.T) {
 	s.BatchSet([]CacheUpdate{})
 
 	bytes, entries := s.getSizeInfo()
-	require.Equal(t, 0, bytes)
-	require.Equal(t, 0, entries)
+	require.Equal(t, uint64(0), bytes)
+	require.Equal(t, uint64(0), entries)
 }
 
 // ---------------------------------------------------------------------------
@@ -562,14 +562,14 @@ func TestEvictionRespectMaxSize(t *testing.T) {
 	s.Set([]byte("b"), []byte("bbbbbbbbbb"))
 
 	_, entries := s.getSizeInfo()
-	require.Equal(t, 2, entries)
+	require.Equal(t, uint64(2), entries)
 
 	// Third entry pushes to 33 bytes, exceeding maxSize=30 → evict "a".
 	s.Set([]byte("c"), []byte("cccccccccc"))
 
 	bytes, entries := s.getSizeInfo()
-	require.LessOrEqual(t, bytes, 30, "shard size should not exceed maxSize")
-	require.Equal(t, 2, entries)
+	require.LessOrEqual(t, bytes, uint64(30), "shard size should not exceed maxSize")
+	require.Equal(t, uint64(2), entries)
 }
 
 func TestEvictionOrderIsLRU(t *testing.T) {
@@ -602,7 +602,7 @@ func TestEvictionOnDelete(t *testing.T) {
 	s.Delete([]byte("longkey1"))      // size 8
 
 	bytes, _ := s.getSizeInfo()
-	require.LessOrEqual(t, bytes, 10, "size should not exceed maxSize")
+	require.LessOrEqual(t, bytes, uint64(10), "size should not exceed maxSize")
 }
 
 func TestEvictionOnGetFromDB(t *testing.T) {
@@ -619,7 +619,7 @@ func TestEvictionOnGetFromDB(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	bytes, _ := s.getSizeInfo()
-	require.LessOrEqual(t, bytes, 25, "size should not exceed maxSize after DB read")
+	require.LessOrEqual(t, bytes, uint64(25), "size should not exceed maxSize after DB read")
 }
 
 // ---------------------------------------------------------------------------
@@ -629,8 +629,8 @@ func TestEvictionOnGetFromDB(t *testing.T) {
 func TestGetSizeInfoEmpty(t *testing.T) {
 	s := newTestShard(t, 4096, map[string][]byte{})
 	bytes, entries := s.getSizeInfo()
-	require.Equal(t, 0, bytes)
-	require.Equal(t, 0, entries)
+	require.Equal(t, uint64(0), bytes)
+	require.Equal(t, uint64(0), entries)
 }
 
 func TestGetSizeInfoAfterSets(t *testing.T) {
@@ -640,8 +640,8 @@ func TestGetSizeInfoAfterSets(t *testing.T) {
 	s.Set([]byte("efg"), []byte("hi")) // 3+2 = 5
 
 	bytes, entries := s.getSizeInfo()
-	require.Equal(t, 2, entries)
-	require.Equal(t, 9, bytes)
+	require.Equal(t, uint64(2), entries)
+	require.Equal(t, uint64(9), bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -769,7 +769,7 @@ func TestSetLargeValueExceedingMaxSizeEvictsOldEntries(t *testing.T) {
 	s.Set([]byte("b"), bigVal)
 
 	bytes, _ := s.getSizeInfo()
-	require.LessOrEqual(t, bytes, 100, "size should not exceed maxSize after large set")
+	require.LessOrEqual(t, bytes, uint64(100), "size should not exceed maxSize after large set")
 }
 
 // ---------------------------------------------------------------------------

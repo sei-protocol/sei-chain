@@ -445,7 +445,7 @@ func TestCacheGetRoutesToSameShard(t *testing.T) {
 
 	idx := impl.shardManager.Shard([]byte("key"))
 	_, entries := impl.shards[idx].getSizeInfo()
-	require.Equal(t, 1, entries, "key should be in the shard determined by shardManager")
+	require.Equal(t, uint64(1), entries, "key should be in the shard determined by shardManager")
 }
 
 // ---------------------------------------------------------------------------
@@ -457,8 +457,8 @@ func TestCacheGetCacheSizeInfoEmpty(t *testing.T) {
 	impl := c.(*cache)
 
 	bytes, entries := impl.getCacheSizeInfo()
-	require.Equal(t, int64(0), bytes)
-	require.Equal(t, int64(0), entries)
+	require.Equal(t, uint64(0), bytes)
+	require.Equal(t, uint64(0), entries)
 }
 
 func TestCacheGetCacheSizeInfoAggregatesShards(t *testing.T) {
@@ -470,8 +470,8 @@ func TestCacheGetCacheSizeInfoAggregatesShards(t *testing.T) {
 	}
 
 	bytes, entries := impl.getCacheSizeInfo()
-	require.Equal(t, int64(20), entries)
-	require.Greater(t, bytes, int64(0))
+	require.Equal(t, uint64(20), entries)
+	require.Greater(t, bytes, uint64(0))
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +610,7 @@ func TestCacheEvictsPerShard(t *testing.T) {
 	// 27 bytes → must evict to get under 20
 
 	bytes, _ := impl.shards[0].getSizeInfo()
-	require.LessOrEqual(t, bytes, 20)
+	require.LessOrEqual(t, bytes, uint64(20))
 }
 
 // ---------------------------------------------------------------------------

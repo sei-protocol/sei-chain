@@ -244,7 +244,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		entry := s.getEntry([]byte(key))
 
 		switch entry.status {
-		case statusAvailable | statusDeleted:
+		case statusAvailable, statusDeleted:
 			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value)}
 			hits++
 		case statusScheduled:
