@@ -36,7 +36,7 @@ const (
 
 // GenesisBlockHash is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
 // must recognize this so that count/block-by-hash stay consistent with block-by-number.
-var GenesisBlockHash = common.HexToHash("0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E")
+var genesisBlockHash = common.HexToHash("0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E")
 
 func encodeGenesisBlock() map[string]interface{} {
 	return map[string]interface{}{
