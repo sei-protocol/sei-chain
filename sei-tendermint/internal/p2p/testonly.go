@@ -50,6 +50,7 @@ type TestNetworkOptions struct {
 type TestNodeOptions struct {
 	MaxConnected   utils.Option[int]
 	PexOnHandshake bool
+	SelfAddress bool
 }
 
 func TestAddress(r *Router) NodeAddress {
@@ -273,7 +274,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	nodeID := privKey.Public().NodeID()
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
 	routerOpts := &RouterOptions{
-		SelfAddress:              utils.Some(endpoint.NodeAddress(nodeID)),
 		PexOnHandshake:           opts.PexOnHandshake,
 		Endpoint:                 endpoint,
 		Connection:               conn.DefaultMConnConfig(),
@@ -282,6 +282,9 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		MaxDialRate:              utils.Some(rate.Limit(30.)),
 		MaxInbound:               opts.MaxConnected,
 		MaxOutbound:              opts.MaxConnected,
+	}
+	if opts.SelfAddress {
+		routerOpts.SelfAddress = utils.Some(endpoint.NodeAddress(nodeID))
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{

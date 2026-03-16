@@ -243,7 +243,7 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	ctx := t.Context()
 
 	t.Log("Create a network with 3 nodes.")
-	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true}})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true, SelfAddress: true}})
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
@@ -606,7 +606,7 @@ func TestRouter_dialPeers_TriesAllAddresses(t *testing.T) {
 
 	// Address dialing order is not deterministic, so we run the test multiple times to
 	// minimize the false-positive probability (situation where the correct address is attempted first).
-	for range 1 {
+	for range 20 {
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			// Start the accepting router.
 			target := makeRouter(rng)

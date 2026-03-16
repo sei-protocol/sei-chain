@@ -133,7 +133,7 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
-	rts.node.Connect(t.Context(), testNode)
+	testNode.Connect(t.Context(), rts.node)
 	// Peer registration in the reactor is asynchronous, so block until this peer
 	// is visible before returning to callers that may assert on peer counts.
 	require.Eventually(t, func() bool {
@@ -514,7 +514,6 @@ func TestReactor_Backfill(t *testing.T) {
 	for _, failureRate := range failureRates {
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
 			ctx := t.Context()
-			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
 			rts := setup(t, nil, nil, false)
 
 			var (

@@ -92,7 +92,7 @@ const (
 
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
-	maxLightBlockRequestRetries = 20
+	maxLightBlockRequestRetries = 40
 )
 
 func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
