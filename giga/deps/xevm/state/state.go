@@ -6,9 +6,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 

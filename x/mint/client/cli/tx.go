@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/cli"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govcli "github.com/sei-protocol/sei-chain/cosmos/x/gov/client/cli"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	"github.com/spf13/cobra"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	govclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	govclient "github.com/sei-protocol/sei-chain/cosmos/x/gov/client"
 	mintrest "github.com/sei-protocol/sei-chain/x/mint/client/rest"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )

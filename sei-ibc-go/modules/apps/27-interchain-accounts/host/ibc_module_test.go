@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmprotostate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
 	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/state"

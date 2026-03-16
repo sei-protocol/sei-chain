@@ -1,8 +1,8 @@
 package keeper_test
 
 import (
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func (suite *IntegrationTestSuite) getTestBalancesAndSupply() ([]types.Balance, sdk.Coins) {

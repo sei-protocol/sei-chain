@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/server"
+	"github.com/sei-protocol/sei-chain/cosmos/store"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

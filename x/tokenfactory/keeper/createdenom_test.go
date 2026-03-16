@@ -2,9 +2,9 @@ package keeper_test
 
 import (
 	"fmt"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )

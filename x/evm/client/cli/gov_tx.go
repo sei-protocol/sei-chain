@@ -6,11 +6,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 
 	"github.com/spf13/cobra"
 )

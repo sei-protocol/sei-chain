@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"
 
 	"github.com/sei-protocol/sei-chain/app"
-	svrcmd "github.com/sei-protocol/sei-chain/sei-cosmos/server/cmd"
+	svrcmd "github.com/sei-protocol/sei-chain/cosmos/server/cmd"
 )
 
 func main() {

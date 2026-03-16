@@ -1,9 +1,9 @@
 package wasmbinding
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"

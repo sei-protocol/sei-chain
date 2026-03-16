@@ -9,9 +9,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 // GetQueryCmd returns the cli query commands for this module

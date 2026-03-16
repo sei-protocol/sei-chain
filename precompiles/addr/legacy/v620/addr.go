@@ -21,10 +21,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v620"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )

@@ -3,7 +3,7 @@ package client
 import (
 	"fmt"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

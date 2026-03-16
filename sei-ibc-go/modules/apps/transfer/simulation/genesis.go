@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )

@@ -1,7 +1,7 @@
 package bindings
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 type EVMQueryType string

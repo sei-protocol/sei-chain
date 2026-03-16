@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // RawContractMessage defines a json message that is sent or returned by a wasm contract.

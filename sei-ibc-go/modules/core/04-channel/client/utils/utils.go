@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 
 	clientutils "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client/utils"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

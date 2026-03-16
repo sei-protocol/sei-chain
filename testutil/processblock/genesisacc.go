@@ -1,7 +1,7 @@
 package processblock
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 func (a *App) NewAccount() sdk.AccAddress {

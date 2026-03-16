@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 

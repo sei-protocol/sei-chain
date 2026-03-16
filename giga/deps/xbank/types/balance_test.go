@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/ed25519"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	bank "github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func TestBalanceValidate(t *testing.T) {

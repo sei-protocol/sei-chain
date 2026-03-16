@@ -3,24 +3,24 @@ package legacyabci
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/capability"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/cosmos/x/capability/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
-	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/x/distribution"
+	distrkeeper "github.com/sei-protocol/sei-chain/cosmos/x/distribution/keeper"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
-	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing"
-	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/x/evidence"
+	evidencekeeper "github.com/sei-protocol/sei-chain/cosmos/x/evidence/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/x/slashing"
+	slashingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/slashing/keeper"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
-	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/x/staking"
+	stakingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/x/upgrade"
+	upgradekeeper "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/keeper"
 
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"

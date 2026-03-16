@@ -4,9 +4,9 @@ import (
 	"bytes"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 	"github.com/sei-protocol/seilog"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

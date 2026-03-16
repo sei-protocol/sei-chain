@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/version"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/spf13/cobra"
 

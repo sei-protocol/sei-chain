@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	signing "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	txtypes "github.com/sei-protocol/sei-chain/cosmos/types/tx"
+	signing "github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 )
 

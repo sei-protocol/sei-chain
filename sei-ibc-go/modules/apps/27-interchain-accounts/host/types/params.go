@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 )
 
 const (

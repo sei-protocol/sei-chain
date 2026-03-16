@@ -1,9 +1,9 @@
 package keeper
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
 
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

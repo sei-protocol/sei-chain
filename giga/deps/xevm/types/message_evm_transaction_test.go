@@ -8,8 +8,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
 	"github.com/ethereum/go-ethereum/common"

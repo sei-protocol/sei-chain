@@ -2,9 +2,9 @@ package receipt
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

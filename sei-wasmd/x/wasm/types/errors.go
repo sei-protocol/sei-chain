@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdkErrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkErrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // Codes for wasm contract errors

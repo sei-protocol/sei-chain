@@ -11,9 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/ethereum/go-ethereum/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/triedb/pathdb"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"

@@ -2,7 +2,7 @@ package migrations
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 

@@ -3,11 +3,11 @@ package ante_test
 import (
 	"testing"
 
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	txtypes "github.com/sei-protocol/sei-chain/cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"

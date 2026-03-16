@@ -4,12 +4,12 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
+	authsign "github.com/sei-protocol/sei-chain/cosmos/x/auth/signing"
 )
 
 // SimAppChainID hardcoded chainID for simulation

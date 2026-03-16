@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 var (

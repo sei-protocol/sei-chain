@@ -3,8 +3,8 @@ version: v2
 modules:
   - path: proto
     name: buf.build/sei-protocol/sei-chain
-  - path: sei-cosmos/proto
-  - path: sei-cosmos/third_party/proto
+  - path: cosmos/proto
+  - path: cosmos/third_party/proto
   - path: sei-ibc-go/proto
   - path: sei-ibc-go/third_party/proto
   - path: sei-tendermint/proto
@@ -25,7 +25,7 @@ lint:
     - PACKAGE_SAME_GO_PACKAGE
   ignore:
     - sei-wasmd/third_party/proto
-    - sei-cosmos/third_party/proto
+    - cosmos/third_party/proto
 
 breaking:
   use:

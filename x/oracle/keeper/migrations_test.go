@@ -11,8 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/address"
 )
 
 func TestMigrate2to3(t *testing.T) {

@@ -1,13 +1,13 @@
 package params
 
 import (
+	srvconfig "github.com/sei-protocol/sei-chain/cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/cosmos/types/address"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
-	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 const (

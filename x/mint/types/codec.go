@@ -1,10 +1,10 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	cdctypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/cosmos/crypto/codec"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 )
 
 var (

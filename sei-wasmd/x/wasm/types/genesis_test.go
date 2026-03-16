@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/stretchr/testify/assert"
 

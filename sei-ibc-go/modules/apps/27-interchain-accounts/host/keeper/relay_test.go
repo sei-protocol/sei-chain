@@ -3,12 +3,12 @@ package keeper_test
 import (
 	"time"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	disttypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
+	disttypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types"
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"

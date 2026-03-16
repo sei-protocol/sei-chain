@@ -9,7 +9,7 @@ import (
 	"time"
 
 	metrics "github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/prometheus"

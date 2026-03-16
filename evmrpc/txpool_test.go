@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )

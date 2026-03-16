@@ -5,11 +5,11 @@ import (
 	"regexp"
 	"strings"
 
-	crypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkaddress "github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	crypto "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkaddress "github.com/sei-protocol/sei-chain/cosmos/types/address"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 	yaml "gopkg.in/yaml.v2"
 )
 

@@ -3,8 +3,8 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/sei-protocol/seilog"
 )

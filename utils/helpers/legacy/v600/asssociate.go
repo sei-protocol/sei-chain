@@ -2,10 +2,10 @@ package v600
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
 
 type AssociationHelper struct {

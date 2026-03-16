@@ -7,8 +7,8 @@ import (
 
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"

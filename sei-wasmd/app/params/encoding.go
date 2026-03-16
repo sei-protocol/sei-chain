@@ -1,9 +1,9 @@
 package params
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/types"
 )
 
 // EncodingConfig specifies the concrete encoding types to use for a given app.

@@ -17,8 +17,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // TopOffAmount is the amount to mint when an account needs more funds (100 ETH)

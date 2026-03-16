@@ -1,10 +1,10 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"

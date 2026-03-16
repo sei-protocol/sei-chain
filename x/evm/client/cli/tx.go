@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/hd"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -23,13 +23,13 @@ import (
 	"github.com/spf13/cobra"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keyring"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"

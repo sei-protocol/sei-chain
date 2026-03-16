@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"

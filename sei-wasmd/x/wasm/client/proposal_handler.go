@@ -1,7 +1,7 @@
 package client
 
 import (
-	govclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client"
+	govclient "github.com/sei-protocol/sei-chain/cosmos/x/gov/client"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client/rest"

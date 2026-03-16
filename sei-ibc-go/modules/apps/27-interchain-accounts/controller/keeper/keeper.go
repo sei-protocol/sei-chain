@@ -3,12 +3,12 @@ package keeper
 import (
 	"strings"
 
-	baseapp "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	baseapp "github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/cosmos/x/capability/keeper"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/controller/types"
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"

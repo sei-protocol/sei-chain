@@ -9,11 +9,11 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	paramstypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )

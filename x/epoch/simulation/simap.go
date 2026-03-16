@@ -1,8 +1,8 @@
 package simulation
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
 )
 
 // FindAccount find a specific address from an account list

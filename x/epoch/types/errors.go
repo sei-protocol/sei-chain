@@ -3,7 +3,7 @@ package types
 // DONTCOVER
 
 import (
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // x/epoch module sentinel errors

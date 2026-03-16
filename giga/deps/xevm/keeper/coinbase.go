@@ -5,8 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 )
 
 const CoinbaseSeedAddress = "0000000000000000000000000000000000000001"

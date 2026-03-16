@@ -3,7 +3,7 @@ package types
 import (
 	"encoding/json"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
 )
 
 // NewGenesisState creates a new GenesisState object

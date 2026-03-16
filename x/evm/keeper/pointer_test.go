@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/stretchr/testify/require"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"

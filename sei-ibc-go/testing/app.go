@@ -3,12 +3,12 @@ package ibctesting
 import (
 	"encoding/json"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/cosmos/x/capability/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/staking/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 

@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/big"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 var Big0 = big.NewInt(0)

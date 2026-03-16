@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	clienttx "github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keyring"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 )
 
 type AccountInfo struct {

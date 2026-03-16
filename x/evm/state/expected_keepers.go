@@ -4,10 +4,10 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
-	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authkeeper "github.com/sei-protocol/sei-chain/cosmos/x/auth/keeper"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos/x/bank/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/keeper"
 )
 
 type EVMKeeper interface {

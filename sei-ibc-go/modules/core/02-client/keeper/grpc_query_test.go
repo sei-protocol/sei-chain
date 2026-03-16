@@ -3,10 +3,10 @@ package keeper_test
 import (
 	"fmt"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	grpctypes "github.com/sei-protocol/sei-chain/cosmos/types/grpc"
+	"github.com/sei-protocol/sei-chain/cosmos/types/query"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

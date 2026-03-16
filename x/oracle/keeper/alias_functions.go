@@ -1,8 +1,8 @@
 package keeper
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )

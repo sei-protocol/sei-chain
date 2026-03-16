@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // IBC connection sentinel errors

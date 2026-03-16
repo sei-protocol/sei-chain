@@ -6,7 +6,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/cosmos/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/hasher"

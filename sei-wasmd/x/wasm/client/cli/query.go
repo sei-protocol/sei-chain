@@ -10,9 +10,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"

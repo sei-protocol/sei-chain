@@ -8,7 +8,7 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
-	types "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	types "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"

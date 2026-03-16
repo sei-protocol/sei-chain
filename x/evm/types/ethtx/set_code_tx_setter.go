@@ -1,6 +1,6 @@
 package ethtx
 
-import sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+import sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 func (tx *SetCodeTx) SetTo(v string) {
 	tx.To = v

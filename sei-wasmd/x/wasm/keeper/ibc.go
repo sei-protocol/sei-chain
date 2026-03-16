@@ -3,9 +3,9 @@ package keeper
 import (
 	"strings"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"

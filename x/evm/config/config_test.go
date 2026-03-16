@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/stretchr/testify/require"
 )
 

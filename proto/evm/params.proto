@@ -15,19 +15,19 @@ message Params {
   // ];
   string priority_normalizer = 2 [
     (gogoproto.moretags) = "yaml:\"priority_normalizer\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "priority_normalizer"
   ];
   string base_fee_per_gas = 3 [
     (gogoproto.moretags) = "yaml:\"base_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "base_fee_per_gas"
   ];
   string minimum_fee_per_gas = 4 [
     (gogoproto.moretags) = "yaml:\"minimum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "minimum_fee_per_gas"
   ];
@@ -51,20 +51,20 @@ message Params {
 
   string max_dynamic_base_fee_upward_adjustment = 10 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_upward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_upward_adjustment"
   ];
   string max_dynamic_base_fee_downward_adjustment = 11 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_downward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
   ];
   uint64 target_gas_used_per_block = 12;
   string maximum_fee_per_gas = 13 [
     (gogoproto.moretags) = "yaml:\"maximum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "maximum_fee_per_gas"
   ];
@@ -84,19 +84,19 @@ message ParamsPreV580 {
   // ];
   string priority_normalizer = 2 [
     (gogoproto.moretags) = "yaml:\"priority_normalizer\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "priority_normalizer"
   ];
   string base_fee_per_gas = 3 [
     (gogoproto.moretags) = "yaml:\"base_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "base_fee_per_gas"
   ];
   string minimum_fee_per_gas = 4 [
     (gogoproto.moretags) = "yaml:\"minimum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "minimum_fee_per_gas"
   ];
@@ -126,19 +126,19 @@ message ParamsPreV600 {
   // ];
   string priority_normalizer = 2 [
     (gogoproto.moretags) = "yaml:\"priority_normalizer\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "priority_normalizer"
   ];
   string base_fee_per_gas = 3 [
     (gogoproto.moretags) = "yaml:\"base_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "base_fee_per_gas"
   ];
   string minimum_fee_per_gas = 4 [
     (gogoproto.moretags) = "yaml:\"minimum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "minimum_fee_per_gas"
   ];
@@ -169,19 +169,19 @@ message ParamsPreV601 {
   // ];
   string priority_normalizer = 2 [
     (gogoproto.moretags) = "yaml:\"priority_normalizer\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "priority_normalizer"
   ];
   string base_fee_per_gas = 3 [
     (gogoproto.moretags) = "yaml:\"base_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "base_fee_per_gas"
   ];
   string minimum_fee_per_gas = 4 [
     (gogoproto.moretags) = "yaml:\"minimum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "minimum_fee_per_gas"
   ];
@@ -205,13 +205,13 @@ message ParamsPreV601 {
 
   string max_dynamic_base_fee_upward_adjustment = 10 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_upward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_upward_adjustment"
   ];
   string max_dynamic_base_fee_downward_adjustment = 11 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_downward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
   ];
@@ -227,19 +227,19 @@ message ParamsPreV606 {
   // ];
   string priority_normalizer = 2 [
     (gogoproto.moretags) = "yaml:\"priority_normalizer\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "priority_normalizer"
   ];
   string base_fee_per_gas = 3 [
     (gogoproto.moretags) = "yaml:\"base_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "base_fee_per_gas"
   ];
   string minimum_fee_per_gas = 4 [
     (gogoproto.moretags) = "yaml:\"minimum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "minimum_fee_per_gas"
   ];
@@ -263,20 +263,20 @@ message ParamsPreV606 {
 
   string max_dynamic_base_fee_upward_adjustment = 10 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_upward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_upward_adjustment"
   ];
   string max_dynamic_base_fee_downward_adjustment = 11 [
     (gogoproto.moretags) = "yaml:\"max_dynamic_base_fee_downward_adjustment\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
   ];
   uint64 target_gas_used_per_block = 12;
   string maximum_fee_per_gas = 13 [
     (gogoproto.moretags) = "yaml:\"maximum_fee_per_gas\"",
-    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Dec",
     (gogoproto.nullable) = false,
     (gogoproto.jsontag) = "maximum_fee_per_gas"
   ];

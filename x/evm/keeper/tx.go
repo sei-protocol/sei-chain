@@ -1,8 +1,8 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

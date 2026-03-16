@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"

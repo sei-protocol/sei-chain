@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

@@ -2,10 +2,10 @@ package v100
 
 import (
 	ics23 "github.com/confio/ics23/go"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )

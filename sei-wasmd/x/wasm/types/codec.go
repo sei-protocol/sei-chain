@@ -1,12 +1,12 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/msgservice"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/cosmos/crypto/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/msgservice"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 )
 
 // RegisterLegacyAminoCodec registers the account types and interface

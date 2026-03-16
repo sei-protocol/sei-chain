@@ -7,9 +7,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"

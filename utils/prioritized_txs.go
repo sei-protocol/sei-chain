@@ -1,7 +1,7 @@
 package utils
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )

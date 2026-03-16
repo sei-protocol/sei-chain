@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	txtypes "github.com/sei-protocol/sei-chain/cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/tools/tx-scanner/client"
 )
 

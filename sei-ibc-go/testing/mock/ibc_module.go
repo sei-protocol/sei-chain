@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
 
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

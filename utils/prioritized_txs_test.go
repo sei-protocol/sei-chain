@@ -3,10 +3,10 @@ package utils
 import (
 	"testing"
 
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	"github.com/stretchr/testify/require"
 
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"

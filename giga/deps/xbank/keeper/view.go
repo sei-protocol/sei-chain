@@ -1,11 +1,11 @@
 package keeper
 
 import (
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	vestexported "github.com/sei-protocol/sei-chain/cosmos/x/auth/vesting/exported"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
 )
 
 var _ ViewKeeper = (*BaseViewKeeper)(nil)

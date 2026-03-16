@@ -8,15 +8,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/client/utils"
+	"github.com/sei-protocol/sei-chain/cosmos/x/params/client/utils"
 
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/params/types/proposal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

@@ -1,7 +1,7 @@
 package simapp
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	"github.com/sei-protocol/sei-chain/cosmos/std"
 
 	simappparams "github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/params"
 )

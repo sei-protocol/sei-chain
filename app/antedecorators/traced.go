@@ -3,8 +3,8 @@ package antedecorators
 import (
 	"fmt"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/utils/tracing"
 )
 
 type TracedAnteDecorator struct {

@@ -1,8 +1,8 @@
 package sample
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/ed25519"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 // AccAddress returns a sample account address

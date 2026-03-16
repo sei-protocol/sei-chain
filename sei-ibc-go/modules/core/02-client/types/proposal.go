@@ -3,10 +3,10 @@ package types
 import (
 	"fmt"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )

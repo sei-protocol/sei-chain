@@ -4,9 +4,9 @@ import (
 	fmt "fmt"
 	"strings"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos/x/bank/keeper"
 )
 
 const (

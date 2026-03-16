@@ -10,11 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v606"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 

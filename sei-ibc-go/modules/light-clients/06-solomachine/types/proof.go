@@ -1,11 +1,11 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/types/multisig"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/types/tx/signing"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"

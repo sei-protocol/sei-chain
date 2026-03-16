@@ -1,7 +1,7 @@
 package types
 
 import (
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

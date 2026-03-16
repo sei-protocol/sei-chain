@@ -17,8 +17,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
-	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/cosmos/snapshots"
+	snapshottypes "github.com/sei-protocol/sei-chain/cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"

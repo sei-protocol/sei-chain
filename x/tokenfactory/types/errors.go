@@ -5,7 +5,7 @@ package types
 import (
 	fmt "fmt"
 
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // x/tokenfactory module sentinel errors

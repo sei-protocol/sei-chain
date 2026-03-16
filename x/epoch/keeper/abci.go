@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/seilog"

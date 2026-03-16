@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	grpctypes "github.com/sei-protocol/sei-chain/cosmos/types/grpc"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil/network"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 

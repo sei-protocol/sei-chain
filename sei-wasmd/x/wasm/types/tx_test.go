@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/legacy/legacytx"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

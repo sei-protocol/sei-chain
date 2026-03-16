@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/types/kv"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

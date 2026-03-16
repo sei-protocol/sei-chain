@@ -9,8 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 

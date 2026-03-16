@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	distributiontypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
 
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

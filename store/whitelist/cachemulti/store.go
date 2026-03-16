@@ -1,7 +1,7 @@
 package cachemulti
 
 import (
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/kv"
 )
 

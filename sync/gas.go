@@ -3,7 +3,7 @@ package sync
 import (
 	"sync"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 type GasWrapper struct {

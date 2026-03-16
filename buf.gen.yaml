@@ -1,7 +1,7 @@
 version: v2
 inputs:
   - directory: proto
-  - directory: sei-cosmos/proto
+  - directory: cosmos/proto
   - directory: sei-ibc-go/proto
   - directory: sei-tendermint/proto
   - directory: sei-wasmd/proto
@@ -15,7 +15,7 @@ plugins:
       - Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/wrappers.proto=github.com/gogo/protobuf/types
-      - Mgoogle/protobuf/any.proto=github.com/sei-protocol/sei-chain/sei-cosmos/codec/types
+      - Mgoogle/protobuf/any.proto=github.com/sei-protocol/sei-chain/cosmos/codec/types
     out: ./build/proto/gocosmos
   - local:
       # The version used is consistent with the grp-gateway version in go.mod.

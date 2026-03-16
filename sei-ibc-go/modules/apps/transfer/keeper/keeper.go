@@ -1,13 +1,13 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/cosmos/x/capability/keeper"
+	capabilitytypes "github.com/sei-protocol/sei-chain/cosmos/x/capability/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"

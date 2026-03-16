@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func (suite *IntegrationTestSuite) TestViewKeeperStoreTrace() {

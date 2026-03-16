@@ -3,12 +3,12 @@ package types_test
 import (
 	"testing"
 
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 

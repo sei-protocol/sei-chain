@@ -2,12 +2,12 @@ package app
 
 import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
-	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/ante"
+	paramskeeper "github.com/sei-protocol/sei-chain/cosmos/x/params/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/keeper"
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/std"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/kv"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 	"github.com/stretchr/testify/require"
 )
 

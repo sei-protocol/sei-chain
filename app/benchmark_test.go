@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/benchmark"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/rootmulti"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"

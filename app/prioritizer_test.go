@@ -3,9 +3,9 @@ package app_test
 import (
 	"testing"
 
-	cosmostypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	xparamtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	cosmostypes "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	xparamtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 

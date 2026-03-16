@@ -3,7 +3,7 @@ package config
 import (
 	"math/big"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 const DefaultChainID = int64(713714)

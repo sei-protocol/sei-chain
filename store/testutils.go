@@ -1,11 +1,11 @@
 package store
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/cosmos/store/cachemulti"
+	"github.com/sei-protocol/sei-chain/cosmos/store/dbadapter"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

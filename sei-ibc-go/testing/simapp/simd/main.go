@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
-	svrcmd "github.com/sei-protocol/sei-chain/sei-cosmos/server/cmd"
+	"github.com/sei-protocol/sei-chain/cosmos/server"
+	svrcmd "github.com/sei-protocol/sei-chain/cosmos/server/cmd"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/simd/cmd"

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"testing"
 
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
 

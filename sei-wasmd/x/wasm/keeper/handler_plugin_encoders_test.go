@@ -4,17 +4,17 @@ import (
 	"testing"
 
 	"github.com/golang/protobuf/proto"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	"github.com/stretchr/testify/assert"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
+	distributiontypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/require"
 

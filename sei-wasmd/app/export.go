@@ -6,11 +6,11 @@ import (
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos/server/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	slashingtypes "github.com/sei-protocol/sei-chain/cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/staking"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 )
 
 // ExportAppStateAndValidators exports the state of the application for a genesis

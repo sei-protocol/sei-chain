@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/cosmos/client/grpc/tmservice"
+	txtypes "github.com/sei-protocol/sei-chain/cosmos/types/tx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"

@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	cosmosbanktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 const (

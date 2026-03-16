@@ -5,23 +5,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
-	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	clitestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/cli"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
-	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
-	authcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
-	authrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/rest"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keyring"
+	kmultisig "github.com/sei-protocol/sei-chain/cosmos/crypto/keys/multisig"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil"
+	clitestutil "github.com/sei-protocol/sei-chain/cosmos/testutil/cli"
+	"github.com/sei-protocol/sei-chain/cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/rest"
+	txtypes "github.com/sei-protocol/sei-chain/cosmos/types/tx"
+	authcli "github.com/sei-protocol/sei-chain/cosmos/x/auth/client/cli"
+	authrest "github.com/sei-protocol/sei-chain/cosmos/x/auth/client/rest"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/suite"
@@ -75,7 +75,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 }
 
 func TestIntegrationTestSuite(t *testing.T) {
-	//TODO: these integration tests suite are broken on sei-cosmos old version as well, but working in monorepo, so we'll need to fix them once merging into monorepo
+	//TODO: these integration tests suite are broken on cosmos old version as well, but working in monorepo, so we'll need to fix them once merging into monorepo
 	t.Skip("Skipping integration test suite")
 	suite.Run(t, new(IntegrationTestSuite))
 }

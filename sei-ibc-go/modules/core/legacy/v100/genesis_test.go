@@ -3,9 +3,9 @@ package v100_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	genutiltypes "github.com/sei-protocol/sei-chain/cosmos/x/genutil/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/suite"
 

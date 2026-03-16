@@ -17,16 +17,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/client/input"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	srvconfig "github.com/sei-protocol/sei-chain/cosmos/server/config"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/cosmos/x/genutil"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 )
 
 const (

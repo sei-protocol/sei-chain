@@ -1,11 +1,11 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 )
 
 // ModuleCdc references the global interchain accounts module codec. Note, the codec

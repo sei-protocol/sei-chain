@@ -1,9 +1,9 @@
 package types
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/cosmos/crypto/codec"
 )
 
 // RegisterLegacyAminoCodec registers the necessary x/bank interfaces and concrete types

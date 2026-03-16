@@ -6,11 +6,11 @@ import (
 	"math/rand"
 
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"

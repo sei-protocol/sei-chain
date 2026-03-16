@@ -6,16 +6,16 @@ import (
 	"math"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
 
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	distributiontypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 

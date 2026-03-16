@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

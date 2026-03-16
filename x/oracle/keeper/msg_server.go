@@ -3,9 +3,9 @@ package keeper
 import (
 	"context"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )

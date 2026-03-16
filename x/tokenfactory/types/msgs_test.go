@@ -2,10 +2,10 @@ package types_test
 
 import (
 	"fmt"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	"testing"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"

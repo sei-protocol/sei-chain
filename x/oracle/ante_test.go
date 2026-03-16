@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"

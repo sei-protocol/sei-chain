@@ -4,8 +4,8 @@ import (
 	"math/rand"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )

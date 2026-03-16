@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 )
 
 const (

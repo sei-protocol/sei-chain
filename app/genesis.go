@@ -3,13 +3,13 @@ package app
 import (
 	"encoding/json"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	genesistypes "github.com/sei-protocol/sei-chain/cosmos/types/genesis"
+	distrtypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos/server/types"
 	"github.com/spf13/cast"
 )
 

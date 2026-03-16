@@ -1,7 +1,7 @@
 package types
 
 import (
-	bankerrors "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	bankerrors "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 )
 
 // x/bank module sentinel errors

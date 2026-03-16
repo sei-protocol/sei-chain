@@ -10,10 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v605"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

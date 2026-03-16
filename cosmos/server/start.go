@@ -1,0 +1,512 @@
+package server
+
+// DONTCOVER
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	_ "net/http/pprof" //nolint:gosec
+	"os"
+	"path"
+	"path/filepath"
+	"runtime/pprof"
+	"sync"
+	"time"
+
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/server/api"
+	"github.com/sei-protocol/sei-chain/cosmos/server/config"
+	servergrpc "github.com/sei-protocol/sei-chain/cosmos/server/grpc"
+	"github.com/sei-protocol/sei-chain/cosmos/server/rosetta"
+	crgserver "github.com/sei-protocol/sei-chain/cosmos/server/rosetta/lib/server"
+	"github.com/sei-protocol/sei-chain/cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	genesistypes "github.com/sei-protocol/sei-chain/cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/cosmos/utils/tracing"
+	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/sdk/trace"
+	"google.golang.org/grpc"
+)
+
+const (
+	// Tendermint full-node start flags
+	flagAddress            = "address"
+	flagTransport          = "transport"
+	flagTraceStore         = "trace-store"
+	flagCPUProfile         = "cpu-profile"
+	FlagMinGasPrices       = "minimum-gas-prices"
+	FlagHaltHeight         = "halt-height"
+	FlagHaltTime           = "halt-time"
+	FlagInterBlockCache    = "inter-block-cache"
+	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
+	FlagTrace              = "trace"
+	FlagProfile            = "profile"
+	FlagInvCheckPeriod     = "inv-check-period"
+
+	// Legacy pruning flags (kept for backward compatibility)
+	FlagPruning           = "pruning"
+	FlagPruningKeepRecent = "pruning-keep-recent"
+	FlagPruningKeepEvery  = "pruning-keep-every"
+	FlagPruningInterval   = "pruning-interval"
+
+	// New pruning config keys under [iavl] section (v6.3.0+)
+	// TODO: Remove legacy fallback once all nodes have migrated to v6.3.0+
+	FlagIAVLPruning           = "iavl.pruning"
+	FlagIAVLPruningKeepRecent = "iavl.pruning-keep-recent"
+	FlagIAVLPruningKeepEvery  = "iavl.pruning-keep-every"
+	FlagIAVLPruningInterval   = "iavl.pruning-interval"
+
+	FlagIndexEvents                  = "index-events"
+	FlagMinRetainBlocks              = "min-retain-blocks"
+	FlagIAVLCacheSize                = "iavl-cache-size"
+	FlagIAVLFastNode                 = "iavl-disable-fastnode"
+	FlagCompactionInterval           = "compaction-interval"
+	FlagSeparateOrphanStorage        = "separate-orphan-storage"
+	FlagSeparateOrphanVersionsToKeep = "separate-orphan-versions-to-keep"
+	FlagNumOrphanPerFile             = "num-orphan-per-file"
+	FlagOrphanDirectory              = "orphan-dir"
+	FlagConcurrencyWorkers           = "concurrency-workers"
+
+	// state sync-related flags
+	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
+	FlagStateSyncSnapshotKeepRecent = "state-sync.snapshot-keep-recent"
+	FlagStateSyncSnapshotDir        = "state-sync.snapshot-directory"
+
+	// gRPC-related flags
+	flagGRPCOnly       = "grpc-only"
+	flagGRPCEnable     = "grpc.enable"
+	flagGRPCAddress    = "grpc.address"
+	flagGRPCWebEnable  = "grpc-web.enable"
+	flagGRPCWebAddress = "grpc-web.address"
+
+	// archival related flags
+	FlagArchivalVersion                = "archival-version"
+	FlagArchivalDBType                 = "archival-db-type"
+	FlagArchivalArweaveIndexDBFullPath = "archival-arweave-index-db-full-path"
+	FlagArchivalArweaveNodeURL         = "archival-arweave-node-url"
+
+	// chain info
+	FlagChainID = "chain-id"
+)
+
+// StartCmd runs the service passed in, either stand-alone or in-process with
+// Tendermint.
+func StartCmd(appCreator types.AppCreator, defaultNodeHome string, tracerProviderOptions []trace.TracerProviderOption) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Run the full node",
+		Long: `Run the full node application with Tendermint in or out of process. By
+default, the application will run with Tendermint in process.
+Pruning options can be provided via the '--pruning' flag or alternatively with '--pruning-keep-recent',
+'pruning-keep-every', and 'pruning-interval' together.
+For '--pruning' the options are as follows:
+default: the last 100 states are kept in addition to every 500th state; pruning at 10 block intervals
+nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
+everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
+custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
+Node halting configurations exist in the form of two flags: '--halt-height' and '--halt-time'. During
+the ABCI Commit phase, the node will check if the current block height is greater than or equal to
+the halt-height or if the current block time is greater than or equal to the halt-time. If so, the
+node will attempt to gracefully shutdown and the block will not be committed. In addition, the node
+will not be able to commit subsequent blocks.
+For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
+which accepts a path for the resulting pprof file.
+The node may be started in a 'query only' mode where only the gRPC and JSON HTTP
+API services are enabled via the 'grpc-only' flag. In this mode, Tendermint is
+bypassed and can be used when legacy queries are needed after an on-chain upgrade
+is performed. Note, when enabled, gRPC will also be automatically enabled.
+`,
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			serverCtx := GetServerContextFromCmd(cmd)
+
+			// Bind flags to the Context's Viper so the app construction can set
+			// options accordingly.
+			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
+			return err
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			serverCtx := GetServerContextFromCmd(cmd)
+
+			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
+				go func() {
+					logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+					// TODO: Should this be bound to all interfaces?
+					server := &http.Server{
+						Addr:              "localhost:6060",
+						ReadHeaderTimeout: 10 * time.Second,
+						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
+					}
+					err := server.ListenAndServe()
+					if err != nil {
+						logger.Error("Error from profiling server", "error", err)
+					}
+				}()
+			}
+
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			clientCtx, err = clientconfig.ReadFromClientConfig(clientCtx)
+			if err != nil {
+				return err
+			}
+
+			chainID := clientCtx.ChainID
+			flagChainID, _ := cmd.Flags().GetString(FlagChainID)
+			if flagChainID != "" {
+				if flagChainID != chainID {
+					panic(fmt.Sprintf("chain-id mismatch: %s vs %s. The chain-id passed in is different from the value in ~/.sei/config/client.toml \n", flagChainID, chainID))
+				}
+				chainID = flagChainID
+			}
+
+			serverCtx.Viper.Set(flags.FlagChainID, chainID)
+
+			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
+				logger.Info("--tracing not passed in, tracing is not enabled")
+				tracerProviderOptions = []trace.TracerProviderOption{}
+			}
+
+			logger.Info("Creating node metrics provider")
+			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
+
+			config, err := config.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return err
+			}
+			apiMetrics, err := telemetry.New(config.Telemetry)
+			if err != nil {
+				return fmt.Errorf("failed to initialize telemetry: %w", err)
+			}
+			if !config.Genesis.StreamImport {
+				genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
+				if genesisFile.ChainID != clientCtx.ChainID {
+					panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
+				}
+			}
+
+			logger.Info("Starting Process")
+			for {
+				err := startInProcess(
+					serverCtx,
+					clientCtx,
+					appCreator,
+					tracerProviderOptions,
+					nodeMetricsProvider,
+					apiMetrics,
+				)
+				if !errors.Is(err, ErrShouldRestart) {
+					return err
+				}
+				logger.Info("restarting node...")
+			}
+		},
+	}
+
+	addStartNodeFlags(cmd, defaultNodeHome)
+	return cmd
+}
+
+func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
+	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
+	cmd.Flags().String(flagAddress, "tcp://0.0.0.0:26658", "Listen address")
+	cmd.Flags().String(flagTransport, "socket", "Transport protocol: socket, grpc")
+	cmd.Flags().String(flagTraceStore, "", "Enable KVStore tracing to an output file")
+	cmd.Flags().String(FlagMinGasPrices, "", "Minimum gas prices to accept for transactions; Any fee in a tx must meet this minimum (e.g. 0.01photino;0.0001stake)")
+	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
+	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
+	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
+	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
+	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
+	cmd.Flags().Bool(FlagTrace, false, "Provide full stack traces for errors in ABCI Log")
+	cmd.Flags().Bool(tracing.FlagTracing, false, "Enable Tracing for the app")
+	cmd.Flags().Bool(FlagProfile, false, "Enable Profiling in the application")
+	cmd.Flags().String(FlagPruning, storetypes.PruningOptionDefault, "Pruning strategy (default|nothing|everything|custom)")
+	cmd.Flags().Uint64(FlagPruningKeepRecent, 0, "Number of recent heights to keep on disk (ignored if pruning is not 'custom')")
+	cmd.Flags().Uint64(FlagPruningKeepEvery, 0, "Offset heights to keep on disk after 'keep-every' (ignored if pruning is not 'custom')")
+	cmd.Flags().Uint64(FlagPruningInterval, 0, "Height interval at which pruned heights are removed from disk (ignored if pruning is not 'custom')")
+	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
+	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
+	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
+	cmd.Flags().Bool(FlagSeparateOrphanStorage, false, "Whether to store orphans outside main application levelDB")
+	cmd.Flags().Int64(FlagSeparateOrphanVersionsToKeep, 2, "Number of versions to keep if storing orphans separately")
+	cmd.Flags().Int(FlagNumOrphanPerFile, 100000, "Number of orphans to store on each file if storing orphans separately")
+	cmd.Flags().String(FlagOrphanDirectory, path.Join(defaultNodeHome, "orphans"), "Directory to store orphan files if storing orphans separately")
+	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
+
+	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
+	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")
+	cmd.Flags().String(flagGRPCAddress, config.DefaultGRPCAddress, "the gRPC server address to listen on")
+
+	cmd.Flags().Bool(flagGRPCWebEnable, true, "Define if the gRPC-Web server should be enabled. (Note: gRPC must also be enabled.)")
+	cmd.Flags().String(flagGRPCWebAddress, config.DefaultGRPCWebAddress, "The gRPC-Web server address to listen on")
+
+	cmd.Flags().Uint64(FlagStateSyncSnapshotInterval, 0, "State sync snapshot interval")
+	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
+
+	cmd.Flags().Int64(FlagArchivalVersion, 0, "Application data before this version is stored in archival DB")
+	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
+	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
+	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
+	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
+
+	cmd.Flags().String(FlagChainID, "", "Chain ID")
+
+	// add support for all Tendermint-specific command line options
+	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
+}
+
+func startInProcess(
+	ctx *Context,
+	clientCtx client.Context,
+	appCreator types.AppCreator,
+	tracerProviderOptions []trace.TracerProviderOption,
+	nodeMetricsProvider *node.NodeMetrics,
+	apiMetrics *telemetry.Metrics,
+) error {
+	cfg := ctx.Config
+	home := cfg.RootDir
+	goCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var cpuProfileCleanup func()
+	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
+		f, err := os.Create(filepath.Clean(cpuProfile))
+		if err != nil {
+			return fmt.Errorf("failed to create cpuProfile file %w", err)
+		}
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			return fmt.Errorf("failed to start CPU Profiler %w", err)
+		}
+
+		cpuProfileCleanup = func() {
+			logger.Info("stopping CPU profiler", "profile", cpuProfile)
+			pprof.StopCPUProfile()
+			_ = f.Close()
+		}
+	}
+
+	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
+	db, err := openDB(home)
+	if err != nil {
+		return err
+	}
+
+	traceWriter, err := openTraceWriter(traceWriterFile)
+	if err != nil {
+		return err
+	}
+
+	config, err := config.GetConfig(ctx.Viper)
+	if err != nil {
+		return err
+	}
+
+	if err := config.ValidateBasic(ctx.Config); err != nil {
+		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
+			"This defaults to 0 in the current version, but will error in the next version " +
+			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
+	}
+	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
+
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	var tmNode service.Service
+
+	var restartMtx sync.Mutex
+	restartCh := make(chan struct{})
+	restartEvent := func() {
+		restartMtx.Lock()
+		defer restartMtx.Unlock()
+		select {
+		case <-restartCh:
+		default:
+			close(restartCh)
+		}
+	}
+
+	if gRPCOnly {
+		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
+		config.GRPC.Enable = true
+	} else {
+		logger.Info("starting node with ABCI Tendermint in-process")
+		var gen *tmtypes.GenesisDoc
+		if config.Genesis.StreamImport {
+			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
+			for line := range lines {
+				genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
+				if err != nil {
+					return err
+				}
+				if gen != nil {
+					return fmt.Errorf("error: multiple genesis docs found in stream")
+				}
+				gen = genDoc
+			}
+		}
+		tmNode, err = node.New(
+			goCtx,
+			ctx.Config,
+			restartEvent,
+			app,
+			gen,
+			tracerProviderOptions,
+			nodeMetricsProvider,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating node: %w", err)
+		}
+		if err := tmNode.Start(goCtx); err != nil {
+			return fmt.Errorf("error starting node: %w", err)
+		}
+	}
+
+	// Add the tx service to the gRPC router. We only need to register this
+	// service if API or gRPC is enabled, and avoid doing so in the general
+	// case, because it spawns a new local tendermint RPC client.
+	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
+		localClient, err := local.New(tmNode.(local.NodeService))
+		if err != nil {
+			return err
+		}
+		clientCtx = clientCtx.WithClient(localClient)
+
+		app.RegisterTxService(clientCtx)
+		app.RegisterTendermintService(clientCtx)
+	}
+
+	var apiSrv *api.Server
+	if config.API.Enable {
+		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
+		apiSrv = api.New(clientCtx)
+		app.RegisterAPIRoutes(apiSrv, config.API)
+		errCh := make(chan error)
+
+		go func() {
+			if err := apiSrv.Start(config, apiMetrics); err != nil {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return fmt.Errorf("error starting api server: %w", err)
+
+		case <-time.After(types.ServerStartTime): // assume server started successfully
+		}
+	}
+
+	var (
+		grpcSrv    *grpc.Server
+		grpcWebSrv *http.Server
+	)
+
+	if config.GRPC.Enable {
+		grpcSrv, err = servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
+		if err != nil {
+			return err
+		}
+
+		if config.GRPCWeb.Enable {
+			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
+			if err != nil {
+				logger.Error("failed to start grpc-web http server", "err", err)
+				return err
+			}
+		}
+	}
+
+	// At this point it is safe to block the process if we're in gRPC only mode as
+	// we do not need to start Rosetta or handle any Tendermint related processes.
+	if gRPCOnly {
+		// wait for signal capture and gracefully return
+		return WaitForQuitSignals(goCtx, restartCh)
+	}
+
+	var rosettaSrv crgserver.Server
+	if config.Rosetta.Enable {
+		offlineMode := config.Rosetta.Offline
+
+		// If GRPC is not enabled rosetta cannot work in online mode, so it works in
+		// offline mode.
+		if !config.GRPC.Enable {
+			offlineMode = true
+		}
+
+		conf := &rosetta.Config{
+			Blockchain:        config.Rosetta.Blockchain,
+			Network:           config.Rosetta.Network,
+			TendermintRPC:     ctx.Config.RPC.ListenAddress,
+			GRPCEndpoint:      config.GRPC.Address,
+			Addr:              config.Rosetta.Address,
+			Retries:           config.Rosetta.Retries,
+			Offline:           offlineMode,
+			Codec:             clientCtx.Codec.(*codec.ProtoCodec),
+			InterfaceRegistry: clientCtx.InterfaceRegistry,
+		}
+
+		rosettaSrv, err = rosetta.ServerFromConfig(conf)
+		if err != nil {
+			return err
+		}
+
+		errCh := make(chan error)
+		go func() {
+			if err := rosettaSrv.Start(); err != nil {
+				errCh <- err
+			}
+		}()
+
+		select {
+		case err := <-errCh:
+			return err
+
+		case <-time.After(types.ServerStartTime): // assume server started successfully
+		}
+	}
+
+	defer func() {
+		cancel()
+		if tmNode.IsRunning() {
+			tmNode.Wait()
+		}
+
+		if cpuProfileCleanup != nil {
+			cpuProfileCleanup()
+		}
+
+		if apiSrv != nil {
+			_ = apiSrv.Close()
+		}
+
+		if grpcSrv != nil {
+			grpcSrv.Stop()
+			if grpcWebSrv != nil {
+				_ = grpcWebSrv.Close()
+			}
+		}
+
+		logger.Info("close any other open resource...")
+		if err := app.Close(); err != nil {
+			logger.Error("error closing database", "err", err)
+		}
+	}()
+
+	// wait for signal capture and gracefully return
+	return WaitForQuitSignals(goCtx, restartCh)
+}

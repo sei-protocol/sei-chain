@@ -6,11 +6,11 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
-	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	distrtypes "github.com/sei-protocol/sei-chain/cosmos/x/distribution/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
+	paramstypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types/proposal"
+	upgradetypes "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/types"
 )
 
 // EVMKeeper defines the interface for EVM keeper operations

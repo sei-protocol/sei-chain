@@ -1,7 +1,7 @@
 package querier
 
 import (
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos/server/types"
 	"github.com/spf13/cast"
 )
 

@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 )
 
 func TestMetadataValidate(t *testing.T) {

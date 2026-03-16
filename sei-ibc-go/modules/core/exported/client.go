@@ -2,8 +2,8 @@ package exported
 
 import (
 	proto "github.com/gogo/protobuf/proto"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 // Status represents the status of a client

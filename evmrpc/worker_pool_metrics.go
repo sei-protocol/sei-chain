@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )

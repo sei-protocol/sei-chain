@@ -2,7 +2,7 @@ package app
 
 import (
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	"github.com/sei-protocol/sei-chain/cosmos/std"
 )
 
 // MakeEncodingConfig creates an EncodingConfig for testing.

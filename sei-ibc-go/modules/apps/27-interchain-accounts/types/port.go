@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // NewControllerPortID creates and returns a new prefixed controller port identifier using the provided owner string

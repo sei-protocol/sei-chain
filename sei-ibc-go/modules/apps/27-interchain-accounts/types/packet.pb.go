@@ -7,7 +7,7 @@ import (
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
-	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	types "github.com/sei-protocol/sei-chain/cosmos/codec/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"

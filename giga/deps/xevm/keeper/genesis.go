@@ -2,8 +2,8 @@ package keeper
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 )

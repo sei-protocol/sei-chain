@@ -8,9 +8,9 @@ import (
 	"math"
 
 	protoio "github.com/gogo/protobuf/io"
-	snapshot "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	snapshot "github.com/sei-protocol/sei-chain/cosmos/snapshots/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/seilog"
 

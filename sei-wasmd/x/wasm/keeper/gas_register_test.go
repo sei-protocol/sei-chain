@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
 )

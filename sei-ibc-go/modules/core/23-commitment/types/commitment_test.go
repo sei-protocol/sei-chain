@@ -3,9 +3,9 @@ package types_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
 	"github.com/stretchr/testify/suite"
 	dbm "github.com/tendermint/tm-db"
 )

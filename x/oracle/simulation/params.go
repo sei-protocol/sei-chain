@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )

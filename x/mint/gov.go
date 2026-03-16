@@ -1,7 +1,7 @@
 package mint
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/mint/keeper"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )

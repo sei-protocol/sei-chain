@@ -8,18 +8,18 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	authante "github.com/sei-protocol/sei-chain/cosmos/x/auth/ante"
+	authsigning "github.com/sei-protocol/sei-chain/cosmos/x/auth/signing"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
-	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 

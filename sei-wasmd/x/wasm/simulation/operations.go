@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 
 	seiappparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos/x/simulation"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"

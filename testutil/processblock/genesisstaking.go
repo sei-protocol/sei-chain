@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	slashingtypes "github.com/sei-protocol/sei-chain/cosmos/x/slashing/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 )
 
 func (a *App) NewValidator() sdk.ValAddress {

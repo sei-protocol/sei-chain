@@ -1,8 +1,8 @@
 package rest
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	clientrest "github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	clientrest "github.com/sei-protocol/sei-chain/cosmos/client/rest"
 
 	"github.com/gorilla/mux"
 )

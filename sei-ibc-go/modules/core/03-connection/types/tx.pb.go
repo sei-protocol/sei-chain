@@ -9,7 +9,7 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
-	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	types "github.com/sei-protocol/sei-chain/cosmos/codec/types"
 	types1 "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"

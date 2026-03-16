@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	"github.com/sei-protocol/sei-chain/cosmos/types/rest"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
-	github_com_sei_protocol_sei_chain_sei_cosmos_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	github_com_sei_protocol_sei_chain_sei_cosmos_types "github.com/sei-protocol/sei-chain/cosmos/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -72,7 +72,7 @@ type DeferredInfo struct {
 	TxIndex uint32                                                 `protobuf:"varint,1,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`
 	TxHash  []byte                                                 `protobuf:"bytes,2,opt,name=tx_hash,json=txHash,proto3" json:"tx_hash,omitempty"`
 	TxBloom []byte                                                 `protobuf:"bytes,3,opt,name=tx_bloom,json=txBloom,proto3" json:"tx_bloom,omitempty"`
-	Surplus github_com_sei_protocol_sei_chain_sei_cosmos_types.Int `protobuf:"bytes,4,opt,name=surplus,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"surplus"`
+	Surplus github_com_sei_protocol_sei_chain_sei_cosmos_types.Int `protobuf:"bytes,4,opt,name=surplus,proto3,customtype=github.com/sei-protocol/sei-chain/cosmos/types.Int" json:"surplus"`
 	Error   string                                                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
 }
 

@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"strings"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 )
 
 // NewResultAcknowledgement returns a new instance of Acknowledgement using an Acknowledgement_Result

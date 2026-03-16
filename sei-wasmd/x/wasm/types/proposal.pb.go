@@ -8,8 +8,8 @@ import (
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
-	github_com_sei_protocol_sei_chain_sei_cosmos_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	github_com_sei_protocol_sei_chain_sei_cosmos_types "github.com/sei-protocol/sei-chain/cosmos/types"
+	types "github.com/sei-protocol/sei-chain/cosmos/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -90,7 +90,7 @@ type InstantiateContractProposal struct {
 	// Msg json encoded message to be passed to the contract on instantiation
 	Msg RawContractMessage `protobuf:"bytes,7,opt,name=msg,proto3,casttype=RawContractMessage" json:"msg,omitempty"`
 	// Funds coins that are transferred to the contract on instantiation
-	Funds github_com_sei_protocol_sei_chain_sei_cosmos_types.Coins `protobuf:"bytes,8,rep,name=funds,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"funds"`
+	Funds github_com_sei_protocol_sei_chain_sei_cosmos_types.Coins `protobuf:"bytes,8,rep,name=funds,proto3,castrepeated=github.com/sei-protocol/sei-chain/cosmos/types.Coins" json:"funds"`
 }
 
 func (m *InstantiateContractProposal) Reset()      { *m = InstantiateContractProposal{} }
@@ -229,7 +229,7 @@ type ExecuteContractProposal struct {
 	// Msg json encoded message to be passed to the contract as execute
 	Msg RawContractMessage `protobuf:"bytes,5,opt,name=msg,proto3,casttype=RawContractMessage" json:"msg,omitempty"`
 	// Funds coins that are transferred to the contract on instantiation
-	Funds github_com_sei_protocol_sei_chain_sei_cosmos_types.Coins `protobuf:"bytes,6,rep,name=funds,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"funds"`
+	Funds github_com_sei_protocol_sei_chain_sei_cosmos_types.Coins `protobuf:"bytes,6,rep,name=funds,proto3,castrepeated=github.com/sei-protocol/sei-chain/cosmos/types.Coins" json:"funds"`
 }
 
 func (m *ExecuteContractProposal) Reset()      { *m = ExecuteContractProposal{} }

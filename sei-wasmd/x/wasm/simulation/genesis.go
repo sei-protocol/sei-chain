@@ -1,7 +1,7 @@
 package simulation
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

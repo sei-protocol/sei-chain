@@ -11,10 +11,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 const (

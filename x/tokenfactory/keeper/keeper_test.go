@@ -1,10 +1,10 @@
 package keeper_test
 
 import (
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	"testing"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
 

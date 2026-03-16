@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 // The router is a map from module name to the IBCModule

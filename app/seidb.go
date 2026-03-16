@@ -5,10 +5,10 @@ import (
 
 	"github.com/spf13/cast"
 
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/cosmos/storev2/rootmulti"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )

@@ -4,7 +4,7 @@ import (
 	fmt "fmt"
 	"time"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 )

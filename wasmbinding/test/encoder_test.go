@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"

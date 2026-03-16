@@ -3,8 +3,8 @@ package types
 import (
 	"strings"
 
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"

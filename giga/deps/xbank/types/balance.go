@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"sort"
 
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/exported"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 var _ exported.GenesisBalance = (*Balance)(nil)

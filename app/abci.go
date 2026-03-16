@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
+	"github.com/sei-protocol/sei-chain/cosmos/tasks"
+	"github.com/sei-protocol/sei-chain/cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )

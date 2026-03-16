@@ -5,9 +5,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
 

@@ -1,7 +1,7 @@
 package fuzzing
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 func FuzzDec(i int64, isNil bool) sdk.Dec {

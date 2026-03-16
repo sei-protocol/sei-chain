@@ -1,13 +1,13 @@
 package app
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/ante"
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
-	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
+	paramskeeper "github.com/sei-protocol/sei-chain/cosmos/x/params/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmTypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

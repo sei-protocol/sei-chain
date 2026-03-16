@@ -8,7 +8,7 @@ import (
 )
 
 // AppOptions is a minimal interface for reading config (e.g. from Viper).
-// Implemented by sei-cosmos server/types.AppOptions; defined here to avoid import cycles.
+// Implemented by cosmos server/types.AppOptions; defined here to avoid import cycles.
 type AppOptions interface {
 	Get(string) interface{}
 }

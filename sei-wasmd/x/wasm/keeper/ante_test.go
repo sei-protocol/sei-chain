@@ -6,8 +6,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -4,9 +4,9 @@ import (
 	"math"
 	"math/big"
 
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/config"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"golang.org/x/mod/semver"
 )

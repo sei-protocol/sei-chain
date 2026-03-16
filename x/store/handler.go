@@ -1,7 +1,7 @@
 package store
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 func GetCachedContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {

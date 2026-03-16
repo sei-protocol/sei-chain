@@ -3,8 +3,8 @@ package keeper_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/stretchr/testify/suite"
 

@@ -5,10 +5,10 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 
 	tmprotocrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )

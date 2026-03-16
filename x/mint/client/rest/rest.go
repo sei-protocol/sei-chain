@@ -4,15 +4,15 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	govrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/rest"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	govrest "github.com/sei-protocol/sei-chain/cosmos/x/gov/client/rest"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	clientrest "github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	typesrest "github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	clientrest "github.com/sei-protocol/sei-chain/cosmos/client/rest"
+	"github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	typesrest "github.com/sei-protocol/sei-chain/cosmos/types/rest"
 )
 
 // RegisterRoutes registers minting module REST handlers on the provided router.

@@ -1,8 +1,8 @@
 package types
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
 )
 
 // AccountKeeper defines the expected account keeper used for simulations (noalias)

@@ -2,11 +2,11 @@ package types
 
 import (
 	proto "github.com/gogo/protobuf/proto"
-	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/msgservice"
-	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/types/msgservice"
+	govtypes "github.com/sei-protocol/sei-chain/cosmos/x/gov/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )

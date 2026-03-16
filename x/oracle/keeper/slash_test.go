@@ -6,9 +6,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/staking"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 )
 
 func TestSlashAndResetMissCounters(t *testing.T) {

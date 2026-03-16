@@ -3,8 +3,8 @@ package cachemulti_test
 import (
 	"testing"
 
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types"
 	"github.com/sei-protocol/sei-chain/store"
 	"github.com/sei-protocol/sei-chain/store/whitelist/cachemulti"
 	"github.com/stretchr/testify/require"

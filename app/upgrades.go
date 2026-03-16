@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/types/module"
+	upgradetypes "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/types"
 )
 
 //go:embed tags

@@ -3,9 +3,9 @@ package verify
 import (
 	"testing"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/x/auth/signing"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/stretchr/testify/require"
 )

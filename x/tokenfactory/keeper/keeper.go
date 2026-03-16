@@ -1,14 +1,14 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	"github.com/sei-protocol/sei-chain/cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 )
 
 type (

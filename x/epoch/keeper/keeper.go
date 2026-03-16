@@ -1,9 +1,9 @@
 package keeper
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 

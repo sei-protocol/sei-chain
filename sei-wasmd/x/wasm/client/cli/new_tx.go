@@ -3,10 +3,10 @@ package cli
 import (
 	"strconv"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/client/tx"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos/types/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"

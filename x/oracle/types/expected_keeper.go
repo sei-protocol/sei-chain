@@ -1,10 +1,10 @@
 package types
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos/x/bank/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos/x/staking/types"
 )
 
 // StakingKeeper is expected keeper for staking module

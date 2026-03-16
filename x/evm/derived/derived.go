@@ -2,8 +2,8 @@ package derived
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 )
 
 type SignerVersion int

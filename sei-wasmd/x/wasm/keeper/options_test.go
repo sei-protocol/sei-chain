@@ -3,11 +3,11 @@ package keeper
 import (
 	"testing"
 
-	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
-	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
-	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
+	authkeeper "github.com/sei-protocol/sei-chain/cosmos/x/auth/keeper"
+	distributionkeeper "github.com/sei-protocol/sei-chain/cosmos/x/distribution/keeper"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos/x/params/types"
+	stakingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/staking/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/cosmos/x/upgrade/keeper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

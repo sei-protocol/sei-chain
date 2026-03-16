@@ -3,18 +3,18 @@ package simapp
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/client"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
-	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
-	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
-	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos/codec"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos/x/bank/keeper"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/cosmos/x/capability/keeper"
+	distrkeeper "github.com/sei-protocol/sei-chain/cosmos/x/distribution/keeper"
+	evidencekeeper "github.com/sei-protocol/sei-chain/cosmos/x/evidence/keeper"
+	slashingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/slashing/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/cosmos/x/staking/keeper"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 )

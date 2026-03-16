@@ -13,7 +13,7 @@ import (
 	wasmd "github.com/sei-protocol/sei-chain/sei-wasmd/app"
 
 	"github.com/golang/protobuf/proto" //nolint
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/stretchr/testify/require"

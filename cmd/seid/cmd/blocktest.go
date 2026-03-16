@@ -15,11 +15,11 @@ import (
 
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos/server"
+	"github.com/sei-protocol/sei-chain/cosmos/store"
+	storetypes "github.com/sei-protocol/sei-chain/cosmos/store/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/stretchr/testify/require"

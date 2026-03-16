@@ -3,9 +3,9 @@ package cmd
 import (
 	"github.com/sei-protocol/sei-chain/admin"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	srvconfig "github.com/sei-protocol/sei-chain/cosmos/server/config"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"

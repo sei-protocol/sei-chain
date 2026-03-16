@@ -9,7 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/bech32"
+	"github.com/sei-protocol/sei-chain/cosmos/types/bech32"
 
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -19,8 +19,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 )

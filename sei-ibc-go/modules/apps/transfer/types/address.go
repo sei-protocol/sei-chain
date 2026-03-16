@@ -1,6 +1,6 @@
 package types
 
-import sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+import sdk "github.com/sei-protocol/sei-chain/cosmos/types"
 
 // AddressHandler is an interface that defines the methods to handle addresses
 type AddressHandler interface {

@@ -1,8 +1,8 @@
 package processblock
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos/x/bank/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
