@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -147,6 +148,7 @@ func initRootCmd(
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
+		LogLevelCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -427,8 +429,10 @@ func initAppConfig() (string, interface{}) {
 	customAppTemplate := serverconfig.ManualConfigTemplate +
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
+		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		admin.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

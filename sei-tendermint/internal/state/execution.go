@@ -152,7 +152,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	for _, rtx := range txrSet.RemovedTxs() {
 		if err := blockExec.mempool.RemoveTxByKey(rtx.Key()); err != nil {
-			logger.Debug("error removing transaction from the mempool", "error", err, "tx hash", rtx)
+			logger.Debug("error removing transaction from the mempool", "tx", rtx.Key(), "err", err)
 		}
 	}
 	itxs := txrSet.IncludedTxs()

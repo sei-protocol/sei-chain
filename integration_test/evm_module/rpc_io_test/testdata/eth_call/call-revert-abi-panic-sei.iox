@@ -1,0 +1,4 @@
+// Self-contained: same __REVERTER__ as call-revert-abi-error-sei.iox. Input 0x02 triggers assert(false) (panic).
+// Expects eth_call to return JSON-RPC error (code 3); spec-only check (result vs error).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"0x0000000000000000000000000000000000000000","gas":"0x186a0","input":"0x02","to":"__REVERTER__"},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}

@@ -4,6 +4,7 @@
 package rpc_io_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -57,6 +58,7 @@ func TestEVMRPCSpec(t *testing.T) {
 
 	debug := os.Getenv("SEI_EVM_IO_DEBUG_FILES") != ""
 	seedBlock := os.Getenv("SEI_EVM_IO_SEED_BLOCK")
+	reverterAddr := os.Getenv("SEI_EVM_IO_REVERTER_ADDRESS")
 	var passed, failed, skipped int
 
 	for _, rel := range files {
@@ -88,6 +90,16 @@ func TestEVMRPCSpec(t *testing.T) {
 			if len(pairs) == 0 {
 				t.Skip("no request/response pairs in file")
 			}
+			needReverter := false
+			for _, p := range pairs {
+				if bytes.Contains(p.Request, []byte("__REVERTER__")) {
+					needReverter = true
+					break
+				}
+			}
+			if needReverter && reverterAddr == "" {
+				t.Skip("__REVERTER__ used but SEI_EVM_IO_REVERTER_ADDRESS not set (run evm_rpc_tests.sh to deploy reverter)")
+			}
 
 			bindings := make(map[string]any)
 			if deployTx := os.Getenv("SEI_EVM_IO_DEPLOY_TX_HASH"); deployTx != "" {
@@ -112,7 +124,7 @@ func TestEVMRPCSpec(t *testing.T) {
 					t.Skipf("pair %d: missing binding ${%s}", i+1, missing[0])
 				}
 
-				req := substituteSeedTag(substituteRequest(pair.Request, bindings), seedBlock)
+				req := substituteSeedTag(substituteRequest(substituteReverterTag(pair.Request, reverterAddr), bindings), seedBlock)
 				if debug {
 					t.Logf("[DEBUG] pair %d: request %s", i+1, req)
 				}

@@ -1,4 +1,5 @@
-// Data-dependent: eth_call with EIP1559 options to our deployed contract. Run evm_rpc_tests.sh when local.
+// Data-dependent: eth_call with EIP1559 options (Ethereum behavior). Run evm_rpc_tests.sh when local.
+// Tests that Sei accepts maxFeePerGas/maxPriorityFeePerGas in eth_call like Ethereum. Fails if not.
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind deployTxHash = result.transactions.1.hash
