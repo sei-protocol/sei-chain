@@ -176,7 +176,7 @@ func (c *WSClient) IsReconnecting() bool {
 func (c *WSClient) Send(ctx context.Context, request rpctypes.RPCRequest) error {
 	select {
 	case c.send <- request:
-		logger.Info("sent a request", "req", request)
+		logger.Info("sent a request", "method", request.Method, "id", request.ID())
 		// c.mtx.Lock()
 		// c.sentIDs[request.ID.(types.JSONRPCIntID)] = true
 		// c.mtx.Unlock()
@@ -290,7 +290,7 @@ func (c *WSClient) processBacklog() error {
 			c.backlog <- request
 			return err
 		}
-		logger.Info("resend a request", "req", request)
+		logger.Info("resend a request", "method", request.Method, "id", request.ID())
 	default:
 	}
 	return nil
@@ -419,7 +419,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 		var response rpctypes.RPCResponse
 		err = json.Unmarshal(data, &response)
 		if err != nil {
-			logger.Error("failed to parse response", "err", err, "data", string(data))
+			logger.Error("failed to parse response", "data_len", len(data), "err", err)
 			continue
 		}
 
@@ -433,7 +433,7 @@ func (c *WSClient) readRoutine(ctx context.Context) {
 		// c.wg.Wait() in c.Stop(). Note we rely on Quit being closed so that it sends unlimited Quit signals to stop
 		// both readRoutine and writeRoutine
 
-		logger.Info("got response", "id", response.ID, "result", response.Result)
+		logger.Info("got response", "id", response.ID)
 
 		select {
 		case <-ctx.Done():
