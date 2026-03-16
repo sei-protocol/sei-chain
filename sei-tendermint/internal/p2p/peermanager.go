@@ -13,14 +13,14 @@ import (
 var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 
 type peerConnInfo struct {
-	ID       types.NodeID
-	Channels ChannelIDSet
-	DialAddr utils.Option[NodeAddress]
-	SelfAddr utils.Option[NodeAddress]
+	ID               types.NodeID
+	Channels         ChannelIDSet
+	DialedAddr       utils.Option[NodeAddress]
+	SelfDeclaredAddr utils.Option[NodeAddress]
 }
 
 func (i peerConnInfo) connID() connID {
-	return connID{NodeID: i.ID, outbound: i.DialAddr.IsPresent()}
+	return connID{NodeID: i.ID, outbound: i.DialedAddr.IsPresent()}
 }
 
 type peerConn interface {
@@ -342,10 +342,10 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 			continue
 		}
 		info := conn.Info()
-		if addr, ok := info.DialAddr.Get(); ok {
+		if addr, ok := info.DialedAddr.Get(); ok {
 			// Prioritize dialed addresses of outbound connections.
 			addrs = append(addrs, addr)
-		} else if addr, ok := info.SelfAddr.Get(); ok {
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
 			// Fallback to self-declared addresses of inbound connections.
 			selfAddrs = append(selfAddrs, addr)
 		}
@@ -370,10 +370,10 @@ func (m *peerManager[C]) Peers() []types.NodeID {
 func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
 	if conn, ok := GetAny(m.Conns(), id); ok {
 		info := conn.Info()
-		if addr, ok := info.DialAddr.Get(); ok {
+		if addr, ok := info.DialedAddr.Get(); ok {
 			// Prioritize dialed addresses of outbound connections.
 			return utils.Slice(addr)
-		} else if addr, ok := info.SelfAddr.Get(); ok {
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
 			// Fallback to self-declared addresses of inbound connections.
 			return utils.Slice(addr)
 		}

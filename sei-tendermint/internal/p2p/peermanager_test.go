@@ -44,7 +44,7 @@ type fakeConn struct {
 func makeConnFor(rng utils.Rng, id types.NodeID, dialing bool) *fakeConn {
 	info := peerConnInfo{ID: id}
 	if dialing {
-		info.DialAddr = utils.Some(makeAddrFor(rng, id))
+		info.DialedAddr = utils.Some(makeAddrFor(rng, id))
 	}
 	return &fakeConn{info: info}
 }
@@ -52,8 +52,8 @@ func makeConnFor(rng utils.Rng, id types.NodeID, dialing bool) *fakeConn {
 func makeConnTo(addr NodeAddress) *fakeConn {
 	return &fakeConn{
 		info: peerConnInfo{
-			ID:       addr.NodeID,
-			DialAddr: utils.Some(addr),
+			ID:         addr.NodeID,
+			DialedAddr: utils.Some(addr),
 		},
 	}
 }

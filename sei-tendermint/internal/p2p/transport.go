@@ -47,10 +47,10 @@ type ConnV2 struct {
 
 func (c *ConnV2) Info() peerConnInfo {
 	return peerConnInfo{
-		ID:       c.nodeID,
-		Channels: c.peerChannels,
-		DialAddr: c.dialAddr,
-		SelfAddr: c.selfAddr,
+		ID:               c.nodeID,
+		Channels:         c.peerChannels,
+		DialedAddr:       c.dialAddr,
+		SelfDeclaredAddr: c.selfAddr,
 	}
 }
 
