@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -44,10 +45,19 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 
 		// Check pending writes first
 		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if kind == evm.EVMKeyNonce {
-				return paw.value.NonceBytes()
+			if paw.isDelete {
+				return nil, false
 			}
-			return paw.value.CodeHashBytes()
+			if kind == evm.EVMKeyNonce {
+				nonce := make([]byte, NonceLen)
+				binary.BigEndian.PutUint64(nonce, paw.value.Nonce)
+				return nonce, true
+			}
+			// CodeHash
+			if paw.value.CodeHash == (CodeHash{}) {
+				return nil, false
+			}
+			return paw.value.CodeHash[:], true
 		}
 
 		// Read from accountDB
@@ -61,9 +71,15 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		if kind == evm.EVMKeyNonce {
-			return av.NonceBytes()
+			nonce := make([]byte, NonceLen)
+			binary.BigEndian.PutUint64(nonce, av.Nonce)
+			return nonce, true
 		}
-		return av.CodeHashBytes()
+		// CodeHash
+		if av.CodeHash == (CodeHash{}) {
+			return nil, false
+		}
+		return av.CodeHash[:], true
 
 	case evm.EVMKeyCode:
 		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
@@ -188,11 +204,15 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // =============================================================================
 
 // getAccountValue loads AccountValue from pending writes or DB.
-// Returns zero AccountValue if not found (new account).
+// Returns zero AccountValue if not found (new account) or if the pending
+// write is marked for deletion (row logically absent).
 // Returns error if existing data is corrupted (decode fails) or I/O error occurs.
 func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 	// Check pending writes first
 	if paw, ok := s.accountWrites[string(addr[:])]; ok {
+		if paw.isDelete {
+			return AccountValue{}, nil
+		}
 		return paw.value, nil
 	}
 

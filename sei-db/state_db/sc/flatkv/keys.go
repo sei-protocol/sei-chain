@@ -146,33 +146,10 @@ func (v AccountValue) HasCode() bool {
 	return v.CodeHash != CodeHash{}
 }
 
-// NonceBytes returns the nonce as big-endian bytes.
-// Always returns (bytes, true) — zero is a valid nonce for existing accounts.
-func (v AccountValue) NonceBytes() ([]byte, bool) {
-	b := make([]byte, NonceLen)
-	binary.BigEndian.PutUint64(b, v.Nonce)
-	return b, true
-}
-
-// CodeHashBytes returns the codehash if the account has code.
-// Returns (nil, false) when CodeHash is all zeros (EOA / no code).
-func (v AccountValue) CodeHashBytes() ([]byte, bool) {
-	if v.CodeHash == (CodeHash{}) {
-		return nil, false
-	}
-	return v.CodeHash[:], true
-}
-
-// ClearNonce resets the nonce to zero.
-// The accountDB row persists — this is a logical field reset, not a row delete.
-func (v *AccountValue) ClearNonce() {
-	v.Nonce = 0
-}
-
-// ClearCodeHash resets the codehash to all zeros, marking the account as EOA.
-// The accountDB row persists — this is a logical field reset, not a row delete.
-func (v *AccountValue) ClearCodeHash() {
-	v.CodeHash = CodeHash{}
+// IsEmpty returns true when all fields are zero-valued, indicating the
+// account can be physically deleted from accountDB.
+func (v AccountValue) IsEmpty() bool {
+	return v.Balance == (Balance{}) && v.Nonce == 0 && v.CodeHash == (CodeHash{})
 }
 
 // Encode encodes the AccountValue to bytes.

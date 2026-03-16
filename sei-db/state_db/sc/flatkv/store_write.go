@@ -92,7 +92,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if _, seen := oldAccountRawValues[addrStr]; !seen {
 					if paw, ok := s.accountWrites[addrStr]; ok {
-						oldAccountRawValues[addrStr] = paw.value.Encode()
+						if paw.isDelete {
+							oldAccountRawValues[addrStr] = nil
+						} else {
+							oldAccountRawValues[addrStr] = paw.value.Encode()
+						}
 					} else {
 						rawBytes, err := s.accountDB.Get(AccountKey(addr))
 						if err != nil {
@@ -120,10 +124,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if pair.Delete {
 					if kind == evm.EVMKeyNonce {
-						paw.value.ClearNonce()
+						paw.value.Nonce = 0
 					} else {
-						paw.value.ClearCodeHash()
+						paw.value.CodeHash = CodeHash{}
 					}
+					paw.isDelete = paw.value.IsEmpty()
 				} else {
 					if kind == evm.EVMKeyNonce {
 						if len(pair.Value) != NonceLen {
@@ -136,6 +141,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						}
 						copy(paw.value.CodeHash[:], pair.Value)
 					}
+					paw.isDelete = false
 				}
 
 			case evm.EVMKeyCode:
@@ -205,18 +211,24 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			continue
 		}
 
+		var encodedValue []byte
+		if !paw.isDelete {
+			encodedValue = paw.value.Encode()
+		}
 		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
 			Key:       AccountKey(paw.addr),
-			Value:     paw.value.Encode(),
-			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
-			Delete:    false,  // account rows are never physically deleted
+			Value:     encodedValue,
+			LastValue: oldRaw,
+			Delete:    paw.isDelete,
 		})
 	}
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
 
 	// Combine all pairs and update working LtHash
-	allPairs := append(storagePairs, accountPairs...)
+	allPairs := make([]lthash.KVPairWithLastValue, 0, len(storagePairs)+len(accountPairs)+len(codePairs)+len(legacyPairs))
+	allPairs = append(allPairs, storagePairs...)
+	allPairs = append(allPairs, accountPairs...)
 	allPairs = append(allPairs, codePairs...)
 	allPairs = append(allPairs, legacyPairs...)
 
@@ -339,9 +351,15 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 		for _, paw := range s.accountWrites {
 			key := AccountKey(paw.addr)
-			encoded := EncodeAccountValue(paw.value)
-			if err := batch.Set(key, encoded); err != nil {
-				return fmt.Errorf("accountDB set: %w", err)
+			if paw.isDelete {
+				if err := batch.Delete(key); err != nil {
+					return fmt.Errorf("accountDB delete: %w", err)
+				}
+			} else {
+				encoded := EncodeAccountValue(paw.value)
+				if err := batch.Set(key, encoded); err != nil {
+					return fmt.Errorf("accountDB set: %w", err)
+				}
 			}
 		}
 

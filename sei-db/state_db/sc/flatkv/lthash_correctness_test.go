@@ -911,3 +911,179 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
+
+// ---------- Account Row GC LtHash tests ----------
+
+func TestLtHashAccountRowDelete(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD1)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 5), codeHashPair(addr, codeHashN(0xAA))),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be physically absent")
+}
+
+// TestLtHashAccountDeleteThenRecreate is the critical cross-apply LtHash
+// regression test. It starts with a contract account (72-byte encoding),
+// deletes all fields in one ApplyChangeSets (paw.isDelete=true), then
+// recreates as a nonce-only EOA (40-byte encoding) in a second
+// ApplyChangeSets within the same block. The LtHash baseline for the
+// second apply must be nil (row logically gone), not the 72-byte encoding.
+func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD2)
+
+	// Block 1: create contract account (72-byte encoding)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xBB))),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1)
+
+	// Block 2, apply 1: delete nonce + codehash → paw.isDelete = true
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
+	}))
+
+	// Block 2, apply 2: write nonce only → paw.isDelete = false, 40-byte EOA
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 99)),
+	}))
+
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2)
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found)
+	require.Equal(t, nonceBytes(99), nonceVal)
+
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	_, found = s.Get(chKey)
+	require.False(t, found, "codehash should be zero (EOA)")
+
+	raw, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueEOALen, len(raw), "row should be 40-byte EOA encoding")
+}
+
+func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD3)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 3), codeHashPair(addr, codeHashN(0xCC))),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(codeHashDeletePair(addr)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2)
+
+	raw, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err, "row should still exist after partial delete")
+	require.Equal(t, accountValueEOALen, len(raw), "should shrink to EOA encoding")
+}
+
+// TestAccountPendingReadPartialDelete verifies that the isDelete guard in
+// Get() only fires when all fields are zero, not on partial deletes.
+func TestAccountPendingReadPartialDelete(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD4)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+
+	// Apply 1: write nonce + codehash (not committed yet)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 42), codeHashPair(addr, codeHashN(0xDD))),
+	}))
+
+	// Apply 2: delete only codehash (not committed yet)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(codeHashDeletePair(addr)),
+	}))
+
+	// Pending reads before commit
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found, "nonce should be readable from pending writes")
+	require.Equal(t, nonceBytes(42), nonceVal)
+
+	chVal, found := s.Get(chKey)
+	require.False(t, found, "codehash should be not-found after pending delete")
+	require.Nil(t, chVal)
+
+	paw := s.accountWrites[string(addr[:])]
+	require.NotNil(t, paw)
+	require.False(t, paw.isDelete, "row should NOT be marked for deletion (partial delete)")
+}
+
+// TestAccountRowDeleteGetBeforeCommit verifies the core behavioral change:
+// after deleting all account fields within a block, Get() returns (nil, false)
+// for both nonce and codehash BEFORE commit.
+func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD5)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+
+	// Write nonce + codehash (not committed yet)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xEE))),
+	}))
+
+	// Verify both fields are readable before commit
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found, "nonce should be readable from pending writes")
+	require.Equal(t, nonceBytes(10), nonceVal)
+
+	chVal, found := s.Get(chKey)
+	require.True(t, found, "codehash should be readable from pending writes")
+	expected := codeHashN(0xEE)
+	require.Equal(t, expected[:], chVal)
+
+	// Delete both fields (still before commit)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
+	}))
+
+	// Verify both fields return not-found BEFORE commit (the core semantic change)
+	nonceVal, found = s.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after pending full-delete")
+	require.Nil(t, nonceVal)
+
+	chVal, found = s.Get(chKey)
+	require.False(t, found, "codehash should not be found after pending full-delete")
+	require.Nil(t, chVal)
+
+	require.False(t, s.Has(nonceKey), "Has(nonce) should be false after pending full-delete")
+	require.False(t, s.Has(chKey), "Has(codehash) should be false after pending full-delete")
+
+	// Verify isDelete is set
+	paw := s.accountWrites[string(addr[:])]
+	require.NotNil(t, paw)
+	require.True(t, paw.isDelete, "row should be marked for deletion (all fields zero)")
+}
