@@ -161,6 +161,13 @@ lint:
 	find . -name '*.go' -type f -not -path "./vendor*" -not -path "*.git*" | xargs gofmt -d -s
 	go mod verify
 
+# Run lint on the sei-db package. Much faster than running lint on the entire project.
+# Makes life easier for storage team when iterating on changes inside the sei-db package.
+dblint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run ./sei-db/...
+	go fmt ./sei-db/...
+	go vet ./sei-db/...
+
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
