@@ -1,6 +1,8 @@
 package flatkv
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -150,4 +152,46 @@ func TestStoreMetadataOperations(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid global version length")
 	})
+}
+
+// =============================================================================
+// Global Metadata Persistence After Commit + Reopen
+// =============================================================================
+
+func TestGlobalMetadataPersistence(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+
+	globalVer, err := s.loadGlobalVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), globalVer)
+
+	globalHash, err := s.loadGlobalLtHash()
+	require.NoError(t, err)
+	require.Equal(t, s.committedLtHash.Checksum(), globalHash.Checksum())
+
+	expectedHash := s.committedLtHash.Checksum()
+	require.NoError(t, s.Close())
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(2), s2.committedVersion)
+	require.Equal(t, expectedHash, s2.committedLtHash.Checksum(),
+		"global LtHash should survive reopen")
 }

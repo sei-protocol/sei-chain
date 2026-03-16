@@ -283,6 +283,18 @@ func TestSubstituteSeedTag(t *testing.T) {
 	}
 }
 
+func TestSubstituteReverterTag(t *testing.T) {
+	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"__REVERTER__","data":"0x01"},"latest"]}`)
+	out := substituteReverterTag(req, "0xabc")
+	if !bytes.Contains(out, []byte("0xabc")) || bytes.Contains(out, []byte("__REVERTER__")) {
+		t.Errorf("substituteReverterTag: expected __REVERTER__ replaced with 0xabc, got %s", out)
+	}
+	out2 := substituteReverterTag(req, "")
+	if !bytes.Equal(out2, req) {
+		t.Errorf("substituteReverterTag with empty addr should return request unchanged, got %s", out2)
+	}
+}
+
 func TestRequestPlaceholders(t *testing.T) {
 	req := []byte(`{"params":["${blockHash}",false]}`)
 	got := requestPlaceholders(req)

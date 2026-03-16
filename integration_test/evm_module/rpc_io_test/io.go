@@ -187,6 +187,13 @@ func substituteSeedTag(request []byte, seedBlock string) []byte {
 	return []byte(strings.ReplaceAll(string(request), `"__SEED__"`, `"`+v+`"`))
 }
 
+func substituteReverterTag(request []byte, reverterAddr string) []byte {
+	if reverterAddr == "" {
+		return request
+	}
+	return []byte(strings.ReplaceAll(string(request), `"__REVERTER__"`, `"`+reverterAddr+`"`))
+}
+
 func substituteRequest(request []byte, bindings map[string]any) []byte {
 	if len(bindings) == 0 {
 		return request

@@ -260,6 +260,7 @@ func TestGetVersions(t *testing.T) {
 func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)

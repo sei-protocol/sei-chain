@@ -156,7 +156,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 				}
 
 				logger.Debug("checktx failed for tx",
-					"tx", types.Tx(tx),
+					"tx", types.Tx(tx).Key(),
 					"peer", m.From,
 					"err", err)
 			}

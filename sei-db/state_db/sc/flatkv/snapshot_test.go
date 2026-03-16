@@ -1272,3 +1272,432 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
+
+// =============================================================================
+// Reopen After Empty Commits (W-P1-5)
+// =============================================================================
+
+func TestReopenAfterEmptyCommits(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, s.ApplyChangeSets(nil))
+		_, err := s.Commit()
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(3), s.Version())
+	hashBefore := s.RootHash()
+	require.NoError(t, s.Close())
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(3), s2.Version(), "version should be preserved after reopen")
+	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should be unchanged after reopen")
+}
+
+// =============================================================================
+// Reopen After Deletes (W-P1-6)
+// =============================================================================
+
+func TestReopenAfterDeletes(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xEE}
+	slot := Slot{0xFF}
+
+	ch := codeHashN(0x77)
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err = s.Commit()
+	require.NoError(t, err)
+
+	delCS := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Delete: true},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Delete: true},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	_, err = s.Commit()
+	require.NoError(t, err)
+
+	hashBefore := s.RootHash()
+	require.NoError(t, s.Close())
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, hashBefore, s2.RootHash())
+
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	_, found := s2.Get(storageKey)
+	require.False(t, found, "storage should stay deleted after reopen")
+
+	codeKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	_, found = s2.Get(codeKey2)
+	require.False(t, found, "code should stay deleted after reopen")
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal, found := s2.Get(nonceKey)
+	require.True(t, found, "nonce should return found=true after reopen (zero-value write)")
+	require.Equal(t, make([]byte, NonceLen), nonceVal)
+
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	chVal, found := s2.Get(chKey)
+	require.False(t, found, "codehash should return found=false after reopen")
+	require.Nil(t, chVal)
+}
+
+// =============================================================================
+// WAL Truncation + Rollback Combo (W-P2-5)
+// =============================================================================
+
+func TestWALTruncationThenRollback(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		DataDir:            filepath.Join(dir, flatkvRootDir),
+		SnapshotInterval:   5,
+		SnapshotKeepRecent: 1,
+	}
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := 1; i <= 10; i++ {
+		commitStorageEntry(t, s, addrN(byte(i)), slotN(byte(i)), []byte{byte(i)})
+	}
+
+	s.tryTruncateWAL()
+
+	require.NoError(t, s.Rollback(5))
+	require.Equal(t, int64(5), s.Version())
+
+	for i := 1; i <= 5; i++ {
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
+		val, found := s.Get(key)
+		require.True(t, found, "key at block %d should exist after rollback to v5", i)
+		require.Equal(t, []byte{byte(i)}, val)
+	}
+
+	for i := 6; i <= 10; i++ {
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
+		_, found := s.Get(key)
+		require.False(t, found, "key at block %d should NOT exist after rollback to v5", i)
+	}
+
+	require.NoError(t, s.Close())
+}
+
+// =============================================================================
+// Reopen After Snapshot + Truncation (W-P2-6)
+// =============================================================================
+
+func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+	cfg := &Config{
+		DataDir:            dbDir,
+		SnapshotInterval:   5,
+		SnapshotKeepRecent: 1,
+	}
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := 1; i <= 10; i++ {
+		commitStorageEntry(t, s, addrN(byte(i)), slotN(byte(i)), []byte{byte(i)})
+	}
+
+	s.tryTruncateWAL()
+	hashBefore := s.RootHash()
+	require.NoError(t, s.Close())
+
+	s2, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, hashBefore, s2.RootHash())
+
+	for i := 1; i <= 10; i++ {
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
+		val, found := s2.Get(key)
+		require.True(t, found, "key at block %d should exist after reopen", i)
+		require.Equal(t, []byte{byte(i)}, val)
+	}
+}
+
+// =============================================================================
+// Single DB Open Failure (W-P3-1)
+// =============================================================================
+
+func TestSingleDBOpenFailure(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	workingStorage := filepath.Join(dbDir, "working", storageDBDir)
+	manifests, _ := filepath.Glob(filepath.Join(workingStorage, "MANIFEST-*"))
+	for _, m := range manifests {
+		require.NoError(t, os.Remove(m))
+	}
+	snapshotStorage := filepath.Join(dbDir, snapshotName(1), storageDBDir)
+	snapManifests, _ := filepath.Glob(filepath.Join(snapshotStorage, "MANIFEST-*"))
+	for _, m := range snapManifests {
+		require.NoError(t, os.Remove(m))
+	}
+	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err, "open should fail when storageDB is corrupted in both working and snapshot")
+}
+
+// =============================================================================
+// Global Metadata Corruption (W-P3-2)
+// =============================================================================
+
+func TestGlobalMetadataCorruption(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	workingMeta := filepath.Join(dbDir, "working", metadataDir)
+	metaCfg := pebbledb.DefaultConfig()
+	metaCfg.DataDir = workingMeta
+	metaCfg.EnableMetrics = false
+	db, err := pebbledb.Open(context.Background(), &metaCfg, pebble.DefaultComparer)
+	require.NoError(t, err)
+	require.NoError(t, db.Set([]byte(MetaGlobalVersion), []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Close())
+
+	snapMeta := filepath.Join(dbDir, snapshotName(1), metadataDir)
+	metaCfg2 := pebbledb.DefaultConfig()
+	metaCfg2.DataDir = snapMeta
+	metaCfg2.EnableMetrics = false
+	db2, err := pebbledb.Open(context.Background(), &metaCfg2, pebble.DefaultComparer)
+	require.NoError(t, err)
+	require.NoError(t, db2.Set([]byte(MetaGlobalVersion), []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Close())
+	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err, "open should fail when global metadata is corrupted")
+}
+
+// =============================================================================
+// WAL Directory Deleted (W-P3-5)
+// =============================================================================
+
+func TestWALDirectoryDeleted(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	walDir := filepath.Join(dbDir, changelogDir)
+	require.NoError(t, os.RemoveAll(walDir))
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(2), s2.Version())
+
+	commitStorageEntry(t, s2, Address{0x03}, Slot{0x03}, []byte{0xCC})
+	require.Equal(t, int64(3), s2.Version())
+
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x03}, Slot{0x03}))
+	val, found := s2.Get(key)
+	require.True(t, found)
+	require.Equal(t, []byte{0xCC}, val)
+}
+
+func TestLocalMetaCorruption(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.Close())
+
+	// Corrupt accountDB LocalMeta in working dir: write 3 garbage bytes (expected 8).
+	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
+	acctCfg := pebbledb.DefaultConfig()
+	acctCfg.DataDir = workingAccount
+	acctCfg.EnableMetrics = false
+	db, err := pebbledb.Open(context.Background(), &acctCfg, pebble.DefaultComparer)
+	require.NoError(t, err)
+	require.NoError(t, db.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Close())
+
+	// Same corruption in the snapshot dir.
+	snapAccount := filepath.Join(dbDir, snapshotName(1), accountDBDir)
+	acctCfg2 := pebbledb.DefaultConfig()
+	acctCfg2.DataDir = snapAccount
+	acctCfg2.EnableMetrics = false
+	db2, err := pebbledb.Open(context.Background(), &acctCfg2, pebble.DefaultComparer)
+	require.NoError(t, err)
+	require.NoError(t, db2.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Close())
+
+	// Remove SNAPSHOT_BASE to force re-clone from corrupted snapshot.
+	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
+
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err, "open should fail when LocalMeta is corrupted (invalid size)")
+	require.Contains(t, err.Error(), "invalid LocalMeta size")
+}
+
+// TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
+// tidwall/wal auto-truncates corrupted segments on open, so the observable effect
+// is entry loss. When catchup needs those entries to reach the requested version,
+// LoadVersion fails with a version mismatch.
+func TestWALSegmentCorruption(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA}) // v1
+	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB}) // v2
+	require.NoError(t, s.Close())
+
+	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
+	// rewind global version to v1 so catchup needs to replay v2 from WAL.
+	workingMeta := filepath.Join(dbDir, "working", metadataDir)
+	metaCfg := pebbledb.DefaultConfig()
+	metaCfg.DataDir = workingMeta
+	metaCfg.EnableMetrics = false
+	mdb, err := pebbledb.Open(context.Background(), &metaCfg, pebble.DefaultComparer)
+	require.NoError(t, err)
+	versionBuf := make([]byte, 8)
+	versionBuf[7] = 1 // version = 1
+	require.NoError(t, mdb.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Close())
+
+	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
+	walDir := filepath.Join(dbDir, changelogDir)
+	entries, err := os.ReadDir(walDir)
+	require.NoError(t, err)
+	corrupted := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(walDir, e.Name())
+		garbage := make([]byte, 128)
+		for i := range garbage {
+			garbage[i] = 0xFF
+		}
+		require.NoError(t, os.WriteFile(p, garbage, 0600))
+		corrupted++
+	}
+	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
+
+	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(2, false)
+	require.Error(t, err, "LoadVersion should fail: WAL corrupted, can't reach requested version")
+}
