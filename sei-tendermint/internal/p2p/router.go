@@ -73,6 +73,10 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
+	// 100 is arbitrary - we need some bound, otherwise peerDB will
+	// maintain the whole connection history without pruning.
+	// 100 is more or less an upper bound on how many concurrent
+	// connections sei-v2 can effectively handle currently.
 	peerDB, err := newPeerDB(db, min(options.maxOutbound(), 100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
@@ -87,7 +91,7 @@ func NewRouter(
 	selfID := privKey.Public().NodeID()
 	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
 	// initialAddrs will stay around util pex table fills the whole "extra" cache.
-	peerManager.PushPex(selfID, initialAddrs)
+	peerManager.PushPex(utils.None[types.NodeID](), initialAddrs)
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -117,7 +121,7 @@ func (r *Router) WaitForStart(ctx context.Context) error {
 }
 
 func (r *Router) AddAddrs(sender types.NodeID, addrs []NodeAddress) error {
-	return r.peerManager.PushPex(sender, addrs)
+	return r.peerManager.PushPex(utils.Some(sender), addrs)
 }
 
 func (r *Router) Subscribe() *PeerUpdatesRecv {
@@ -257,8 +261,6 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 
 func (r *Router) dialPeersRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-
-		r.logger.Info("dialPeersRoutine")
 		// Task feeding the upgrade permit to peer manager.
 		s.Spawn(func() error {
 			const upgradeInterval = time.Minute
@@ -269,13 +271,11 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 				}
 			}
 		})
-		const dialBurst = 10
-		limiter := rate.NewLimiter(r.options.maxDialRate(), dialBurst)
+		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxOutbound())
 		for {
 			if err := limiter.Wait(ctx); err != nil {
 				return err
 			}
-			r.logger.Info("StartDial")
 			addrs, err := r.peerManager.StartDial(ctx)
 			if err != nil {
 				return err
@@ -283,7 +283,6 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 			id := addrs[0].NodeID
 			s.Spawn(func() error {
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					r.logger.Info("dialing", "addrs", addrs)
 					tcpConn, err := r.dial(ctx, addrs)
 					if err != nil {
 						r.peerManager.DialFailed(id)
@@ -383,7 +382,7 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 	return r.peerManager.IsBlockSyncPeer(id)
 }
 
-// dialPeer connects to a peer by dialing it.
+// dial connects to a peer by dialing it.
 func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err error) {
 	defer func() {
 		success := "true"
@@ -418,7 +417,6 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 				}
 				return nil
 			})
-			return nil
 		}
 		return nil
 	}))

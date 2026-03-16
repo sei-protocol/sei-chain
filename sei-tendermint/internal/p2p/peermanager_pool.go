@@ -106,7 +106,7 @@ func newPoolManager(cfg *poolConfig) *poolManager {
 	// It makes the global topology converge to an uniformly random graph
 	// of a bounded degree.
 	priority := func(id types.NodeID) uint64 {
-		return binary.LittleEndian.Uint64(h.Sum([]byte(id)[:8]))
+		return binary.LittleEndian.Uint64(h.Sum([]byte(id)))
 	}
 	p := &poolManager{
 		cfg:           cfg,

@@ -608,6 +608,56 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 	}
 }
 
+func TestRouter_dialPeers_TriesAllAddresses(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	rng := utils.TestRng()
+	ctx := t.Context()
+
+	// Address dialing order is not deterministic, so we run the test multiple times to
+	// minimize the false-positive probability (situation where the correct address is attempted first).
+	for range 1 {
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			// Start the accepting router.
+			target := makeRouter(logger, rng)
+			s.SpawnBg(func() error { return utils.IgnoreCancel(target.Run(ctx)) })
+			if err := target.WaitForStart(ctx); err != nil {
+				return err
+			}
+			// Create the dialing router.
+			opts := makeRouterOptions()
+			opts.MaxDialRate = utils.Some(rate.Every(time.Hour))
+			opts.MaxOutbound = utils.Some(1)
+			r := makeRouterWithOptions(logger, rng, opts)
+			targetAddr := TestAddress(target)
+			var addrs []NodeAddress
+			for range 10 {
+				addrs = append(addrs, makeAddrFor(rng, targetAddr.NodeID))
+			}
+			// Real address is the last.
+			addrs = append(addrs, targetAddr)
+			for _, addr := range addrs {
+				sender := makeKey(rng).Public().NodeID()
+				if err := r.AddAddrs(sender, utils.Slice(addr)); err != nil {
+					return fmt.Errorf("r.AddAddrs(): %w", err)
+				}
+			}
+			// Start the dialing router.
+			s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+			// Wait for the connection.
+			if _, err := r.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
+				_, ok := GetAny(conns, targetAddr.NodeID)
+				return ok
+			}); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestRouter_dialPeers_Parallel(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()

@@ -179,7 +179,7 @@ func (m *peerManager[C]) Conns() connSet[C] { return m.conns.Load() }
 // "extra" cache for senders which are not connected to facilitate random local search.
 // If any of the addresses is invalid (does not parse), the whole slice is rejected.
 // Addresses to persistent peers are ignored, since they are populated in constructor.
-func (m *peerManager[C]) PushPex(sender types.NodeID, addrs []NodeAddress) error {
+func (m *peerManager[C]) PushPex(sender utils.Option[types.NodeID], addrs []NodeAddress) error {
 	for _, addr := range addrs {
 		if err := addr.Validate(); err != nil {
 			return err
@@ -188,11 +188,13 @@ func (m *peerManager[C]) PushPex(sender types.NodeID, addrs []NodeAddress) error
 	for inner, ctrl := range m.inner.Lock() {
 		// pex data is indexed by senders which are connected peers.
 		// Other pex data is restricted to a small unindexed cache.
-		var msender utils.Option[types.NodeID]
-		if _, ok := GetAny(inner.conns.Load(), sender); ok {
-			msender = utils.Some(sender)
+		// Therefore we downgrade sender to None, if it is not a connected peer.
+		if id, ok := sender.Get(); ok {
+			if _, ok := GetAny(inner.conns.Load(), id); !ok {
+				sender = utils.None[types.NodeID]()
+			}
 		}
-		inner.regular.PushPex(msender, addrs)
+		inner.regular.PushPex(sender, addrs)
 		ctrl.Updated()
 	}
 	return nil
