@@ -142,6 +142,17 @@ type CryptoSimConfig struct {
 
 	// The capacity of the channel that holds blocks sent to the reciept store.
 	RecieptChannelCapacity int
+
+	// If true, disables simulation of transaction execution, and writes very little to the database. This is
+	// potentially useful when benchmarking things other than state storage (e.g. the receipt store).
+	//
+	// Note that switching execution on after previously running with execution disabled may result in buggy behavior,
+	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
+	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
+	DisableTransactionExecution bool
+
+	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
+	MaxTPS float64
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -183,6 +194,8 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
+		DisableTransactionExecution:       false,
+		MaxTPS:                            0,
 	}
 }
 
@@ -261,7 +274,9 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.RecieptChannelCapacity < 1 {
 		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
 	}
-
+	if c.MaxTPS < 0 {
+		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
 	return nil
 }
 
