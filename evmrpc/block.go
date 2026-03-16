@@ -34,14 +34,19 @@ const (
 	Sei2Namespace = "sei2"
 )
 
-// GenesisBlockHash is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
+// genesisBlockHashHex is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
 // must recognize this so that count/block-by-hash stay consistent with block-by-number.
-var genesisBlockHash = common.HexToHash("0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E")
+const genesisBlockHashHex = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"
 
-func encodeGenesisBlock() map[string]interface{} {
-	return map[string]interface{}{
+var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
+
+// genesisBlockTxCount is the eth_getBlockTransactionCountByHash result for the genesis block (0 transactions).
+var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
+
+func encodeGenesisBlock() map[string]any {
+	return map[string]any{
 		"number":           (*hexutil.Big)(big.NewInt(0)),
-		"hash":             "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E",
+		"hash":             genesisBlockHashHex,
 		"parentHash":       common.Hash{},
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
@@ -58,7 +63,7 @@ func encodeGenesisBlock() map[string]interface{} {
 		"receiptsRoot":     common.Hash{},
 		"size":             hexutil.Uint64(0),
 		"uncles":           []common.Hash{}, // inapplicable to Sei
-		"transactions":     []interface{}{},
+		"transactions":     []any{},
 		"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
 	}
 }
@@ -172,8 +177,8 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
-	if blockHash == GenesisBlockHash {
-		return a.getEvmTxCount(nil, 0), nil
+	if blockHash == genesisBlockHash {
+		return genesisBlockTxCount, nil
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
@@ -190,7 +195,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
-	if blockHash == GenesisBlockHash {
+	if blockHash == genesisBlockHash {
 		return encodeGenesisBlock(), nil
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)

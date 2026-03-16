@@ -106,7 +106,7 @@ func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
 	t.Parallel()
 
 	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
-	count, err := api.GetBlockTransactionCountByHash(context.Background(), GenesisBlockHash)
+	count, err := api.GetBlockTransactionCountByHash(context.Background(), genesisBlockHash)
 	require.NoError(t, err)
 	require.NotNil(t, count)
 	require.Equal(t, hexutil.Uint(0), *count)
