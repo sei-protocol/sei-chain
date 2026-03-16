@@ -238,16 +238,44 @@ func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
 	return cs.cosmosCommitter.GetEarliestVersion()
 }
 
+// appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
+// appended, without mutating the original. Returns the original unchanged
+// when lattice hashing is disabled.
+func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
+	if !cs.config.EnableLatticeHash {
+		return ci
+	}
+	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
+	copy(combined, ci.StoreInfos)
+	combined[len(combined)-1] = proto.StoreInfo{
+		Name: "evm_lattice",
+		CommitId: proto.CommitID{
+			Version: ci.Version,
+			Hash:    evmHash,
+		},
+	}
+	return &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: combined,
+	}
+}
+
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.WorkingCommitInfo()
+	ci := cs.cosmosCommitter.WorkingCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.RootHash())
+	}
+	return ci
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.LastCommitInfo()
+	ci := cs.cosmosCommitter.LastCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.CommittedRootHash())
+	}
+	return ci
 }
 
 // GetChildStoreByName returns the underlying child store by module name.

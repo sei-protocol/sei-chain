@@ -374,11 +374,11 @@ func (wsc *wsConnection) writeRoutine(ctx context.Context) {
 		case msg := <-wsc.writeChan:
 			data, err := json.Marshal(msg)
 			if err != nil {
-				logger.Error("Failed to marshal RPCResponse to JSON", "msg", msg, "err", err)
+				logger.Error("Failed to marshal RPCResponse to JSON", "msg_id", msg.ID(), "err", err)
 				continue
 			}
 			if err = wsc.writeMessageWithDeadline(websocket.TextMessage, data); err != nil {
-				logger.Error("Failed to write response", "msg", msg, "err", err)
+				logger.Error("Failed to write response", "msg_id", msg.ID(), "err", err)
 				return
 			}
 		}
