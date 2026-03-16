@@ -34,11 +34,12 @@ func (lru *lruQueue) Push(
 ) {
 	if elem, ok := lru.entries[string(key)]; ok {
 		entry := elem.Value.(*lruQueueEntry)
-		if size < entry.size {
+		if lru.totalSize < entry.size {
 			// should be impossible
 			panic(fmt.Errorf("size tracking is corrupted: size %d < entry.size %d", size, entry.size))
 		}
-		lru.totalSize += size - entry.size
+		lru.totalSize -= entry.size
+		lru.totalSize += size
 		entry.size = size
 		lru.order.MoveToBack(elem)
 		return
