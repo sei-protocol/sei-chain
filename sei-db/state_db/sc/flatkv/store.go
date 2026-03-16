@@ -45,9 +45,21 @@ const (
 	// Metadata DB keys
 	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
 	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
+	MetaAccountLtHash = "_meta/hash/account"
+	MetaCodeLtHash    = "_meta/hash/code"
+	MetaStorageLtHash = "_meta/hash/storage"
+	MetaLegacyLtHash  = "_meta/hash/legacy"
 
 	flatkvMeterName = "seidb_flatkv"
 )
+
+// perDBLtHashKeys maps DB dir names to their per-DB LTHash keys in metadataDB.
+var perDBLtHashKeys = map[string]string{
+	accountDBDir: MetaAccountLtHash,
+	codeDBDir:    MetaCodeLtHash,
+	storageDBDir: MetaStorageLtHash,
+	legacyDBDir:  MetaLegacyLtHash,
+}
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
 type pendingKVWrite struct {
@@ -88,6 +100,12 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
+
+	// Per-DB LTHash tracking. Authoritative copies live in metadataDB;
+	// secondary copies are written to each DB's LocalMeta for integrity verification.
+	perDBCommittedLtHash map[string]*lthash.LtHash
+	perDBWorkingLtHash   map[string]*lthash.LtHash
+	needsPerDBBackfill   bool // true when per-DB keys are absent from metadataDB (upgrade)
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
@@ -134,7 +152,19 @@ func NewCommitStore(
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		committedLtHash:   lthash.New(),
 		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		perDBCommittedLtHash: map[string]*lthash.LtHash{
+			accountDBDir: lthash.New(),
+			codeDBDir:    lthash.New(),
+			storageDBDir: lthash.New(),
+			legacyDBDir:  lthash.New(),
+		},
+		perDBWorkingLtHash: map[string]*lthash.LtHash{
+			accountDBDir: lthash.New(),
+			codeDBDir:    lthash.New(),
+			storageDBDir: lthash.New(),
+			legacyDBDir:  lthash.New(),
+		},
+		phaseTimer: metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -271,6 +301,11 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 	if err := s.catchup(targetVersion); err != nil {
 		return fmt.Errorf("readonly catchup: %w", err)
 	}
+	if s.needsPerDBBackfill {
+		if err := s.backfillPerDBLtHashes(false); err != nil {
+			return fmt.Errorf("readonly per-DB LtHash backfill: %w", err)
+		}
+	}
 
 	if targetVersion > 0 && s.committedVersion != targetVersion {
 		return fmt.Errorf("readonly version mismatch: requested %d, reached %d",
@@ -299,7 +334,15 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
-	return s.catchup(catchupTarget)
+	if err := s.catchup(catchupTarget); err != nil {
+		return err
+	}
+	if s.needsPerDBBackfill {
+		if err := s.backfillPerDBLtHashes(true); err != nil {
+			return fmt.Errorf("per-DB LtHash backfill: %w", err)
+		}
+	}
+	return nil
 }
 
 // open opens all database instances.
@@ -497,6 +540,11 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
+
+	if err := s.loadPerDBLtHashes(); err != nil {
+		return fmt.Errorf("failed to load per-DB LtHashes: %w", err)
+	}
+
 	return nil
 }
 

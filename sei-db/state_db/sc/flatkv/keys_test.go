@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -241,31 +242,52 @@ func TestLocalMetaSerialization(t *testing.T) {
 	t.Run("RoundTripZero", func(t *testing.T) {
 		original := &LocalMeta{CommittedVersion: 0}
 		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaSize, len(encoded))
+		require.Equal(t, localMetaVersionOnly, len(encoded))
 
 		decoded, err := UnmarshalLocalMeta(encoded)
 		require.NoError(t, err)
 		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
+		require.Nil(t, decoded.LtHash)
 	})
 
 	t.Run("RoundTripPositive", func(t *testing.T) {
 		original := &LocalMeta{CommittedVersion: 12345}
 		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaSize, len(encoded))
+		require.Equal(t, localMetaVersionOnly, len(encoded))
 
 		decoded, err := UnmarshalLocalMeta(encoded)
 		require.NoError(t, err)
 		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
+		require.Nil(t, decoded.LtHash)
 	})
 
 	t.Run("RoundTripMaxInt64", func(t *testing.T) {
 		original := &LocalMeta{CommittedVersion: math.MaxInt64}
 		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaSize, len(encoded))
+		require.Equal(t, localMetaVersionOnly, len(encoded))
 
 		decoded, err := UnmarshalLocalMeta(encoded)
 		require.NoError(t, err)
 		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
+		require.Nil(t, decoded.LtHash)
+	})
+
+	t.Run("RoundTripWithLtHash", func(t *testing.T) {
+		h := lthash.New()
+		h.MixIn(func() *lthash.LtHash {
+			pairs := []lthash.KVPairWithLastValue{{Key: []byte("k"), Value: []byte("v")}}
+			r, _ := lthash.ComputeLtHash(nil, pairs)
+			return r
+		}())
+		original := &LocalMeta{CommittedVersion: 42, LtHash: h}
+		encoded := MarshalLocalMeta(original)
+		require.Equal(t, localMetaWithLtHash, len(encoded))
+
+		decoded, err := UnmarshalLocalMeta(encoded)
+		require.NoError(t, err)
+		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
+		require.NotNil(t, decoded.LtHash)
+		require.True(t, original.LtHash.Equal(decoded.LtHash))
 	})
 
 	t.Run("InvalidLength", func(t *testing.T) {
@@ -274,8 +296,8 @@ func TestLocalMetaSerialization(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid LocalMeta size")
 
-		// Too long
-		_, err = UnmarshalLocalMeta(make([]byte, localMetaSize+1))
+		// Neither old nor new format
+		_, err = UnmarshalLocalMeta(make([]byte, localMetaVersionOnly+1))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid LocalMeta size")
 	})

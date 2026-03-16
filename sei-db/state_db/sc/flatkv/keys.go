@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // DBLocalMetaKey is the key for per-DB local metadata.
@@ -28,31 +30,53 @@ const (
 	BalanceLen  = 32
 	NonceLen    = 8
 
-	// localMetaSize is the serialized size of LocalMeta (version = 8 bytes)
-	localMetaSize = 8
+	// localMetaVersionOnly is the serialized size of the old format (version only).
+	localMetaVersionOnly = 8
+	// localMetaWithLtHash is the serialized size with LtHash (version + 2048 bytes).
+	localMetaWithLtHash = localMetaVersionOnly + lthash.LtHashBytes
 )
 
 // LocalMeta stores per-DB version tracking metadata.
 // Stored inside each DB at DBLocalMetaKey (0x00).
 type LocalMeta struct {
-	CommittedVersion int64 // Current committed version in this DB
+	CommittedVersion int64          // Current committed version in this DB
+	LtHash           *lthash.LtHash // nil for old format (version-only)
 }
 
-// MarshalLocalMeta encodes LocalMeta as fixed 8 bytes (big-endian).
+// MarshalLocalMeta encodes LocalMeta to bytes.
+// If LtHash is non-nil: 8 + 2048 = 2056 bytes. Otherwise: 8 bytes (backward compat).
 func MarshalLocalMeta(m *LocalMeta) []byte {
-	buf := make([]byte, localMetaSize)
+	if m.LtHash != nil {
+		buf := make([]byte, localMetaWithLtHash)
+		binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion)) //nolint:gosec // version is always non-negative
+		m.LtHash.MarshalTo(buf[localMetaVersionOnly:])
+		return buf
+	}
+	buf := make([]byte, localMetaVersionOnly)
 	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion)) //nolint:gosec // version is always non-negative
 	return buf
 }
 
 // UnmarshalLocalMeta decodes LocalMeta from bytes.
+// Accepts 8-byte (old, LtHash=nil) and 2056-byte (new, with LtHash) formats.
 func UnmarshalLocalMeta(data []byte) (*LocalMeta, error) {
-	if len(data) != localMetaSize {
-		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d", len(data), localMetaSize)
+	switch len(data) {
+	case localMetaVersionOnly:
+		return &LocalMeta{
+			CommittedVersion: int64(binary.BigEndian.Uint64(data)), //nolint:gosec // version won't exceed int64 max
+		}, nil
+	case localMetaWithLtHash:
+		h, err := lthash.Unmarshal(data[localMetaVersionOnly:])
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal LocalMeta LtHash: %w", err)
+		}
+		return &LocalMeta{
+			CommittedVersion: int64(binary.BigEndian.Uint64(data[:localMetaVersionOnly])), //nolint:gosec // version won't exceed int64 max
+			LtHash:           h,
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d or %d", len(data), localMetaVersionOnly, localMetaWithLtHash)
 	}
-	return &LocalMeta{
-		CommittedVersion: int64(binary.BigEndian.Uint64(data)), //nolint:gosec // version won't exceed int64 max
-	}, nil
 }
 
 // Address is an EVM address (20 bytes).

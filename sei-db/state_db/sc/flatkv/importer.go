@@ -76,6 +76,9 @@ func (imp *KVImporter) Close() error {
 
 	imp.store.committedVersion = imp.version
 	imp.store.committedLtHash = imp.store.workingLtHash.Clone()
+	for dbDir, h := range imp.store.perDBWorkingLtHash {
+		imp.store.perDBCommittedLtHash[dbDir] = h.Clone()
+	}
 	if err := imp.store.commitGlobalMetadata(imp.version, imp.store.committedLtHash); err != nil {
 		return fmt.Errorf("import global metadata: %w", err)
 	}

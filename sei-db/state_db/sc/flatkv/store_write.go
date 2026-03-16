@@ -215,15 +215,29 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
 
-	// Combine all pairs and update working LtHash
-	allPairs := append(storagePairs, accountPairs...)
-	allPairs = append(allPairs, codePairs...)
-	allPairs = append(allPairs, legacyPairs...)
-
-	if len(allPairs) > 0 {
-		newLtHash, _ := lthash.ComputeLtHash(s.workingLtHash, allPairs)
-		s.workingLtHash = newLtHash
+	// Per-DB LTHash updates
+	type dbPairs struct {
+		dir   string
+		pairs []lthash.KVPairWithLastValue
 	}
+	for _, dp := range [4]dbPairs{
+		{storageDBDir, storagePairs},
+		{accountDBDir, accountPairs},
+		{codeDBDir, codePairs},
+		{legacyDBDir, legacyPairs},
+	} {
+		if len(dp.pairs) > 0 {
+			newHash, _ := lthash.ComputeLtHash(s.perDBWorkingLtHash[dp.dir], dp.pairs)
+			s.perDBWorkingLtHash[dp.dir] = newHash
+		}
+	}
+
+	// Global LTHash = sum of per-DB hashes (homomorphic property)
+	global := lthash.New()
+	for _, h := range s.perDBWorkingLtHash {
+		global.MixIn(h)
+	}
+	s.workingLtHash = global
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
@@ -258,6 +272,9 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.phaseTimer.SetPhase("commit_update_lt_hash")
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
+	for dbDir, h := range s.perDBWorkingLtHash {
+		s.perDBCommittedLtHash[dbDir] = h.Clone()
+	}
 
 	// Step 4: Persist global metadata to metadata DB (always every block)
 	s.phaseTimer.SetPhase("commit_write_metadata")
@@ -345,9 +362,9 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
 		newLocalMeta := &LocalMeta{
 			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[accountDBDir],
 		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("accountDB local meta set: %w", err)
@@ -373,9 +390,9 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
 		newLocalMeta := &LocalMeta{
 			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[codeDBDir],
 		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("codeDB local meta set: %w", err)
@@ -401,9 +418,9 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
 		newLocalMeta := &LocalMeta{
 			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[storageDBDir],
 		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("storageDB local meta set: %w", err)
@@ -431,6 +448,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 		newLocalMeta := &LocalMeta{
 			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[legacyDBDir],
 		}
 		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
 			return fmt.Errorf("legacyDB local meta set: %w", err)
@@ -462,9 +480,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 	}
 
 	// Update in-memory local meta after all commits succeed
-	newLocalMeta := &LocalMeta{CommittedVersion: version}
 	for _, p := range pending {
-		s.localMeta[p.dbDir] = newLocalMeta
+		s.localMeta[p.dbDir] = &LocalMeta{
+			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[p.dbDir],
+		}
 	}
 	return nil
 }
