@@ -1435,42 +1435,44 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			continue
 		}
 
-		// Validate Cosmos SDK envelope (memo, timeoutHeight, signerInfos, etc.)
-		// This prevents consensus divergence if a malicious proposer includes invalid envelope fields.
-		if err := appante.EvmStatelessChecks(ctx, typedTxs[i], cache.chainID); err != nil {
-			codespace, code, log := sdkerrors.ABCIInfo(err, false)
-			txResults[i] = &abci.ExecTxResult{
-				Codespace: codespace,
-				Code:      code,
-				Log:       log,
-			}
-			ms.Write()
-			continue
-		}
-
-		// Execute EVM transaction through giga executor with panic recovery
-		// (matches V2's recover behavior in legacyabci/deliver_tx.go)
+		// Execute EVM transaction through giga executor with panic recovery.
+		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
 		var result *abci.ExecTxResult
 		var execErr error
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					// Handle panics by type (matches OCC path in makeGigaDeliverTx)
+					// Handle panics by type (matches V2's recovery middleware in baseapp/recovery.go)
 					if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
 						result = &abci.ExecTxResult{
-							Code: sdkerrors.ErrOutOfGas.ABCICode(),
-							Log:  fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+							Codespace: sdkerrors.RootCodespace,
+							Code:      sdkerrors.ErrOutOfGas.ABCICode(),
+							Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
 						}
 						return
 					}
 					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
 					logger.Error("panic in giga synchronous executor", "panic", r, "stack", string(debug.Stack()))
 					result = &abci.ExecTxResult{
-						Code: sdkerrors.ErrPanic.ABCICode(),
-						Log:  fmt.Sprintf("panic recovered: %v", r),
+						Codespace: sdkerrors.UndefinedCodespace,
+						Code:      sdkerrors.ErrPanic.ABCICode(),
+						Log:       fmt.Sprintf("panic recovered: %v", r),
 					}
 				}
 			}()
+
+			// Validate Cosmos SDK envelope (memo, timeoutHeight, signerInfos, etc.)
+			// This prevents consensus divergence if a malicious proposer includes invalid envelope fields.
+			if err := appante.EvmStatelessChecks(ctx, typedTxs[i], cache.chainID); err != nil {
+				codespace, code, log := sdkerrors.ABCIInfo(err, false)
+				result = &abci.ExecTxResult{
+					Codespace: codespace,
+					Code:      code,
+					Log:       log,
+				}
+				return
+			}
+
 			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
 		}()
 
@@ -2019,26 +2021,29 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 	return func(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (resp abci.ResponseDeliverTx) {
 		defer func() {
 			if r := recover(); r != nil {
-				// Handle panics as v2 does: ErrOCCAbort, ErrOutOfGas, or ErrPanic
+				// Handle panics as V2 does (matches baseapp/recovery.go middleware chain)
 				if abort, isOCCAbort := r.(occ.Abort); isOCCAbort {
 					resp = abci.ResponseDeliverTx{
-						Code: sdkerrors.ErrOCCAbort.ABCICode(),
-						Log:  fmt.Sprintf("occ abort occurred with dependent index %d and error: %v", abort.DependentTxIdx, abort.Err),
+						Codespace: sdkerrors.RootCodespace,
+						Code:      sdkerrors.ErrOCCAbort.ABCICode(),
+						Log:       fmt.Sprintf("occ abort occurred with dependent index %d and error: %v", abort.DependentTxIdx, abort.Err),
 					}
 					return
 				}
 				if oogErr, isOOG := r.(sdk.ErrorOutOfGas); isOOG {
 					resp = abci.ResponseDeliverTx{
-						Code: sdkerrors.ErrOutOfGas.ABCICode(),
-						Log:  fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+						Codespace: sdkerrors.RootCodespace,
+						Code:      sdkerrors.ErrOutOfGas.ABCICode(),
+						Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
 					}
 					return
 				}
 				// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
 				logger.Error("panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
 				resp = abci.ResponseDeliverTx{
-					Code: sdkerrors.ErrPanic.ABCICode(),
-					Log:  fmt.Sprintf("recovered: %v\nstack:\n%v", r, string(debug.Stack())),
+					Codespace: sdkerrors.UndefinedCodespace,
+					Code:      sdkerrors.ErrPanic.ABCICode(),
+					Log:       fmt.Sprintf("recovered: %v\nstack:\n%v", r, string(debug.Stack())),
 				}
 			}
 		}()
