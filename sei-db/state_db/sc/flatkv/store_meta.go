@@ -107,6 +107,7 @@ func (s *CommitStore) loadPerDBLtHashes() error {
 	for dbDir, metaKey := range perDBLtHashKeys {
 		data, err := s.metadataDB.Get([]byte(metaKey))
 		if errorutils.IsNotFound(err) {
+			logger.Warn("No lattice hash found for DB, initializing to fresh hash", "db", dbDir)
 			s.perDBCommittedLtHash[dbDir] = lthash.New()
 			s.perDBWorkingLtHash[dbDir] = lthash.New()
 			continue
