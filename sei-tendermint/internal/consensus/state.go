@@ -1891,7 +1891,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		"num_txs", len(block.Txs),
 		"time", time.Now().UnixMilli(),
 	)
-	logger.Debug("finalizing commit of block", "block", block)
+	logger.Debug("finalizing commit of block", "height", block.Height, "hash", block.Hash())
 
 	// Save to blockStore.
 	if cs.blockStore.Height() < block.Height {
@@ -2155,7 +2155,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		cs.roundState.SetProposalBlock(nil)
 	}
 
-	logger.Debug("received proposal", "proposal", proposal)
+	logger.Debug("received proposal", "height", proposal.Height, "round", proposal.Round, "proposal_hash", proposal.BlockID.Hash)
 	return nil
 }
 
@@ -2449,7 +2449,7 @@ func (cs *State) addVote(
 	if vote.Height+1 == cs.roundState.Height() && vote.Type == tmproto.PrecommitType {
 		if cs.roundState.Step() != cstypes.RoundStepNewHeight {
 			// Late precommit at prior height is ignored
-			logger.Debug("precommit vote came in after commit timeout and has been ignored", "vote", vote)
+			logger.Debug("precommit vote came in after commit timeout and has been ignored", "vote_height", vote.Height, "vote_round", vote.Round, "vote_type", vote.Type)
 			return
 		}
 
