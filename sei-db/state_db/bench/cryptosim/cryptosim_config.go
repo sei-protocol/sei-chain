@@ -18,10 +18,25 @@ const (
 // Defines the configuration for the cryptosim benchmark.
 type CryptoSimConfig struct {
 
-	// The minimum number of accounts that should be in the DB prior to the start of the benchmark.
-	// If there are fewer than this number of accounts, the benchmark will first create the necessary
-	// accounts before starting its regular operations.
-	MinimumNumberOfAccounts int
+	// The number of hot accounts. Hot accounts are very frequently used. The number of hot accounts does
+	// not change after the benchmark starts.
+	//
+	// Future work: add different distributions of hot account access. Currently, distribution is flat.
+	NumberOfHotAccounts int
+
+	// The minimum number of cold accounts that should be in the DB prior to the start of the benchmark.
+	// Cold accounts are occasionally used, but not frequently.
+	MinimumNumberOfColdAccounts int
+
+	// The minimum number of dormant accounts that should be in the DB prior to the start of the benchmark.
+	// Dormant accounts are not used after they are created.
+	MinimumNumberOfDormantAccounts int
+
+	// When creating a new account, this is the probability that the number of dormant accounts will be increased
+	// by one. Should be a value between 0.0 and 1.0. A value of 1.0 means that all new account creation will increase
+	// the number of dormant accounts. A value of 0.0 means all new account creation will increase the number of
+	// cold accounts.
+	NewAccountDormancyProbability float64
 
 	// When selecting an account for a transaction, select a hot account with this probability. Should be
 	// a value between 0.0 and 1.0.
@@ -30,11 +45,6 @@ type CryptoSimConfig struct {
 	// When selecting a non-hot account for a transaction, the benchmark will create a new account with this
 	// probability. Should be a value between 0.0 and 1.0.
 	NewAccountProbability float64
-
-	// The number of hot accounts.
-	//
-	// Future work: add different distributions of hot account access. Currently, distribution is flat.
-	HotAccountSetSize int
 
 	// Each account contains an integer value used to track a balance, plus a bunch of random
 	// bytes for padding. This is the total size of the account after padding is added.
@@ -108,6 +118,23 @@ type CryptoSimConfig struct {
 
 	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
 	MaxRuntimeSeconds int
+
+	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
+	MetricsAddr string
+
+	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
+	TransactionMetricsSampleRate float64
+
+	// How often (in seconds) to scrape background metrics (data dir size, process I/O).
+	// If 0, background metrics are disabled.
+	BackgroundMetricsScrapeInterval int
+
+	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
+	// If false, Enter has no effect.
+	EnableSuspension bool
+
+	// The capacity of the channel that holds blocks awaiting execution.
+	BlockChannelCapacity int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -117,10 +144,12 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// That file should contain every available config set to its default value, as a reference.
 
 	return &CryptoSimConfig{
-		MinimumNumberOfAccounts:           1_000_000,
+		NumberOfHotAccounts:               100,
+		MinimumNumberOfColdAccounts:       1_000_000,
+		MinimumNumberOfDormantAccounts:    1_000_000,
+		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
 		NewAccountProbability:             0.001,
-		HotAccountSetSize:                 100,
 		PaddedAccountSize:                 69, // Not a joke, this is the actual size
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
@@ -129,7 +158,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   32,
+		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
@@ -138,8 +167,13 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		SetupUpdateIntervalCount:          100_000,
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
-		ExecutorQueueSize:                 64,
+		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
+		MetricsAddr:                       ":9090",
+		TransactionMetricsSampleRate:      0.001,
+		BackgroundMetricsScrapeInterval:   60,
+		EnableSuspension:                  true,
+		BlockChannelCapacity:              8,
 	}
 }
 
@@ -160,8 +194,12 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)
 	}
-	if c.MinimumNumberOfAccounts < c.HotAccountSetSize+2 {
-		return fmt.Errorf("MinimumNumberOfAccounts must be at least HotAccountSetSize+2 (%d)", c.HotAccountSetSize+2)
+	if c.MinimumNumberOfColdAccounts+c.MinimumNumberOfDormantAccounts < 2 {
+		return fmt.Errorf("MinimumNumberOfColdAccounts+MinimumNumberOfDormantAccounts must be at least 2 (got %d)",
+			c.MinimumNumberOfColdAccounts+c.MinimumNumberOfDormantAccounts)
+	}
+	if c.NewAccountDormancyProbability < 0 || c.NewAccountDormancyProbability > 1 {
+		return fmt.Errorf("NewAccountDormancyProbability must be in [0, 1] (got %f)", c.NewAccountDormancyProbability)
 	}
 	if c.MinimumNumberOfErc20Contracts < c.HotErc20ContractSetSize+1 {
 		return fmt.Errorf("MinimumNumberOfErc20Contracts must be at least HotErc20ContractSetSize+1 (%d)",
@@ -202,6 +240,16 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.MaxRuntimeSeconds < 0 {
 		return fmt.Errorf("MaxRuntimeSeconds must be at least 0 (got %d)", c.MaxRuntimeSeconds)
 	}
+	if c.TransactionMetricsSampleRate < 0 || c.TransactionMetricsSampleRate > 1 {
+		return fmt.Errorf("TransactionMetricsSampleRate must be in [0, 1] (got %f)", c.TransactionMetricsSampleRate)
+	}
+	if c.BackgroundMetricsScrapeInterval < 0 {
+		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
+	}
+	if c.BlockChannelCapacity < 1 {
+		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
+
 	return nil
 }
 

@@ -214,11 +214,6 @@ lru_size = 0
 # Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
 sc-enable = true
 
-# ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
-# the zero-copied slices must not be retained beyond current block's execution.
-# the sdk address cache will be disabled if zero-copy is enabled.
-sc-zero-copy = false
-
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, <=0 means synchronous commit.
 sc-async-commit-buffer = 100
@@ -232,9 +227,6 @@ sc-snapshot-interval = 1000
 
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
 sc-snapshot-writer-limit = 2
-
-# CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
-sc-cache-size = 1000
 
 [state-store]
 

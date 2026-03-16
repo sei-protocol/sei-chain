@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -11,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 const (
@@ -25,43 +26,27 @@ const (
 	OracleAddress = "0x0000000000000000000000000000000000001008"
 )
 
+var ErrOraclePrecompileRetired = errors.New("oracle precompile is retired; oracle data queries are disabled")
+
+var oracleRetiredRevertData = mustEncodeRevertReason(ErrOraclePrecompileRetired.Error())
+
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper    utils.EVMKeeper
-	oracleKeeper utils.OracleKeeper
+	evmKeeper utils.EVMKeeper
 
 	GetExchangeRatesId []byte
 	GetOracleTwapsId   []byte
-}
-
-// Define types which deviate slightly from cosmos types (ExchangeRate string vs sdk.Dec)
-type OracleExchangeRate struct {
-	ExchangeRate        string `json:"exchangeRate"`
-	LastUpdate          string `json:"lastUpdate"`
-	LastUpdateTimestamp int64  `json:"lastUpdateTimestamp"`
-}
-
-type DenomOracleExchangeRatePair struct {
-	Denom                 string             `json:"denom"`
-	OracleExchangeRateVal OracleExchangeRate `json:"oracleExchangeRateVal"`
-}
-
-type OracleTwap struct {
-	Denom           string `json:"denom"`
-	Twap            string `json:"twap"`
-	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper:    keepers.EVMK(),
-		oracleKeeper: keepers.OracleK(),
+		evmKeeper: keepers.EVMK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -97,7 +82,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -105,17 +90,10 @@ func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
 		return nil, 0, err
 	}
-	exchangeRates := []DenomOracleExchangeRatePair{}
-	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		exchangeRates = append(exchangeRates, DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRateVal: OracleExchangeRate{ExchangeRate: rate.ExchangeRate.String(), LastUpdate: rate.LastUpdate.String(), LastUpdateTimestamp: rate.LastUpdateTimestamp}})
-		return false
-	})
-
-	bz, err := method.Outputs.Pack(exchangeRates)
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+	return oracleRetiredRevertData, pcommon.GetRemainingGas(ctx, p.evmKeeper), ErrOraclePrecompileRetired
 }
 
-func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -123,18 +101,7 @@ func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
-	lookbackSeconds := args[0].(uint64)
-	twaps, err := p.oracleKeeper.CalculateTwaps(ctx, lookbackSeconds)
-	if err != nil {
-		return nil, 0, err
-	}
-	// Convert twap to string
-	oracleTwaps := make([]OracleTwap, 0, len(twaps))
-	for _, twap := range twaps {
-		oracleTwaps = append(oracleTwaps, OracleTwap{Denom: twap.Denom, Twap: twap.Twap.String(), LookbackSeconds: twap.LookbackSeconds})
-	}
-	bz, err := method.Outputs.Pack(oracleTwaps)
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+	return oracleRetiredRevertData, pcommon.GetRemainingGas(ctx, p.evmKeeper), ErrOraclePrecompileRetired
 }
 
 func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
@@ -143,4 +110,16 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 
 func (PrecompileExecutor) IsTransaction(string) bool {
 	return false
+}
+
+func mustEncodeRevertReason(reason string) []byte {
+	stringType, err := abi.NewType("string", "", nil)
+	if err != nil {
+		panic(err)
+	}
+	reasonData, err := abi.Arguments{{Type: stringType}}.Pack(reason)
+	if err != nil {
+		panic(err)
+	}
+	return append(crypto.Keccak256([]byte("Error(string)"))[:4], reasonData...)
 }

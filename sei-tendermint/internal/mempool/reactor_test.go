@@ -17,7 +17,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -25,7 +24,6 @@ import (
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
-	logger  log.Logger
 
 	reactors map[types.NodeID]*Reactor
 	mempools map[types.NodeID]*TxMempool
@@ -34,7 +32,7 @@ type reactorTestSuite struct {
 	nodes []types.NodeID
 }
 
-func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNodes int) *reactorTestSuite {
+func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTestSuite {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
@@ -42,7 +40,6 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
 	rts := &reactorTestSuite{
-		logger:   log.NewNopLogger().With("testCase", t.Name()),
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		reactors: make(map[types.NodeID]*Reactor, numNodes),
 		mempools: make(map[types.NodeID]*TxMempool, numNodes),
@@ -58,7 +55,6 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 		rts.mempools[nodeID] = mempool
 
 		reactor, err := NewReactor(
-			rts.logger.With("nodeID", nodeID),
 			cfg.Mempool,
 			mempool,
 			node.Router,
@@ -121,8 +117,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 
 	const numNodes = 2
 
-	logger := log.NewNopLogger()
-	rts := setupReactors(ctx, t, logger, numNodes)
+	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
 
 	observePanic := func(r any) {
@@ -165,9 +160,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	numNodes := 4
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	rts := setupReactors(ctx, t, logger, numNodes)
+	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
@@ -191,8 +184,7 @@ func TestReactorConcurrency(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	rts := setupReactors(ctx, t, logger, numNodes)
+	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
@@ -250,8 +242,7 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	rts := setupReactors(ctx, t, logger, numNodes)
+	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
@@ -275,9 +266,7 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	rts := setupReactors(ctx, t, logger, numNodes)
+	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
@@ -314,8 +303,7 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	rts := setupReactors(ctx, t, logger, 1)
+	rts := setupReactors(ctx, t, 1)
 	t.Cleanup(leaktest.Check(t))
 
 	nodeID := rts.nodes[0]
@@ -359,9 +347,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	rts := setupReactors(ctx, t, logger, 2)
+	rts := setupReactors(ctx, t, 2)
 	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]

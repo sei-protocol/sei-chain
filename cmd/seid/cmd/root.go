@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -39,14 +40,16 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/tools"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 )
+
+var logger = seilog.NewLogger("cmd", "seid", "cmd")
 
 // Option configures root command option.
 type Option func(*rootOptions)
@@ -145,6 +148,7 @@ func initRootCmd(
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
+		LogLevelCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -226,13 +230,10 @@ func txCommand() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
-	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
-	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
 }
 
 // newApp creates a new Cosmos SDK app
 func newApp(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	tmConfig *tmcfg.Config,
@@ -275,7 +276,6 @@ func newApp(
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
 	app := app.New(
-		logger,
 		db,
 		traceStore,
 		true,
@@ -315,7 +315,6 @@ func newApp(
 
 // appExport creates a new simapp (optionally at a given height)
 func appExport(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	height int64,
@@ -325,7 +324,6 @@ func appExport(
 	file *os.File,
 ) (servertypes.ExportedApp, error) {
 	exportableApp, err := getExportableApp(
-		logger,
 		db,
 		traceStore,
 		height,
@@ -343,7 +341,6 @@ func appExport(
 }
 
 func getExportableApp(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	height int64,
@@ -360,12 +357,12 @@ func getExportableApp(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
+		exportableApp = app.New(db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return nil, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
+		exportableApp = app.New(db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 	}
 	return exportableApp, nil
 
@@ -432,8 +429,10 @@ func initAppConfig() (string, interface{}) {
 	customAppTemplate := serverconfig.ManualConfigTemplate +
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
+		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		admin.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

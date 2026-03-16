@@ -8,15 +8,17 @@ import (
 	"io"
 	"sync"
 
-	"github.com/rs/zerolog/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "types")
+
 	ErrPartSetUnexpectedIndex = errors.New("error part set unexpected index")
 	ErrPartSetInvalidProof    = errors.New("error part set invalid proof")
 )
@@ -197,7 +199,7 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 // Returns an empty PartSet ready to be populated.
 func NewPartSetFromHeader(header PartSetHeader) *PartSet {
 	if header.Total > MaxBlockPartsCount {
-		log.Warn().Msgf("Attempted to create PartSet with excessive Total: %d (max: %d). Creating minimal safe PartSet instead.", header.Total, MaxBlockPartsCount)
+		logger.Warn("Attempted to create PartSet with excessive Total. Creating minimal safe PartSet instead.", "total", header.Total, "max", MaxBlockPartsCount)
 		return &PartSet{
 			total:         1,           // Minimal safe size
 			hash:          header.Hash, // Keep original hash for compatibility

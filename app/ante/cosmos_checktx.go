@@ -491,21 +491,21 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 			continue
 		}
 		if acc.GetPubKey() == nil {
-			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			logger.Error("missing pubkey for signer", "signer", signer)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
-			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			logger.Debug("failed to parse pubkey, likely due to the fact that it isn't on secp256k1 curve", "pub-key", acc.GetPubKey(), "err", err)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			logger.Error("failed to get EVM address from pubkey", "err", err)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
@@ -516,7 +516,7 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(evmKeeper, evmKeeper.BankKeeper(), accountKeeper)
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
+			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return nil, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {

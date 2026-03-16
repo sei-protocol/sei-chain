@@ -3,7 +3,6 @@ package sc
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -20,25 +19,25 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/tools/utils"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 )
 
+var logger = seilog.NewLogger("tools", "migration", "sc")
+
 type Migrator struct {
 	homeDir string
-	logger  log.Logger
 	storeV1 store.CommitMultiStore
 	storeV2 store.CommitMultiStore
 }
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
 	// Creating CMS for store V1
-	cmsV1 := rootmulti.NewStore(db, logger)
+	cmsV1 := rootmulti.NewStore(db)
 	for _, key := range utils.ModuleKeys {
 		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, nil)
 	}
@@ -53,7 +52,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true, []string{})
+	cmsV2 := rootmulti2.NewStore(homeDir, scConfig, ssConfig, []string{})
 	for _, key := range utils.ModuleKeys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
@@ -63,7 +62,6 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	}
 	return &Migrator{
 		homeDir: homeDir,
-		logger:  logger,
 		storeV1: cmsV1,
 		storeV2: cmsV2,
 	}
@@ -83,6 +81,7 @@ func (m *Migrator) Migrate(version int64) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = streamReader.Close() }()
 	fmt.Printf("Start restoring SC store for height: %d\n", version)
 	next, _ := m.storeV2.Restore(height, types.CurrentFormat, streamReader)
 	for next.Item != nil {
@@ -107,7 +106,7 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) er
 	defer func() { _ = streamWriter.Close() }()
 	fmt.Printf("Start creating snapshot for height: %d\n", height)
 	if err := m.storeV1.Snapshot(height, streamWriter); err != nil {
-		m.logger.Error("Snapshot creation failed", "err", err)
+		logger.Error("Snapshot creation failed", "err", err)
 		streamWriter.CloseWithError(err)
 	}
 

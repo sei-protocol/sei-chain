@@ -69,10 +69,10 @@
 //	rpcserver.RegisterRPCFuncs(mux, Routes)
 //	wm := rpcserver.NewWebsocketManager(Routes)
 //	mux.HandleFunc("/websocket", wm.WebsocketHandler)
-//	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+//	logger := log.NewTMLogger(os.Stdout)
 //	listener, err := rpc.Listen("0.0.0.0:8080", rpcserver.Config{})
 //	if err != nil { panic(err) }
-//	go rpcserver.Serve(listener, mux, logger)
+//	go rpcserver.Serve(listener, mux)
 //
 // Note that unix sockets are supported as well (eg. `/path/to/socket` instead of `0.0.0.0:8008`)
 // Now see all available endpoints by sending a GET request to `0.0.0.0:8008`.

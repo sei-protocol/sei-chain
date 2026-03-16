@@ -18,7 +18,6 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
@@ -51,11 +50,10 @@ func (s *KeeperTestHelper) Setup() {
 // CreateTestContext creates a test context.
 func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 	db := dbm.NewMemDB()
-	logger := log.NewNopLogger()
 
-	ms := rootmulti.NewStore(db, log.NewNopLogger())
+	ms := rootmulti.NewStore(db)
 
-	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
+	return sdk.NewContext(ms, tmtypes.Header{}, false)
 }
 
 // CreateTestContext creates a test context.

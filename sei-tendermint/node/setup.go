@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"strings"
 	"time"
 
@@ -23,7 +24,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -33,8 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
-
-	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 )
 
 type closer func() error
@@ -94,7 +92,7 @@ func initDBs(
 	return blockStore, stateDB, makeCloser(closers), nil
 }
 
-func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logger log.Logger, mode string) {
+func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], mode string) {
 	// Log the version info.
 	logger.Info("Version info",
 		"tmVersion", version.TMVersion,
@@ -145,17 +143,14 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 }
 
 func createMempoolReactor(
-	logger log.Logger,
 	cfg *config.Config,
 	appClient abci.Application,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
 ) (*mempool.Reactor, mempool.Mempool, error) {
-	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
-		logger,
 		cfg.Mempool,
 		appClient,
 		router,
@@ -165,7 +160,6 @@ func createMempoolReactor(
 	)
 
 	reactor, err := mempool.NewReactor(
-		logger,
 		cfg.Mempool,
 		mp,
 		router,
@@ -182,7 +176,6 @@ func createMempoolReactor(
 }
 
 func createEvidenceReactor(
-	logger log.Logger,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	store sm.Store,
@@ -196,10 +189,8 @@ func createEvidenceReactor(
 		return nil, nil, func() error { return nil }, fmt.Errorf("unable to initialize evidence db: %w", err)
 	}
 
-	logger = logger.With("module", "evidence")
-
-	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor, err := evidence.NewReactor(logger, router, evidencePool)
+	evidencePool := evidence.NewPool(evidenceDB, store, blockStore, metrics, eventBus)
+	evidenceReactor, err := evidence.NewReactor(router, evidencePool)
 	if err != nil {
 		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
 	}
@@ -207,7 +198,6 @@ func createEvidenceReactor(
 }
 
 func createRouter(
-	logger log.Logger,
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
@@ -292,7 +282,6 @@ func createRouter(
 	}
 	closer = peerDB.Close
 	router, err := p2p.NewRouter(
-		logger.With("module", "p2p"),
 		p2pMetrics,
 		p2p.NodeSecretKey(nodeKey.PrivKey),
 		nodeInfoProducer,
@@ -396,10 +385,9 @@ func makeSeedNodeInfo(
 func createAndStartPrivValidatorSocketClient(
 	ctx context.Context,
 	listenAddr, chainID string,
-	logger log.Logger,
 ) (types.PrivValidator, error) {
 
-	pve, err := privval.NewSignerListener(listenAddr, logger)
+	pve, err := privval.NewSignerListener(listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("starting validator listener: %w", err)
 	}
@@ -429,13 +417,11 @@ func createAndStartPrivValidatorGRPCClient(
 	ctx context.Context,
 	cfg *config.Config,
 	chainID string,
-	logger log.Logger,
 ) (types.PrivValidator, error) {
 	pvsc, err := tmgrpc.DialRemoteSigner(
 		ctx,
 		cfg.PrivValidator,
 		chainID,
-		logger,
 		cfg.Instrumentation.Prometheus,
 	)
 	if err != nil {
@@ -451,14 +437,14 @@ func createAndStartPrivValidatorGRPCClient(
 	return pvsc, nil
 }
 
-func createPrivval(ctx context.Context, logger log.Logger, conf *config.Config, genDoc *types.GenesisDoc, defaultPV *privval.FilePV) (types.PrivValidator, error) {
+func createPrivval(ctx context.Context, conf *config.Config, genDoc *types.GenesisDoc, defaultPV *privval.FilePV) (types.PrivValidator, error) {
 	if conf.PrivValidator.ListenAddr != "" {
 		protocol, _ := tmnet.ProtocolAndAddress(conf.PrivValidator.ListenAddr)
 		// FIXME: we should return un-started services and
 		// then start them later.
 		switch protocol {
 		case "grpc":
-			privValidator, err := createAndStartPrivValidatorGRPCClient(ctx, conf, genDoc.ChainID, logger)
+			privValidator, err := createAndStartPrivValidatorGRPCClient(ctx, conf, genDoc.ChainID)
 			if err != nil {
 				return nil, fmt.Errorf("error with private validator grpc client: %w", err)
 			}
@@ -468,7 +454,6 @@ func createPrivval(ctx context.Context, logger log.Logger, conf *config.Config, 
 				ctx,
 				conf.PrivValidator.ListenAddr,
 				genDoc.ChainID,
-				logger,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error with private validator socket client: %w", err)

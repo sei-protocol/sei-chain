@@ -1,14 +1,15 @@
 package params
 
 import (
-	"fmt"
-
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "params")
 
 // NewParamChangeProposalHandler creates a new governance Handler for a ParamChangeProposal
 func NewParamChangeProposalHandler(k keeper.Keeper) govtypes.Handler {
@@ -30,9 +31,7 @@ func handleParameterChangeProposal(ctx sdk.Context, k keeper.Keeper, p *proposal
 			return sdkerrors.Wrap(proposal.ErrUnknownSubspace, c.Subspace)
 		}
 
-		k.Logger(ctx).Info(
-			fmt.Sprintf("attempt to set new parameter value; key: %s, value: %s", c.Key, c.Value),
-		)
+		logger.Info("attempt to set new parameter value", "key", c.Key, "value", c.Value)
 
 		if err := ss.Update(ctx, []byte(c.Key), []byte(c.Value)); err != nil {
 			return sdkerrors.Wrapf(proposal.ErrSettingParameter, "key: %s, value: %s, err: %s", c.Key, c.Value, err.Error())

@@ -697,53 +697,88 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
-		tEnv := newTestEnv(t)
-		// Test that different simulation methods share the same rate limiter
-		numCallRequests := 10
-		numEstimateRequests := 10
+		// Test that different simulation methods share the same rate limiter.
+		// A single burst can occasionally avoid contention on overloaded CI workers,
+		// so retry a synchronized burst a few times.
+		const (
+			numCallRequests     = 20
+			numEstimateRequests = 20
+			maxAttempts         = 5
+		)
 		totalRequests := numCallRequests + numEstimateRequests
 
-		results := make(chan error, totalRequests)
-		var wg sync.WaitGroup
-		// Start mixed requests concurrently to verify they share the same limiter
-		for range numCallRequests {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
-				results <- err
-			}()
+		runMixedBurst := func(tEnv *testEnv) (int, int) {
+			results := make(chan error, totalRequests)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+
+			// Start mixed requests and release them at once to maximize contention.
+			for range numCallRequests {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
+					results <- err
+				}()
+			}
+			for range numEstimateRequests {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					_, err := tEnv.simAPI.EstimateGas(context.Background(), tEnv.args, nil, nil)
+					results <- err
+				}()
+			}
+
+			close(start)
+			wg.Wait()
+			close(results)
+
+			successCount := 0
+			rejectedCount := 0
+			for err := range results {
+				if err == nil {
+					successCount++
+				} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
+					rejectedCount++
+				}
+			}
+			return successCount, rejectedCount
 		}
 
-		for range numEstimateRequests {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, err := tEnv.simAPI.EstimateGas(context.Background(), tEnv.args, nil, nil)
-				results <- err
-			}()
-		}
-
-		wg.Wait()
-		close(results)
-
-		// Collect all results and count
-		successCount := 0
-		rejectedCount := 0
-		for err := range results {
-			if err == nil {
-				successCount++
-			} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
-				rejectedCount++
+		var (
+			lastSuccess       int
+			lastRejected      int
+			attemptsUsed      int
+			observedRejection bool
+		)
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			attemptsUsed = attempt
+			lastSuccess, lastRejected = runMixedBurst(newTestEnv(t))
+			require.Equalf(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for (attempt %d)", attempt)
+			if lastRejected > 0 {
+				observedRejection = true
+				break
 			}
 		}
 
-		// Since the rate limiter allows 2 concurrent requests total, we should see some rejections
-		// when running 6 concurrent requests across different methods
-		require.Greater(t, rejectedCount, 0, "Different methods should share the same rate limiter")
-		require.Equal(t, totalRequests, successCount+rejectedCount, "All mixed method requests should be accounted for")
-
-		t.Logf("Mixed methods rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, totalRequests)
+		require.Truef(
+			t,
+			observedRejection,
+			"Different methods should share the same rate limiter (last burst: %d successful, %d rejected)",
+			lastSuccess,
+			lastRejected,
+		)
+		t.Logf(
+			"Mixed methods rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total",
+			attemptsUsed,
+			maxAttempts,
+			lastSuccess,
+			lastRejected,
+			totalRequests,
+		)
 	})
 
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {

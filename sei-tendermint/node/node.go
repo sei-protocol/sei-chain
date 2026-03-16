@@ -32,7 +32,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -48,7 +47,6 @@ import (
 // It includes all configuration information and running services.
 type nodeImpl struct {
 	service.BaseService
-	logger log.Logger
 
 	// config
 	config          *config.Config
@@ -87,7 +85,6 @@ func makeNode(
 	app abci.Application,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
-	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
@@ -119,7 +116,7 @@ func makeNode(
 	}
 
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
-	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+	eventBus := eventbus.NewDefault()
 
 	var eventLog *eventlog.Log
 	if w := cfg.RPC.EventLogWindowSize; w > 0 {
@@ -140,11 +137,10 @@ func makeNode(
 	indexerService := indexer.NewService(indexer.ServiceArgs{
 		Sinks:    eventSinks,
 		EventBus: eventBus,
-		Logger:   logger.With("module", "txindex"),
 		Metrics:  nodeMetrics.indexer,
 	})
 
-	privValidator, err := createPrivval(ctx, logger, cfg, genDoc, filePrivval)
+	privValidator, err := createPrivval(ctx, cfg, genDoc, filePrivval)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
@@ -161,7 +157,6 @@ func makeNode(
 	// TODO construct node here:
 	node := &nodeImpl{
 		config:        cfg,
-		logger:        logger,
 		genesisDoc:    genDoc,
 		privValidator: privValidator,
 
@@ -184,12 +179,11 @@ func makeNode(
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
 			EventLog:   eventLog,
-			Logger:     logger.With("module", "rpc"),
 			Config:     *cfg.RPC,
 		},
 	}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
@@ -200,7 +194,7 @@ func makeNode(
 	node.rpcEnv.PeerManager = router
 	node.shutdownOps = makeCloser(closers)
 
-	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
+	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
@@ -210,7 +204,7 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	mpReactor, mp, err := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
+	mpReactor, mp, err := createMempoolReactor(cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
 	if err != nil {
 		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
 	}
@@ -222,7 +216,6 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger.With("module", "state"),
 		proxyApp,
 		mp,
 		evPool,
@@ -243,7 +236,7 @@ func makeNode(
 	blockSync := !onlyValidatorIsUs(state, pubKey)
 	waitSync := stateSync || blockSync
 
-	csState, err := consensus.NewState(logger.With("module", "consensus"),
+	csState, err := consensus.NewState(
 		cfg.Consensus,
 		stateStore,
 		blockExec,
@@ -261,7 +254,6 @@ func makeNode(
 	node.rpcEnv.ConsensusState = csState
 
 	csReactor, err := consensus.NewReactor(
-		logger,
 		csState,
 		node.router,
 		eventBus,
@@ -279,7 +271,6 @@ func makeNode(
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
 	bcReactor, err := blocksync.NewReactor(
-		logger.With("module", "blockchain"),
 		stateStore,
 		blockExec,
 		blockStore,
@@ -307,7 +298,6 @@ func makeNode(
 
 	if cfg.P2P.PexReactor {
 		pxReactor, err := pex.NewReactor(
-			logger,
 			node.router,
 			pex.DefaultSendInterval,
 		)
@@ -340,7 +330,6 @@ func makeNode(
 		genDoc.ChainID,
 		genDoc.InitialHeight,
 		*cfg.StateSync,
-		logger.With("module", "statesync"),
 		proxyApp,
 		node.router,
 		stateStore,
@@ -368,7 +357,7 @@ func makeNode(
 	}
 	node.rpcEnv.PubKey = pubKey
 
-	node.BaseService = *service.NewBaseService(logger, "Node", node)
+	node.BaseService = *service.NewBaseService("Node", node)
 
 	return node, nil
 }
@@ -393,7 +382,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if n.shouldHandshake {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
-		if err := consensus.NewHandshaker(n.logger.With("module", "handshaker"),
+		if err := consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
 		).Handshake(ctx, n.rpcEnv.ProxyApp); err != nil {
 			return err
@@ -408,7 +397,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return fmt.Errorf("cannot load state: %w", err)
 	}
 
-	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.logger, n.config.Mode)
+	logNodeStartupInfo(state, n.rpcEnv.PubKey, n.config.Mode)
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
 	// TODO: Use a persistent peer database.
@@ -436,10 +425,10 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		}()
 
 		go func() {
-			n.logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
+			logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
 
 			if err := srv.ListenAndServe(); err != nil {
-				n.logger.Error("pprof server error", "err", err)
+				logger.Error("pprof server error", "err", err)
 				close(signal)
 			}
 		}()
@@ -448,7 +437,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	now := tmtime.Now()
 	genTime := n.genesisDoc.GenesisTime
 	if genTime.After(now) {
-		n.logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
+		logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
 
 		timer := time.NewTimer(genTime.Sub(now))
 		defer timer.Stop()
@@ -499,18 +488,18 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 
 // OnStop stops the Node. It implements service.Service.
 func (n *nodeImpl) OnStop() {
-	n.logger.Info("Stopping Node")
+	logger.Info("Stopping Node")
 	// stop the listeners / external services first
 	for _, l := range n.rpcListeners {
-		n.logger.Info("Closing rpc listener", "listener", l)
+		logger.Info("Closing rpc listener", "listener", l.Addr())
 		if err := l.Close(); err != nil {
-			n.logger.Error("error closing listener", "listener", l, "err", err)
+			logger.Error("error closing listener", "listener", l.Addr(), "err", err)
 		}
 	}
 
 	for _, es := range n.eventSinks {
 		if err := es.Stop(); err != nil {
-			n.logger.Error("failed to stop event sink", "err", err)
+			logger.Error("failed to stop event sink", "err", err)
 		}
 	}
 
@@ -530,23 +519,23 @@ func (n *nodeImpl) OnStop() {
 	if n.prometheusSrv != nil {
 		if err := n.prometheusSrv.Shutdown(context.Background()); err != nil {
 			// Error from closing listeners, or context timeout:
-			n.logger.Error("Prometheus HTTP server Shutdown", "err", err)
+			logger.Error("Prometheus HTTP server Shutdown", "err", err)
 		}
 
 	}
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {
-			n.logger.Error("problem shutting down additional services", "err", err)
+			logger.Error("problem shutting down additional services", "err", err)
 		}
 	}
 	if n.blockStore != nil {
 		if err := n.blockStore.Close(); err != nil {
-			n.logger.Error("problem closing blockstore", "err", err)
+			logger.Error("problem closing blockstore", "err", err)
 		}
 	}
 	if n.stateStore != nil {
 		if err := n.stateStore.Close(); err != nil {
-			n.logger.Error("problem closing statestore", "err", err)
+			logger.Error("problem closing statestore", "err", err)
 		}
 	}
 }
@@ -578,7 +567,7 @@ func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			n.logger.Error("Prometheus HTTP server ListenAndServe", "err", err)
+			logger.Error("Prometheus HTTP server ListenAndServe", "err", err)
 			close(signal)
 		}
 	}()

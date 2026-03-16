@@ -32,17 +32,22 @@ type Database struct {
 
 	// A method that flushes the executors.
 	flushFunc func()
+
+	// The metrics for the benchmark.
+	metrics *CryptosimMetrics
 }
 
 // Creates a new database for the cryptosim benchmark.
 func NewDatabase(
 	config *CryptoSimConfig,
 	db wrappers.DBWrapper,
+	metrics *CryptosimMetrics,
 ) *Database {
 	return &Database{
-		config: config,
-		db:     db,
-		batch:  NewSyncMap[string, []byte](),
+		config:  config,
+		db:      db,
+		batch:   NewSyncMap[string, []byte](),
+		metrics: metrics,
 	}
 }
 
@@ -75,10 +80,10 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// Signal that a transaction has been executed.
-func (d *Database) IncrementTransactionCount() {
-	d.transactionCount++
-	d.transactionsInCurrentBlock++
+// Signal that transactions have been added to the current block.
+func (d *Database) IncrementTransactionCount(count int64) {
+	d.transactionCount += count
+	d.transactionsInCurrentBlock += count
 }
 
 // Reset the transaction count. Useful for when changing test phases.
@@ -115,6 +120,8 @@ func (d *Database) FinalizeBlock(
 	forceCommit bool,
 ) error {
 
+	d.metrics.SetMainThreadPhase("execute_block")
+
 	// Wait for all transactions in the current block to be executed.
 	if d.flushFunc != nil {
 		d.flushFunc()
@@ -124,7 +131,7 @@ func (d *Database) FinalizeBlock(
 		return nil
 	}
 
-	d.transactionsInCurrentBlock = 0
+	d.metrics.SetMainThreadPhase("finalizing")
 
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
 	for key, value := range d.batch.Iterator() {
@@ -162,15 +169,22 @@ func (d *Database) FinalizeBlock(
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
 
+	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
+	d.transactionsInCurrentBlock = 0
+
 	// Periodically commit the changes to the database.
 	d.uncommittedBlockCount++
 	if forceCommit || d.uncommittedBlockCount >= int64(d.config.BlocksPerCommit) {
+		d.metrics.SetMainThreadPhase("committing")
 		_, err := d.db.Commit()
 		if err != nil {
 			return fmt.Errorf("failed to commit: %w", err)
 		}
+		d.metrics.ReportDBCommit()
 		d.uncommittedBlockCount = 0
 	}
+
+	d.metrics.SetMainThreadPhase("executing")
 
 	return nil
 }
@@ -183,6 +197,17 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 
+	fmt.Printf("Closing database.\n")
+	err := d.db.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close database: %w", err)
+	}
+
+	return nil
+}
+
+// Close the database and release any resources without finalizing the last batch.
+func (d *Database) CloseWithoutFinalizing() error {
 	fmt.Printf("Closing database.\n")
 	err := d.db.Close()
 	if err != nil {

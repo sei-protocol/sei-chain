@@ -20,7 +20,6 @@ import (
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	testfactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -31,10 +30,10 @@ const validationTestsStopHeight int64 = 10
 
 func TestValidateBlockHeader(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
+
 	app := &testApp{}
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 3, 1)
@@ -55,7 +54,6 @@ func TestValidateBlockHeader(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -136,10 +134,9 @@ func TestValidateBlockHeader(t *testing.T) {
 func TestValidateBlockCommit(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	app := &testApp{}
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, 1)
@@ -160,7 +157,6 @@ func TestValidateBlockCommit(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -277,7 +273,6 @@ func TestValidateBlockCommit(t *testing.T) {
 func TestValidateBlockEvidence(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	app := &testApp{}
 
 	state, stateDB, privVals := makeState(t, 4, 1)
@@ -291,7 +286,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 	evpool.On("ABCIEvidence", mock.AnythingOfType("int64"), mock.AnythingOfType("[]types.Evidence")).Return(
 		[]abci.Misbehavior{})
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
@@ -309,7 +304,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 	state.ConsensusParams.Evidence.MaxBytes = 1000
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
 		app,
 		mp,
 		evpool,

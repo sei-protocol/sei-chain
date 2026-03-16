@@ -39,15 +39,15 @@ func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *s
 // Context with current {check, deliver}State of the app used by tests.
 func (app *BaseApp) NewContext(isCheckTx bool, header tmproto.Header) sdk.Context {
 	if isCheckTx {
-		return sdk.NewContext(app.checkState.ms, header, true, app.logger).
+		return sdk.NewContext(app.checkState.ms, header, true).
 			WithMinGasPrices(app.minGasPrices)
 	}
 
-	return sdk.NewContext(app.deliverState.ms, header, false, app.logger)
+	return sdk.NewContext(app.deliverState.ms, header, false)
 }
 
 func (app *BaseApp) NewUncachedContext(isCheckTx bool, header tmproto.Header) sdk.Context {
-	return sdk.NewContext(app.cms, header, isCheckTx, app.logger)
+	return sdk.NewContext(app.cms, header, isCheckTx)
 }
 
 func (app *BaseApp) GetContextForDeliverTx(txBytes []byte) sdk.Context {

@@ -27,6 +27,7 @@ import (
 	ethparams "github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -35,7 +36,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
@@ -99,6 +99,8 @@ import (
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/seilog"
+	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gorilla/mux"
@@ -118,7 +120,6 @@ import (
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
@@ -131,7 +132,6 @@ import (
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -198,6 +198,8 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 }
 
 var (
+	logger = seilog.NewLogger("app")
+
 	// DefaultNodeHome default home directories for the application daemon
 	DefaultNodeHome string
 
@@ -428,6 +430,8 @@ type App struct {
 	encodingConfig        appparams.EncodingConfig
 	legacyEncodingConfig  appparams.EncodingConfig
 	evmRPCConfig          evmrpcconfig.Config
+	adminConfig           admin.Config
+	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -457,7 +461,6 @@ type AppOption func(*App)
 
 // New returns a reference to an initialized blockchain app
 func New(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	_ bool,
@@ -477,9 +480,9 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bAppOptions, stateStore := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+	bAppOptions, stateStore := SetupSeiDB(homePath, appOpts, baseAppOptions)
 
-	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
+	bApp := baseapp.NewBaseApp(AppName, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -678,12 +681,12 @@ func New(
 		wasmOpts...,
 	)
 
-	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
-	receiptConfig.DBDirectory = receiptStorePath
-	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	receiptConfig, err := readReceiptStoreConfig(homePath, appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading receipt store config: %s", err))
+	}
 	if app.receiptStore == nil {
-		receiptStore, err := receipt.NewReceiptStore(logger, receiptConfig, keys[evmtypes.StoreKey])
+		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
@@ -701,6 +704,10 @@ func New(
 	app.evmRPCConfig, err = evmrpcconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	app.adminConfig, err = admin.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading admin config due to %s", err))
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
@@ -749,7 +756,7 @@ func New(
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
-			logger.Info("benchmark: Giga Executor (evmone-based) is ENABLED - using new EVM execution path (sequential)")
+			logger.Info("benchmark: Giga Executor is ENABLED - using new EVM execution path (sequential)")
 		}
 	} else {
 		logger.Info("benchmark: Giga Executor is DISABLED - using default GETH interpreter")
@@ -995,7 +1002,7 @@ func New(
 	// benchmarkEnabled is enabled via build flag (make install-bench)
 	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitBenchmark(context.Background(), app.ChainID, evmChainID, logger)
+		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
 		app.SetPrepareProposalHandler(app.PrepareProposalBenchmarkHandler)
 	} else {
 		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
@@ -1044,7 +1051,7 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
-	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
+	app.txPrioritizer = NewSeiTxPrioritizer(&app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
 	app.SetTxPrioritizer(app.txPrioritizer)
 
 	return app
@@ -1062,9 +1069,14 @@ func (app *App) HandleClose() error {
 	// Close receipt store
 	if app.receiptStore != nil {
 		if err := app.receiptStore.Close(); err != nil {
-			app.Logger().Error("failed to close receipt store", "error", err)
+			logger.Error("failed to close receipt store", "err", err)
 			errs = append(errs, fmt.Errorf("failed to close receipt store: %w", err))
 		}
+	}
+
+	// Stop admin gRPC server
+	if app.adminServer != nil {
+		app.adminServer.GracefulStop()
 	}
 
 	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
@@ -1232,7 +1244,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	if shouldStartOptimisticProcessing {
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
+			logger.Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
 			completion := app.optimisticProcessingInfo.Completion
@@ -1247,7 +1259,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 				app.optimisticProcessingInfoMutex.Lock()
 				if processErr != nil {
 					// ProcessBlock failed (including GetSigners panics), mark as aborted
-					app.Logger().Info("ProcessBlock failed in optimistic processing", "error", processErr)
+					logger.Info("ProcessBlock failed in optimistic processing", "err", processErr)
 					app.optimisticProcessingInfo.Aborted = true
 				} else {
 					// ProcessBlock succeeded, store results
@@ -1281,7 +1293,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
-		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		logger.Info("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
 		// End block processing timing (started at ProcessProposal)
 		app.EndBenchmarkBlockProcessing()
 		// Process receipts for benchmark deployment tracking
@@ -1319,10 +1331,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		}
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
-	ctx.Logger().Info("optimistic processing ineligible")
+	logger.Info("optimistic processing ineligible")
 	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
 	if processErr != nil {
-		ctx.Logger().Error("ProcessBlock failed in FinalizeBlocker", "error", processErr)
+		logger.Error("ProcessBlock failed in FinalizeBlocker", "err", processErr)
 		return nil, processErr
 	}
 
@@ -1356,7 +1368,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
 				skipMetrics = true
 			} else {
-				ctx.Logger().Debug("error checking if tx is gasless for metrics", "error", err)
+				logger.Debug("error checking if tx is gasless for metrics", "err", err)
 				// If we can't determine if it's gasless, record metrics to maintain existing behavior
 			}
 		} else if isGasless {
@@ -1383,12 +1395,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
-func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := make([]*abci.ExecTxResult, 0, len(txs))
 	for i, tx := range txs {
-		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
@@ -1396,7 +1408,7 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 	return txResults
 }
 
-func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
+func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	ms := ctx.MultiStore().CacheMultiStore()
@@ -1406,13 +1418,13 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	// Cache block-level constants (identical for all txs in this block).
 	cache, cacheErr := newGigaBlockCache(ctx, &app.GigaEvmKeeper)
 	if cacheErr != nil {
-		ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
+		logger.Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
 		return nil
 	}
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	for i, tx := range txs {
-		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+		ctx = ctx.WithTxIndex(i)
 		evmMsg := app.GetEVMMsg(typedTxs[i])
 		// If not an EVM tx, fall back to v2 processing
 		if evmMsg == nil {
@@ -1460,62 +1472,35 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	return ctx.WithMultiStore(msCache), msCache
 }
 
-func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
-	prioritizedTxs, otherTxs [][]byte,
-	prioritizedTypedTxs, otherTypedTxs []sdk.Tx,
-	prioritizedIndices, otherIndices []int,
-) {
-	for idx, tx := range txs {
-		if typedTxs[idx] == nil {
-			otherTxs = append(otherTxs, tx)
-			otherTypedTxs = append(otherTypedTxs, nil)
-			otherIndices = append(otherIndices, idx)
-			continue
-		}
-
-		if utils.IsTxPrioritized(typedTxs[idx]) {
-			prioritizedTxs = append(prioritizedTxs, tx)
-			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
-			prioritizedIndices = append(prioritizedIndices, idx)
-		} else {
-			otherTxs = append(otherTxs, tx)
-			otherTypedTxs = append(otherTypedTxs, typedTxs[idx])
-			otherIndices = append(otherIndices, idx)
-		}
-
-	}
-	return prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices
-}
-
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
-func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	// Giga only supports synchronous execution for now
 	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs, absoluteTxIndices)
+		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
-		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs, absoluteTxIndices), ctx
+		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
-		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs, absoluteTxIndices), ctx
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
 	}
 
-	return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs, absoluteTxIndices)
+	return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
 }
 
-func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
+func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
 	res = &sdk.DeliverTxEntry{
 		Request:       abci.RequestDeliverTxV2{Tx: bz},
 		SdkTx:         tx,
 		Checksum:      sha256.Sum256(bz),
-		AbsoluteIndex: absoluateIndex,
+		AbsoluteIndex: txIndex,
 	}
 	return
 }
 
 // ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
-func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
-		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
+		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
@@ -1538,7 +1523,7 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
 						recordGasMetrics = false
 					} else {
-						ctx.Logger().Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+						logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
 						// If we can't determine if it's gasless, record metrics to maintain existing behavior
 					}
 				} else if isGasless {
@@ -1570,74 +1555,92 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 }
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
-func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	firstCosmosSeen := false
 	for txIndex, tx := range txs {
 		if app.GetEVMMsg(typedTxs[txIndex]) != nil {
-			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+			if firstCosmosSeen {
+				logger.Error("Giga OCC cannot execute block due to tx ordering, falling back to V2")
+				// Oops! This isn't "all EVM txs, then all Cosmos txs" - we need to fallback to V2.
+				return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
+			}
+
+			evmEntries = append(evmEntries, app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex]))
 		} else {
-			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex]))
+			if !firstCosmosSeen {
+				firstCosmosSeen = true
+			}
+			v2Entries = append(v2Entries, app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex]))
 		}
 	}
 
-	// Run EVM txs against a cache so we can discard all changes on fallback.
-	evmCtx, evmCache := app.CacheContext(ctx)
-
-	// Cache block-level constants (identical for all txs in this block).
-	// Must use evmCtx (not ctx) because giga KV stores are registered in CacheContext.
-	cache, cacheErr := newGigaBlockCache(evmCtx, &app.GigaEvmKeeper)
-	if cacheErr != nil {
-		ctx.Logger().Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
-		return nil, ctx
-	}
-
-	// Create OCC scheduler with giga executor deliverTx capturing the cache.
-	evmScheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.makeGigaDeliverTx(cache),
-	)
-
-	evmBatchResult, evmSchedErr := evmScheduler.ProcessAll(evmCtx, evmEntries)
-	if evmSchedErr != nil {
-		// TODO: DeliverTxBatch panics in this case
-		// TODO: detect if it was interop, and use v2 if so
-		ctx.Logger().Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
-		return nil, ctx
-	}
-
+	var evmBatchResult []abci.ResponseDeliverTx
 	fallbackToV2 := false
-	for _, r := range evmBatchResult {
-		if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
-			fallbackToV2 = true
-			break
+
+	if len(evmEntries) > 0 {
+		// Run EVM txs against a cache so we can discard all changes on fallback.
+		evmCtx, evmCache := app.CacheContext(ctx)
+
+		// Cache block-level constants (identical for all txs in this block).
+		// Must use evmCtx (not ctx) because giga KV stores are registered in CacheContext.
+		cache, cacheErr := newGigaBlockCache(evmCtx, &app.GigaEvmKeeper)
+		if cacheErr != nil {
+			logger.Error("failed to build giga block cache", "error", cacheErr, "height", ctx.BlockHeight())
+			return nil, ctx
+		}
+
+		// Create OCC scheduler with giga executor deliverTx capturing the cache.
+		evmScheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.makeGigaDeliverTx(cache),
+		)
+
+		var evmSchedErr error
+		evmBatchResult, evmSchedErr = evmScheduler.ProcessAll(evmCtx, evmEntries)
+		if evmSchedErr != nil {
+			logger.Error("benchmark OCC scheduler error (EVM txs)", "error", evmSchedErr, "height", ctx.BlockHeight(), "txCount", len(evmEntries))
+			return nil, ctx
+		}
+
+		for _, r := range evmBatchResult {
+			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
+				fallbackToV2 = true
+				break
+			}
+		}
+
+		if fallbackToV2 {
+			metrics.IncrGigaFallbackToV2Counter()
+			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
+			evmBatchResult = nil
+			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
+			for txIndex, tx := range txs {
+				v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
+			}
+		} else {
+			// Commit EVM cache to main store before processing non-EVM txs.
+			evmCache.Write()
+			evmCtx.GigaMultiStore().WriteGiga()
 		}
 	}
 
-	if fallbackToV2 {
-		metrics.IncrGigaFallbackToV2Counter()
-		// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
-		evmBatchResult = nil
-		v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
-		for txIndex, tx := range txs {
-			v2Entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
-		}
-	} else {
-		// Commit EVM cache to main store before processing non-EVM txs.
-		evmCache.Write()
-		evmCtx.GigaMultiStore().WriteGiga()
-	}
+	var v2BatchResult []abci.ResponseDeliverTx
 
-	v2Scheduler := tasks.NewScheduler(
-		app.ConcurrencyWorkers(),
-		app.TracingInfo,
-		app.DeliverTx,
-	)
-	v2BatchResult, v2SchedErr := v2Scheduler.ProcessAll(ctx, v2Entries)
-	if v2SchedErr != nil {
-		ctx.Logger().Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
-		return nil, ctx
+	if len(v2Entries) > 0 {
+		v2Scheduler := tasks.NewScheduler(
+			app.ConcurrencyWorkers(),
+			app.TracingInfo,
+			app.DeliverTx,
+		)
+		var v2SchedErr error
+		v2BatchResult, v2SchedErr = v2Scheduler.ProcessAll(ctx, v2Entries)
+		if v2SchedErr != nil {
+			logger.Error("benchmark OCC scheduler error", "error", v2SchedErr, "height", ctx.BlockHeight(), "txCount", len(v2Entries))
+			return nil, ctx
+		}
 	}
 
 	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
@@ -1678,11 +1681,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
-				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				logger.Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
 			stack := string(debug.Stack())
-			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r, "stack", stack)
+			logger.Error("panic recovered in ProcessBlock", "panic", r, "stack", stack)
 			err = fmt.Errorf("ProcessBlock panic: %v", r)
 			events = nil
 			txResults = nil
@@ -1712,38 +1715,20 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
-	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
-
-	// run the prioritized txs
-	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
-	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
-		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
-		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
+	for i := range txs {
+		evmTxs[i] = app.GetEVMMsg(typedTxs[i])
 	}
 
-	// Flush giga stores so WriteDeferredBalances (which uses the standard BankKeeper)
-	// can see balance changes made by the giga executor via GigaBankKeeper.
-	if app.GigaExecutorEnabled {
-		ctx.GigaMultiStore().WriteGiga()
-	}
-
-	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
-	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, deferredWriteEvents...)
+	// Execute all transactions
+	txResults, ctx = app.ExecuteTxsConcurrently(ctx, txs, typedTxs)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
-	for relativeOtherIndex, originalIndex := range otherIndices {
-		txResults[originalIndex] = otherResults[relativeOtherIndex]
-		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
-	}
-
-	// Flush giga stores after second round (same reason as above)
+	// Flush giga stores so WriteDeferredBalances (which uses the standard BankKeeper)
+	// can see balance changes made by the giga executor via GigaBankKeeper.
 	if app.GigaExecutorEnabled {
 		ctx.GigaMultiStore().WriteGiga()
 	}
@@ -1790,6 +1775,24 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
+
+	// ============================================================================
+	// Nonce validation (mirrors V2's ante handler check in x/evm/ante/sig.go)
+	// V2 rejects with ErrWrongSequence if txNonce != expectedNonce, with NO state changes.
+	// ============================================================================
+	expectedNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
+	txNonce := ethTx.Nonce()
+	if txNonce != expectedNonce {
+		nonceDirection := "too high"
+		if txNonce < expectedNonce {
+			nonceDirection = "too low"
+		}
+		return &abci.ExecTxResult{
+			Code:      sdkerrors.ErrWrongSequence.ABCICode(),
+			GasWanted: int64(ethTx.Gas()), //nolint:gosec
+			Log:       fmt.Sprintf("nonce %s: address %s, tx: %d state: %d: %s", nonceDirection, sender.Hex(), txNonce, expectedNonce, sdkerrors.ErrWrongSequence.Error()),
+		}, nil
+	}
 
 	// ============================================================================
 	// Fee validation (mirrors V2's ante handler checks in evm_checktx.go)
@@ -1946,8 +1949,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
-			ctx.Logger().Error("giga: failed to finalize stateDB on consensus error",
-				"txHash", ethTx.Hash().Hex(),
+			logger.Error("giga: failed to finalize stateDB on consensus error",
+				"tx-hash", ethTx.Hash(),
 				"error", ferr,
 			)
 		}
@@ -2078,7 +2081,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 				// OCC abort panics are expected - the scheduler uses them to detect conflicts
 				// and reschedule transactions. Don't log these as errors.
 				if _, isOCCAbort := r.(occ.Abort); !isOCCAbort {
-					ctx.Logger().Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
+					logger.Error("benchmark panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
 				}
 			}
 		}()
@@ -2142,20 +2145,20 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			defer wg.Done()
 			defer func() {
 				if err := recover(); err != nil {
-					ctx.Logger().Error(fmt.Sprintf("encountered panic during transaction decoding: %s", err))
+					logger.Error("encountered panic during transaction decoding", "err", err)
 					typedTxs[idx] = nil
 				}
 			}()
 			typedTx, err := app.txDecoder(encodedTx)
 			// get txkey from tx
 			if err != nil {
-				ctx.Logger().Error(fmt.Sprintf("error decoding transaction at index %d due to %s", idx, err))
+				logger.Error("error decoding transaction at index", "index", idx, "error", err)
 				typedTxs[idx] = nil
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM && !app.GigaExecutorEnabled {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
 					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
-						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
+						logger.Error("error preprocessing EVM tx", "err", err)
 						typedTxs[idx] = nil
 						return
 					}
@@ -2328,7 +2331,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
 		if err != nil {
 			panic(err)
 		}
@@ -2341,7 +2344,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}
@@ -2351,6 +2354,16 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 				panic(err)
 			}
 		}()
+	}
+
+	if app.adminConfig.Enabled {
+		srv, err := admin.StartServer(app.adminConfig.Address)
+		if err != nil {
+			panic(fmt.Sprintf("failed to start admin server: %s", err))
+		}
+		app.adminServer = srv
+	} else {
+		logger.Debug("Admin gRPC server is disabled")
 	}
 }
 
@@ -2371,7 +2384,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
+			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
 			result = false // Reject proposal if panic occurs
 		}
 	}()
@@ -2389,11 +2402,11 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 		if err != nil {
 			if strings.Contains(err.Error(), "panic in IsTxGasless") {
 				// This is a unexpected panic, reject the entire proposal
-				ctx.Logger().Error("malicious transaction detected in gasless check", "error", err)
+				logger.Error("malicious transaction detected in gasless check", "err", err)
 				return false
 			}
 			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
-			ctx.Logger().Info("transaction failed gasless check but not malicious", "error", err)
+			logger.Info("transaction failed gasless check but not malicious", "err", err)
 			continue
 		}
 		if isGasless {

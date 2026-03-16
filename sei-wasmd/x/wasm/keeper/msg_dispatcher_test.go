@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
@@ -351,7 +349,7 @@ func TestDispatchSubmessages(t *testing.T) {
 			em := sdk.NewEventManager()
 			ctx := sdk.Context{}.WithMultiStore(&mockStore).
 				WithGasMeter(sdk.NewGasMeter(100, 1, 1)).
-				WithEventManager(em).WithLogger(log.TestingLogger())
+				WithEventManager(em)
 			d := NewMessageDispatcher(spec.msgHandler, spec.replyer)
 			gotData, gotErr := d.DispatchSubmessages(ctx, RandomAccountAddress(t), "any_port", spec.msgs, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 			if spec.expErr {

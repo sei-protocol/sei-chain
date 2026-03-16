@@ -2,26 +2,38 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
+const metricsScrapeInterval = 10 * time.Second
+
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
-	db *pebble.DB
+	db            *pebble.DB
+	metricsCancel context.CancelFunc
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
 // Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
-func Open(path string, opts types.OpenOptions) (_ types.KeyValueDB, err error) {
+func Open(
+	ctx context.Context,
+	path string,
+	opts types.OpenOptions,
+	enableMetrics bool,
+) (_ types.KeyValueDB, err error) {
 	// Validate options before allocating resources to avoid leaks on validation failure
 	var cmp *pebble.Comparer
 	if opts.Comparer != nil {
@@ -80,7 +92,12 @@ func Open(path string, opts types.OpenOptions) (_ types.KeyValueDB, err error) {
 		return nil, err
 	}
 
-	return &pebbleDB{db: db}, nil
+	ctx, cancel := context.WithCancel(ctx)
+	if enableMetrics {
+		metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
+	}
+
+	return &pebbleDB{db: db, metricsCancel: cancel}, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
@@ -137,6 +154,11 @@ func (p *pebbleDB) Close() error {
 	// Make Close idempotent: Pebble panics if Close is called twice.
 	if p.db == nil {
 		return nil
+	}
+
+	if p.metricsCancel != nil {
+		p.metricsCancel()
+		p.metricsCancel = nil
 	}
 
 	db := p.db

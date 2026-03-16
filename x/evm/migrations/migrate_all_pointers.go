@@ -2,7 +2,6 @@ package migrations
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -26,17 +25,17 @@ func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "native", addr, "name")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", token, err))
+			logger.Error("Failed to upgrade pointer for token due to failed name query", "token", token, "err", err)
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "native", addr, "symbol")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", token, err))
+			logger.Error("Failed to upgrade pointer for token due to failed symbol query", "token", token, "err", err)
 			continue
 		}
 		oDecimals, err := k.QueryERCSingleOutput(ctx, "native", addr, "decimals")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed decimal query: %s", token, err))
+			logger.Error("Failed to upgrade pointer for token due to failed decimal query", "token", token, "err", err)
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -47,7 +46,7 @@ func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 			})
 			return err
 		}, func(s1, s2 string) {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s at step %s due to %s", token, s1, s2))
+			logger.Error("Failed to upgrade pointer for token at step", "token", token, "from-step", s1, "to-step", s2)
 		})
 	}
 	return nil
@@ -66,12 +65,12 @@ func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "cw20", addr, "name")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed name query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "cw20", addr, "symbol")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed symbol query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -81,7 +80,7 @@ func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			})
 			return err
 		}, func(s1, s2 string) {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s at step %s due to %s", cwAddr, s1, s2))
+			logger.Error("Failed to upgrade pointer at step", "pointer", cwAddr, "from-step", s1, "to-step", s2)
 		})
 	}
 	return nil
@@ -100,12 +99,12 @@ func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "cw721", addr, "name")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed name query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "cw721", addr, "symbol")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed symbol query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -115,7 +114,7 @@ func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			})
 			return err
 		}, func(s1, s2 string) {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s at step %s due to %s", cwAddr, s1, s2))
+			logger.Error("Failed to upgrade pointer at step", "pointer", cwAddr, "from-step", s1, "to-step", s2)
 		})
 	}
 	return nil
@@ -134,12 +133,12 @@ func MigrateERCCW1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "cw1155", addr, "name")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed name query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "cw1155", addr, "symbol")
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", cwAddr, err))
+			logger.Error("Failed to upgrade pointer due to failed symbol query", "pointer", cwAddr, "err", err)
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -149,7 +148,7 @@ func MigrateERCCW1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			})
 			return err
 		}, func(s1, s2 string) {
-			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s at step %s due to %s", cwAddr, s1, s2))
+			logger.Error("Failed to upgrade pointer at step", "pointer", cwAddr, "from-step", s1, "to-step", s2)
 		})
 	}
 	return nil
@@ -170,12 +169,12 @@ func MigrateCWERC20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		seen[evmAddr] = struct{}{}
 		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc20 pointer %s address %s", string(iter.Value()), err))
+			logger.Error("error parsing cw-erc20 pointer address", "pointer", string(iter.Value()), "err", err)
 			return err
 		}
 		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error migrating cw-erc20 pointer %s to code ID %d due to %s", addr.String(), codeID, err))
+			logger.Error("error migrating cw-erc20 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
 			return err
 		}
 	}
@@ -197,12 +196,12 @@ func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		seen[evmAddr] = struct{}{}
 		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc721 pointer %s address %s", string(iter.Value()), err))
+			logger.Error("error parsing cw-erc721 pointer address", "pointer", string(iter.Value()), "err", err)
 			return err
 		}
 		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error migrating cw-erc721 pointer %s to code ID %d due to %s", addr.String(), codeID, err))
+			logger.Error("error migrating cw-erc721 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
 			return err
 		}
 	}
@@ -224,12 +223,12 @@ func MigrateCWERC1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		seen[evmAddr] = struct{}{}
 		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc1155 pointer %s address %s", string(iter.Value()), err))
+			logger.Error("error parsing cw-erc1155 pointer address", "pointer", string(iter.Value()), "err", err)
 			return err
 		}
 		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("error migrating cw-erc1155 pointer %s to code ID %d due to %s", addr.String(), codeID, err))
+			logger.Error("error migrating cw-erc1155 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
 			return err
 		}
 	}

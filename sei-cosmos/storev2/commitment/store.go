@@ -14,7 +14,6 @@ import (
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )
 
@@ -26,14 +25,12 @@ var (
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
 	tree      sctypes.CommitKVStore
-	logger    log.Logger
 	changeSet iavl.ChangeSet
 }
 
-func NewStore(tree sctypes.CommitKVStore, logger log.Logger) *Store {
+func NewStore(tree sctypes.CommitKVStore) *Store {
 	return &Store{
-		tree:   tree,
-		logger: logger,
+		tree: tree,
 	}
 }
 

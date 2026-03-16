@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/gogo/protobuf/proto"
@@ -19,12 +20,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "abci", "example", "kvstore")
+
 	stateKey        = []byte("stateKey")
 	kvPairPrefixKey = []byte("kvPairKey:")
 
@@ -79,7 +81,6 @@ type Application struct {
 	mu           sync.Mutex
 	state        State
 	RetainBlocks int64 // blocks to retain after commit (via ResponseCommit.RetainHeight)
-	logger       log.Logger
 
 	// validator set
 	ValUpdates         []types.ValidatorUpdate
@@ -88,7 +89,6 @@ type Application struct {
 
 func NewApplication() *Application {
 	return &Application{
-		logger:             log.NewNopLogger(),
 		state:              loadState(dbm.NewMemDB()),
 		valAddrToPubKeyMap: make(map[string]cryptoproto.PublicKey),
 	}
@@ -101,7 +101,7 @@ func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain
 	for _, v := range req.Validators {
 		r := app.updateValidator(v)
 		if r.IsErr() {
-			app.logger.Error("error updating validators", "r", r)
+			logger.Error("error updating validators", "err", r)
 			panic("problem updating validators")
 		}
 	}
@@ -186,7 +186,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 					PubKey: pubKey,
 					Power:  ev.Validator.Power - 1,
 				})
-				app.logger.Info("Decreased val power by 1 because of the equivocation",
+				logger.Info("Decreased val power by 1 because of the equivocation",
 					"val", addr)
 			} else {
 				panic(fmt.Errorf("wanted to punish val %q but can't find it", addr))
