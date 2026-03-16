@@ -170,7 +170,7 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 
 func (m *peerManager[C]) Conns() connSet[C] { return m.conns.Load() }
 
-// PushPex registeres address list received from sender in the pex table.
+// PushPex registers address list received from sender in the pex table.
 // Address list replaces the previous address list received from that sender
 // (every sender has a bounded capacity in peermanager).
 // The addresses on the list are expected to be fresh, ideally they should be addresses
@@ -237,14 +237,15 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 }
 
 // DialFailed notifies the peer manager that dialing addresses of id has failed.
-func (m *peerManager[C]) DialFailed(id types.NodeID) error {
+func (m *peerManager[C]) DialFailed(id types.NodeID) {
 	for inner, ctrl := range m.inner.Lock() {
 		if err := inner.poolByID(id).DialFailed(id); err != nil {
-			return err
+			// DialFailed will fail if id was not marked as dialing.
+			logger.Error("DialFailed()", "id", id, "err", err)
+			return
 		}
 		ctrl.Updated()
 	}
-	return nil
 }
 
 // Connected adds conn to the connections pool.

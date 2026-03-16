@@ -179,7 +179,7 @@ func TestPeerManager_PushPex(t *testing.T) {
 	require.Equal(t, utils.Slice(newPeer), mustStartDial(t, ctx, m))
 
 	t.Log("DialFailed makes the peer eligible for dialing again")
-	require.NoError(t, m.DialFailed(newPeer.NodeID))
+	m.DialFailed(newPeer.NodeID)
 	require.Equal(t, utils.Slice(newPeer), mustStartDial(t, ctx, m))
 
 	t.Log("Unconditional peers can always connect inbound")
@@ -222,7 +222,8 @@ func TestPeerManager_ConcurrentDials(t *testing.T) {
 				for dialing := range dialing.Lock() {
 					delete(dialing, addr.NodeID)
 				}
-				return m.DialFailed(addr.NodeID)
+				m.DialFailed(addr.NodeID)
+				return nil
 			})
 		}
 		return nil
@@ -252,7 +253,7 @@ func TestPeerManager_DialRoundRobin(t *testing.T) {
 	for len(addrsMap) > 0 {
 		addr := mustStartDial(t, ctx, m)[0]
 		delete(addrsMap, addr)
-		require.NoError(t, m.DialFailed(addr.NodeID))
+		m.DialFailed(addr.NodeID)
 	}
 }
 
@@ -349,7 +350,8 @@ func TestPeerManager_MaxConnectedForDial(t *testing.T) {
 					return err
 				}
 				dialsAndConns.Add(-1)
-				return m.DialFailed(id)
+				m.DialFailed(id)
+				return nil
 			})
 		}
 		return nil
@@ -393,7 +395,8 @@ func TestPeerManager_MaxOutboundConnectionsForDialing(t *testing.T) {
 					// Keep accounting in sync with slot release: decrement before
 					// unblocking StartDial to avoid transient overcount in this test.
 					dialsAndConns.Add(-1)
-					return m.DialFailed(addr.NodeID)
+					m.DialFailed(addr.NodeID)
+					return nil
 				}
 				conn := makeConnTo(addr)
 				if err := m.Connected(conn); err != nil {
@@ -463,7 +466,7 @@ func TestPeerManager_Wake(t *testing.T) {
 	t.Log("freeing a dial slot via DialFailed should wake")
 	addrs := mustStartDial(t, ctx, m)
 	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
-		require.NoError(t, m.DialFailed(addrs[0].NodeID))
+		m.DialFailed(addrs[0].NodeID)
 	}))
 
 	t.Log("establishing a connection should wake")
