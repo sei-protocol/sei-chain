@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/cosmovisor"
+	"github.com/sei-protocol/sei-chain/cosmos/cosmovisor"
 )
 
 func main() {

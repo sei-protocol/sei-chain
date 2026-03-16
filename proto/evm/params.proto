@@ -34,7 +34,7 @@ message Params {
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
   //   string chain_id = 6 [
   //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Int",
   //   (gogoproto.nullable)   = false,
   //   (gogoproto.jsontag) = "chain_id"
   // ];
@@ -103,7 +103,7 @@ message ParamsPreV580 {
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
   //   string chain_id = 6 [
   //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Int",
   //   (gogoproto.nullable)   = false,
   //   (gogoproto.jsontag) = "chain_id"
   // ];
@@ -146,7 +146,7 @@ message ParamsPreV600 {
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
   //   string chain_id = 6 [
   //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Int",
   //   (gogoproto.nullable)   = false,
   //   (gogoproto.jsontag) = "chain_id"
   // ];
@@ -188,7 +188,7 @@ message ParamsPreV601 {
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
   //   string chain_id = 6 [
   //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Int",
   //   (gogoproto.nullable)   = false,
   //   (gogoproto.jsontag) = "chain_id"
   // ];
@@ -246,7 +246,7 @@ message ParamsPreV606 {
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
   //   string chain_id = 6 [
   //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
-  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+  //   (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/cosmos/types.Int",
   //   (gogoproto.nullable)   = false,
   //   (gogoproto.jsontag) = "chain_id"
   // ];

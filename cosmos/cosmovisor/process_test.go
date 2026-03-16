@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/cosmovisor"
+	"github.com/sei-protocol/sei-chain/cosmos/cosmovisor"
 )
 
 type processTestSuite struct {
