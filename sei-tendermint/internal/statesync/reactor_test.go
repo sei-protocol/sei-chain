@@ -58,7 +58,6 @@ func setup(
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     utils.Some(100),
 			MaxConnected: utils.Some(100),
 		},
 	})
@@ -130,7 +129,6 @@ func orPanic[T any](v T, err error) T {
 
 func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
 	n := &Node{

@@ -96,7 +96,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		err := nodes[i].Router.peerManager.PushPex(nodes[i].NodeID, utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		err := nodes[i].Router.peerManager.PushPex(utils.Some(nodes[i].NodeID), utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
@@ -111,7 +111,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			err := source.Router.peerManager.PushPex(source.NodeID, utils.Slice(target.NodeAddress))
+			err := source.Router.peerManager.PushPex(utils.Some(source.NodeID), utils.Slice(target.NodeAddress))
 			require.NoError(t, err)
 		}
 	}
@@ -258,7 +258,7 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	_ = n.Router.peerManager.PushPex(target.NodeID, utils.Slice(target.NodeAddress))
+	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
 	n.WaitForConn(ctx, target.NodeID, true)
 	target.WaitForConn(ctx, n.NodeID, true)
 }

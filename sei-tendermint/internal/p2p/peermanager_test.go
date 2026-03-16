@@ -176,7 +176,7 @@ func TestPeerManager_PushPex(t *testing.T) {
 
 	t.Log("Pushing new addresses via PEX should make them immediately dialable")
 	newPeer := makeAddr(rng)
-	require.NoError(t, m.PushPex(makeNodeID(rng), utils.Slice(newPeer)))
+	require.NoError(t, m.PushPex(utils.Some(makeNodeID(rng)), utils.Slice(newPeer)))
 	require.Equal(t, utils.Slice(newPeer), mustStartDial(t, ctx, m))
 
 	t.Log("DialFailed makes the peer eligible for dialing again")
@@ -459,7 +459,7 @@ func TestPeerManager_Wake(t *testing.T) {
 	})
 	// Adding an address while none are available should wake.
 	require.True(t, utils.MonitorWatchUpdates(&m.inner, func() {
-		require.NoError(t, m.PushPex(makeNodeID(rng), utils.Slice(makeAddr(rng))))
+		require.NoError(t, m.PushPex(utils.Some(makeNodeID(rng)), utils.Slice(makeAddr(rng))))
 	}))
 	t.Log("freeing a dial slot via DialFailed should wake")
 	addrs := mustStartDial(t, ctx, m)

@@ -34,7 +34,6 @@ func dispatcherSetup(t *testing.T) *dispatcherTestSuite {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     utils.Some(100),
 			MaxConnected: utils.Some(100),
 		},
 	})
@@ -60,7 +59,6 @@ type DispatcherNode struct {
 
 func (ts *dispatcherTestSuite) AddPeer(t *testing.T) *DispatcherNode {
 	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
 	blockCh, err := p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())
