@@ -1439,6 +1439,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
 		var result *abci.ExecTxResult
 		var execErr error
+		// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
+		// allowing the loop to continue processing subsequent transactions after a panic.
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
