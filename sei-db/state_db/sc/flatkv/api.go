@@ -58,6 +58,9 @@ type Store interface {
 	// raw LtHash vector.
 	RootHash() []byte
 
+	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
+	CommittedRootHash() []byte
+
 	// Version returns the latest committed version.
 	Version() int64
 

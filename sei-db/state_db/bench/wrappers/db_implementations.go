@@ -30,7 +30,8 @@ const (
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 100
+	cfg.SnapshotInterval = 1000
+	cfg.SnapshotMinTimeInterval = 60
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
 	cs := memiavl.NewCommitStore(dbDir, cfg)
 	cs.Initialize([]string{EVMStoreName})
