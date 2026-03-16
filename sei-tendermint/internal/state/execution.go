@@ -76,6 +76,10 @@ func NewBlockExecutor(
 	}
 }
 
+func (blockExec *BlockExecutor) SetEventBus(bus types.BlockEventPublisher) {
+	blockExec.eventBus = bus
+}
+
 func (blockExec *BlockExecutor) Store() Store {
 	return blockExec.store
 }

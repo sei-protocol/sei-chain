@@ -57,3 +57,17 @@ func (nopBlockStore) LoadBlockPart(int64, int) *types.Part                  { re
 func (nopBlockStore) LoadBlockCommit(int64) *types.Commit                   { return nil }
 func (nopBlockStore) LoadSeenCommit() *types.Commit                         { return nil }
 func (nopBlockStore) DeleteLatestBlock() error                              { return nil }
+
+// nopEventBus satisfies types.BlockEventPublisher with no-ops so
+// FireEvents doesn't block on an unstarted pubsub channel.
+type nopEventBus struct{}
+
+var _ types.BlockEventPublisher = nopEventBus{}
+
+func (nopEventBus) PublishEventNewBlock(types.EventDataNewBlock) error                   { return nil }
+func (nopEventBus) PublishEventNewBlockHeader(types.EventDataNewBlockHeader) error        { return nil }
+func (nopEventBus) PublishEventNewEvidence(types.EventDataNewEvidence) error              { return nil }
+func (nopEventBus) PublishEventTx(types.EventDataTx) error                               { return nil }
+func (nopEventBus) PublishEventValidatorSetUpdates(types.EventDataValidatorSetUpdates) error {
+	return nil
+}

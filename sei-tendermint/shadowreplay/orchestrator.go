@@ -14,7 +14,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	httpclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -148,9 +147,10 @@ func Run(ctx context.Context, dbDir string, app abci.Application, opts Options) 
 		nopMempool{},
 		sm.EmptyEvidencePool{},
 		nopBlockStore{},
-		eventbus.NewDefault(),
+		nil,
 		sm.NopMetrics(),
 	)
+	blockExec.SetEventBus(nopEventBus{})
 	blockExec.SkipValidation = true
 
 	// Connect to source archival node.
