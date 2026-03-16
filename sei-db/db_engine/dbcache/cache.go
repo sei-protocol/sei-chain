@@ -1,11 +1,6 @@
 package dbcache
 
 import (
-	"context"
-	"fmt"
-	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -80,34 +75,4 @@ type CacheUpdate struct {
 // IsDelete returns true if the update is a delete operation.
 func (u *CacheUpdate) IsDelete() bool {
 	return u.Value == nil
-}
-
-// BuildCache creates a new Cache.
-func BuildCache(
-	ctx context.Context,
-	shardCount uint64,
-	maxSize uint64,
-	readPool threading.Pool,
-	miscPool threading.Pool,
-	cacheName string,
-	metricsScrapeInterval time.Duration,
-) (Cache, error) {
-
-	if maxSize == 0 {
-		return NewNoOpCache(), nil
-	}
-
-	cache, err := NewStandardCache(
-		ctx,
-		shardCount,
-		maxSize,
-		readPool,
-		miscPool,
-		cacheName,
-		metricsScrapeInterval,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache: %w", err)
-	}
-	return cache, nil
 }
