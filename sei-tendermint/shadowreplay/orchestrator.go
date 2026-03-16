@@ -13,13 +13,16 @@ import (
 	"os"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	httpclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 )
+
+var logger = seilog.NewLogger("shadowreplay")
 
 // Options configures a shadow replay run.
 type Options struct {
@@ -50,7 +53,7 @@ type Options struct {
 }
 
 // Run executes shadow replay from opts.StartHeight to opts.EndHeight (or forever).
-func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger log.Logger, opts Options) error {
+func Run(ctx context.Context, dbDir string, app abci.Application, opts Options) error {
 	if opts.ChainID == "" {
 		opts.ChainID = "unknown"
 	}
@@ -88,7 +91,6 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 	if err != nil {
 		return fmt.Errorf("loading state: %w", err)
 	}
-	initialHeight := state.InitialHeight
 
 	// Determine start height: checkpoint takes priority.
 	startHeight := opts.StartHeight
@@ -119,10 +121,37 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		}
 	}
 
+	// State DB may be ahead of the checkpoint if the process crashed after
+	// committing blocks but before persisting the checkpoint. Use whichever
+	// is further along.
+	if state.LastBlockHeight >= startHeight {
+		skipped := state.LastBlockHeight - startHeight + 1
+		startHeight = state.LastBlockHeight + 1
+		blocksReplayed += skipped
+		logger.Info("state DB ahead of checkpoint, advancing start height",
+			"state_height", state.LastBlockHeight,
+			"new_start", startHeight,
+			"skipped", skipped,
+		)
+	}
+
 	if state.LastBlockHeight != startHeight-1 {
 		return fmt.Errorf("height mismatch: state is at %d, but start height is %d (expected state = start-1)",
 			state.LastBlockHeight, startHeight)
 	}
+
+	// Build a BlockExecutor on the production ApplyBlock path, with
+	// validation disabled so replay continues through divergences.
+	blockExec := sm.NewBlockExecutor(
+		stateStore,
+		app,
+		nopMempool{},
+		sm.EmptyEvidencePool{},
+		nopBlockStore{},
+		eventbus.NewDefault(),
+		sm.NopMetrics(),
+	)
+	blockExec.SkipValidation = true
 
 	// Connect to source archival node.
 	src, err := httpclient.New(opts.SourceRPC)
@@ -153,7 +182,7 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		default:
 		}
 
-		block, err := fetchBlockWithRetry(ctx, src, height, logger)
+		block, err := fetchBlockWithRetry(ctx, src, height)
 		if err != nil {
 			return err
 		}
@@ -164,26 +193,34 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 		}
 
 		nextHeight := height + 1
-		nextBlock, err := fetchBlockWithRetry(ctx, src, nextHeight, logger)
+		nextBlock, err := fetchBlockWithRetry(ctx, src, nextHeight)
 		if err != nil {
 			return err
 		}
 		expectedAppHash := nextBlock.AppHash
 
+		bps, err := block.MakePartSet(tmtypes.BlockPartSizeBytes)
+		if err != nil {
+			return fmt.Errorf("making part set at height %d: %w", height, err)
+		}
+		blockID := tmtypes.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
+
 		start := time.Now()
 
-		gotAppHash, txResults, err := sm.ExecCommitBlockFull(ctx, appConn, block, logger, stateStore, initialHeight)
+		state, err = blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		if err != nil {
-			return fmt.Errorf("ExecCommitBlockFull at height %d: %w", height, err)
+			return fmt.Errorf("ApplyBlock at height %d: %w", height, err)
 		}
 
-		state.AppHash = gotAppHash
-		state.LastBlockHeight = height
-		if err := stateStore.Save(state); err != nil {
-			return fmt.Errorf("saving state at height %d: %w", height, err)
+		// Load the tx results saved by ApplyBlock for comparison.
+		fBlockResp, err := stateStore.LoadFinalizeBlockResponses(height)
+		if err != nil {
+			return fmt.Errorf("loading FinalizeBlockResponses at height %d: %w", height, err)
 		}
+		txResults := fBlockResp.TxResults
 
 		elapsedMs := time.Since(start).Milliseconds()
+		gotAppHash := state.AppHash
 		appHashMatch := string(gotAppHash) == string(expectedAppHash)
 
 		// Epoch tracking.
@@ -286,7 +323,7 @@ func Run(ctx context.Context, dbDir string, appConn abciclient.Client, logger lo
 
 // fetchBlockWithRetry fetches the block at height from src, retrying every
 // second until the block is available or ctx is cancelled.
-func fetchBlockWithRetry(ctx context.Context, src *httpclient.HTTP, height int64, logger log.Logger) (*tmtypes.Block, error) {
+func fetchBlockWithRetry(ctx context.Context, src *httpclient.HTTP, height int64) (*tmtypes.Block, error) {
 	for {
 		resp, err := src.Block(ctx, &height)
 		if err == nil && resp != nil && resp.Block != nil {

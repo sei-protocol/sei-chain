@@ -3,21 +3,18 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/store"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/app"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
-	tmlog "github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/shadowreplay"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -79,8 +76,6 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 			serverCtx.Viper.Set(gigaconfig.FlagEnabled, true)
 			serverCtx.Viper.Set(gigaconfig.FlagOCCEnabled, true)
 
-			logger := tmlog.NewTMLogger(tmlog.NewSyncWriter(os.Stderr))
-
 			db, err := openDB(home)
 			if err != nil {
 				return fmt.Errorf("opening app DB: %w", err)
@@ -91,7 +86,6 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
 			seiApp := app.New(
-				logger,
 				db,
 				nil,
 				true,
@@ -114,8 +108,6 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 				baseapp.SetMinRetainBlocks(cast.ToUint64(serverCtx.Viper.Get(server.FlagMinRetainBlocks))),
 			)
 
-			appConn := abciclient.NewLocalClient(logger, seiApp)
-
 			opts := shadowreplay.Options{
 				SourceRPC:      sourceRPC,
 				StartHeight:    startHeight,
@@ -127,7 +119,7 @@ The --home directory must contain chain state seeded via snapshot sync.`,
 			}
 
 			dataDir := filepath.Join(home, "data")
-			return shadowreplay.Run(context.Background(), dataDir, appConn, logger, opts)
+			return shadowreplay.Run(context.Background(), dataDir, seiApp, opts)
 		},
 	}
 

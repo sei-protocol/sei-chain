@@ -49,6 +49,9 @@ type BlockExecutor struct {
 
 	// cache the verification results over a single height
 	cache map[string]struct{}
+
+	// TODO: parameterize via config for shadow replay mode
+	SkipValidation bool
 }
 
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
@@ -251,9 +254,12 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		ctx = spanCtx
 		defer span.End()
 	}
-	// validate the block if we haven't already
-	if err := blockExec.ValidateBlock(ctx, state, block); err != nil {
-		return state, ErrInvalidBlock(err)
+	// TODO: parameterize via config; skipped for shadow replay where
+	// AppHash will intentionally diverge from canonical.
+	if !blockExec.SkipValidation {
+		if err := blockExec.ValidateBlock(ctx, state, block); err != nil {
+			return state, ErrInvalidBlock(err)
+		}
 	}
 	startTime := time.Now()
 	defer func() {
@@ -877,13 +883,12 @@ func ExecCommitBlock(
 // It is used by shadow replay to compare execution outcomes between engine versions.
 func ExecCommitBlockFull(
 	ctx context.Context,
-	appConn abciclient.Client,
+	app abci.Application,
 	block *types.Block,
-	logger log.Logger,
 	store Store,
 	initialHeight int64,
 ) (appHash []byte, txResults []*abci.ExecTxResult, err error) {
-	resp, err := appConn.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Hash:                  block.Hash(),
 		Height:                block.Height,
 		Time:                  block.Time,
@@ -904,7 +909,7 @@ func ExecCommitBlockFull(
 	if err != nil {
 		return nil, nil, fmt.Errorf("FinalizeBlock at height %d: %w", block.Height, err)
 	}
-	if _, err = appConn.Commit(ctx); err != nil {
+	if _, err = app.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("Commit at height %d: %w", block.Height, err)
 	}
 	logger.Info("shadow-executed block", "height", block.Height)
