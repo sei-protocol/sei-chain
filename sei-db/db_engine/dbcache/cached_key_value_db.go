@@ -10,14 +10,14 @@ import (
 var _ types.KeyValueDB = (*cachedKeyValueDB)(nil)
 var _ types.Checkpointable = (*cachedKeyValueDB)(nil)
 
-// Combines a cache and a key-value database to create a new key-value database with caching.
+// A unified interface for a key-value database and its read-through cache.
 type cachedKeyValueDB struct {
 	db    types.KeyValueDB
 	cache Cache
 	read  Reader
 }
 
-// Combine a cache and a key-value database to create a new key-value database with caching.
+// Combine a cache and a key-value database into a unified interface.
 //
 // Due to the nature of a Cache, it is not safe to mutate byte slices (keys or values) passed to or received from
 // any of the methods on a cachedKeyValueDB after calling them.
