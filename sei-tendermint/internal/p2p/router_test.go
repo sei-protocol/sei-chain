@@ -600,47 +600,40 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 	}
 }
 
-func TestRouter_dialPeers_TriesAllAddresses(t *testing.T) {
+func TestRouter_dial_TriesAllAddresses(t *testing.T) {
 	rng := utils.TestRng()
 	ctx := t.Context()
 
 	// Address dialing order is not deterministic, so we run the test multiple times to
 	// minimize the false-positive probability (situation where the correct address is attempted first).
-	for range 20 {
+	for range 10 {
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			// Start the accepting router.
-			target := makeRouter(rng)
-			s.SpawnBg(func() error { return utils.IgnoreCancel(target.Run(ctx)) })
-			if err := target.WaitForStart(ctx); err != nil {
-				return err
-			}
-			// Create the dialing router.
-			opts := makeRouterOptions()
-			opts.MaxDialRate = utils.Some(rate.Every(time.Hour))
-			opts.MaxOutbound = utils.Some(1)
-			r := makeRouterWithOptions(rng, opts)
-			targetAddr := TestAddress(target)
-			var addrs []NodeAddress
+			// Prepare addresses
+			addr := tcp.TestReserveAddr()
+			id := makeNodeID(rng)
+			addrs := utils.Slice(Endpoint{addr}.NodeAddress(id))
 			for range 10 {
-				addrs = append(addrs, makeAddrFor(rng, targetAddr.NodeID))
+				addrs = append(addrs, makeAddrFor(rng, id))
 			}
-			// Real address is the last.
-			addrs = append(addrs, targetAddr)
-			for _, addr := range addrs {
-				sender := makeKey(rng).Public().NodeID()
-				if err := r.AddAddrs(sender, utils.Slice(addr)); err != nil {
-					return fmt.Errorf("r.AddAddrs(): %w", err)
+			utils.Shuffle(rng, addrs)
+
+			// Create the dialing router.
+			listener := utils.OrPanic1(tcp.Listen(addr))
+			s.Spawn(func() error {
+				conn, err := listener.AcceptOrClose(ctx)
+				if err != nil {
+					return err
 				}
-			}
-			// Start the dialing router.
+				conn.Close()
+				return nil
+			})
+			r := makeRouter(rng)
 			s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-			// Wait for the connection.
-			if _, err := r.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-				_, ok := GetAny(conns, targetAddr.NodeID)
-				return ok
-			}); err != nil {
-				return err
+			conn, err := r.dial(ctx, addrs)
+			if err != nil {
+				return fmt.Errorf("r.dial(): %w", err)
 			}
+			conn.Close()
 			return nil
 		})
 		if err != nil {

@@ -50,7 +50,7 @@ type TestNetworkOptions struct {
 type TestNodeOptions struct {
 	MaxConnected   utils.Option[int]
 	PexOnHandshake bool
-	SelfAddress bool
+	SelfAddress    bool
 }
 
 func TestAddress(r *Router) NodeAddress {
