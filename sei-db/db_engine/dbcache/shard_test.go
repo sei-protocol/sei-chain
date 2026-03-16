@@ -19,20 +19,18 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-// newTestShard creates a shard backed by a simple in-memory map.
-// The returned readFunc map can be populated before calling Get.
-func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) *shard {
+func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) (*shard, Reader) {
 	t.Helper()
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	read := Reader(func(key []byte) ([]byte, bool, error) {
 		v, ok := store[string(key)]
 		if !ok {
 			return nil, false, nil
 		}
 		return v, true, nil
-	}
-	s, err := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, maxSize)
+	})
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), maxSize)
 	require.NoError(t, err)
-	return s
+	return s, read
 }
 
 // ---------------------------------------------------------------------------
@@ -40,15 +38,13 @@ func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) *shard 
 // ---------------------------------------------------------------------------
 
 func TestNewShardValid(t *testing.T) {
-	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, nil }
-	s, err := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 1024)
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 1024)
 	require.NoError(t, err)
 	require.NotNil(t, s)
 }
 
 func TestNewShardZeroMaxSize(t *testing.T) {
-	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, nil }
-	_, err := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 0)
+	_, err := NewShard(context.Background(), threading.NewAdHocPool(), 0)
 	require.Error(t, err)
 }
 
@@ -58,18 +54,18 @@ func TestNewShardZeroMaxSize(t *testing.T) {
 
 func TestGetCacheMissFoundInDB(t *testing.T) {
 	store := map[string][]byte{"hello": []byte("world")}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
-	val, found, err := s.Get([]byte("hello"), true)
+	val, found, err := s.Get(read, []byte("hello"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "world", string(val))
 }
 
 func TestGetCacheMissNotFoundInDB(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
-	val, found, err := s.Get([]byte("missing"), true)
+	val, found, err := s.Get(read, []byte("missing"), true)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
@@ -77,29 +73,29 @@ func TestGetCacheMissNotFoundInDB(t *testing.T) {
 
 func TestGetCacheMissDBError(t *testing.T) {
 	dbErr := errors.New("disk on fire")
-	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, dbErr }
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return nil, false, dbErr })
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
-	_, _, err := s.Get([]byte("boom"), true)
+	_, _, err := s.Get(readFunc, []byte("boom"), true)
 	require.Error(t, err)
 	require.ErrorIs(t, err, dbErr)
 }
 
 func TestGetDBErrorDoesNotCacheResult(t *testing.T) {
 	var calls atomic.Int64
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		n := calls.Add(1)
 		if n == 1 {
 			return nil, false, errors.New("transient")
 		}
 		return []byte("recovered"), true, nil
-	}
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
-	_, _, err := s.Get([]byte("key"), true)
+	_, _, err := s.Get(readFunc, []byte("key"), true)
 	require.Error(t, err, "first call should fail")
 
-	val, found, err := s.Get([]byte("key"), true)
+	val, found, err := s.Get(readFunc, []byte("key"), true)
 	require.NoError(t, err, "second call should succeed")
 	require.True(t, found)
 	require.Equal(t, "recovered", string(val))
@@ -111,22 +107,22 @@ func TestGetDBErrorDoesNotCacheResult(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetCacheHitAvailable(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{"k": []byte("v")})
+	s, read := newTestShard(t, 4096, map[string][]byte{"k": []byte("v")})
 
-	s.Get([]byte("k"), true)
+	s.Get(read, []byte("k"), true)
 
-	val, found, err := s.Get([]byte("k"), true)
+	val, found, err := s.Get(read, []byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v", string(val))
 }
 
 func TestGetCacheHitDeleted(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
-	s.Get([]byte("gone"), true)
+	s.Get(read, []byte("gone"), true)
 
-	val, found, err := s.Get([]byte("gone"), true)
+	val, found, err := s.Get(read, []byte("gone"), true)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
@@ -134,15 +130,15 @@ func TestGetCacheHitDeleted(t *testing.T) {
 
 func TestGetAfterSet(t *testing.T) {
 	var readCalls atomic.Int64
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		readCalls.Add(1)
 		return nil, false, nil
-	}
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
 	s.Set([]byte("k"), []byte("from-set"))
 
-	val, found, err := s.Get([]byte("k"), true)
+	val, found, err := s.Get(readFunc, []byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "from-set", string(val))
@@ -151,11 +147,11 @@ func TestGetAfterSet(t *testing.T) {
 
 func TestGetAfterDelete(t *testing.T) {
 	store := map[string][]byte{"k": []byte("v")}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
 	s.Delete([]byte("k"))
 
-	val, found, err := s.Get([]byte("k"), true)
+	val, found, err := s.Get(read, []byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
@@ -169,12 +165,12 @@ func TestGetConcurrentSameKey(t *testing.T) {
 	var readCalls atomic.Int64
 	gate := make(chan struct{})
 
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		readCalls.Add(1)
 		<-gate
 		return []byte("value"), true, nil
-	}
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -186,7 +182,7 @@ func TestGetConcurrentSameKey(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			v, f, e := s.Get([]byte("shared"), true)
+			v, f, e := s.Get(readFunc, []byte("shared"), true)
 			vals[idx] = string(v)
 			founds[idx] = f
 			errs[idx] = e
@@ -213,15 +209,15 @@ func TestGetConcurrentSameKey(t *testing.T) {
 func TestGetContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		time.Sleep(time.Second)
 		return []byte("late"), true, nil
-	}
-	s, _ := NewShard(ctx, threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(ctx, threading.NewAdHocPool(), 4096)
 
 	cancel()
 
-	_, _, err := s.Get([]byte("k"), true)
+	_, _, err := s.Get(readFunc, []byte("k"), true)
 	require.Error(t, err)
 }
 
@@ -234,13 +230,12 @@ func TestGetUpdateLruTrue(t *testing.T) {
 		"a": []byte("1"),
 		"b": []byte("2"),
 	}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
-	s.Get([]byte("a"), true)
-	s.Get([]byte("b"), true)
+	s.Get(read, []byte("a"), true)
+	s.Get(read, []byte("b"), true)
 
-	// Touch "a" via Get with updateLru=true, making "b" the LRU.
-	s.Get([]byte("a"), true)
+	s.Get(read, []byte("a"), true)
 
 	s.lock.Lock()
 	lru := s.gcQueue.PopLeastRecentlyUsed()
@@ -254,13 +249,12 @@ func TestGetUpdateLruFalse(t *testing.T) {
 		"a": []byte("1"),
 		"b": []byte("2"),
 	}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
-	s.Get([]byte("a"), true)
-	s.Get([]byte("b"), true)
+	s.Get(read, []byte("a"), true)
+	s.Get(read, []byte("b"), true)
 
-	// Access "a" without updating LRU — "a" should remain the LRU entry.
-	s.Get([]byte("a"), false)
+	s.Get(read, []byte("a"), false)
 
 	s.lock.Lock()
 	lru := s.gcQueue.PopLeastRecentlyUsed()
@@ -274,57 +268,57 @@ func TestGetUpdateLruFalse(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSetNewKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), []byte("v"))
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v", string(val))
 }
 
 func TestSetOverwritesExistingKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), []byte("old"))
 	s.Set([]byte("k"), []byte("new"))
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "new", string(val))
 }
 
 func TestSetOverwritesDeletedKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Delete([]byte("k"))
 	s.Set([]byte("k"), []byte("revived"))
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "revived", string(val))
 }
 
 func TestSetNilValue(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), nil)
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Nil(t, val)
 }
 
 func TestSetEmptyKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte(""), []byte("empty-key-val"))
 
-	val, found, err := s.Get([]byte(""), false)
+	val, found, err := s.Get(read, []byte(""), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "empty-key-val", string(val))
@@ -335,36 +329,36 @@ func TestSetEmptyKey(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDeleteExistingKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), []byte("v"))
 	s.Delete([]byte("k"))
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
 }
 
 func TestDeleteNonexistentKey(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Delete([]byte("ghost"))
 
-	val, found, err := s.Get([]byte("ghost"), false)
+	val, found, err := s.Get(read, []byte("ghost"), false)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
 }
 
 func TestDeleteThenSetThenGet(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), []byte("v1"))
 	s.Delete([]byte("k"))
 	s.Set([]byte("k"), []byte("v2"))
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(read, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v2", string(val))
@@ -375,7 +369,7 @@ func TestDeleteThenSetThenGet(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBatchSetSetsMultiple(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.BatchSet([]CacheUpdate{
 		{Key: []byte("a"), Value: []byte("1")},
@@ -386,7 +380,7 @@ func TestBatchSetSetsMultiple(t *testing.T) {
 	for _, tc := range []struct {
 		key, want string
 	}{{"a", "1"}, {"b", "2"}, {"c", "3"}} {
-		val, found, err := s.Get([]byte(tc.key), false)
+		val, found, err := s.Get(read, []byte(tc.key), false)
 		require.NoError(t, err, "Get(%q)", tc.key)
 		require.True(t, found, "Get(%q)", tc.key)
 		require.Equal(t, tc.want, string(val), "Get(%q)", tc.key)
@@ -394,7 +388,7 @@ func TestBatchSetSetsMultiple(t *testing.T) {
 }
 
 func TestBatchSetMixedSetAndDelete(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("keep"), []byte("v"))
 	s.Set([]byte("remove"), []byte("v"))
@@ -405,20 +399,20 @@ func TestBatchSetMixedSetAndDelete(t *testing.T) {
 		{Key: []byte("new"), Value: []byte("fresh")},
 	})
 
-	val, found, _ := s.Get([]byte("keep"), false)
+	val, found, _ := s.Get(read, []byte("keep"), false)
 	require.True(t, found)
 	require.Equal(t, "updated", string(val))
 
-	_, found, _ = s.Get([]byte("remove"), false)
+	_, found, _ = s.Get(read, []byte("remove"), false)
 	require.False(t, found, "expected remove to be deleted")
 
-	val, found, _ = s.Get([]byte("new"), false)
+	val, found, _ = s.Get(read, []byte("new"), false)
 	require.True(t, found)
 	require.Equal(t, "fresh", string(val))
 }
 
 func TestBatchSetEmpty(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, _ := newTestShard(t, 4096, map[string][]byte{})
 	s.BatchSet(nil)
 	s.BatchSet([]CacheUpdate{})
 
@@ -432,7 +426,7 @@ func TestBatchSetEmpty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBatchGetAllCached(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("a"), []byte("1"))
 	s.Set([]byte("b"), []byte("2"))
@@ -441,7 +435,7 @@ func TestBatchGetAllCached(t *testing.T) {
 		"a": {},
 		"b": {},
 	}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 
 	for k, want := range map[string]string{"a": "1", "b": "2"} {
 		r := keys[k]
@@ -452,13 +446,13 @@ func TestBatchGetAllCached(t *testing.T) {
 
 func TestBatchGetAllFromDB(t *testing.T) {
 	store := map[string][]byte{"x": []byte("10"), "y": []byte("20")}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
 	keys := map[string]types.BatchGetResult{
 		"x": {},
 		"y": {},
 	}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 
 	for k, want := range map[string]string{"x": "10", "y": "20"} {
 		r := keys[k]
@@ -469,7 +463,7 @@ func TestBatchGetAllFromDB(t *testing.T) {
 
 func TestBatchGetMixedCachedAndDB(t *testing.T) {
 	store := map[string][]byte{"db-key": []byte("from-db")}
-	s := newTestShard(t, 4096, store)
+	s, read := newTestShard(t, 4096, store)
 
 	s.Set([]byte("cached"), []byte("from-cache"))
 
@@ -477,7 +471,7 @@ func TestBatchGetMixedCachedAndDB(t *testing.T) {
 		"cached": {},
 		"db-key": {},
 	}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 
 	require.True(t, keys["cached"].IsFound())
 	require.Equal(t, "from-cache", string(keys["cached"].Value))
@@ -486,17 +480,17 @@ func TestBatchGetMixedCachedAndDB(t *testing.T) {
 }
 
 func TestBatchGetNotFoundKeys(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	keys := map[string]types.BatchGetResult{
 		"nope": {},
 	}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 	require.False(t, keys["nope"].IsFound())
 }
 
 func TestBatchGetDeletedKeys(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("del"), []byte("v"))
 	s.Delete([]byte("del"))
@@ -504,46 +498,45 @@ func TestBatchGetDeletedKeys(t *testing.T) {
 	keys := map[string]types.BatchGetResult{
 		"del": {},
 	}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 	require.False(t, keys["del"].IsFound())
 }
 
 func TestBatchGetDBError(t *testing.T) {
 	dbErr := errors.New("broken")
-	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, dbErr }
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return nil, false, dbErr })
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
 	keys := map[string]types.BatchGetResult{
 		"fail": {},
 	}
-	require.NoError(t, s.BatchGet(keys), "BatchGet itself should not fail")
+	require.NoError(t, s.BatchGet(readFunc, keys), "BatchGet itself should not fail")
 	require.Error(t, keys["fail"].Error, "expected per-key error")
 }
 
 func TestBatchGetEmpty(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	keys := map[string]types.BatchGetResult{}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 }
 
 func TestBatchGetCachesResults(t *testing.T) {
 	var readCalls atomic.Int64
 	store := map[string][]byte{"k": []byte("v")}
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		readCalls.Add(1)
 		v, ok := store[string(key)]
 		return v, ok, nil
-	}
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
-	s.BatchGet(keys)
+	s.BatchGet(readFunc, keys)
 
-	// bulkInjectValues runs in a goroutine — give it a moment.
 	time.Sleep(50 * time.Millisecond)
 
-	val, found, err := s.Get([]byte("k"), false)
+	val, found, err := s.Get(readFunc, []byte("k"), false)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "v", string(val))
@@ -555,16 +548,14 @@ func TestBatchGetCachesResults(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEvictionRespectMaxSize(t *testing.T) {
-	s := newTestShard(t, 30, map[string][]byte{})
+	s, _ := newTestShard(t, 30, map[string][]byte{})
 
-	// key="a" (1 byte) + value="aaaaaaaaaa" (10 bytes) = 11 bytes per entry
 	s.Set([]byte("a"), []byte("aaaaaaaaaa"))
 	s.Set([]byte("b"), []byte("bbbbbbbbbb"))
 
 	_, entries := s.getSizeInfo()
 	require.Equal(t, uint64(2), entries)
 
-	// Third entry pushes to 33 bytes, exceeding maxSize=30 → evict "a".
 	s.Set([]byte("c"), []byte("cccccccccc"))
 
 	bytes, entries := s.getSizeInfo()
@@ -573,17 +564,14 @@ func TestEvictionRespectMaxSize(t *testing.T) {
 }
 
 func TestEvictionOrderIsLRU(t *testing.T) {
-	// Each entry: key(1) + value(4) = 5 bytes. maxSize=15 → fits 3.
-	s := newTestShard(t, 15, map[string][]byte{})
+	s, read := newTestShard(t, 15, map[string][]byte{})
 
 	s.Set([]byte("a"), []byte("1111"))
 	s.Set([]byte("b"), []byte("2222"))
 	s.Set([]byte("c"), []byte("3333"))
 
-	// Touch "a" so "b" becomes the LRU.
-	s.Get([]byte("a"), true)
+	s.Get(read, []byte("a"), true)
 
-	// Insert "d" → total 20 > 15 → must evict. "b" is LRU.
 	s.Set([]byte("d"), []byte("4444"))
 
 	s.lock.Lock()
@@ -596,10 +584,10 @@ func TestEvictionOrderIsLRU(t *testing.T) {
 }
 
 func TestEvictionOnDelete(t *testing.T) {
-	s := newTestShard(t, 10, map[string][]byte{})
+	s, _ := newTestShard(t, 10, map[string][]byte{})
 
-	s.Set([]byte("a"), []byte("val")) // size 4
-	s.Delete([]byte("longkey1"))      // size 8
+	s.Set([]byte("a"), []byte("val"))
+	s.Delete([]byte("longkey1"))
 
 	bytes, _ := s.getSizeInfo()
 	require.LessOrEqual(t, bytes, uint64(10), "size should not exceed maxSize")
@@ -609,12 +597,11 @@ func TestEvictionOnGetFromDB(t *testing.T) {
 	store := map[string][]byte{
 		"x": []byte("12345678901234567890"),
 	}
-	s := newTestShard(t, 25, store)
+	s, read := newTestShard(t, 25, store)
 
 	s.Set([]byte("a"), []byte("small"))
 
-	// Reading "x" brings in 1+20=21 bytes, total becomes 6+21=27 > 25 → eviction.
-	s.Get([]byte("x"), true)
+	s.Get(read, []byte("x"), true)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -627,17 +614,17 @@ func TestEvictionOnGetFromDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetSizeInfoEmpty(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, _ := newTestShard(t, 4096, map[string][]byte{})
 	bytes, entries := s.getSizeInfo()
 	require.Equal(t, uint64(0), bytes)
 	require.Equal(t, uint64(0), entries)
 }
 
 func TestGetSizeInfoAfterSets(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, _ := newTestShard(t, 4096, map[string][]byte{})
 
-	s.Set([]byte("ab"), []byte("cd"))  // 2+2 = 4
-	s.Set([]byte("efg"), []byte("hi")) // 3+2 = 5
+	s.Set([]byte("ab"), []byte("cd"))
+	s.Set([]byte("efg"), []byte("hi"))
 
 	bytes, entries := s.getSizeInfo()
 	require.Equal(t, uint64(2), entries)
@@ -649,9 +636,9 @@ func TestGetSizeInfoAfterSets(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestInjectValueNotFound(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
-	val, found, err := s.Get([]byte("missing"), true)
+	val, found, err := s.Get(read, []byte("missing"), true)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, val)
@@ -668,7 +655,7 @@ func TestInjectValueNotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConcurrentSetAndGet(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	const n = 100
 	var wg sync.WaitGroup
@@ -684,7 +671,7 @@ func TestConcurrentSetAndGet(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			s.Get(key, true)
+			s.Get(read, key, true)
 		}()
 	}
 
@@ -696,7 +683,7 @@ func TestConcurrentBatchSetAndBatchGet(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		store[fmt.Sprintf("db-%d", i)] = []byte(fmt.Sprintf("v-%d", i))
 	}
-	s := newTestShard(t, 100_000, store)
+	s, read := newTestShard(t, 100_000, store)
 
 	var wg sync.WaitGroup
 
@@ -720,7 +707,7 @@ func TestConcurrentBatchSetAndBatchGet(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			keys[fmt.Sprintf("db-%d", i)] = types.BatchGetResult{}
 		}
-		s.BatchGet(keys)
+		s.BatchGet(read, keys)
 	}()
 
 	wg.Wait()
@@ -737,19 +724,19 @@ func (fp *failPool) Submit(_ context.Context, _ func()) error {
 }
 
 func TestGetPoolSubmitFailure(t *testing.T) {
-	readFunc := func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil }
-	s, _ := NewShard(context.Background(), &failPool{}, readFunc, 4096)
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
+	s, _ := NewShard(context.Background(), &failPool{}, 4096)
 
-	_, _, err := s.Get([]byte("k"), true)
+	_, _, err := s.Get(readFunc, []byte("k"), true)
 	require.Error(t, err)
 }
 
 func TestBatchGetPoolSubmitFailure(t *testing.T) {
-	readFunc := func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil }
-	s, _ := NewShard(context.Background(), &failPool{}, readFunc, 4096)
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
+	s, _ := NewShard(context.Background(), &failPool{}, 4096)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
-	err := s.BatchGet(keys)
+	err := s.BatchGet(readFunc, keys)
 	require.Error(t, err)
 }
 
@@ -758,7 +745,7 @@ func TestBatchGetPoolSubmitFailure(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSetLargeValueExceedingMaxSizeEvictsOldEntries(t *testing.T) {
-	s := newTestShard(t, 100, map[string][]byte{})
+	s, _ := newTestShard(t, 100, map[string][]byte{})
 
 	s.Set([]byte("a"), []byte("small"))
 
@@ -778,22 +765,21 @@ func TestSetLargeValueExceedingMaxSizeEvictsOldEntries(t *testing.T) {
 
 func TestBatchGetDBErrorNotCached(t *testing.T) {
 	var calls atomic.Int64
-	readFunc := func(key []byte) ([]byte, bool, error) {
+	readFunc := Reader(func(key []byte) ([]byte, bool, error) {
 		n := calls.Add(1)
 		if n == 1 {
 			return nil, false, errors.New("transient db error")
 		}
 		return []byte("ok"), true, nil
-	}
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), readFunc, 4096)
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
-	s.BatchGet(keys)
+	s.BatchGet(readFunc, keys)
 
-	// Wait for bulkInjectValues goroutine.
 	time.Sleep(50 * time.Millisecond)
 
-	val, found, err := s.Get([]byte("k"), true)
+	val, found, err := s.Get(readFunc, []byte("k"), true)
 	require.NoError(t, err, "retry should succeed")
 	require.True(t, found)
 	require.Equal(t, "ok", string(val))
@@ -804,12 +790,12 @@ func TestBatchGetDBErrorNotCached(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSetDeleteThenBatchGet(t *testing.T) {
-	s := newTestShard(t, 4096, map[string][]byte{})
+	s, read := newTestShard(t, 4096, map[string][]byte{})
 
 	s.Set([]byte("k"), []byte("v"))
 	s.Delete([]byte("k"))
 
 	keys := map[string]types.BatchGetResult{"k": {}}
-	require.NoError(t, s.BatchGet(keys))
+	require.NoError(t, s.BatchGet(read, keys))
 	require.False(t, keys["k"].IsFound())
 }

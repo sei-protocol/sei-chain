@@ -27,9 +27,6 @@ type shard struct {
 	// A pool for asynchronous reads.
 	readPool threading.Pool
 
-	// A function that reads a value from the database.
-	readFunc func(key []byte) ([]byte, bool, error)
-
 	// The maximum size of this cache, in bytes.
 	maxSize uint64
 
@@ -77,7 +74,6 @@ type shardEntry struct {
 func NewShard(
 	ctx context.Context,
 	readPool threading.Pool,
-	readFunc func(key []byte) ([]byte, bool, error),
 	maxSize uint64,
 ) (*shard, error) {
 
@@ -88,7 +84,6 @@ func NewShard(
 	return &shard{
 		ctx:      ctx,
 		readPool: readPool,
-		readFunc: readFunc,
 		lock:     sync.Mutex{},
 		data:     make(map[string]*shardEntry),
 		gcQueue:  newLRUQueue(),
@@ -96,8 +91,8 @@ func NewShard(
 	}, nil
 }
 
-// Get returns the value for the given key, or (nil, false) if not found.
-func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+// Get returns the value for the given key, or (nil, false, nil) if not found.
+func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
 	s.lock.Lock()
 
 	entry := s.getEntry(key)
@@ -110,7 +105,7 @@ func (s *shard) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	case statusScheduled:
 		return s.getScheduled(entry)
 	case statusUnknown:
-		return s.getUnknown(entry, key)
+		return s.getUnknown(read, entry, key)
 	default:
 		s.lock.Unlock()
 		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
@@ -157,7 +152,7 @@ func (s *shard) getScheduled(entry *shardEntry) ([]byte, bool, error) {
 }
 
 // Handles Get for a key not yet read. Schedules the read and waits. Lock must be held; releases it.
-func (s *shard) getUnknown(entry *shardEntry, key []byte) ([]byte, bool, error) {
+func (s *shard) getUnknown(read Reader, entry *shardEntry, key []byte) ([]byte, bool, error) {
 	entry.status = statusScheduled
 	valueChan := make(chan readResult, 1)
 	entry.valueChan = valueChan
@@ -165,7 +160,7 @@ func (s *shard) getUnknown(entry *shardEntry, key []byte) ([]byte, bool, error) 
 	s.metrics.reportCacheMisses(1)
 	startTime := time.Now()
 	err := s.readPool.Submit(s.ctx, func() {
-		value, _, readErr := s.readFunc(key)
+		value, _, readErr := read(key)
 		entry.injectValue(key, readResult{value: value, err: readErr})
 	})
 	if err != nil {
@@ -235,7 +230,7 @@ type pendingRead struct {
 }
 
 // BatchGet reads a batch of keys from the shard. Results are written into the provided map.
-func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
+func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) error {
 	pending := make([]pendingRead, 0, len(keys))
 	var hits int64
 
@@ -284,7 +279,7 @@ func (s *shard) BatchGet(keys map[string]types.BatchGetResult) error {
 		if pending[i].needsSchedule {
 			p := &pending[i]
 			err := s.readPool.Submit(s.ctx, func() {
-				value, _, readErr := s.readFunc([]byte(p.key))
+				value, _, readErr := read([]byte(p.key))
 				p.entry.valueChan <- readResult{value: value, err: readErr}
 			})
 			if err != nil {

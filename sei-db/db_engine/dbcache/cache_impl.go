@@ -33,8 +33,6 @@ type cache struct {
 // background size scrape runs every metricsScrapeInterval.
 func NewStandardCache(
 	ctx context.Context,
-	// A function that reads a value from the database.
-	readFunc func(key []byte) ([]byte, bool, error),
 	// The number of shards in the cache. Must be a power of two and greater than 0.
 	shardCount uint64,
 	// The maximum size of the cache, in bytes.
@@ -66,7 +64,7 @@ func NewStandardCache(
 
 	shards := make([]*shard, shardCount)
 	for i := uint64(0); i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readPool, readFunc, sizePerShard)
+		shards[i], err = NewShard(ctx, readPool, sizePerShard)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -123,7 +121,7 @@ func (c *cache) BatchSet(updates []CacheUpdate) error {
 	return nil
 }
 
-func (c *cache) BatchGet(keys map[string]types.BatchGetResult) error {
+func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) error {
 	work := make(map[uint64]map[string]types.BatchGetResult)
 	for key := range keys {
 		idx := c.shardManager.Shard([]byte(key))
@@ -139,7 +137,7 @@ func (c *cache) BatchGet(keys map[string]types.BatchGetResult) error {
 
 		err := c.miscPool.Submit(c.ctx, func() {
 			defer wg.Done()
-			err := c.shards[shardIndex].BatchGet(subMap)
+			err := c.shards[shardIndex].BatchGet(read, subMap)
 			if err != nil {
 				for key := range subMap {
 					subMap[key] = types.BatchGetResult{Error: err}
@@ -167,11 +165,11 @@ func (c *cache) Delete(key []byte) {
 	shard.Delete(key)
 }
 
-func (c *cache) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+func (c *cache) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
-	value, ok, err := shard.Get(key, updateLru)
+	value, ok, err := shard.Get(read, key, updateLru)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
 	}

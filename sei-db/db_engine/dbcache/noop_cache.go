@@ -9,26 +9,24 @@ import (
 var _ Cache = (*noOpCache)(nil)
 
 // noOpCache is a Cache that performs no caching. Every Get falls through
-// to the underlying readFunc. Set, Delete, and BatchSet are no-ops.
+// to the provided Reader. Set, Delete, and BatchSet are no-ops.
 // Useful for testing the storage layer without cache interference, or for
 // workloads where caching is not beneficial.
-type noOpCache struct {
-	readFunc func(key []byte) ([]byte, bool, error)
+type noOpCache struct{}
+
+// NewNoOpCache creates a Cache that always reads via the provided Reader and never caches.
+func NewNoOpCache() Cache {
+	return &noOpCache{}
 }
 
-// NewNoOpCache creates a Cache that always reads from readFunc and never caches.
-func NewNoOpCache(readFunc func(key []byte) ([]byte, bool, error)) Cache {
-	return &noOpCache{readFunc: readFunc}
+func (c *noOpCache) Get(read Reader, key []byte, _ bool) ([]byte, bool, error) {
+	return read(key)
 }
 
-func (c *noOpCache) Get(key []byte, _ bool) ([]byte, bool, error) {
-	return c.readFunc(key)
-}
-
-func (c *noOpCache) BatchGet(keys map[string]types.BatchGetResult) error {
+func (c *noOpCache) BatchGet(read Reader, keys map[string]types.BatchGetResult) error {
 	var firstErr error
 	for k := range keys {
-		val, _, err := c.readFunc([]byte(k))
+		val, _, err := read([]byte(k))
 		if err != nil {
 			keys[k] = types.BatchGetResult{Error: err}
 			if firstErr == nil {

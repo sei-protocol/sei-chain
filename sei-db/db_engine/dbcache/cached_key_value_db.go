@@ -14,15 +14,26 @@ var _ types.Checkpointable = (*cachedKeyValueDB)(nil)
 type cachedKeyValueDB struct {
 	db    types.KeyValueDB
 	cache Cache
+	read  Reader
 }
 
 // Combine a cache and a key-value database to create a new key-value database with caching.
 func NewCachedKeyValueDB(db types.KeyValueDB, cache Cache) types.KeyValueDB {
-	return &cachedKeyValueDB{db: db, cache: cache}
+	read := func(key []byte) ([]byte, bool, error) {
+		val, err := db.Get(key)
+		if err != nil {
+			if errorutils.IsNotFound(err) {
+				return nil, false, nil
+			}
+			return nil, false, err
+		}
+		return val, true, nil
+	}
+	return &cachedKeyValueDB{db: db, cache: cache, read: read}
 }
 
 func (c *cachedKeyValueDB) Get(key []byte) ([]byte, error) {
-	val, found, err := c.cache.Get(key, true)
+	val, found, err := c.cache.Get(c.read, key, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
@@ -33,7 +44,7 @@ func (c *cachedKeyValueDB) Get(key []byte) ([]byte, error) {
 }
 
 func (c *cachedKeyValueDB) BatchGet(keys map[string]types.BatchGetResult) error {
-	err := c.cache.BatchGet(keys)
+	err := c.cache.BatchGet(c.read, keys)
 	if err != nil {
 		return fmt.Errorf("failed to get values from cache: %w", err)
 	}

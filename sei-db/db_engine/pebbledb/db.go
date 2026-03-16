@@ -110,17 +110,6 @@ func OpenWithCache(
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	readFunc := func(key []byte) ([]byte, bool, error) {
-		val, getErr := db.Get(key)
-		if getErr != nil {
-			if errorutils.IsNotFound(getErr) {
-				return nil, false, nil
-			}
-			return nil, false, getErr
-		}
-		return val, true, nil
-	}
-
 	var cacheName string
 	if config.EnableMetrics {
 		cacheName = filepath.Base(config.DataDir)
@@ -128,7 +117,6 @@ func OpenWithCache(
 
 	cache, err := dbcache.BuildCache(
 		ctx,
-		readFunc,
 		config.CacheShardCount,
 		config.CacheSize,
 		readPool,
