@@ -77,7 +77,7 @@ type CryptoSim struct {
 	// the creation of new ERC20 contracts during the benchmark.
 	nextERC20ContractID int64
 
-	// The channel that holds blocks sent to the reciept store.
+	// The channel that holds blocks sent to the receipt store.
 	recieptsChan chan *block
 
 	// Enforces a maximum transaction rate (if enabled).
@@ -409,7 +409,7 @@ func (c *CryptoSim) maybeThrottle() {
 
 	c.metrics.SetMainThreadPhase("throttling")
 
-	if err := c.rateLimiter.WaitN(c.ctx, int(c.config.TransactionsPerBlock)); err != nil {
+	if err := c.rateLimiter.WaitN(c.ctx, c.config.TransactionsPerBlock); err != nil {
 		fmt.Printf("failed to wait for rate limit: %v\n", err)
 		c.cancel()
 		return

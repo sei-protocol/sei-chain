@@ -107,11 +107,15 @@ func BuildERC20TransferReceipt(
 		txType = uint32(ethtypes.LegacyTxType)
 	}
 
-	gasUsed := syntheticReceiptGasUsedBase + uint64(crand.Int64Range(0, int64(syntheticReceiptGasUsedSpan)))
-	previousGas := syntheticReceiptPreviousGasBase + uint64(crand.Int64Range(0, int64(syntheticReceiptPreviousGasSpan)))
+	gasUsed := syntheticReceiptGasUsedBase +
+		uint64(crand.Int64Range(0, int64(syntheticReceiptGasUsedSpan))) //nolint:gosec // constants fit in int64
+	previousGas := syntheticReceiptPreviousGasBase +
+		uint64(crand.Int64Range(0, int64(syntheticReceiptPreviousGasSpan))) //nolint:gosec // constants fit in int64
 	cumulativeGasUsed := gasUsed + uint64(txIndex)*previousGas
-	effectiveGasPrice := syntheticReceiptGasPriceBase + uint64(crand.Int64Range(0, int64(syntheticReceiptGasPriceSpan)))
-	transferAmount := syntheticReceiptTransferBase + uint64(crand.Int64Range(0, int64(syntheticReceiptTransferSpan)))
+	effectiveGasPrice := syntheticReceiptGasPriceBase +
+		uint64(crand.Int64Range(0, int64(syntheticReceiptGasPriceSpan))) //nolint:gosec // constants fit in int64
+	transferAmount := syntheticReceiptTransferBase +
+		uint64(crand.Int64Range(0, int64(syntheticReceiptTransferSpan))) //nolint:gosec // constants fit in int64
 
 	var senderTopic [hashLen]byte
 	copy(senderTopic[indexedAddressBase:], senderAddressBytes)

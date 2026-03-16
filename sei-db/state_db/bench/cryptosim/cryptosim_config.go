@@ -137,10 +137,10 @@ type CryptoSimConfig struct {
 	BlockChannelCapacity int
 
 	// If true, the benchmark will generate receipts for each transaction in each block and
-	// feed those reciepts into the reciept store.
+	// feed those receipts into the receipt store.
 	GenerateReceipts bool
 
-	// The capacity of the channel that holds blocks sent to the reciept store.
+	// The capacity of the channel that holds blocks sent to the receipt store.
 	RecieptChannelCapacity int
 
 	// If true, disables simulation of transaction execution, and writes very little to the database. This is

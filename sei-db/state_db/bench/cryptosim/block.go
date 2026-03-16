@@ -13,7 +13,7 @@ type block struct {
 	// The transactions in the block.
 	transactions []*transaction
 
-	// If reciept generation is enabled, this will contain the receipts for each transaction in the block.
+	// If receipt generation is enabled, this will contain the receipts for each transaction in the block.
 	reciepts []*evmtypes.Receipt
 
 	// The block number.

@@ -100,7 +100,7 @@ func NewDataGenerator(
 		nextBlockNumber = binary.BigEndian.Uint64(nextBlockNumberBinary)
 	}
 
-	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber)))
+	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber))) //nolint:gosec
 
 	// Use EVMKeyCode for account data; EVMKeyNonce only accepts 8-byte values.
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(

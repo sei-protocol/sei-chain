@@ -14,7 +14,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// A simulated reciept store.
+// A simulated receipt store.
 type RecieptStoreSimulator struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -27,7 +27,7 @@ type RecieptStoreSimulator struct {
 	metrics *CryptosimMetrics
 }
 
-// Creates a new reciept store simulator.
+// Creates a new receipt store simulator.
 func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -62,7 +62,7 @@ func NewRecieptStoreSimulator(
 }
 
 func (r *RecieptStoreSimulator) mainLoop() {
-	defer r.store.Close()
+	defer func() { _ = r.store.Close() }()
 	for {
 		select {
 		case <-r.ctx.Done():
