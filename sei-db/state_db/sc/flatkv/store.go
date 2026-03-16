@@ -533,6 +533,12 @@ func (s *CommitStore) RootHash() []byte {
 	return checksum[:]
 }
 
+// CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.
+func (s *CommitStore) CommittedRootHash() []byte {
+	checksum := s.committedLtHash.Checksum()
+	return checksum[:]
+}
+
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
