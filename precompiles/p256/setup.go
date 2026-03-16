@@ -5,6 +5,7 @@ import (
 	p256v606 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v606"
 	p256v614 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v614"
 	p256v620 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v620"
+	p256v630 "github.com/sei-protocol/sei-chain/precompiles/p256/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -14,6 +15,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.0.6":      check(p256v606.NewPrecompile(keepers)),
 		"v6.1.4":      check(p256v614.NewPrecompile(keepers)),
 		"v6.2.0":      check(p256v620.NewPrecompile(keepers)),
+		"v6.3.0":      check(p256v630.NewPrecompile(keepers)),
 	}
 }
 
