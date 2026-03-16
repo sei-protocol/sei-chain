@@ -46,6 +46,16 @@ func NewExporter(cosmosExporter types.Exporter, evmExporter types.Exporter) (*Sn
 	}, nil
 }
 
+// Next returns the next item in the composite snapshot stream.
+//
+// The stream is split into two sequential phases:
+//  1. phaseCosmos — drains all items from the cosmos (memiavl) exporter.
+//     When the cosmos exporter is exhausted, if a FlatKV exporter is present,
+//     the phase transitions to phaseFlatKV and emits the EVMFlatKVStoreName
+//     module header as the first item.
+//  2. phaseFlatKV — drains all items from the FlatKV exporter.
+//
+// Returns ErrorExportDone when both phases are complete.
 func (s *SnapshotExporter) Next() (interface{}, error) {
 	switch s.phase {
 	case phaseCosmos:
@@ -57,6 +67,8 @@ func (s *SnapshotExporter) Next() (interface{}, error) {
 	}
 }
 
+// nextFromCosmos pulls items from the cosmos exporter. On exhaustion it
+// transitions to phaseFlatKV (emitting the module header) or phaseDone.
 func (s *SnapshotExporter) nextFromCosmos() (interface{}, error) {
 	item, err := s.cosmosExporter.Next()
 	if err != nil {
@@ -76,6 +88,8 @@ func (s *SnapshotExporter) nextFromCosmos() (interface{}, error) {
 	return item, nil
 }
 
+// nextFromFlatKV pulls items from the FlatKV exporter. On exhaustion it
+// transitions to phaseDone.
 func (s *SnapshotExporter) nextFromFlatKV() (interface{}, error) {
 	item, err := s.evmExporter.Next()
 	if err != nil {

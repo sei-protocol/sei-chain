@@ -11,8 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	flatkvpkg "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -364,10 +362,10 @@ func TestExportImportSplitWrite(t *testing.T) {
 	_, err := src.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := flatkvpkg.Address{0xAA}
-	slot := flatkvpkg.Slot{0xBB}
+	addr := flatkv.Address{0xAA}
+	slot := flatkv.Slot{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkvpkg.StorageKey(addr, slot))
+		flatkv.StorageKey(addr, slot))
 	storageVal := []byte{0x42}
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])

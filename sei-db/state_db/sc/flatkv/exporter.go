@@ -63,9 +63,15 @@ func (e *KVExporter) Next() (interface{}, error) {
 			if err != nil {
 				return nil, fmt.Errorf("open iterator for db %d: %w", e.currentDB, err)
 			}
-			if iter == nil || !iter.First() {
-				if iter != nil {
-					_ = iter.Close()
+			if iter == nil {
+				e.currentDB++
+				continue
+			}
+			if !iter.First() {
+				err := iter.Error()
+				_ = iter.Close()
+				if err != nil {
+					return nil, fmt.Errorf("iterator seek error for db %d: %w", e.currentDB, err)
 				}
 				e.currentDB++
 				continue
