@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	pqgo "github.com/parquet-go/parquet-go"
@@ -124,14 +123,13 @@ func TestConcurrentReadsAndPrune(t *testing.T) {
 	}
 }
 
-// TestOnFileRotationNotBlockedByReaders verifies that OnFileRotation (the
-// commit hotpath) completes quickly even when many readers hold long-running
-// queries. This is the core contention scenario from the issue report.
-func TestOnFileRotationNotBlockedByReaders(t *testing.T) {
+// TestOnFileRotationNotBlockedByPruneMu verifies the structural property
+// that OnFileRotation only acquires mu (the file-list lock), never pruneMu
+// (the file-lifetime lock). We hold pruneMu.RLock to simulate in-flight
+// readers; if OnFileRotation tried to acquire pruneMu it would deadlock.
+func TestOnFileRotationNotBlockedByPruneMu(t *testing.T) {
 	dir := t.TempDir()
-
-	// Create a large file so DuckDB queries take a bit longer.
-	writeTestReceiptFile(t, dir, 0, 500)
+	writeTestReceiptFile(t, dir, 0, 1)
 
 	store, err := NewStore(StoreConfig{
 		DBDirectory:      dir,
@@ -140,51 +138,25 @@ func TestOnFileRotationNotBlockedByReaders(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	ctx := context.Background()
-	const numReaders = 20
+	require.Equal(t, 1, store.Reader.ClosedReceiptFileCount())
 
-	var wg sync.WaitGroup
-	readersStarted := make(chan struct{})
+	// Simulate in-flight readers by holding pruneMu.RLock directly.
+	store.Reader.pruneMu.RLock()
+	defer store.Reader.pruneMu.RUnlock()
 
-	// Start readers that hold pruneMu.RLock for the duration of their query.
-	// They query for a missing hash to force a full scan.
-	var readersReady sync.WaitGroup
-	readersReady.Add(numReaders)
-	for i := 0; i < numReaders; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			readersReady.Done()
-			<-readersStarted
-			for j := 0; j < 100; j++ {
-				_, _ = store.GetReceiptByTxHash(ctx, common.Hash{0xff})
-			}
-		}()
-	}
-
-	// Wait for all readers to be ready, then let them go.
-	readersReady.Wait()
-	close(readersStarted)
-
-	// OnFileRotation should complete almost instantly because it only
-	// touches mu, not pruneMu.
-	start := time.Now()
+	// OnFileRotation only needs mu.Lock, so it must complete even while
+	// pruneMu is held. If it touched pruneMu this would deadlock and the
+	// test runner's timeout would catch it.
 	store.Reader.OnFileRotation(500)
-	elapsed := time.Since(start)
 
-	wg.Wait()
-
-	// OnFileRotation should take well under 100ms. Before the fix it would
-	// block until all readers finish (potentially hundreds of ms).
-	assert.Less(t, elapsed, 100*time.Millisecond,
-		"OnFileRotation took %v; should be near-instant since it doesn't touch pruneMu", elapsed)
-
-	// Verify the file was actually added.
 	require.Equal(t, 2, store.Reader.ClosedReceiptFileCount())
 }
 
 // TestConcurrentReadsPruneAndRotation exercises all three operations
 // (reads, pruning, rotation) concurrently to verify no deadlocks or races.
+// Unlike TestConcurrentReadsAndPrune which only tests reads vs pruning, this
+// test adds file rotation (the commit path) to verify the three-way lock
+// ordering between mu and pruneMu doesn't deadlock.
 func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 	dir := t.TempDir()
 
@@ -205,20 +177,17 @@ func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 
 	ctx := context.Background()
 	var wg sync.WaitGroup
-	stop := make(chan struct{})
 	var readErr atomic.Int64
 
-	// Readers: continuously query.
-	for i := 0; i < 10; i++ {
+	const numReaders = 10
+	const readsPerReader = 50
+
+	// Readers: fixed number of queries.
+	for i := 0; i < numReaders; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
+			for j := 0; j < readsPerReader; j++ {
 				_, err := store.GetReceiptByTxHash(ctx, common.Hash{0xff})
 				if err != nil {
 					readErr.Add(1)
@@ -227,13 +196,12 @@ func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 		}()
 	}
 
-	// Pruner: prune old files (only the original 5 files at blocks 0-2499).
+	// Pruner: prune old files.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 3; i++ {
 			store.PruneOldFiles(uint64(1600 + i*500))
-			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
@@ -246,13 +214,9 @@ func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 			startBlock := 5000 + i*500
 			writeTestReceiptFile(t, dir, startBlock, 1)
 			store.Reader.OnFileRotation(startBlock)
-			time.Sleep(2 * time.Millisecond)
 		}
 	}()
 
-	// Let everything run for a bit.
-	time.Sleep(200 * time.Millisecond)
-	close(stop)
 	wg.Wait()
 
 	assert.Equal(t, int64(0), readErr.Load(), "readers should not see errors during concurrent prune+rotation")
