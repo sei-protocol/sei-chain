@@ -105,7 +105,6 @@ type CommitStore struct {
 	// secondary copies are written to each DB's LocalMeta for integrity verification.
 	perDBCommittedLtHash map[string]*lthash.LtHash
 	perDBWorkingLtHash   map[string]*lthash.LtHash
-	needsPerDBBackfill   bool // true when per-DB keys are absent from metadataDB (upgrade)
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
@@ -141,30 +140,20 @@ func NewCommitStore(
 	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
-		ctx:               ctx,
-		config:            cfg,
-		dbDir:             dbDir,
-		localMeta:         make(map[string]*LocalMeta),
-		accountWrites:     make(map[string]*pendingAccountWrite),
-		codeWrites:        make(map[string]*pendingKVWrite),
-		storageWrites:     make(map[string]*pendingKVWrite),
-		legacyWrites:      make(map[string]*pendingKVWrite),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		perDBCommittedLtHash: map[string]*lthash.LtHash{
-			accountDBDir: lthash.New(),
-			codeDBDir:    lthash.New(),
-			storageDBDir: lthash.New(),
-			legacyDBDir:  lthash.New(),
-		},
-		perDBWorkingLtHash: map[string]*lthash.LtHash{
-			accountDBDir: lthash.New(),
-			codeDBDir:    lthash.New(),
-			storageDBDir: lthash.New(),
-			legacyDBDir:  lthash.New(),
-		},
-		phaseTimer: metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		ctx:                  ctx,
+		config:               cfg,
+		dbDir:                dbDir,
+		localMeta:            make(map[string]*LocalMeta),
+		accountWrites:        make(map[string]*pendingAccountWrite),
+		codeWrites:           make(map[string]*pendingKVWrite),
+		storageWrites:        make(map[string]*pendingKVWrite),
+		legacyWrites:         make(map[string]*pendingKVWrite),
+		pendingChangeSets:    make([]*proto.NamedChangeSet, 0),
+		committedLtHash:      lthash.New(),
+		workingLtHash:        lthash.New(),
+		perDBCommittedLtHash: newPerDBLtHashMap(),
+		perDBWorkingLtHash:   newPerDBLtHashMap(),
+		phaseTimer:           metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -301,11 +290,6 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 	if err := s.catchup(targetVersion); err != nil {
 		return fmt.Errorf("readonly catchup: %w", err)
 	}
-	if s.needsPerDBBackfill {
-		if err := s.backfillPerDBLtHashes(false); err != nil {
-			return fmt.Errorf("readonly per-DB LtHash backfill: %w", err)
-		}
-	}
 
 	if targetVersion > 0 && s.committedVersion != targetVersion {
 		return fmt.Errorf("readonly version mismatch: requested %d, reached %d",
@@ -334,15 +318,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
-	if err := s.catchup(catchupTarget); err != nil {
-		return err
-	}
-	if s.needsPerDBBackfill {
-		if err := s.backfillPerDBLtHashes(true); err != nil {
-			return fmt.Errorf("per-DB LtHash backfill: %w", err)
-		}
-	}
-	return nil
+	return s.catchup(catchupTarget)
 }
 
 // open opens all database instances.

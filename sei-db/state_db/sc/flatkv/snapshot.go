@@ -592,11 +592,6 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 	if err := s.catchup(targetVersion); err != nil {
 		return fmt.Errorf("catchup after rollback: %w", err)
 	}
-	if s.needsPerDBBackfill {
-		if err := s.backfillPerDBLtHashes(true); err != nil {
-			return fmt.Errorf("rollback per-DB LtHash backfill: %w", err)
-		}
-	}
 
 	if s.committedVersion != targetVersion {
 		return fmt.Errorf("rollback failed: wanted version %d but reached %d (WAL may be incomplete)",

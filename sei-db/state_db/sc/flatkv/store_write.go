@@ -233,11 +233,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	}
 
 	// Global LTHash = sum of per-DB hashes (homomorphic property)
-	global := lthash.New()
+	s.workingLtHash.Reset()
 	for _, h := range s.perDBWorkingLtHash {
-		global.MixIn(h)
+		s.workingLtHash.MixIn(h)
 	}
-	s.workingLtHash = global
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
@@ -271,10 +270,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	// Step 3: Update in-memory committed state
 	s.phaseTimer.SetPhase("commit_update_lt_hash")
 	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
-	for dbDir, h := range s.perDBWorkingLtHash {
-		s.perDBCommittedLtHash[dbDir] = h.Clone()
-	}
+	s.snapshotLtHashes()
 
 	// Step 4: Persist global metadata to metadata DB (always every block)
 	s.phaseTimer.SetPhase("commit_write_metadata")

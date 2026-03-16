@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -58,10 +57,6 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 
 // commitGlobalMetadata atomically commits global version, global LtHash,
 // and per-DB LtHashes to metadata DB.
-//
-// When needsPerDBBackfill is true (upgrade in progress), per-DB keys are
-// omitted to prevent persisting wrong zero-based hashes before the full-scan
-// backfill completes.
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
 	batch := s.metadataDB.NewBatch()
 	defer func() { _ = batch.Close() }()
@@ -78,12 +73,10 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 		return fmt.Errorf("failed to set global lthash: %w", err)
 	}
 
-	if !s.needsPerDBBackfill {
-		for dbDir, metaKey := range perDBLtHashKeys {
-			if h := s.perDBCommittedLtHash[dbDir]; h != nil {
-				if err := batch.Set([]byte(metaKey), h.Marshal()); err != nil {
-					return fmt.Errorf("failed to set %s lthash: %w", dbDir, err)
-				}
+	for dbDir, metaKey := range perDBLtHashKeys {
+		if h := s.perDBCommittedLtHash[dbDir]; h != nil {
+			if err := batch.Set([]byte(metaKey), h.Marshal()); err != nil {
+				return fmt.Errorf("failed to set %s lthash: %w", dbDir, err)
 			}
 		}
 	}
@@ -91,16 +84,31 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
 }
 
-// loadPerDBLtHashes reads per-DB LtHashes from metadataDB.
-// If any key is missing, sets needsPerDBBackfill and initializes all to zero.
-func (s *CommitStore) loadPerDBLtHashes() error {
-	loaded := make(map[string]*lthash.LtHash, len(perDBLtHashKeys))
-	var missing []string
+// newPerDBLtHashMap returns a map with a fresh zero LtHash for each data DB.
+func newPerDBLtHashMap() map[string]*lthash.LtHash {
+	m := make(map[string]*lthash.LtHash, len(perDBLtHashKeys))
+	for dbDir := range perDBLtHashKeys {
+		m[dbDir] = lthash.New()
+	}
+	return m
+}
 
+// snapshotLtHashes clones working hashes (global + per-DB) into committed state.
+func (s *CommitStore) snapshotLtHashes() {
+	s.committedLtHash = s.workingLtHash.Clone()
+	for dbDir, h := range s.perDBWorkingLtHash {
+		s.perDBCommittedLtHash[dbDir] = h.Clone()
+	}
+}
+
+// loadPerDBLtHashes reads per-DB LtHashes from metadataDB.
+// If a key is not found (fresh start), initializes to zero.
+func (s *CommitStore) loadPerDBLtHashes() error {
 	for dbDir, metaKey := range perDBLtHashKeys {
 		data, err := s.metadataDB.Get([]byte(metaKey))
 		if errorutils.IsNotFound(err) {
-			missing = append(missing, dbDir)
+			s.perDBCommittedLtHash[dbDir] = lthash.New()
+			s.perDBWorkingLtHash[dbDir] = lthash.New()
 			continue
 		}
 		if err != nil {
@@ -110,100 +118,8 @@ func (s *CommitStore) loadPerDBLtHashes() error {
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal %s lthash: %w", dbDir, err)
 		}
-		loaded[dbDir] = h
-	}
-
-	if len(missing) > 0 {
-		s.needsPerDBBackfill = true
-		for dbDir := range perDBLtHashKeys {
-			s.perDBCommittedLtHash[dbDir] = lthash.New()
-			s.perDBWorkingLtHash[dbDir] = lthash.New()
-		}
-		logger.Info("per-DB LtHash keys missing from metadataDB, will backfill after catchup",
-			"missing", missing, "found", len(loaded))
-		return nil
-	}
-
-	for dbDir, h := range loaded {
 		s.perDBCommittedLtHash[dbDir] = h
 		s.perDBWorkingLtHash[dbDir] = h.Clone()
 	}
-	return nil
-}
-
-// fullScanDBLtHash computes the LtHash of a single data DB by iterating
-// all KV pairs (excluding the LocalMeta key at 0x00).
-func fullScanDBLtHash(db types.KeyValueDB) (*lthash.LtHash, error) {
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: metaKeyLowerBound(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("fullScanDBLtHash: new iter: %w", err)
-	}
-	defer iter.Close()
-
-	var pairs []lthash.KVPairWithLastValue
-	for iter.First(); iter.Valid(); iter.Next() {
-		key := bytes.Clone(iter.Key())
-		value := bytes.Clone(iter.Value())
-		pairs = append(pairs, lthash.KVPairWithLastValue{
-			Key:   key,
-			Value: value,
-		})
-	}
-	if err := iter.Error(); err != nil {
-		return nil, fmt.Errorf("fullScanDBLtHash: iter error: %w", err)
-	}
-
-	result, _ := lthash.ComputeLtHash(nil, pairs)
-	return result, nil
-}
-
-// backfillPerDBLtHashes computes per-DB LtHashes via full scan of each data DB
-// and optionally persists them to metadataDB and each DB's LocalMeta.
-// Must be called AFTER catchup when all DBs are at a consistent version.
-func (s *CommitStore) backfillPerDBLtHashes(persist bool) error {
-	dataDBs := map[string]types.KeyValueDB{
-		accountDBDir: s.accountDB,
-		codeDBDir:    s.codeDB,
-		storageDBDir: s.storageDB,
-		legacyDBDir:  s.legacyDB,
-	}
-
-	for dbDir, db := range dataDBs {
-		h, err := fullScanDBLtHash(db)
-		if err != nil {
-			return fmt.Errorf("backfill %s: %w", dbDir, err)
-		}
-		s.perDBCommittedLtHash[dbDir] = h
-		s.perDBWorkingLtHash[dbDir] = h.Clone()
-	}
-
-	if persist {
-		batch := s.metadataDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-		for dbDir, metaKey := range perDBLtHashKeys {
-			if err := batch.Set([]byte(metaKey), s.perDBCommittedLtHash[dbDir].Marshal()); err != nil {
-				return fmt.Errorf("backfill persist %s to metadataDB: %w", dbDir, err)
-			}
-		}
-		if err := batch.Commit(types.WriteOptions{Sync: s.config.Fsync}); err != nil {
-			return fmt.Errorf("backfill metadataDB commit: %w", err)
-		}
-
-		for dbDir, db := range dataDBs {
-			meta := &LocalMeta{
-				CommittedVersion: s.localMeta[dbDir].CommittedVersion,
-				LtHash:           s.perDBCommittedLtHash[dbDir],
-			}
-			if err := db.Set(DBLocalMetaKey, MarshalLocalMeta(meta), types.WriteOptions{Sync: s.config.Fsync}); err != nil {
-				return fmt.Errorf("backfill persist %s LocalMeta: %w", dbDir, err)
-			}
-			s.localMeta[dbDir] = meta
-		}
-	}
-
-	s.needsPerDBBackfill = false
-	logger.Info("per-DB LtHash backfill complete", "persist", persist, "version", s.committedVersion)
 	return nil
 }

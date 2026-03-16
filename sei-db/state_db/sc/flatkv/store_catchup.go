@@ -145,10 +145,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		}
 
 		s.committedVersion = entry.Version
-		s.committedLtHash = s.workingLtHash.Clone()
-		for dbDir, h := range s.perDBWorkingLtHash {
-			s.perDBCommittedLtHash[dbDir] = h.Clone()
-		}
+		s.snapshotLtHashes()
 		s.clearPendingWrites()
 
 		replayed++
