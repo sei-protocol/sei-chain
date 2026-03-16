@@ -41,6 +41,12 @@ type CryptosimMetrics struct {
 	processWriteCountTotal     metric.Int64Counter
 	uptimeSeconds              metric.Float64Gauge
 
+	// Receipt metrics
+	receiptBlockWriteDuration metric.Float64Histogram
+	receiptChannelDepth       metric.Int64Gauge
+	receiptsWrittenTotal      metric.Int64Counter
+	receiptErrorsTotal        metric.Int64Counter
+
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
 }
@@ -140,6 +146,27 @@ func NewCryptosimMetrics(
 		metric.WithUnit("s"),
 	)
 
+	receiptBlockWriteDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_block_write_duration_seconds",
+		metric.WithDescription("Time to write a block of receipts to the parquet store"),
+		metric.WithUnit("s"),
+	)
+	receiptChannelDepth, _ := meter.Int64Gauge(
+		"cryptosim_receipt_channel_depth",
+		metric.WithDescription("Current number of blocks queued for receipt writing"),
+		metric.WithUnit("{count}"),
+	)
+	receiptsWrittenTotal, _ := meter.Int64Counter(
+		"cryptosim_receipts_written_total",
+		metric.WithDescription("Total number of receipts written to the parquet store"),
+		metric.WithUnit("{count}"),
+	)
+	receiptErrorsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_errors_total",
+		metric.WithDescription("Total receipt processing errors (marshal or write failures)"),
+		metric.WithUnit("{count}"),
+	)
+
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
 		mainThreadPhase = metrics.NewPhaseTimer(meter, "seidb_main_thread")
@@ -164,6 +191,10 @@ func NewCryptosimMetrics(
 		processReadCountTotal:        processReadCountTotal,
 		processWriteCountTotal:       processWriteCountTotal,
 		uptimeSeconds:                uptimeSeconds,
+		receiptBlockWriteDuration:    receiptBlockWriteDuration,
+		receiptChannelDepth:          receiptChannelDepth,
+		receiptsWrittenTotal:         receiptsWrittenTotal,
+		receiptErrorsTotal:           receiptErrorsTotal,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
@@ -400,4 +431,46 @@ func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
 		return
 	}
 	m.mainThreadPhase.SetPhase(phase)
+}
+
+func (m *CryptosimMetrics) RecordReceiptBlockWriteDuration(seconds float64) {
+	if m == nil || m.receiptBlockWriteDuration == nil {
+		return
+	}
+	m.receiptBlockWriteDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) ReportReceiptsWritten(count int64) {
+	if m == nil || m.receiptsWrittenTotal == nil {
+		return
+	}
+	m.receiptsWrittenTotal.Add(context.Background(), count)
+}
+
+func (m *CryptosimMetrics) ReportReceiptError() {
+	if m == nil || m.receiptErrorsTotal == nil {
+		return
+	}
+	m.receiptErrorsTotal.Add(context.Background(), 1)
+}
+
+// startReceiptChannelDepthSampling periodically records the depth of the receipt channel.
+func (m *CryptosimMetrics) startReceiptChannelDepthSampling(ch <-chan *block, intervalSeconds int) {
+	if m == nil || m.receiptChannelDepth == nil || intervalSeconds <= 0 || ch == nil {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	ctx := context.Background()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				m.receiptChannelDepth.Record(ctx, int64(len(ch)))
+			}
+		}
+	}()
 }

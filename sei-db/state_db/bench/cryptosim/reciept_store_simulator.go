@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -22,7 +23,8 @@ type RecieptStoreSimulator struct {
 
 	recieptsChan chan *block
 
-	store *parquet.Store
+	store   *parquet.Store
+	metrics *CryptosimMetrics
 }
 
 // Creates a new reciept store simulator.
@@ -30,6 +32,7 @@ func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
 	recieptsChan chan *block,
+	metrics *CryptosimMetrics,
 ) (*RecieptStoreSimulator, error) {
 	derivedCtx, cancel := context.WithCancel(ctx)
 
@@ -52,6 +55,7 @@ func NewRecieptStoreSimulator(
 		config:       config,
 		recieptsChan: recieptsChan,
 		store:        store,
+		metrics:      metrics,
 	}
 	go r.mainLoop()
 	return r, nil
@@ -77,6 +81,7 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	inputs := make([]parquet.ReceiptInput, 0, len(blk.reciepts))
 
 	var logStartIndex uint
+	var marshalErrors int64
 
 	for _, receipt := range blk.reciepts {
 		if receipt == nil {
@@ -86,6 +91,7 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		receiptBytes, err := receipt.Marshal()
 		if err != nil {
 			fmt.Printf("failed to marshal receipt: %v\n", err)
+			marshalErrors++
 			continue
 		}
 
@@ -108,11 +114,19 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		})
 	}
 
+	for range marshalErrors {
+		r.metrics.ReportReceiptError()
+	}
+
 	if len(inputs) > 0 {
+		start := time.Now()
 		if err := r.store.WriteReceipts(inputs); err != nil {
 			fmt.Printf("failed to write receipts for block %d: %v\n", blockNumber, err)
+			r.metrics.ReportReceiptError()
 			return
 		}
+		r.metrics.RecordReceiptBlockWriteDuration(time.Since(start).Seconds())
+		r.metrics.ReportReceiptsWritten(int64(len(inputs)))
 	}
 	r.store.UpdateLatestVersion(int64(blockNumber)) //nolint:gosec // block numbers won't exceed int64 max
 }
@@ -149,4 +163,3 @@ func mapTopics(topics []string) []common.Hash {
 	}
 	return result
 }
-
