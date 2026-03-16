@@ -150,7 +150,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 
 		replayed++
 		if replayed%1000 == 0 {
-			s.log.Info("FlatKV catchup progress", "replayed", replayed, "version", entry.Version)
+			logger.Info("FlatKV catchup progress", "replayed", replayed, "version", entry.Version)
 		}
 		return nil
 	})
@@ -170,7 +170,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		if err := s.commitGlobalMetadata(s.committedVersion, s.committedLtHash); err != nil {
 			return fmt.Errorf("catchup global meta: %w", err)
 		}
-		s.log.Info("FlatKV catchup complete", "replayed", replayed, "version", s.committedVersion)
+		logger.Info("FlatKV catchup complete", "replayed", replayed, "version", s.committedVersion)
 	}
 
 	return nil

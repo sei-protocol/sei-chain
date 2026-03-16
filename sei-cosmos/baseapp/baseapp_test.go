@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -23,17 +22,11 @@ var (
 	capKey2 = sdk.NewKVStoreKey("key2")
 )
 
-func defaultLogger() log.Logger {
-	logger, _ := log.NewDefaultLogger("plain", "info")
-	return logger
-}
-
 func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {
-	logger := defaultLogger()
 	db := dbm.NewMemDB()
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
-	return NewBaseApp(name, logger, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{}, options...)
+	return NewBaseApp(name, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{}, options...)
 }
 
 func registerTestCodec(cdc *codec.LegacyAmino) {
@@ -71,7 +64,6 @@ func setupBaseApp(t *testing.T, options ...func(*BaseApp)) *BaseApp {
 }
 
 func TestLoadVersionPruning(t *testing.T) {
-	logger := log.NewNopLogger()
 	pruningOptions := store.PruningOptions{
 		KeepRecent: 2,
 		KeepEvery:  3,
@@ -80,7 +72,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	pruningOpt := SetPruning(pruningOptions)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	capKey := sdk.NewKVStoreKey("key1")
@@ -119,7 +111,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	}
 
 	// reload with LoadLatestVersion, check it loads last version
-	app = NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
+	app = NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
 	app.MountStores(capKey)
 
 	err = app.LoadLatestVersion()

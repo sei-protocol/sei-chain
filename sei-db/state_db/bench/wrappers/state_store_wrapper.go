@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -63,4 +64,8 @@ func (s *stateStoreWrapper) LoadVersion(_ int64) error {
 
 func (s *stateStoreWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for state store wrapper")
+}
+
+func (s *stateStoreWrapper) GetPhaseTimer() *metrics.PhaseTimer {
+	return nil
 }

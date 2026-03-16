@@ -103,7 +103,7 @@ func (d *DeferredCache) IterateDeferredBalances(ctx sdk.Context, cb func(moduleA
 		d.cdc.MustUnmarshal(iterator.Value(), &balance)
 		moduleAddr, err := types.AddressFromDeferredCacheStore(iterator.Key())
 		if err != nil {
-			ctx.Logger().With("key", iterator.Key(), "err", err).Error("failed to get address from deferred cache store")
+			logger.Error("failed to get address from deferred cache store", "key", iterator.Key(), "err", err)
 			panic(err)
 		}
 

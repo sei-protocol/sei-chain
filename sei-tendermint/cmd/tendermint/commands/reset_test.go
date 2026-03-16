@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -17,7 +16,7 @@ func Test_ResetAll(t *testing.T) {
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
-	logger := log.NewNopLogger()
+
 	cfg.EnsureRoot(dir)
 	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
@@ -25,7 +24,7 @@ func Test_ResetAll(t *testing.T) {
 	pv.LastSignState.Height = 10
 	require.NoError(t, pv.Save())
 	require.NoError(t, ResetAll(config.DBDir(), config.PrivValidator.KeyFile(),
-		config.PrivValidator.StateFile(), logger, types.ABCIPubKeyTypeEd25519, ""))
+		config.PrivValidator.StateFile(), types.ABCIPubKeyTypeEd25519, ""))
 	require.DirExists(t, config.DBDir())
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "block.db"))
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "state.db"))
@@ -41,14 +40,14 @@ func Test_ResetState(t *testing.T) {
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
-	logger := log.NewNopLogger()
+
 	cfg.EnsureRoot(dir)
 	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
 	require.NoError(t, err)
 	pv.LastSignState.Height = 10
 	require.NoError(t, pv.Save())
-	require.NoError(t, ResetState(config.DBDir(), logger))
+	require.NoError(t, ResetState(config.DBDir()))
 	require.DirExists(t, config.DBDir())
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "block.db"))
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "state.db"))
@@ -65,7 +64,7 @@ func Test_UnsafeResetAll(t *testing.T) {
 	config := cfg.TestConfig()
 	dir := t.TempDir()
 	config.SetRoot(dir)
-	logger := log.NewNopLogger()
+
 	cfg.EnsureRoot(dir)
 	initTestFiles(t, config)
 	pv, err := privval.LoadFilePV(config.PrivValidator.KeyFile(), config.PrivValidator.StateFile())
@@ -73,7 +72,7 @@ func Test_UnsafeResetAll(t *testing.T) {
 	pv.LastSignState.Height = 10
 	require.NoError(t, pv.Save())
 	require.NoError(t, ResetAll(config.DBDir(), config.PrivValidator.KeyFile(),
-		config.PrivValidator.StateFile(), logger, types.ABCIPubKeyTypeEd25519, ""))
+		config.PrivValidator.StateFile(), types.ABCIPubKeyTypeEd25519, ""))
 	require.DirExists(t, config.DBDir())
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "block.db"))
 	require.NoFileExists(t, filepath.Join(config.DBDir(), "state.db"))

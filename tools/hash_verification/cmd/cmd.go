@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/pebbledb"
 	dbm "github.com/tendermint/tm-db"
@@ -54,7 +53,7 @@ func generatePebbleHash(cmd *cobra.Command, _ []string) {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
-	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	stateStore, err := sstypes.NewStateStore(homeDir, ssConfig)
 
 	if err != nil {
 		panic(err)

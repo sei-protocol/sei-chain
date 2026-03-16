@@ -7,16 +7,18 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "internal", "p2p", "pex")
+
 	_ service.Service = (*Reactor)(nil)
 )
 
@@ -64,7 +66,6 @@ func ChannelDescriptor() p2p.ChannelDescriptor[*pb.PexMessage] {
 type Reactor struct {
 	service.BaseService
 	sendInterval time.Duration
-	logger       log.Logger
 	router       *p2p.Router
 	// peerLimiters limits the number of messages received from peers.
 	peerLimiters utils.Mutex[map[types.NodeID]*rate.Limiter]
@@ -73,7 +74,6 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new reactor.
 func NewReactor(
-	logger log.Logger,
 	router *p2p.Router,
 	sendInterval time.Duration,
 ) (*Reactor, error) {
@@ -82,13 +82,12 @@ func NewReactor(
 		return nil, err
 	}
 	r := &Reactor{
-		logger:       logger,
 		sendInterval: sendInterval,
 		channel:      channel,
 		router:       router,
 		peerLimiters: utils.NewMutex(map[types.NodeID]*rate.Limiter{}),
 	}
-	r.BaseService = *service.NewBaseService(logger, "PEX", r)
+	r.BaseService = *service.NewBaseService("PEX", r)
 	return r, nil
 }
 
@@ -123,7 +122,7 @@ func wrap[T *pb.PexRequest | *pb.PexResponse](msg T) *pb.PexMessage {
 
 func (r *Reactor) sendRoutine(ctx context.Context) error {
 	for {
-		r.logger.Info("PEX broadcast")
+		logger.Info("PEX broadcast")
 		r.channel.Broadcast(wrap(&pb.PexRequest{}))
 		if err := utils.Sleep(ctx, r.sendInterval); err != nil {
 			return err

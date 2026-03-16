@@ -9,10 +9,11 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/sei-protocol/sei-chain/sei-iavl/internal/logger"
 )
+
+var logger = seilog.NewLogger("iavl")
 
 // commitGap after upgrade/delete commitGap FastNodes when commit the batch
 var commitGap uint64 = 5000000
@@ -1084,7 +1085,7 @@ func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) 
 	if tree.ITree.root == nil {
 		// There can still be orphans, for example if the root is the node being
 		// removed.
-		logger.Debug("SAVE EMPTY TREE %v\n", version)
+		logger.Debug("SAVE EMPTY TREE", "version", version)
 		if err := tree.handleOrphans(version); err != nil {
 			return 0, err
 		}
@@ -1092,7 +1093,7 @@ func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) 
 			return 0, err
 		}
 	} else {
-		logger.Debug("SAVE TREE %v\n", version)
+		logger.Debug("SAVE TREE", "version", version)
 		if _, err := tree.ndb.SaveBranch(tree.ITree.root); err != nil {
 			return 0, err
 		}
@@ -1200,7 +1201,7 @@ func (tree *MutableTree) SetInitialVersion(version uint64) {
 // DeleteVersions deletes a series of versions from the MutableTree.
 // Deprecated: please use DeleteVersionsRange instead.
 func (tree *MutableTree) DeleteVersions(versions ...int64) error {
-	logger.Debug("DELETING VERSIONS: %v\n", versions)
+	logger.Debug("DELETING VERSIONS", "versions", versions)
 
 	if tree.separateOrphanStorage {
 		// no need to delete versions if we are keeping orphans separately
@@ -1256,7 +1257,7 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 // DeleteVersion deletes a tree version from disk. The version can then no
 // longer be accessed.
 func (tree *MutableTree) DeleteVersion(version int64) error {
-	logger.Debug("DELETE VERSION: %d\n", version)
+	logger.Debug("DELETE VERSION", "version", version)
 
 	if err := tree.deleteVersion(version); err != nil {
 		return err

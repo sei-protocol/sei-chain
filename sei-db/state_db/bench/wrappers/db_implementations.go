@@ -1,10 +1,10 @@
 package wrappers
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -30,9 +30,10 @@ const (
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 100
+	cfg.SnapshotInterval = 1000
+	cfg.SnapshotMinTimeInterval = 60
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
-	cs := memiavl.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
+	cs := memiavl.NewCommitStore(dbDir, cfg)
 	cs.Initialize([]string{EVMStoreName})
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
@@ -44,12 +45,12 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	return NewMemIAVLWrapper(cs), nil
 }
 
-func newFlatKVCommitStore(dbDir string) (DBWrapper, error) {
+func newFlatKVCommitStore(ctx context.Context, dbDir string) (DBWrapper, error) {
 	cfg := flatkv.DefaultConfig()
 	cfg.Fsync = false
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs := flatkv.NewCommitStore(dbDir, logger.NewNopLogger(), cfg)
-	_, err := cs.LoadVersion(0)
+	cs := flatkv.NewCommitStore(ctx, dbDir, cfg)
+	_, err := cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
@@ -59,13 +60,16 @@ func newFlatKVCommitStore(dbDir string) (DBWrapper, error) {
 	return NewFlatKVWrapper(cs), nil
 }
 
-func newCompositeCommitStore(dbDir string, writeMode config.WriteMode) (DBWrapper, error) {
+func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config.WriteMode) (DBWrapper, error) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(dbDir, logger.NewNopLogger(), cfg)
+	cs := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	if err := cs.CleanupCrashArtifacts(); err != nil {
+		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
+	}
 	cs.Initialize([]string{EVMStoreName})
 
 	loaded, err := cs.LoadVersion(0, false)
@@ -87,7 +91,7 @@ func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg.AsyncWriteBuffer = 0
 	cfg.WriteMode = config.DualWrite
 	cfg.ReadMode = config.EVMFirstRead
-	return ssComposite.NewCompositeStateStore(cfg, dir, logger.NewNopLogger())
+	return ssComposite.NewCompositeStateStore(cfg, dir)
 }
 
 func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
@@ -99,9 +103,9 @@ func newSSCompositeStateStore(dbDir string) (DBWrapper, error) {
 	return NewStateStoreWrapper(store), nil
 }
 
-func newCombinedCompositeDualSSComposite(dbDir string) (DBWrapper, error) {
+func newCombinedCompositeDualSSComposite(ctx context.Context, dbDir string) (DBWrapper, error) {
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
-	sc, err := newCompositeCommitStore(filepath.Join(dbDir, "sc"), config.DualWrite)
+	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.DualWrite)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
@@ -114,22 +118,22 @@ func newCombinedCompositeDualSSComposite(dbDir string) (DBWrapper, error) {
 }
 
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
-func NewDBImpl(dbType DBType, dataDir string) (DBWrapper, error) {
+func NewDBImpl(ctx context.Context, dbType DBType, dataDir string) (DBWrapper, error) {
 	switch dbType {
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
-		return newFlatKVCommitStore(dataDir)
+		return newFlatKVCommitStore(ctx, dataDir)
 	case CompositeDual:
-		return newCompositeCommitStore(dataDir, config.DualWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
 	case CompositeSplit:
-		return newCompositeCommitStore(dataDir, config.SplitWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.SplitWrite)
 	case CompositeCosmos:
-		return newCompositeCommitStore(dataDir, config.CosmosOnlyWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir)
 	case CompositeDual_SSComposite:
-		return newCombinedCompositeDualSSComposite(dataDir)
+		return newCombinedCompositeDualSSComposite(ctx, dataDir)
 	default:
 		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
@@ -22,12 +21,12 @@ import (
 
 const chainID = "chain-id"
 
-func dialer(t *testing.T, pv types.PrivValidator, logger log.Logger) (*grpc.Server, func(context.Context, string) (net.Conn, error)) {
+func dialer(t *testing.T, pv types.PrivValidator) (*grpc.Server, func(context.Context, string) (net.Conn, error)) {
 	listener := bufconn.Listen(1024 * 1024)
 
 	server := grpc.NewServer()
 
-	s := tmgrpc.NewSignerServer(logger, chainID, pv)
+	s := tmgrpc.NewSignerServer(chainID, pv)
 
 	privvalproto.RegisterPrivValidatorAPIServer(server, s)
 
@@ -43,8 +42,8 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
-	logger := log.NewTestingLogger(t)
-	srv, dialer := dialer(t, mockPV, logger)
+
+	srv, dialer := dialer(t, mockPV)
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
@@ -54,7 +53,7 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client, err := tmgrpc.NewSignerClient(conn, chainID, logger)
+	client, err := tmgrpc.NewSignerClient(conn, chainID)
 	require.NoError(t, err)
 
 	pk, err := client.GetPubKey(ctx)
@@ -66,8 +65,8 @@ func TestSignerClient_SignVote(t *testing.T) {
 	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
-	logger := log.NewTestingLogger(t)
-	srv, dialer := dialer(t, mockPV, logger)
+
+	srv, dialer := dialer(t, mockPV)
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
@@ -77,7 +76,7 @@ func TestSignerClient_SignVote(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client, err := tmgrpc.NewSignerClient(conn, chainID, logger)
+	client, err := tmgrpc.NewSignerClient(conn, chainID)
 	require.NoError(t, err)
 
 	ts := time.Now()
@@ -120,8 +119,8 @@ func TestSignerClient_SignProposal(t *testing.T) {
 	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
-	logger := log.NewTestingLogger(t)
-	srv, dialer := dialer(t, mockPV, logger)
+
+	srv, dialer := dialer(t, mockPV)
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
@@ -131,7 +130,7 @@ func TestSignerClient_SignProposal(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client, err := tmgrpc.NewSignerClient(conn, chainID, logger)
+	client, err := tmgrpc.NewSignerClient(conn, chainID)
 	require.NoError(t, err)
 
 	ts := time.Now()

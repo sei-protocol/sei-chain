@@ -85,9 +85,6 @@ install-bench: go.sum
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
 
-install-price-feeder: go.sum
-		go install $(BUILD_FLAGS) ./oracle/price-feeder
-
 ###############################################################################
 ###                       RocksDB Backend Support                           ###
 ###############################################################################
@@ -149,9 +146,6 @@ install-rocksdb: go.sum
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
 
-price-feeder: go.sum
-		go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
-
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
 		@go mod verify
@@ -168,9 +162,6 @@ build:
 
 build-verbose:
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
-
-build-price-feeder:
-	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
 
 clean:
 	rm -rf ./build
@@ -201,14 +192,6 @@ build-linux:
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build; \
 	fi
 .PHONY: build-linux
-
-build-price-feeder-linux:
-	@if [ "$$(uname -m)" = "aarch64" ] || [ "$$(uname -m)" = "arm64" ]; then \
-		GOOS=linux GOARCH=arm64 CGO_ENABLED=1 make build-price-feeder; \
-	else \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-price-feeder; \
-	fi
-.PHONY: build-price-feeder-linux
 
 # Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
 DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)

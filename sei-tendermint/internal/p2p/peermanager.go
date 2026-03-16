@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 
 type peerConnInfo struct {
 	ID       types.NodeID
@@ -72,7 +74,6 @@ func (i *peerManagerInner[C]) poolByID(id types.NodeID) *poolManager {
 // For adding new peer addrs, call AddAddrs().
 type peerManager[C peerConn] struct {
 	selfID          types.NodeID
-	logger          log.Logger
 	options         *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	isPrivate       map[types.NodeID]bool
@@ -85,7 +86,7 @@ type peerManager[C peerConn] struct {
 
 func (p *peerManager[C]) LogState() {
 	for inner := range p.inner.Lock() {
-		p.logger.Info("p2p connections",
+		logger.Info("p2p connections",
 			"regular", fmt.Sprintf("in=%v/%v + out=%v/%v",
 				len(inner.regular.in), inner.regular.cfg.MaxIn,
 				len(inner.regular.out), inner.regular.cfg.MaxOut,
@@ -98,7 +99,7 @@ func (p *peerManager[C]) LogState() {
 	}
 }
 
-func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
+func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	isBlockSyncPeer := map[types.NodeID]bool{}
 	isPrivate := map[types.NodeID]bool{}
 	isPersistent := map[types.NodeID]bool{}
@@ -159,7 +160,6 @@ func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options 
 	}
 	return &peerManager[C]{
 		selfID:          selfID,
-		logger:          logger,
 		options:         options,
 		isBlockSyncPeer: isBlockSyncPeer,
 		isPrivate:       isPrivate,
@@ -228,7 +228,7 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 					return addrs, nil
 				}
 			}
-			m.logger.Info("no addrs available, WAITING")
+			logger.Info("no addrs available, WAITING")
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
 			}

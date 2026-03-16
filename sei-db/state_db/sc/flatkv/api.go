@@ -3,6 +3,7 @@ package flatkv
 import (
 	"io"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -20,10 +21,10 @@ type Options struct {
 // Read path: Get/Has/Iterator read committed state only.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
-	// LoadVersion opens the database at the specified version.
-	// targetVersion == 0 opens the latest; targetVersion > 0 seeks the best
-	// snapshot <= target and replays WAL to reach it exactly.
-	LoadVersion(targetVersion int64) (Store, error)
+	// LoadVersion opens the database at the given version (0 = latest).
+	// When readOnly is true an isolated, read-only store is returned;
+	// the caller must Close it when done.
+	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
@@ -57,6 +58,9 @@ type Store interface {
 	// raw LtHash vector.
 	RootHash() []byte
 
+	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
+	CommittedRootHash() []byte
+
 	// Version returns the latest committed version.
 	Version() int64
 
@@ -72,6 +76,10 @@ type Store interface {
 
 	// Importer load data from snapshot to the database
 	Importer(version int64) (types.Importer, error)
+
+	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
+	// integration with external phases of execution.
+	GetPhaseTimer() *metrics.PhaseTimer
 
 	io.Closer
 }

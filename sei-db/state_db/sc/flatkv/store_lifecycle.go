@@ -3,6 +3,9 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -22,8 +25,8 @@ func (s *CommitStore) closeDBsOnly() error {
 		if err := s.changelog.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("changelog close: %w", err))
 		}
-		s.changelog = nil
 	}
+	s.changelog = nil
 
 	if s.metadataDB != nil {
 		if err := s.metadataDB.Close(); err != nil {
@@ -77,11 +80,44 @@ func (s *CommitStore) Close() error {
 		s.fileLock = nil
 	}
 
+	if s.readOnlyWorkDir != "" {
+		_ = os.RemoveAll(s.readOnlyWorkDir)
+	}
+
 	if err != nil {
 		return err
 	}
 
-	s.log.Info("FlatKV store closed")
+	logger.Info("FlatKV store closed")
+	return nil
+}
+
+// CleanupOrphanedReadOnlyDirs acquires the writer lock and removes readonly-*
+// working directories left behind by a previous process crash. It is a
+// startup-only API and must be called before any read-only instances are
+// created in the current process. The acquired writer lock is retained for
+// subsequent LoadVersion(..., false) calls.
+func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
+	dir := s.flatkvDir()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create flatkv dir: %w", err)
+	}
+	if s.fileLock == nil {
+		if err := s.acquireFileLock(dir); err != nil {
+			return err
+		}
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), readOnlyDirPrefix) {
+			logger.Info("removing orphaned readonly dir", "dir", e.Name())
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
 	return nil
 }
 

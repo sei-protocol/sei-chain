@@ -14,7 +14,6 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -38,8 +37,7 @@ func NodeInSlice(id types.NodeID, ids []types.NodeID) bool {
 // testing. It creates an arbitrary number of nodes that are connected to each
 // other, and can open channels across all nodes with custom reactors.
 type TestNetwork struct {
-	logger log.Logger
-	nodes  utils.Mutex[map[types.NodeID]*TestNode]
+	nodes utils.Mutex[map[types.NodeID]*TestNode]
 }
 
 // NetworkOptions is an argument structure to parameterize the
@@ -71,10 +69,8 @@ func TestAddress(r *Router) NodeAddress {
 // MakeNetwork creates a test network with the given number of nodes and
 // connects them to each other.
 func MakeTestNetwork(t *testing.T, opts TestNetworkOptions) *TestNetwork {
-	logger, _ := log.NewDefaultLogger("plain", "info")
 	n := &TestNetwork{
-		logger: logger,
-		nodes:  utils.NewMutex(map[types.NodeID]*TestNode{}),
+		nodes: utils.NewMutex(map[types.NodeID]*TestNode{}),
 	}
 	for i := 0; i < opts.NumNodes; i++ {
 		n.MakeNode(t, opts.NodeOpts)
@@ -222,7 +218,6 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 
 // Node is a node in a Network, with a Router and a PeerManager.
 type TestNode struct {
-	Logger      log.Logger
 	NodeID      types.NodeID
 	NodeInfo    types.NodeInfo
 	NodeAddress NodeAddress
@@ -276,7 +271,6 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	privKey := NodeSecretKey(ed25519.GenerateSecretKey())
 	nodeID := privKey.Public().NodeID()
-	logger := n.logger.With("node", nodeID[:5])
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
 	routerOpts := &RouterOptions{
 		SelfAddress:              utils.Some(endpoint.NodeAddress(nodeID)),
@@ -299,7 +293,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 
 	router, err := NewRouter(
-		logger,
 		NopMetrics(),
 		privKey,
 		func() *types.NodeInfo { return &nodeInfo },
@@ -312,7 +305,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	t.Cleanup(router.Stop)
 
 	node := &TestNode{
-		Logger:      logger,
 		NodeID:      nodeID,
 		NodeInfo:    nodeInfo,
 		NodeAddress: routerOpts.Endpoint.NodeAddress(nodeID),

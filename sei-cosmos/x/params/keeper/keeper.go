@@ -4,12 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 )
 
 // Keeper of the global paramstore
@@ -92,11 +89,6 @@ func (k Keeper) GetCosmosGasParams(ctx sdk.Context) types.CosmosGasParams {
 		panic(fmt.Errorf("marshalling cosmosGasParams: %w", err))
 	}
 	return cosmosGasParams
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+proposal.ModuleName)
 }
 
 // Allocate subspace used for keepers

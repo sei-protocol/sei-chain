@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -67,14 +66,11 @@ func setup(
 	cfg := config.DefaultStateSyncConfig()
 	cfg.LightBlockResponseTimeout = 100 * time.Millisecond
 
-	logger, _ := log.NewDefaultLogger("plain", "debug")
-
 	n := network.Nodes()[0]
 	reactor, err := NewReactor(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
-		logger.With("component", "reactor"),
 		conn,
 		n.Router,
 		stateStore,
@@ -91,7 +87,6 @@ func setup(
 
 	if setSyncer {
 		reactor.syncer = &syncer{
-			logger:        logger,
 			stateProvider: stateProvider,
 			conn:          conn,
 			snapshots:     newSnapshotPool(),
@@ -139,6 +134,11 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
 	rts.node.Connect(t.Context(), testNode)
+	// Peer registration in the reactor is asynchronous, so block until this peer
+	// is visible before returning to callers that may assert on peer counts.
+	require.Eventually(t, func() bool {
+		return rts.reactor.peers.Contains(testNode.NodeID)
+	}, 5*time.Second, 50*time.Millisecond)
 	return n
 }
 

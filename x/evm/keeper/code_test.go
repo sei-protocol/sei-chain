@@ -42,3 +42,16 @@ func TestNilCode(t *testing.T) {
 	require.Equal(t, 0, k.GetCodeSize(ctx, addr))
 	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
 }
+
+func TestGetCodeHashWithNonceButZeroBalance(t *testing.T) {
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	_, addr := keeper.MockAddressPair()
+
+	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
+
+	k.SetNonce(ctx, addr, 1)
+
+	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
+	require.True(t, k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr)).Sign() == 0)
+}

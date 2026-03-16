@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,12 +25,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 
-	"bytes"
-	"encoding/hex"
-	"strconv"
-
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -76,9 +74,10 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	UseSc         bool
-	EnableGiga    bool
-	EnableGigaOCC bool
+	UseSc          bool
+	EnableGiga     bool
+	EnableGigaOCC  bool
+	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -98,6 +97,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
+	}
+	if s == receiptStoreBackendKey && t.ReceiptBackend != "" {
+		return t.ReceiptBackend
 	}
 	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
 	// when multiple tests run in parallel (all would try to bind to port 8545)
@@ -323,7 +325,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
+	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +363,6 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		dbm.NewMemDB(),
 		nil,
 		true,
@@ -434,7 +435,6 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -472,6 +472,54 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	return res
 }
 
+// SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
+// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// Use this to test the full app path with rs-backend from config.
+func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+
+	res = New(
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		t.TempDir(),
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		testAppOpts,
+		EmptyWasmOpts,
+		nil, // no options: receipt store is created from testAppOpts inside New()
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() { _ = recover() }()
+
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: DefaultConsensusParams,
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return res
+}
+
 func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
@@ -488,7 +536,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -538,7 +585,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -606,7 +652,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	db := dbm.NewMemDB()
 	encCdc := MakeEncodingConfig()
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,

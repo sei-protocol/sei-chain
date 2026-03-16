@@ -10,7 +10,6 @@ import (
 	"sort"
 
 	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -326,11 +325,6 @@ func (k Keeper) ClearUpgradePlan(ctx sdk.Context) {
 
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.PlanKey())
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // GetUpgradePlan returns the currently scheduled Plan if any, setting havePlan to true if there is a scheduled

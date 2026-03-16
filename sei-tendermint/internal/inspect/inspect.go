@@ -15,12 +15,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 
 	"golang.org/x/sync/errgroup"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "inspect")
 
 // Inspector manages an RPC service that exports methods to debug a failed node.
 // After a node shuts down due to a consensus failure, it will no longer start
@@ -35,31 +37,28 @@ type Inspector struct {
 
 	indexerService *indexer.Service
 	eventBus       *eventbus.EventBus
-	logger         log.Logger
 }
 
 // New returns an Inspector that serves RPC on the specified BlockStore and StateStore.
 // The Inspector type does not modify the state or block stores.
 // The sinks are used to enable block and transaction querying via the RPC server.
 // The caller is responsible for starting and stopping the Inspector service.
-func New(cfg *config.RPCConfig, bs state.BlockStore, ss state.Store, es []indexer.EventSink, logger log.Logger) *Inspector {
-	eb := eventbus.NewDefault(logger.With("module", "events"))
+func New(cfg *config.RPCConfig, bs state.BlockStore, ss state.Store, es []indexer.EventSink) *Inspector {
+	eb := eventbus.NewDefault()
 
 	return &Inspector{
-		routes:   rpc.Routes(*cfg, ss, bs, es, logger),
+		routes:   rpc.Routes(*cfg, ss, bs, es),
 		config:   cfg,
-		logger:   logger,
 		eventBus: eb,
 		indexerService: indexer.NewService(indexer.ServiceArgs{
 			Sinks:    es,
 			EventBus: eb,
-			Logger:   logger.With("module", "txindex"),
 		}),
 	}
 }
 
 // NewFromConfig constructs an Inspector using the values defined in the passed in config.
-func NewFromConfig(logger log.Logger, cfg *config.Config) (*Inspector, error) {
+func NewFromConfig(cfg *config.Config) (*Inspector, error) {
 	bsDB, err := config.DefaultDBProvider(&config.DBContext{ID: "blockstore", Config: cfg})
 	if err != nil {
 		return nil, err
@@ -78,7 +77,7 @@ func NewFromConfig(logger log.Logger, cfg *config.Config) (*Inspector, error) {
 		return nil, err
 	}
 	ss := state.NewStore(sDB)
-	return New(cfg.RPC, bs, ss, sinks, logger), nil
+	return New(cfg.RPC, bs, ss, sinks), nil
 }
 
 // Run starts the Inspector servers and blocks until the servers shut down. The passed
@@ -96,16 +95,15 @@ func (ins *Inspector) Run(ctx context.Context) error {
 	}
 	defer ins.indexerService.Wait()
 
-	return startRPCServers(ctx, ins.config, ins.logger, ins.routes)
+	return startRPCServers(ctx, ins.config, ins.routes)
 }
 
-func startRPCServers(ctx context.Context, cfg *config.RPCConfig, logger log.Logger, routes rpccore.RoutesMap) error {
+func startRPCServers(ctx context.Context, cfg *config.RPCConfig, routes rpccore.RoutesMap) error {
 	g, tctx := errgroup.WithContext(ctx)
 	listenAddrs := tmstrings.SplitAndTrimEmpty(cfg.ListenAddress, ",", " ")
-	rh := rpc.Handler(cfg, routes, logger)
+	rh := rpc.Handler(cfg, routes)
 	for _, listenerAddr := range listenAddrs {
 		server := rpc.Server{
-			Logger:  logger,
 			Config:  cfg,
 			Handler: rh,
 			Addr:    listenerAddr,

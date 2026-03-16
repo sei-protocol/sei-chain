@@ -9,7 +9,6 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -32,7 +31,6 @@ type ConnSet = connSet[*ConnV2]
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
 	*service.BaseService
-	logger log.Logger
 
 	metrics *Metrics
 	lc      *metricsLabelCache
@@ -63,7 +61,6 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 
 // NewRouter creates a new Router.
 func NewRouter(
-	logger log.Logger,
 	metrics *Metrics,
 	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
@@ -89,11 +86,10 @@ func NewRouter(
 		initialAddrs = append(initialAddrs, addr)
 	}
 	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](logger, selfID, options)
+	peerManager := newPeerManager[*ConnV2](selfID, options)
 	// initialAddrs will stay around util pex table fills the whole "extra" cache.
 	peerManager.PushPex(utils.None[types.NodeID](), initialAddrs)
 	router := &Router{
-		logger:           logger,
 		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
@@ -107,7 +103,7 @@ func NewRouter(
 	if gigaCfg, ok := options.Giga.Get(); ok {
 		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
-	router.BaseService = service.NewBaseService(logger, "router", router)
+	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
 }
 
@@ -252,7 +248,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					release()
 					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -329,7 +325,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					}
 					return nil
 				})
-				r.logger.Error("r.runConn(outbound)", "id", id, "err", err)
+				logger.Error("r.runConn(outbound)", "id", id, "err", err)
 				return nil
 			})
 		}
@@ -374,7 +370,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	r.logger.Error("evicting", "peer", id, "err", err)
+	logger.Error("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 
@@ -407,7 +403,7 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 			s.Spawn(func() error {
 				endpoints, err := addr.Resolve(resolveCtx)
 				if err != nil {
-					r.logger.Info("address.Resolve() failed", "addr", addr, "err", err)
+					logger.Info("address.Resolve() failed", "addr", addr, "err", err)
 					return nil
 				}
 				if len(endpoints) > 0 {

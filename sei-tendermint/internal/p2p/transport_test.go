@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"sync/atomic"
 	"testing"
@@ -10,14 +11,11 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
 
-	"fmt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 func makeInfo(key NodeSecretKey) types.NodeInfo {
@@ -43,14 +41,13 @@ func makeInfo(key NodeSecretKey) types.NodeInfo {
 }
 
 func TestRouter_MaxConcurrentAccepts(t *testing.T) {
-	logger, _ := log.NewDefaultLogger("plain", "debug")
 	rng := utils.TestRng()
 	opts := makeRouterOptions()
 	maxAccepts := 2
 	opts.MaxConcurrentAccepts = utils.Some(maxAccepts)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		r := makeRouterWithOptions(logger, rng, opts)
+		r := makeRouterWithOptions(rng, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
 			return err
@@ -61,7 +58,7 @@ func TestRouter_MaxConcurrentAccepts(t *testing.T) {
 		for range 10 {
 			s.SpawnNamed("test", func() error {
 				return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					x := makeRouter(logger, rng)
+					x := makeRouter(rng)
 					// Establish a connection.
 					addr := TestAddress(r)
 					tcpConn, err := x.dial(ctx, utils.Slice(addr))
@@ -105,13 +102,12 @@ func TestRouter_Listen(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.Addr().String(), func(t *testing.T) {
-			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
 			rng := utils.TestRng()
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				opts := makeRouterOptions()
 				opts.Endpoint.AddrPort = tc
-				r := makeRouterWithOptions(logger, rng, opts)
+				r := makeRouterWithOptions(rng, opts)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 				if err := r.WaitForStart(ctx); err != nil {
 					return err
@@ -121,7 +117,7 @@ func TestRouter_Listen(t *testing.T) {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
 
-				x := makeRouter(logger, rng)
+				x := makeRouter(rng)
 				addr := TestAddress(r)
 				tcpConn, err := x.dial(ctx, utils.Slice(addr))
 				if err != nil {
@@ -142,16 +138,15 @@ func TestRouter_Listen(t *testing.T) {
 
 // Test checking that handshake provides correct NodeInfo.
 func TestHandshake_NodeInfo(t *testing.T) {
-	logger, _ := log.NewDefaultLogger("plain", "debug")
 	rng := utils.TestRng()
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		r := makeRouter(logger, rng)
+		r := makeRouter(rng)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 
-		x := makeRouter(logger, rng)
+		x := makeRouter(rng)
 		addr := TestAddress(r)
 		tcpConn, err := x.dial(ctx, utils.Slice(addr))
 		if err != nil {
@@ -174,11 +169,10 @@ func TestHandshake_NodeInfo(t *testing.T) {
 
 // Test checking that handshake respects the context.
 func TestHandshake_Context(t *testing.T) {
-	logger, _ := log.NewDefaultLogger("plain", "debug")
 	rng := utils.TestRng()
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		a := makeRouter(logger, rng)
-		b := makeRouter(logger, rng)
+		a := makeRouter(rng)
+		b := makeRouter(rng)
 		listener, err := tcp.Listen(a.Endpoint().AddrPort)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)

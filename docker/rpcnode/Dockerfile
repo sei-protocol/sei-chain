@@ -1,8 +1,10 @@
+FROM golang:1.25.6-bookworm AS go-dist
+
 FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:$PATH"
 RUN apt-get update && \
     apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
-RUN curl -L https://go.dev/dl/go1.25.6.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
+COPY --from=go-dist /usr/local/go /usr/local/go
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
     chmod -R a+rwX /root

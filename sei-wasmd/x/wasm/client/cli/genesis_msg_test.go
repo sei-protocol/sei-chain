@@ -21,7 +21,6 @@ import (
 	genutiltest "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/testutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -695,11 +694,11 @@ func setupGenesis(t *testing.T, wasmGenesis types.GenesisState) string {
 }
 
 func executeCmdWithContext(t *testing.T, homeDir string, cmd *cobra.Command) error {
-	logger := log.NewNopLogger()
+
 	cfg, err := genutiltest.CreateDefaultTendermintConfig(homeDir)
 	require.NoError(t, err)
 	appCodec := keeper.MakeEncodingConfig(t).Marshaler
-	serverCtx := server.NewContext(viper.New(), cfg, logger)
+	serverCtx := server.NewContext(viper.New(), cfg)
 	clientCtx := client.Context{}.WithCodec(appCodec).WithHomeDir(homeDir)
 
 	ctx := context.Background()

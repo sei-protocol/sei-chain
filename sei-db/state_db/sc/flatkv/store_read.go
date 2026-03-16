@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -45,20 +44,10 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 
 		// Check pending writes first
 		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if paw.isDelete {
-				return nil, false
-			}
-			// Extract specific field from AccountValue
 			if kind == evm.EVMKeyNonce {
-				nonce := make([]byte, NonceLen)
-				binary.BigEndian.PutUint64(nonce, paw.value.Nonce)
-				return nonce, true
+				return paw.value.NonceBytes()
 			}
-			// CodeHash
-			if paw.value.CodeHash == (CodeHash{}) {
-				return nil, false // No codehash
-			}
-			return paw.value.CodeHash[:], true
+			return paw.value.CodeHashBytes()
 		}
 
 		// Read from accountDB
@@ -71,17 +60,10 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 			return nil, false
 		}
 
-		// Extract specific field from AccountValue
 		if kind == evm.EVMKeyNonce {
-			nonce := make([]byte, NonceLen)
-			binary.BigEndian.PutUint64(nonce, av.Nonce)
-			return nonce, true
+			return av.NonceBytes()
 		}
-		// CodeHash
-		if av.CodeHash == (CodeHash{}) {
-			return nil, false // No codehash (EOA)
-		}
-		return av.CodeHash[:], true
+		return av.CodeHashBytes()
 
 	case evm.EVMKeyCode:
 		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
