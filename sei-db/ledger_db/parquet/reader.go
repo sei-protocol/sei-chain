@@ -23,7 +23,8 @@ type Reader struct {
 	db                 *sql.DB
 	basePath           string
 	maxBlocksPerFile   uint64
-	mu                 sync.RWMutex
+	mu                 sync.RWMutex // protects file list slices (brief hold only)
+	pruneMu            sync.RWMutex // guards physical files on disk; readers hold RLock during queries, pruning holds Lock to delete
 	closedReceiptFiles []string
 	closedLogFiles     []string
 }
@@ -284,19 +285,24 @@ func (r *Reader) AddTrackedLogFile(startBlock uint64) {
 
 // MaxReceiptBlockNumber returns the maximum block number in the receipt files.
 func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
-	// Keep the read lock for the full query so pruning cannot remove tracked
-	// files while DuckDB is still reading from them.
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
+
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if len(r.closedReceiptFiles) == 0 {
+	closedFiles := make([]string, len(r.closedReceiptFiles))
+	copy(closedFiles, r.closedReceiptFiles)
+	r.mu.RUnlock()
+
+	if len(closedFiles) == 0 {
 		return 0, false, nil
 	}
 
 	var parquetFiles string
-	if len(r.closedReceiptFiles) == 1 {
-		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
+	if len(closedFiles) == 1 {
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -317,20 +323,24 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 // GetReceiptByTxHash queries for a receipt by transaction hash.
 func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
-	// Keep the read lock for the full query so pruning cannot remove tracked
-	// files while DuckDB is still reading from them.
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
 
-	if len(r.closedReceiptFiles) == 0 {
+	r.mu.RLock()
+	closedFiles := make([]string, len(r.closedReceiptFiles))
+	copy(closedFiles, r.closedReceiptFiles)
+	r.mu.RUnlock()
+
+	if len(closedFiles) == 0 {
 		return nil, nil
 	}
 
 	var parquetFiles string
-	if len(r.closedReceiptFiles) == 1 {
-		parquetFiles = quoteSQLString(r.closedReceiptFiles[0])
+	if len(closedFiles) == 1 {
+		parquetFiles = quoteSQLString(closedFiles[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(r.closedReceiptFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths
@@ -355,17 +365,21 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 // GetLogs queries logs matching the given filter.
 func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
-	// Keep the read lock for the full query so pruning cannot remove tracked
-	// files while DuckDB is still reading from them.
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
 
-	if len(r.closedLogFiles) == 0 {
+	r.mu.RLock()
+	closedFiles := make([]string, len(r.closedLogFiles))
+	copy(closedFiles, r.closedLogFiles)
+	r.mu.RUnlock()
+
+	if len(closedFiles) == 0 {
 		return nil, nil
 	}
 
-	files := make([]string, 0, len(r.closedLogFiles))
-	for _, f := range r.closedLogFiles {
+	files := make([]string, 0, len(closedFiles))
+	for _, f := range closedFiles {
 		startBlock := ExtractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue

@@ -1,0 +1,302 @@
+package v640
+
+import (
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+)
+
+// EmitEVMLog emits an EVM log from a precompile
+func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data []byte) error {
+	if len(topics) > 4 {
+		return errors.New("log topics cannot be more than 4")
+	}
+	if evm == nil {
+		return fmt.Errorf("EVM is nil")
+	}
+	if evm.StateDB == nil {
+		return fmt.Errorf("EVM StateDB is nil")
+	}
+
+	stateDB := state.GetDBImpl(evm.StateDB)
+	if stateDB == nil {
+		return fmt.Errorf("cannot emit log: invalid StateDB type")
+	}
+
+	stateDB.AddLog(&ethtypes.Log{
+		Address: address,
+		Topics:  topics,
+		Data:    data,
+		// BlockNumber, BlockHash, TxHash, TxIndex, and Index are added later
+		// by the consensus engine when the block is being finalized.
+	})
+	return nil
+}
+
+// Event signatures for staking precompile
+var (
+	// Delegate(address indexed delegator, string validator, uint256 amount)
+	DelegateEventSig = crypto.Keccak256Hash([]byte("Delegate(address,string,uint256)"))
+
+	// Redelegate(address indexed delegator, string srcValidator, string dstValidator, uint256 amount)
+	RedelegateEventSig = crypto.Keccak256Hash([]byte("Redelegate(address,string,string,uint256)"))
+
+	// Undelegate(address indexed delegator, string validator, uint256 amount)
+	UndelegateEventSig = crypto.Keccak256Hash([]byte("Undelegate(address,string,uint256)"))
+
+	// ValidatorCreated(address indexed validator, string validatorAddress, string moniker)
+	ValidatorCreatedEventSig = crypto.Keccak256Hash([]byte("ValidatorCreated(address,string,string)"))
+
+	// ValidatorEdited(address indexed validator, string validatorAddress, string moniker)
+	ValidatorEditedEventSig = crypto.Keccak256Hash([]byte("ValidatorEdited(address,string,string)"))
+)
+
+// Event signatures for distribution precompile
+var (
+	// DelegationRewardsWithdrawn(address indexed delegator, string validator, uint256 amount)
+	DelegationRewardsWithdrawnEventSig = crypto.Keccak256Hash([]byte("DelegationRewardsWithdrawn(address,string,uint256)"))
+)
+
+// Helper functions for common event patterns
+func BuildDelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: validator string and amount
+	// For strings in events, we need to encode: offset, length, and actual string data
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	// 32 (offset) + 32 (amount) + 32 (string length) + paddedLen (string data)
+	data := make([]byte, 0, 32+32+32+paddedLen)
+
+	// Offset for string (always 64 for first dynamic param when second param is uint256)
+	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
+
+	// Amount (uint256)
+	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+
+	// String length
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
+
+	// String data (padded to 32 bytes)
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
+
+	topics := []common.Hash{
+		DelegateEventSig,
+		common.BytesToHash(delegator.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+	topics, data, err := BuildDelegateEvent(delegator, validator, amount)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
+
+func BuildRedelegateEvent(delegator common.Address, srcValidator, dstValidator string, amount *big.Int) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: srcValidator, dstValidator, amount
+	srcBytes := []byte(srcValidator)
+	dstBytes := []byte(dstValidator)
+	paddedSrcLen := ((len(srcBytes) + 31) / 32) * 32
+	paddedDstLen := ((len(dstBytes) + 31) / 32) * 32
+
+	// 3*32 (static) + 32 (srcLen) + paddedSrc + 32 (dstLen) + paddedDst
+	data := make([]byte, 0, 3*32+32+paddedSrcLen+32+paddedDstLen)
+
+	// offset for srcValidator. Static part is 3 * 32 = 96 bytes.
+	data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
+	// placeholder offset for dstValidator, to be updated after we know the length of srcValidator
+	data = append(data, common.LeftPadBytes(big.NewInt(0).Bytes(), 32)...)
+	// amount
+	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+
+	// srcValidator data part
+	// length of srcValidator
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
+	// data of srcValidator
+	paddedSrcBytes := common.RightPadBytes(srcBytes, paddedSrcLen)
+	data = append(data, paddedSrcBytes...)
+
+	// now calculate and update dstValidator offset
+	dstOffset := 96 + 32 + len(paddedSrcBytes)
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(dstOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by validator name lengths; no overflow risk
+
+	// dstValidator data part
+	// length of dstValidator
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
+	// data of dstValidator
+	data = append(data, common.RightPadBytes(dstBytes, paddedDstLen)...)
+
+	topics := []common.Hash{
+		RedelegateEventSig,
+		common.BytesToHash(delegator.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
+	topics, data, err := BuildRedelegateEvent(delegator, srcValidator, dstValidator, amount)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
+
+func BuildUndelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: validator string and amount
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	data := make([]byte, 0, 32+32+32+paddedLen)
+
+	// Offset for string
+	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
+
+	// Amount
+	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+
+	// String length and data
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // unlikely for validator string to approach int64
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
+
+	topics := []common.Hash{
+		UndelegateEventSig,
+		common.BytesToHash(delegator.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+	topics, data, err := BuildUndelegateEvent(delegator, validator, amount)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
+
+func BuildValidatorCreatedEvent(creator common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: validatorAddr string and moniker string
+	valAddrBytes := []byte(validatorAddr)
+	monikerBytes := []byte(moniker)
+	paddedAddrLen := ((len(valAddrBytes) + 31) / 32) * 32
+	paddedMonikerLen := ((len(monikerBytes) + 31) / 32) * 32
+
+	// 32 (offset1) + 32 (offset2) + 32 (addrLen) + paddedAddr + 32 (monikerLen) + paddedMoniker
+	data := make([]byte, 0, 32+32+32+paddedAddrLen+32+paddedMonikerLen)
+
+	// Offsets for two strings
+	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)  // offset for validatorAddr
+	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // placeholder offset for moniker
+
+	// validatorAddr string
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...) //nolint:gosec // validator address is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(valAddrBytes, paddedAddrLen)...)
+
+	// Adjust offset for moniker based on actual validatorAddr length
+	monikerOffset := 64 + 32 + paddedAddrLen
+	// Update the moniker offset in data
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by string lengths; no overflow risk
+
+	// moniker string
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...) //nolint:gosec // moniker is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(monikerBytes, paddedMonikerLen)...)
+
+	topics := []common.Hash{
+		ValidatorCreatedEventSig,
+		common.BytesToHash(creator.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creator common.Address, validatorAddr string, moniker string) error {
+	topics, data, err := BuildValidatorCreatedEvent(creator, validatorAddr, moniker)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
+
+func BuildValidatorEditedEvent(editor common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: validatorAddr string and moniker string
+	valAddrBytes := []byte(validatorAddr)
+	monikerBytes := []byte(moniker)
+	paddedAddrLen := ((len(valAddrBytes) + 31) / 32) * 32
+	paddedMonikerLen := ((len(monikerBytes) + 31) / 32) * 32
+
+	// 32 (offset1) + 32 (offset2) + 32 (addrLen) + paddedAddr + 32 (monikerLen) + paddedMoniker
+	data := make([]byte, 0, 32+32+32+paddedAddrLen+32+paddedMonikerLen)
+
+	// Offsets for two strings
+	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)  // offset for validatorAddr
+	data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // placeholder offset for moniker
+
+	// validatorAddr string
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...) //nolint:gosec // validator address is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(valAddrBytes, paddedAddrLen)...)
+
+	// Adjust offset for moniker based on actual validatorAddr length
+	monikerOffset := 64 + 32 + paddedAddrLen
+	// Update the moniker offset in data
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32)) //nolint:gosec // offset is bounded by string lengths; no overflow risk
+
+	// moniker string
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...) //nolint:gosec // moniker is a short string; no overflow risk
+	data = append(data, common.RightPadBytes(monikerBytes, paddedMonikerLen)...)
+
+	topics := []common.Hash{
+		ValidatorEditedEventSig,
+		common.BytesToHash(editor.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
+	topics, data, err := BuildValidatorEditedEvent(editor, validatorAddr, moniker)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
+
+func BuildDelegationRewardsWithdrawnEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
+	// Pack the non-indexed data: validator string and amount
+	// For strings in events, we need to encode: offset, length, and actual string data
+	valBytes := []byte(validator)
+	paddedLen := ((len(valBytes) + 31) / 32) * 32
+
+	// 32 (offset) + 32 (amount) + 32 (string length) + paddedLen (string data)
+	data := make([]byte, 0, 32+32+32+paddedLen)
+
+	// Offset for string (always 64 for first dynamic param when second param is uint256)
+	data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
+
+	// Amount (uint256)
+	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+
+	// String length
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valBytes))).Bytes(), 32)...) //nolint:gosec // validator names are short strings; no overflow risk
+
+	// String data (padded to 32 bytes)
+	data = append(data, common.RightPadBytes(valBytes, paddedLen)...)
+
+	topics := []common.Hash{
+		DelegationRewardsWithdrawnEventSig,
+		common.BytesToHash(delegator.Bytes()), // indexed
+	}
+	return topics, data, nil
+}
+
+func EmitDelegationRewardsWithdrawnEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+	topics, data, err := BuildDelegationRewardsWithdrawnEvent(delegator, validator, amount)
+	if err != nil {
+		return err
+	}
+	return EmitEVMLog(evm, precompileAddr, topics, data)
+}
