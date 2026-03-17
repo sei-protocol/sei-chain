@@ -185,5 +185,10 @@ func (c *cache) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, erro
 func (c *cache) Set(key []byte, value []byte) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
-	shard.Set(key, value)
+
+	if value == nil {
+		shard.Delete(key)
+	} else {
+		shard.Set(key, value)
+	}
 }

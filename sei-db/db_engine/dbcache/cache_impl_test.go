@@ -197,8 +197,36 @@ func TestCacheSetNilValue(t *testing.T) {
 
 	val, found, err := c.Get(read, []byte("k"), false)
 	require.NoError(t, err)
-	require.True(t, found)
+	require.False(t, found, "Set(key, nil) should be treated as a deletion")
 	require.Nil(t, val)
+}
+
+func TestCacheSetNilConsistentWithBatchSet(t *testing.T) {
+	store := map[string][]byte{"a": []byte("orig-a"), "b": []byte("orig-b")}
+
+	cSet, readSet := newTestCache(t, store, 1, 4096)
+	cBatch, readBatch := newTestCache(t, store, 1, 4096)
+
+	// Warm both caches so the backing store value is loaded.
+	_, _, err := cSet.Get(readSet, []byte("a"), true)
+	require.NoError(t, err)
+	_, _, err = cBatch.Get(readBatch, []byte("b"), true)
+	require.NoError(t, err)
+
+	// Delete via Set(key, nil) in one cache and BatchSet({key, nil}) in the other.
+	cSet.Set([]byte("a"), nil)
+	require.NoError(t, cBatch.BatchSet([]CacheUpdate{
+		{Key: []byte("b"), Value: nil},
+	}))
+
+	valA, foundA, err := cSet.Get(readSet, []byte("a"), false)
+	require.NoError(t, err)
+	valB, foundB, err := cBatch.Get(readBatch, []byte("b"), false)
+	require.NoError(t, err)
+
+	require.Equal(t, foundA, foundB, "Set(key, nil) and BatchSet with nil value should agree on found")
+	require.Equal(t, valA, valB, "Set(key, nil) and BatchSet with nil value should agree on value")
+	require.False(t, foundA, "nil value should be treated as a deletion")
 }
 
 // ---------------------------------------------------------------------------

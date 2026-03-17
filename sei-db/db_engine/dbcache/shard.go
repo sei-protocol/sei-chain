@@ -49,7 +49,7 @@ type valueStatus int
 const (
 	// The value is not known and we are not currently attempting to find it.
 	statusUnknown valueStatus = iota
-	// We've scheduled a read of the value but haven't yet finsihed the read.
+	// We've scheduled a read of the value but haven't yet finished the read.
 	statusScheduled
 	// The data is available.
 	statusAvailable
@@ -73,6 +73,21 @@ type shardEntry struct {
 	valueChan chan readResult
 }
 
+/*
+This implementation currently uses a single exlusive lock, as opposed to a RW lock. This is a lot simpler than
+using a RW lock, but it comes at higher risk of contention under certain workloads. If this contention ever
+becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
+for converting to a RW lock:
+
+- Create a background goroutine that is responsible for garbage collection and updating the LRU.
+- The GC goroutine should periodically wake up, grab the lock, and do garbage collection.
+- When Get() is called, the calling goroutine should grab a read lock and attempt to read the value.
+    - If the value is present, send a message to the GC goroutine over a channel (so it can update the LRU)
+	  and return the value. In this way, many readers can read from this shard concurrently.
+	- If the value is missing, drop the read lock and acquire a write lock. Then, handle the read
+	  like we currently handle in the current implementation.
+*/
+
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
@@ -85,7 +100,7 @@ func NewShard(
 	estimatedOverheadPerEntry uint64,
 ) (*shard, error) {
 
-	if maxSize <= 0 {
+	if maxSize == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
@@ -104,7 +119,7 @@ func NewShard(
 func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
 	s.lock.Lock()
 
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, true)
 
 	switch entry.status {
 	case statusAvailable:
@@ -217,9 +232,12 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
 // when this method is called.
-func (s *shard) getEntry(key []byte) *shardEntry {
+func (s *shard) getEntry(key []byte, createIfMissing bool) *shardEntry {
 	if entry, ok := s.data[string(key)]; ok {
 		return entry
+	}
+	if !createIfMissing {
+		return nil
 	}
 	entry := &shardEntry{
 		shard:  s,
@@ -247,7 +265,7 @@ func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 
 	s.lock.Lock()
 	for key := range keys {
-		entry := s.getEntry([]byte(key))
+		entry := s.getEntry([]byte(key), true)
 
 		switch entry.status {
 		case statusAvailable, statusDeleted:
@@ -374,7 +392,7 @@ func (s *shard) Set(key []byte, value []byte) {
 
 // Set a value. Caller is required to hold the lock.
 func (s *shard) setUnlocked(key []byte, value []byte) {
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, true)
 	entry.status = statusAvailable
 	entry.value = value
 
@@ -406,7 +424,11 @@ func (s *shard) Delete(key []byte) {
 
 // Delete a value. Caller is required to hold the lock.
 func (s *shard) deleteUnlocked(key []byte) {
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, false)
+	if entry == nil {
+		// Key is not in the cache, so nothing to do.
+		return
+	}
 	entry.status = statusDeleted
 	entry.value = nil
 
