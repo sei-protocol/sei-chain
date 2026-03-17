@@ -1,7 +1,6 @@
 package dbcache
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -124,7 +123,7 @@ func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, erro
 
 // Handles Get for a key whose value is already cached. Lock must be held; releases it.
 func (s *shard) getAvailable(entry *shardEntry, key []byte, updateLru bool) ([]byte, bool, error) {
-	value := bytes.Clone(entry.value)
+	value := entry.value
 	if updateLru {
 		s.gcQueue.Touch(key)
 	}
@@ -252,7 +251,7 @@ func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 
 		switch entry.status {
 		case statusAvailable, statusDeleted:
-			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value)}
+			keys[key] = types.BatchGetResult{Value: entry.value}
 			hits++
 		case statusScheduled:
 			pending = append(pending, pendingRead{
@@ -369,6 +368,7 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 func (s *shard) Set(key []byte, value []byte) {
 	s.lock.Lock()
 	s.setUnlocked(key, value)
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
@@ -380,7 +380,6 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 
 	size := uint64(len(key)) + uint64(len(value)) + s.estimatedOverheadPerEntry
 	s.gcQueue.Push(key, size)
-	s.evictUnlocked()
 }
 
 // BatchSet sets the values for a batch of keys.
@@ -393,6 +392,7 @@ func (s *shard) BatchSet(entries []CacheUpdate) {
 			s.setUnlocked(entries[i].Key, entries[i].Value)
 		}
 	}
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
@@ -400,6 +400,7 @@ func (s *shard) BatchSet(entries []CacheUpdate) {
 func (s *shard) Delete(key []byte) {
 	s.lock.Lock()
 	s.deleteUnlocked(key)
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
@@ -411,5 +412,4 @@ func (s *shard) deleteUnlocked(key []byte) {
 
 	size := uint64(len(key)) + s.estimatedOverheadPerEntry
 	s.gcQueue.Push(key, size)
-	s.evictUnlocked()
 }
