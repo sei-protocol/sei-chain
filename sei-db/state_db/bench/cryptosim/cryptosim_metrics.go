@@ -19,6 +19,12 @@ import (
 
 const cryptosimMeterName = "cryptosim"
 
+var receiptWriteLatencyBuckets = []float64{
+	0.001, 0.0025, 0.005, 0.0075, 0.01,
+	0.015, 0.02, 0.03, 0.05, 0.075,
+	0.1, 0.25, 0.5, 0.75, 1, 2.5, 5,
+}
+
 // CryptosimMetrics holds OpenTelemetry metrics for the cryptosim benchmark.
 // Metrics are exported via whatever exporter is configured on the global OTel
 // MeterProvider (e.g., Prometheus, OTLP). This package does not import Prometheus.
@@ -154,6 +160,7 @@ func NewCryptosimMetrics(
 	receiptBlockWriteDuration, _ := meter.Float64Histogram(
 		"cryptosim_receipt_block_write_duration_seconds",
 		metric.WithDescription("Time to write a block of receipts to the parquet store"),
+		metric.WithExplicitBucketBoundaries(receiptWriteLatencyBuckets...),
 		metric.WithUnit("s"),
 	)
 	receiptChannelDepth, _ := meter.Int64Gauge(

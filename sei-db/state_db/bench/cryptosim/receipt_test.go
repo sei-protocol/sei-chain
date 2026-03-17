@@ -3,55 +3,113 @@ package cryptosim
 import (
 	"testing"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
+
+func makeTestKeys(t *testing.T) (feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract []byte) {
+	t.Helper()
+	keyRand := NewCannedRandom(4096, 1)
+
+	feeAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
+	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
+	srcAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAddr)
+	dstAddr := keyRand.Address(accountPrefix, 2, AddressLen)
+	dstAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, dstAddr)
+
+	senderSlotBytes := make([]byte, StorageKeyLen)
+	copy(senderSlotBytes[:AddressLen], srcAddr)
+	copy(senderSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 11))
+	senderSlot = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, senderSlotBytes)
+
+	receiverSlotBytes := make([]byte, StorageKeyLen)
+	copy(receiverSlotBytes[:AddressLen], dstAddr)
+	copy(receiverSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 12))
+	receiverSlot = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, receiverSlotBytes)
+
+	erc20Contract = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(contractPrefix, 0, AddressLen))
+	return
+}
+
+func TestBuildERC20TransferReceipt(t *testing.T) {
+	crand := NewCannedRandom(1<<20, 42)
+	feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract := makeTestKeys(t)
+
+	receipt, err := BuildERC20TransferReceipt(
+		crand, feeAccount, srcAccount, dstAccount,
+		senderSlot, receiverSlot, erc20Contract,
+		1_000_000, 0,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if receipt.Status != uint32(ethtypes.ReceiptStatusSuccessful) {
+		t.Errorf("expected successful status, got %d", receipt.Status)
+	}
+	if receipt.BlockNumber != 1_000_000 {
+		t.Errorf("expected block number 1000000, got %d", receipt.BlockNumber)
+	}
+	if len(receipt.Logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+	}
+	if receipt.Logs[0].Topics[0] != erc20TransferEventSignatureHex {
+		t.Error("first log topic should be ERC20 Transfer event signature")
+	}
+
+	// Receipt must be marshallable (used by the write path).
+	data, err := receipt.Marshal()
+	if err != nil {
+		t.Fatalf("failed to marshal receipt: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("marshalled receipt is empty")
+	}
+}
+
+func TestBuildERC20TransferReceipt_InvalidInputs(t *testing.T) {
+	crand := NewCannedRandom(1<<20, 42)
+	feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract := makeTestKeys(t)
+
+	if _, err := BuildERC20TransferReceipt(nil, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0); err == nil {
+		t.Error("expected error for nil CannedRandom")
+	}
+	if _, err := BuildERC20TransferReceipt(crand, []byte("bad"), srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0); err == nil {
+		t.Error("expected error for invalid fee account key")
+	}
+	if _, err := BuildERC20TransferReceipt(crand, feeAccount, srcAccount, dstAccount, []byte("bad"), receiverSlot, erc20Contract, 1_000_000, 0); err == nil {
+		t.Error("expected error for invalid sender slot key")
+	}
+}
 
 func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
 	keyRand := NewCannedRandom(4096, 1)
 	receiptRand := NewCannedRandom(1<<20, 2)
 
 	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
-
-	srcAccountAddress := keyRand.Address(accountPrefix, 1, AddressLen)
-	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAccountAddress)
-
-	dstAccountAddress := keyRand.Address(accountPrefix, 2, AddressLen)
-	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, dstAccountAddress)
+	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
+	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAddr)
+	dstAddr := keyRand.Address(accountPrefix, 2, AddressLen)
+	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, dstAddr)
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
-	copy(senderSlotBytes[:AddressLen], srcAccountAddress)
+	copy(senderSlotBytes[:AddressLen], srcAddr)
 	copy(senderSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 11))
 	senderSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, senderSlotBytes)
 
 	receiverSlotBytes := make([]byte, StorageKeyLen)
-	copy(receiverSlotBytes[:AddressLen], dstAccountAddress)
+	copy(receiverSlotBytes[:AddressLen], dstAddr)
 	copy(receiverSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 12))
 	receiverSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, receiverSlotBytes)
 
 	erc20Contract := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(contractPrefix, 0, AddressLen))
-	blockNumber := syntheticReceiptMinBlockNumber
-	txIndex := uint32(0)
 
 	b.ReportAllocs()
 	b.ResetTimer()
-
 	for i := 0; i < b.N; i++ {
-		receipt, err := BuildERC20TransferReceipt(
-			receiptRand,
-			feeAccount,
-			srcAccount,
-			dstAccount,
-			senderSlot,
-			receiverSlot,
-			erc20Contract,
-			blockNumber,
-			txIndex,
-		)
+		_, err := BuildERC20TransferReceipt(receiptRand, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, syntheticReceiptMinBlockNumber, 0)
 		if err != nil {
-			b.Fatalf("BuildERC20TransferReceipt failed: %v", err)
-		}
-		if len(receipt.Logs) != 1 {
-			b.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+			b.Fatal(err)
 		}
 	}
 }
