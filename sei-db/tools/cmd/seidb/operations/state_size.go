@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -104,7 +105,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
-			if moduleName == "evm" && prefix == "03" {
+			if moduleName == commonevm.EVMStoreKey && prefix == "03" {
 				addr := prefixKey[2:42]
 				if _, exists := result.ContractSizes[addr]; !exists {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}

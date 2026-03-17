@@ -1,11 +1,13 @@
 package composite
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -438,3 +440,234 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	val := store.Get([]byte("key1"))
 	require.Equal(t, []byte("value1"), val)
 }
+
+// =============================================================================
+// Export / Import Tests
+// =============================================================================
+
+// exportedItem stores one item produced by an exporter (module name or snapshot node).
+type exportedItem struct {
+	moduleName string
+	node       *types.SnapshotNode
+}
+
+// drainCompositeExporter collects all items from an exporter in stream order.
+func drainCompositeExporter(t *testing.T, exp types.Exporter) []exportedItem {
+	t.Helper()
+	var items []exportedItem
+	for {
+		raw, err := exp.Next()
+		if err != nil {
+			require.True(t, errors.Is(err, errorutils.ErrorExportDone), "unexpected error: %v", err)
+			break
+		}
+		switch v := raw.(type) {
+		case string:
+			items = append(items, exportedItem{moduleName: v})
+		case *types.SnapshotNode:
+			items = append(items, exportedItem{node: v})
+		default:
+			t.Fatalf("unexpected item type %T", raw)
+		}
+	}
+	return items
+}
+
+// replayImport feeds exported items into an importer.
+func replayImport(t *testing.T, imp types.Importer, items []exportedItem) {
+	t.Helper()
+	for _, it := range items {
+		if it.moduleName != "" {
+			require.NoError(t, imp.AddModule(it.moduleName))
+		} else {
+			imp.AddNode(it.node)
+		}
+	}
+}
+
+// splitWriteConfig returns a StateCommitConfig with SplitWrite mode and
+// fast snapshot intervals so that memiavl snapshots exist for the exporter.
+func splitWriteConfig() config.StateCommitConfig {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.SplitWrite
+	cfg.MemIAVLConfig.SnapshotInterval = 1
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	return cfg
+}
+
+func TestExportImportSplitWrite(t *testing.T) {
+	cfg := splitWriteConfig()
+
+	// --- Source store: write cosmos + EVM data ---
+	srcDir := t.TempDir()
+	src := NewCompositeCommitStore(t.Context(), srcDir, cfg)
+	src.Initialize([]string{"bank", EVMStoreName})
+	_, err := src.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := flatkv.Address{0xAA}
+	slot := flatkv.Slot{0xBB}
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
+		flatkv.StorageKey(addr, slot))
+	storageVal := []byte{0x42}
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 10}
+
+	err = src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: []byte("balance_alice"), Value: []byte("100")},
+		}}},
+		{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: storageKey, Value: storageVal},
+			{Key: nonceKey, Value: nonceVal},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = src.Commit()
+	require.NoError(t, err)
+
+	// --- Export ---
+	exporter, err := src.Exporter(1)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, src.Close())
+
+	// Verify export stream structure: cosmos modules first, evm_flatkv last.
+	var moduleNames []string
+	for _, it := range items {
+		if it.moduleName != "" {
+			moduleNames = append(moduleNames, it.moduleName)
+		}
+	}
+	require.Contains(t, moduleNames, "bank")
+	require.Contains(t, moduleNames, EVMFlatKVStoreName)
+	// evm_flatkv should be the last module
+	require.Equal(t, EVMFlatKVStoreName, moduleNames[len(moduleNames)-1])
+
+	// --- Destination store: import ---
+	dstDir := t.TempDir()
+	dst := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	dst.Initialize([]string{"bank", EVMStoreName})
+	_, err = dst.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, dst.Close())
+
+	importer, err := dst.Importer(1)
+	require.NoError(t, err)
+	replayImport(t, importer, items)
+	require.NoError(t, importer.Close())
+
+	// Reload the store at version 1 to verify
+	_, err = dst.LoadVersion(1, false)
+	require.NoError(t, err)
+	defer dst.Close()
+
+	// Verify cosmos data
+	bankStore := dst.GetChildStoreByName("bank")
+	require.NotNil(t, bankStore)
+	require.Equal(t, []byte("100"), bankStore.Get([]byte("balance_alice")))
+
+	// Verify FlatKV data
+	require.NotNil(t, dst.evmCommitter)
+	got, found := dst.evmCommitter.Get(storageKey)
+	require.True(t, found, "storage key should exist in FlatKV after import")
+	require.Equal(t, storageVal, got)
+
+	got, found = dst.evmCommitter.Get(nonceKey)
+	require.True(t, found, "nonce key should exist in FlatKV after import")
+	require.Equal(t, nonceVal, got)
+}
+
+func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.SnapshotInterval = 1
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank"})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	exporter, err := cs.Exporter(1)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, cs.Close())
+
+	// In cosmos_only mode, evm_flatkv should NOT appear
+	for _, it := range items {
+		require.NotEqual(t, EVMFlatKVStoreName, it.moduleName,
+			"evm_flatkv should not appear in cosmos_only export")
+	}
+}
+
+func TestCompositeImporterRouting(t *testing.T) {
+	// Verify that the composite importer routes evm_flatkv exclusively
+	// to the evm importer and other modules only to cosmos.
+	var cosmosModules, evmModules []string
+	var cosmosNodes, evmNodes []*types.SnapshotNode
+
+	cosmosImp := &trackingImporter{
+		modules: &cosmosModules,
+		nodes:   &cosmosNodes,
+	}
+	evmImp := &trackingImporter{
+		modules: &evmModules,
+		nodes:   &evmNodes,
+	}
+
+	imp := NewImporter(cosmosImp, evmImp)
+
+	require.NoError(t, imp.AddModule("bank"))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k1"), Value: []byte("v1")})
+
+	require.NoError(t, imp.AddModule(EVMFlatKVStoreName))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k2"), Value: []byte("v2")})
+
+	require.NoError(t, imp.AddModule("staking"))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k3"), Value: []byte("v3")})
+
+	// bank and staking → cosmos only
+	require.Equal(t, []string{"bank", "staking"}, cosmosModules)
+	require.Len(t, cosmosNodes, 2)
+	require.Equal(t, []byte("k1"), cosmosNodes[0].Key)
+	require.Equal(t, []byte("k3"), cosmosNodes[1].Key)
+
+	// evm_flatkv → evm only
+	require.Equal(t, []string{EVMFlatKVStoreName}, evmModules)
+	require.Len(t, evmNodes, 1)
+	require.Equal(t, []byte("k2"), evmNodes[0].Key)
+
+	require.NoError(t, imp.Close())
+}
+
+// trackingImporter records calls for test assertions.
+type trackingImporter struct {
+	modules *[]string
+	nodes   *[]*types.SnapshotNode
+}
+
+func (ti *trackingImporter) AddModule(name string) error {
+	*ti.modules = append(*ti.modules, name)
+	return nil
+}
+
+func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
+	*ti.nodes = append(*ti.nodes, node)
+}
+
+func (ti *trackingImporter) Close() error { return nil }
