@@ -48,13 +48,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.cacheEnabled() {
-		delete(s.readCache.balance, evmAddr)
-	}
-
 	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
-		newBalance := uint256FromBig(new(big.Int).Sub(oldBalance.ToBig(), amt)).ToBig()
-		s.logger.OnBalanceChange(evmAddr, oldBalance.ToBig(), newBalance, reason)
+		newBalance := s.GetBalance(evmAddr).ToBig()
+		oldBalance := new(big.Int).Add(newBalance, amt)
+		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
 	surplus := sdk.NewIntFromBigInt(amt)
@@ -96,13 +93,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.cacheEnabled() {
-		delete(s.readCache.balance, evmAddr)
-	}
-
 	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
-		newBalance := uint256FromBig(new(big.Int).Add(oldBalance.ToBig(), amt)).ToBig()
-		s.logger.OnBalanceChange(evmAddr, oldBalance.ToBig(), newBalance, reason)
+		newBalance := s.GetBalance(evmAddr).ToBig()
+		oldBalance := new(big.Int).Sub(newBalance, amt)
+		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
 	surplus := sdk.NewIntFromBigInt(amt).Neg()
@@ -115,24 +109,13 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	profile, start := s.startGetterProfile("db_get_balance")
 	defer finishGetterProfile(profile, start, "db_get_balance")
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	if s.cacheEnabled() {
-		if cached, ok := s.readCache.balance[evmAddr]; ok {
-			if profile != nil {
-				profile.AddCount("db_get_balance_cache_hit_count", 1)
-			}
-			return cloneUint256(cached)
-		}
-	}
 	seiAddr := s.getSeiAddress(evmAddr)
 	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
 	if overflow {
 		panic("balance overflow")
 	}
 	if res == nil {
-		res = uint256.NewInt(0)
-	}
-	if s.cacheEnabled() {
-		s.readCache.balance[evmAddr] = *res
+		return uint256.NewInt(0)
 	}
 	return res
 }
@@ -157,9 +140,6 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	s.send(moduleAddr, seiAddr, amt)
 	if s.err != nil {
 		panic(s.err)
-	}
-	if s.cacheEnabled() {
-		s.readCache.balance[evmAddr] = *amtUint256
 	}
 }
 
