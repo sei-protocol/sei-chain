@@ -23,7 +23,7 @@ const (
 )
 
 // txHashEntry stores a written tx hash along with its block and contract address,
-// used by reader goroutines to generate realistic read queries.
+// used by reader goroutines to generate realistic log filter queries.
 type txHashEntry struct {
 	txHash          common.Hash
 	blockNumber     uint64
@@ -85,12 +85,17 @@ type RecieptStoreSimulator struct {
 	recieptsChan chan *block
 
 	store   receipt.ReceiptStore
+	crand   *CannedRandom
 	txRing  *txHashRing
 	metrics *CryptosimMetrics
 }
 
 // Creates a new receipt store simulator backed by the production ReceiptStore
 // (parquet backend + ledger cache), with optional concurrent reader goroutines.
+//
+// Receipt-by-hash reads reconstruct tx hashes on the fly via SyntheticTxHash
+// (no storage needed). Log filter reads use the ring buffer to sample contract
+// addresses written by the write path. See SyntheticTxHash in receipt.go for details.
 func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -113,6 +118,11 @@ func NewRecieptStoreSimulator(
 		return nil, fmt.Errorf("failed to create receipt store: %w", err)
 	}
 
+	// CannedRandom with the same (seed, bufferSize) as the block builder so that
+	// SyntheticTxHash produces the same hashes the write path stored.
+	// Only SeededBytes is called, which is a read-only operation safe for concurrent use.
+	crand := NewCannedRandom(config.CannedRandomSize, config.Seed)
+
 	txRing := newTxHashRing(defaultTxHashRingSize)
 
 	r := &RecieptStoreSimulator{
@@ -121,6 +131,7 @@ func NewRecieptStoreSimulator(
 		config:       config,
 		recieptsChan: recieptsChan,
 		store:        store,
+		crand:        crand,
 		txRing:       txRing,
 		metrics:      metrics,
 	}
@@ -150,7 +161,7 @@ func (r *RecieptStoreSimulator) mainLoop() {
 }
 
 // Processes a block of receipts using the production ReceiptStore.SetReceipts path,
-// then populates the tx hash ring for reader goroutines.
+// then populates the ring buffer with contract addresses for log filter reads.
 func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	blockNumber := uint64(blk.BlockNumber()) //nolint:gosec
 
@@ -233,8 +244,8 @@ func (r *RecieptStoreSimulator) startReaders() {
 		go r.readerLoop(readsPerReader, readerRng)
 	}
 
-	fmt.Printf("Started %d receipt reader goroutines (%d reads/sec each, %.0f%% cold read ratio)\n",
-		readerCount, readsPerReader, r.config.ReceiptColdReadRatio*100)
+	fmt.Printf("Started %d receipt reader goroutines (%d reads/sec each)\n",
+		readerCount, readsPerReader)
 }
 
 func (r *RecieptStoreSimulator) readerLoop(readsPerSecond int, rng *rand.Rand) {
@@ -252,22 +263,45 @@ func (r *RecieptStoreSimulator) readerLoop(readsPerSecond int, rng *rand.Rand) {
 	}
 }
 
+// executeRead picks a read type: receipt-by-hash (via SyntheticTxHash) or log filter
+// (via the ring buffer for contract addresses), weighted by ReceiptLogFilterRatio.
 func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
-	entry := r.txRing.RandomEntry(rng)
-	if entry == nil {
+	if r.config.ReceiptLogFilterRatio > 0 && rng.Float64() < r.config.ReceiptLogFilterRatio {
+		r.executeLogFilterRead(rng)
+		return
+	}
+	r.executeReceiptRead(rng)
+}
+
+// executeReceiptRead reconstructs a tx hash from a random (block, txIndex) pair and queries it.
+//
+// The valid block range is [max(1, latest - KeepRecent + 1), latest]. Hashes outside this
+// range may have been pruned — that's fine, the query simply returns no result and we
+// count it as a miss. No ring buffer or hash storage is needed because SyntheticTxHash
+// can recompute any hash from its coordinates alone (see receipt.go).
+func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
+	latestBlock := r.store.LatestVersion()
+	if latestBlock <= 0 {
 		return
 	}
 
-	if r.config.ReceiptLogFilterRatio > 0 && rng.Float64() < r.config.ReceiptLogFilterRatio {
-		r.executeLogFilterRead(entry, rng)
-		return
+	earliestBlock := int64(1)
+	if r.config.ReceiptKeepRecent > 0 && latestBlock > r.config.ReceiptKeepRecent {
+		earliestBlock = latestBlock - r.config.ReceiptKeepRecent + 1
 	}
+
+	blockRange := latestBlock - earliestBlock + 1
+	randomBlock := earliestBlock + rng.Int63n(blockRange)
+	randomTxIdx := rng.Intn(r.config.TransactionsPerBlock)
+
+	hashBytes := SyntheticTxHash(r.crand, uint64(randomBlock), uint32(randomTxIdx)) //nolint:gosec
+	txHash := common.BytesToHash(hashBytes)
 
 	r.metrics.ReportReceiptRead()
 
 	sdkCtx := sdk.NewContext(nil, tmproto.Header{}, false)
 	start := time.Now()
-	_, err := r.store.GetReceipt(sdkCtx, entry.txHash)
+	_, err := r.store.GetReceipt(sdkCtx, txHash)
 	r.metrics.RecordReceiptReadDuration(time.Since(start).Seconds())
 
 	if err != nil {
@@ -276,13 +310,20 @@ func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
 }
 
 // executeLogFilterRead simulates an eth_getLogs query filtering by contract address
-// over a small block range, which is the typical RPC pattern.
-func (r *RecieptStoreSimulator) executeLogFilterRead(entry *txHashEntry, rng *rand.Rand) {
+// over a small block range, which is the typical RPC pattern. Contract addresses
+// come from the ring buffer since they aren't deterministically derivable from a tx ID.
+func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
+	entry := r.txRing.RandomEntry(rng)
+	if entry == nil {
+		return
+	}
+
 	latestVersion := r.store.LatestVersion()
 	if latestVersion <= 0 {
 		return
 	}
 
+	// Query a range of 10-100 blocks around the entry's block number.
 	rangeSize := uint64(10 + rng.Intn(91))
 	fromBlock := entry.blockNumber
 	toBlock := fromBlock + rangeSize

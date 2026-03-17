@@ -31,6 +31,11 @@ const (
 	syntheticReceiptGasPriceSpan    uint64 = 9_000_000_000
 	syntheticReceiptTransferBase    uint64 = 1_000_000
 	syntheticReceiptTransferSpan    uint64 = 10_000_000_000
+
+	// Multiplied by blockNumber then added to txIndex to produce a unique seed per
+	// transaction. Supports up to 1M txs per block before collisions. With int64,
+	// block numbers up to ~9.2 trillion are safe before overflow (~290k years at 1 block/sec).
+	syntheticTxIDBlockStride int64 = 1_000_000
 )
 
 var erc20TransferEventSignatureBytes = [hashLen]byte{
@@ -38,6 +43,27 @@ var erc20TransferEventSignatureBytes = [hashLen]byte{
 	0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
 	0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16,
 	0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
+}
+
+// SyntheticTxHash returns a deterministic 32-byte tx hash for a given (blockNumber, txIndex) pair.
+//
+// It uses CannedRandom.SeededBytes, which is a pure read from the pre-generated buffer — no
+// internal state is advanced, and the result depends only on the CannedRandom's seed/buffer
+// and the inputs. This means any goroutine with a CannedRandom created from the same
+// (seed, bufferSize) can reconstruct any tx hash from just the block number and tx index,
+// without storing the hashes. Readers use this to compute query targets on the fly:
+//
+//	validRange  = [max(1, latestBlock - keepRecent + 1), latestBlock]
+//	randomBlock = pick from validRange
+//	randomTxIdx = pick from [0, txsPerBlock)
+//	txHash      = SyntheticTxHash(crand, randomBlock, randomTxIdx)
+//
+// The hash automatically becomes invalid (returns no result) once the corresponding
+// parquet file is pruned, so readers never need to track which hashes are live.
+func SyntheticTxHash(crand *CannedRandom, blockNumber uint64, txIndex uint32) []byte {
+	//nolint:gosec // block numbers and tx indices won't exceed int64 in benchmarks
+	txID := int64(blockNumber)*syntheticTxIDBlockStride + int64(txIndex)
+	return crand.SeededBytes(hashLen, txID)
 }
 
 // BuildERC20TransferReceiptFromTxn produces a plausible successful ERC20 transfer receipt from a transaction.
@@ -136,7 +162,7 @@ func BuildERC20TransferReceipt(
 		TxType:            txType,
 		CumulativeGasUsed: cumulativeGasUsed,
 		ContractAddress:   contractAddressHex,
-		TxHashHex:         BytesToHex(crand.Bytes(hashLen)),
+		TxHashHex:         BytesToHex(SyntheticTxHash(crand, blockNumber, txIndex)),
 		GasUsed:           gasUsed,
 		EffectiveGasPrice: effectiveGasPrice,
 		BlockNumber:       blockNumber,

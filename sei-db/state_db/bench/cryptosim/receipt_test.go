@@ -82,6 +82,47 @@ func TestBuildERC20TransferReceipt_InvalidInputs(t *testing.T) {
 	}
 }
 
+func TestSyntheticTxHashDeterminism(t *testing.T) {
+	crand1 := NewCannedRandom(1<<20, 42)
+	crand2 := NewCannedRandom(1<<20, 42)
+
+	block := uint64(500_000)
+	txIdx := uint32(7)
+
+	hash1 := SyntheticTxHash(crand1, block, txIdx)
+	hash2 := SyntheticTxHash(crand2, block, txIdx)
+
+	if len(hash1) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(hash1))
+	}
+	for i := range hash1 {
+		if hash1[i] != hash2[i] {
+			t.Fatal("same (seed, bufferSize, block, txIdx) must produce identical hashes")
+		}
+	}
+
+	// Same call again on the same instance must be stable (SeededBytes is stateless).
+	hash3 := SyntheticTxHash(crand1, block, txIdx)
+	for i := range hash1 {
+		if hash1[i] != hash3[i] {
+			t.Fatal("repeated calls with same inputs must return identical hashes")
+		}
+	}
+
+	// Different (block, txIdx) must produce a different hash.
+	other := SyntheticTxHash(crand1, block, txIdx+1)
+	same := true
+	for i := range hash1 {
+		if hash1[i] != other[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("different (block, txIdx) should produce different hashes")
+	}
+}
+
 func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
 	keyRand := NewCannedRandom(4096, 1)
 	receiptRand := NewCannedRandom(1<<20, 2)
