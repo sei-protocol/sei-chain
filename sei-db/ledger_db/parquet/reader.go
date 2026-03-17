@@ -22,7 +22,8 @@ type Reader struct {
 	db                 *sql.DB
 	basePath           string
 	maxBlocksPerFile   uint64
-	mu                 sync.RWMutex
+	mu                 sync.RWMutex // protects file list slices (brief hold only)
+	pruneMu            sync.RWMutex // guards physical files on disk; readers hold RLock during queries, pruning holds Lock to delete
 	closedReceiptFiles []string
 	closedLogFiles     []string
 }
@@ -283,9 +284,16 @@ func (r *Reader) AddTrackedLogFile(startBlock uint64) {
 
 // MaxReceiptBlockNumber returns the maximum block number in the receipt files.
 func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error) {
+
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
+
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
+	closedFiles := make([]string, len(r.closedReceiptFiles))
+	copy(closedFiles, r.closedReceiptFiles)
 	r.mu.RUnlock()
+
 	if len(closedFiles) == 0 {
 		return 0, false, nil
 	}
@@ -315,8 +323,14 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 
 // GetReceiptByTxHash queries for a receipt by transaction hash.
 func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
+
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
+
 	r.mu.RLock()
-	closedFiles := r.closedReceiptFiles
+	closedFiles := make([]string, len(r.closedReceiptFiles))
+	copy(closedFiles, r.closedReceiptFiles)
 	r.mu.RUnlock()
 
 	if len(closedFiles) == 0 {
@@ -352,8 +366,14 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 
 // GetLogs queries logs matching the given filter.
 func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
+
+	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
+
 	r.mu.RLock()
-	closedFiles := r.closedLogFiles
+	closedFiles := make([]string, len(r.closedLogFiles))
+	copy(closedFiles, r.closedLogFiles)
 	r.mu.RUnlock()
 
 	if len(closedFiles) == 0 {
