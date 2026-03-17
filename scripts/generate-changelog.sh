@@ -1,40 +1,66 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #
-# generate-changelog-6.4.sh
-#
-# Generates a v6.4 changelog section for sei-chain in the same style
-# as the existing CHANGELOG.md (e.g., v6.3).
+# Generate a changelog section for a new version by discovering PRs merged
+# since a given git tag.
 #
 # Usage:
-#   ./generate-changelog-6.4.sh               # prints to stdout
-#   ./generate-changelog-6.4.sh >> CHANGELOG   # append to a file
+#   ./scripts/generate-changelog.sh <new-version> <since-tag>
 #
-# Requirements: git, awk, sed
-
+# Example:
+#   ./scripts/generate-changelog.sh v6.4 v6.3.0
+#
+# The script will:
+#   1. Find the merge date of the <since-tag> on the remote
+#   2. Fetch all PRs merged after that date via `gh`
+#   3. Output a sorted changelog section (descending by PR number)
+#
+# Prerequisites: gh (GitHub CLI) must be authenticated.
+ 
 set -euo pipefail
-
+ 
 REPO="sei-protocol/sei-chain"
-BASE_URL="https://github.com/${REPO}/pull"
-
-# The highest PR number already listed under v6.3 in CHANGELOG.md.
-V63_MAX_PR=2580
-
-# The branch/ref that contains all v6.4 work.
-TARGET_REF="${1:-origin/main}"
-
-# Extract PR-numbered entries from git log, newest first.
-# Each squash-merge commit message ends with "(#NNNN)".
-git log --oneline --first-parent "$TARGET_REF" \
-  | awk '/\(#[0-9]+\)$/' \
-  | while IFS= read -r line; do
-      # Extract PR number from trailing (#NNNN)
-      pr_num=$(echo "$line" | sed 's/.*(#\([0-9]*\))$/\1/')
-
-      # Strip leading hash and trailing (#NNNN) to get the message
-      msg=$(echo "$line" | sed 's/^[0-9a-f]* //' | sed "s/ (#${pr_num})\$//")
-
-      # Only include PRs newer than v6.3
-      if [ "$pr_num" -gt "$V63_MAX_PR" ]; then
-        echo "* [#${pr_num}](${BASE_URL}/${pr_num}) ${msg}"
-      fi
-    done
+VERSION="${1:-}"
+SINCE_TAG="${2:-}"
+ 
+if [ -z "$VERSION" ] || [ -z "$SINCE_TAG" ]; then
+    echo "Usage: $0 <new-version> <since-tag>" >&2
+    echo "Example: $0 v6.4 v6.3.0" >&2
+    exit 1
+fi
+ 
+if ! command -v gh &>/dev/null; then
+    echo "Error: gh (GitHub CLI) is required but not found." >&2
+    exit 1
+fi
+ 
+# Get the date of the since-tag commit so we can query PRs merged after it.
+# Try local first, fall back to fetching the tag.
+if ! tag_date=$(git log -1 --format='%aI' "$SINCE_TAG" 2>/dev/null); then
+    echo "Tag $SINCE_TAG not found locally, fetching..." >&2
+    git fetch origin "refs/tags/${SINCE_TAG}:refs/tags/${SINCE_TAG}"
+    tag_date=$(git log -1 --format='%aI' "$SINCE_TAG")
+fi
+ 
+echo "Tag ${SINCE_TAG} date: ${tag_date}" >&2
+echo "Fetching PRs merged after ${tag_date}..." >&2
+ 
+# Fetch merged PRs after the tag date.
+prs=$(gh pr list \
+    --repo "$REPO" \
+    --state merged \
+    --limit 500 \
+    --search "merged:>${tag_date}" \
+    --json number,title \
+    --jq ".[] | \"* [#\\(.number)](https://github.com/${REPO}/pull/\\(.number)) \\(.title)\"")
+ 
+if [ -z "$prs" ]; then
+    echo "No new PRs found after tag ${SINCE_TAG}." >&2
+    exit 0
+fi
+ 
+# Sort by PR number descending
+sorted_prs=$(echo "$prs" | sort -t'#' -k2 -rn)
+ 
+echo "## ${VERSION}"
+echo "sei-chain"
+echo "$sorted_prs"
