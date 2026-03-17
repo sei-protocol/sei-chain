@@ -121,6 +121,7 @@ func OpenWithCache(
 		config.CacheSize,
 		readPool,
 		miscPool,
+		config.EstimatedOverheadPerEntry,
 		cacheName,
 		config.MetricsScrapeInterval,
 	)

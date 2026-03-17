@@ -58,13 +58,14 @@ if [ "$any_change" = true ]; then
   TARGET="$COMMON_DIR/legacy/$TAG_FOLDER"
   mkdir -p "$TARGET"
 
-  SRC="$COMMON_DIR/precompiles.go"
-  if [ -f "$SRC" ]; then
-    cp "$SRC" "$TARGET/"
-    # Replace package line
-    sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$TARGET/precompiles.go"
-    sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$TARGET/evm_events.go"
-  fi
+  for SRC in "$COMMON_DIR/precompiles.go" "$COMMON_DIR/evm_events.go"; do
+    if [ -f "$SRC" ]; then
+      filename=$(basename "$SRC")
+      cp "$SRC" "$TARGET/"
+      # Replace package line
+      sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$TARGET/$filename"
+    fi
+  done
 fi
 
 # --- Process all subfolders ---

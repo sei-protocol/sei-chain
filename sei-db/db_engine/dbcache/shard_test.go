@@ -28,7 +28,7 @@ func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) (*shard
 		}
 		return v, true, nil
 	})
-	s, err := NewShard(context.Background(), threading.NewAdHocPool(), maxSize)
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), maxSize, 0)
 	require.NoError(t, err)
 	return s, read
 }
@@ -38,13 +38,13 @@ func newTestShard(t *testing.T, maxSize uint64, store map[string][]byte) (*shard
 // ---------------------------------------------------------------------------
 
 func TestNewShardValid(t *testing.T) {
-	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 1024)
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 1024, 0)
 	require.NoError(t, err)
 	require.NotNil(t, s)
 }
 
 func TestNewShardZeroMaxSize(t *testing.T) {
-	_, err := NewShard(context.Background(), threading.NewAdHocPool(), 0)
+	_, err := NewShard(context.Background(), threading.NewAdHocPool(), 0, 0)
 	require.Error(t, err)
 }
 
@@ -74,7 +74,7 @@ func TestGetCacheMissNotFoundInDB(t *testing.T) {
 func TestGetCacheMissDBError(t *testing.T) {
 	dbErr := errors.New("disk on fire")
 	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return nil, false, dbErr })
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	_, _, err := s.Get(readFunc, []byte("boom"), true)
 	require.Error(t, err)
@@ -90,7 +90,7 @@ func TestGetDBErrorDoesNotCacheResult(t *testing.T) {
 		}
 		return []byte("recovered"), true, nil
 	})
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	_, _, err := s.Get(readFunc, []byte("key"), true)
 	require.Error(t, err, "first call should fail")
@@ -134,7 +134,7 @@ func TestGetAfterSet(t *testing.T) {
 		readCalls.Add(1)
 		return nil, false, nil
 	})
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	s.Set([]byte("k"), []byte("from-set"))
 
@@ -148,6 +148,10 @@ func TestGetAfterSet(t *testing.T) {
 func TestGetAfterDelete(t *testing.T) {
 	store := map[string][]byte{"k": []byte("v")}
 	s, read := newTestShard(t, 4096, store)
+
+	// Warm the cache so the key is present before deleting.
+	_, _, err := s.Get(read, []byte("k"), true)
+	require.NoError(t, err)
 
 	s.Delete([]byte("k"))
 
@@ -170,7 +174,7 @@ func TestGetConcurrentSameKey(t *testing.T) {
 		<-gate
 		return []byte("value"), true, nil
 	})
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -213,7 +217,7 @@ func TestGetContextCancelled(t *testing.T) {
 		time.Sleep(time.Second)
 		return []byte("late"), true, nil
 	})
-	s, _ := NewShard(ctx, threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(ctx, threading.NewAdHocPool(), 4096, 0)
 
 	cancel()
 
@@ -505,7 +509,7 @@ func TestBatchGetDeletedKeys(t *testing.T) {
 func TestBatchGetDBError(t *testing.T) {
 	dbErr := errors.New("broken")
 	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return nil, false, dbErr })
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	keys := map[string]types.BatchGetResult{
 		"fail": {},
@@ -529,7 +533,7 @@ func TestBatchGetCachesResults(t *testing.T) {
 		v, ok := store[string(key)]
 		return v, ok, nil
 	})
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	s.BatchGet(readFunc, keys)
@@ -632,6 +636,131 @@ func TestGetSizeInfoAfterSets(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// estimatedOverheadPerEntry
+// ---------------------------------------------------------------------------
+
+func TestOverheadIncludedInSizeAfterSet(t *testing.T) {
+	const overhead = 100
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	s.Set([]byte("ab"), []byte("cd"))
+	s.Set([]byte("efg"), []byte("hi"))
+
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(2), entries)
+	// (2+2+100) + (3+2+100) = 209
+	require.Equal(t, uint64(209), bytes)
+}
+
+func TestOverheadIncludedInSizeAfterDelete(t *testing.T) {
+	const overhead = 100
+	store := map[string][]byte{"abc": []byte("val")}
+	read := Reader(func(key []byte) ([]byte, bool, error) {
+		v, ok := store[string(key)]
+		return v, ok, nil
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	// Warm the cache so the key is present before deleting.
+	_, _, err := s.Get(read, []byte("abc"), true)
+	require.NoError(t, err)
+
+	s.Delete([]byte("abc"))
+
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	// 3 + 100 = 103
+	require.Equal(t, uint64(103), bytes)
+}
+
+func TestOverheadIncludedInSizeAfterDBRead(t *testing.T) {
+	const overhead = 100
+	store := map[string][]byte{"key": []byte("value")}
+	read := Reader(func(key []byte) ([]byte, bool, error) {
+		v, ok := store[string(key)]
+		return v, ok, nil
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	val, found, err := s.Get(read, []byte("key"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "value", string(val))
+
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	// 3 + 5 + 100 = 108
+	require.Equal(t, uint64(108), bytes)
+}
+
+func TestOverheadIncludedInSizeAfterDBReadNotFound(t *testing.T) {
+	const overhead = 100
+	read := Reader(func(key []byte) ([]byte, bool, error) { return nil, false, nil })
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	_, found, err := s.Get(read, []byte("key"), true)
+	require.NoError(t, err)
+	require.False(t, found)
+
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	// 3 + 100 = 103
+	require.Equal(t, uint64(103), bytes)
+}
+
+func TestOverheadTriggersEarlierEviction(t *testing.T) {
+	const overhead = 50
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100, overhead)
+
+	// "a" + "1234" + 50 = 55 bytes
+	s.Set([]byte("a"), []byte("1234"))
+	_, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+
+	// "b" + "5678" + 50 = 55 bytes, total = 110 > 100 → evict "a"
+	s.Set([]byte("b"), []byte("5678"))
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries, "overhead should cause eviction to keep only one entry")
+	require.LessOrEqual(t, bytes, uint64(100))
+}
+
+func TestOverheadIncludedInBatchGetFromDB(t *testing.T) {
+	const overhead = 100
+	store := map[string][]byte{"x": []byte("10"), "y": []byte("20")}
+	read := Reader(func(key []byte) ([]byte, bool, error) {
+		v, ok := store[string(key)]
+		return v, ok, nil
+	})
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	keys := map[string]types.BatchGetResult{"x": {}, "y": {}}
+	require.NoError(t, s.BatchGet(read, keys))
+
+	time.Sleep(50 * time.Millisecond)
+
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(2), entries)
+	// (1+2+100) + (1+2+100) = 206
+	require.Equal(t, uint64(206), bytes)
+}
+
+func TestOverheadSizeUpdatedOnOverwrite(t *testing.T) {
+	const overhead = 100
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	s.Set([]byte("k"), []byte("short"))
+	b1, _ := s.getSizeInfo()
+	// 1 + 5 + 100 = 106
+	require.Equal(t, uint64(106), b1)
+
+	s.Set([]byte("k"), []byte("a-longer-value"))
+	b2, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	// 1 + 14 + 100 = 115
+	require.Equal(t, uint64(115), b2)
+}
+
+// ---------------------------------------------------------------------------
 // injectValue — edge cases
 // ---------------------------------------------------------------------------
 
@@ -725,7 +854,7 @@ func (fp *failPool) Submit(_ context.Context, _ func()) error {
 
 func TestGetPoolSubmitFailure(t *testing.T) {
 	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
-	s, _ := NewShard(context.Background(), &failPool{}, 4096)
+	s, _ := NewShard(context.Background(), &failPool{}, 4096, 0)
 
 	_, _, err := s.Get(readFunc, []byte("k"), true)
 	require.Error(t, err)
@@ -733,7 +862,7 @@ func TestGetPoolSubmitFailure(t *testing.T) {
 
 func TestBatchGetPoolSubmitFailure(t *testing.T) {
 	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
-	s, _ := NewShard(context.Background(), &failPool{}, 4096)
+	s, _ := NewShard(context.Background(), &failPool{}, 4096, 0)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	err := s.BatchGet(readFunc, keys)
@@ -772,7 +901,7 @@ func TestBatchGetDBErrorNotCached(t *testing.T) {
 		}
 		return []byte("ok"), true, nil
 	})
-	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096)
+	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 4096, 0)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	s.BatchGet(readFunc, keys)

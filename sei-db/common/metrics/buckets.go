@@ -1,5 +1,7 @@
 package metrics
 
+import "github.com/sei-protocol/sei-chain/sei-db/common/unit"
+
 // Shared histogram bucket boundaries for use across the codebase.
 // The OTel defaults are too coarse for meaningful percentile queries in Grafana.
 
@@ -13,8 +15,8 @@ var LatencyBuckets = []float64{
 
 // ByteSizeBuckets covers 256B to 1GB for data size histograms.
 var ByteSizeBuckets = []float64{
-	256, 1024, 4096, 16384, 65536, 262144, // 256B–256KB
-	1 << 20, 4 << 20, 16 << 20, 64 << 20, 256 << 20, 1 << 30, // 1MB–1GB
+	256, unit.KB, 4 * unit.KB, 16 * unit.KB, 64 * unit.KB, 256 * unit.KB,
+	unit.MB, 4 * unit.MB, 16 * unit.MB, 64 * unit.MB, 256 * unit.MB, unit.GB,
 }
 
 // CountBuckets covers 1 to 1M for per-operation step/iteration counts.

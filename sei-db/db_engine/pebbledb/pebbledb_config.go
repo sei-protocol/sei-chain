@@ -21,16 +21,20 @@ type PebbleDBConfig struct {
 	EnableMetrics bool
 	// How often to scrape metrics (pebble internals + cache size).
 	MetricsScrapeInterval time.Duration
+	// The estimated overhead per entry in the cache, in bytes.
+	// This should be derived experimentally, and may differ between different builds and architectures.
+	EstimatedOverheadPerEntry uint64
 }
 
 // Default configuration for the PebbleDB database.
 func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
-		CacheSize:             512 * unit.MB,
-		CacheShardCount:       8,
-		BlockCacheSize:        512 * unit.MB,
-		EnableMetrics:         true,
-		MetricsScrapeInterval: 10 * time.Second,
+		CacheSize:                 512 * unit.MB,
+		CacheShardCount:           8,
+		BlockCacheSize:            512 * unit.MB,
+		EnableMetrics:             true,
+		MetricsScrapeInterval:     10 * time.Second,
+		EstimatedOverheadPerEntry: 256,
 	}
 }
 

@@ -31,7 +31,7 @@ func newTestCache(t *testing.T, store map[string][]byte, shardCount, maxSize uin
 		return v, true, nil
 	}
 	pool := threading.NewAdHocPool()
-	c, err := NewStandardCache(context.Background(), shardCount, maxSize, pool, pool, "", 0)
+	c, err := NewStandardCache(context.Background(), shardCount, maxSize, pool, pool, 16, "", 0)
 	require.NoError(t, err)
 	return c, read
 }
@@ -42,42 +42,42 @@ func newTestCache(t *testing.T, store map[string][]byte, shardCount, maxSize uin
 
 func TestNewStandardCacheValid(t *testing.T) {
 	pool := threading.NewAdHocPool()
-	c, err := NewStandardCache(context.Background(), 4, 1024, pool, pool, "", 0)
+	c, err := NewStandardCache(context.Background(), 4, 1024, pool, pool, 16, "", 0)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
 
 func TestNewStandardCacheSingleShard(t *testing.T) {
 	pool := threading.NewAdHocPool()
-	c, err := NewStandardCache(context.Background(), 1, 1024, pool, pool, "", 0)
+	c, err := NewStandardCache(context.Background(), 1, 1024, pool, pool, 16, "", 0)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
 
 func TestNewStandardCacheShardCountZero(t *testing.T) {
 	pool := threading.NewAdHocPool()
-	_, err := NewStandardCache(context.Background(), 0, 1024, pool, pool, "", 0)
+	_, err := NewStandardCache(context.Background(), 0, 1024, pool, pool, 16, "", 0)
 	require.Error(t, err)
 }
 
 func TestNewStandardCacheShardCountNotPowerOfTwo(t *testing.T) {
 	pool := threading.NewAdHocPool()
 	for _, n := range []uint64{3, 5, 6, 7, 9, 10} {
-		_, err := NewStandardCache(context.Background(), n, 1024, pool, pool, "", 0)
+		_, err := NewStandardCache(context.Background(), n, 1024, pool, pool, 16, "", 0)
 		require.Error(t, err, "shardCount=%d", n)
 	}
 }
 
 func TestNewStandardCacheMaxSizeZero(t *testing.T) {
 	pool := threading.NewAdHocPool()
-	_, err := NewStandardCache(context.Background(), 4, 0, pool, pool, "", 0)
+	_, err := NewStandardCache(context.Background(), 4, 0, pool, pool, 16, "", 0)
 	require.Error(t, err)
 }
 
 func TestNewStandardCacheMaxSizeLessThanShardCount(t *testing.T) {
 	pool := threading.NewAdHocPool()
 	// shardCount=4, maxSize=3 → sizePerShard=0
-	_, err := NewStandardCache(context.Background(), 4, 3, pool, pool, "", 0)
+	_, err := NewStandardCache(context.Background(), 4, 3, pool, pool, 16, "", 0)
 	require.Error(t, err)
 }
 
@@ -85,7 +85,7 @@ func TestNewStandardCacheWithMetrics(t *testing.T) {
 	pool := threading.NewAdHocPool()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c, err := NewStandardCache(ctx, 2, 1024, pool, pool, "test-cache", time.Hour)
+	c, err := NewStandardCache(ctx, 2, 1024, pool, pool, 0, "test-cache", time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
@@ -128,6 +128,10 @@ func TestCacheGetAfterDelete(t *testing.T) {
 	store := map[string][]byte{"k": []byte("v")}
 	c, read := newTestCache(t, store, 4, 4096)
 
+	// Warm the cache so the key is present before deleting.
+	_, _, err := c.Get(read, []byte("k"), true)
+	require.NoError(t, err)
+
 	c.Delete([]byte("k"))
 
 	val, found, err := c.Get(read, []byte("k"), true)
@@ -140,7 +144,7 @@ func TestCacheGetDBError(t *testing.T) {
 	dbErr := errors.New("db fail")
 	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, dbErr }
 	pool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 1, 4096, pool, pool, "", 0)
+	c, _ := NewStandardCache(context.Background(), 1, 4096, pool, pool, 0, "", 0)
 
 	_, _, err := c.Get(readFunc, []byte("k"), true)
 	require.Error(t, err)
@@ -154,7 +158,7 @@ func TestCacheGetSameKeyConsistentShard(t *testing.T) {
 		return []byte("val"), true, nil
 	}
 	pool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 4, 4096, pool, pool, "", 0)
+	c, _ := NewStandardCache(context.Background(), 4, 4096, pool, pool, 0, "", 0)
 
 	val1, _, _ := c.Get(readFunc, []byte("key"), true)
 	val2, _, _ := c.Get(readFunc, []byte("key"), true)
@@ -197,8 +201,36 @@ func TestCacheSetNilValue(t *testing.T) {
 
 	val, found, err := c.Get(read, []byte("k"), false)
 	require.NoError(t, err)
-	require.True(t, found)
+	require.False(t, found, "Set(key, nil) should be treated as a deletion")
 	require.Nil(t, val)
+}
+
+func TestCacheSetNilConsistentWithBatchSet(t *testing.T) {
+	store := map[string][]byte{"a": []byte("orig-a"), "b": []byte("orig-b")}
+
+	cSet, readSet := newTestCache(t, store, 1, 4096)
+	cBatch, readBatch := newTestCache(t, store, 1, 4096)
+
+	// Warm both caches so the backing store value is loaded.
+	_, _, err := cSet.Get(readSet, []byte("a"), true)
+	require.NoError(t, err)
+	_, _, err = cBatch.Get(readBatch, []byte("b"), true)
+	require.NoError(t, err)
+
+	// Delete via Set(key, nil) in one cache and BatchSet({key, nil}) in the other.
+	cSet.Set([]byte("a"), nil)
+	require.NoError(t, cBatch.BatchSet([]CacheUpdate{
+		{Key: []byte("b"), Value: nil},
+	}))
+
+	valA, foundA, err := cSet.Get(readSet, []byte("a"), false)
+	require.NoError(t, err)
+	valB, foundB, err := cBatch.Get(readBatch, []byte("b"), false)
+	require.NoError(t, err)
+
+	require.Equal(t, foundA, foundB, "Set(key, nil) and BatchSet with nil value should agree on found")
+	require.Equal(t, valA, valB, "Set(key, nil) and BatchSet with nil value should agree on value")
+	require.False(t, foundA, "nil value should be treated as a deletion")
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +327,7 @@ func TestCacheBatchSetEmpty(t *testing.T) {
 
 func TestCacheBatchSetPoolFailure(t *testing.T) {
 	readPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 1, 4096, readPool, &failPool{}, "", 0)
+	c, _ := NewStandardCache(context.Background(), 1, 4096, readPool, &failPool{}, 0, "", 0)
 
 	err := c.BatchSet([]CacheUpdate{
 		{Key: []byte("k"), Value: []byte("v")},
@@ -373,7 +405,7 @@ func TestCacheBatchGetDBError(t *testing.T) {
 	dbErr := errors.New("broken")
 	readFunc := func(key []byte) ([]byte, bool, error) { return nil, false, dbErr }
 	pool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 1, 4096, pool, pool, "", 0)
+	c, _ := NewStandardCache(context.Background(), 1, 4096, pool, pool, 0, "", 0)
 
 	keys := map[string]types.BatchGetResult{"fail": {}}
 	require.NoError(t, c.BatchGet(readFunc, keys), "BatchGet itself should not fail")
@@ -388,7 +420,7 @@ func TestCacheBatchGetEmpty(t *testing.T) {
 
 func TestCacheBatchGetPoolFailure(t *testing.T) {
 	readPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 1, 4096, readPool, &failPool{}, "", 0)
+	c, _ := NewStandardCache(context.Background(), 1, 4096, readPool, &failPool{}, 0, "", 0)
 
 	keys := map[string]types.BatchGetResult{"k": {}}
 	err := c.BatchGet(noopRead, keys)
@@ -397,7 +429,7 @@ func TestCacheBatchGetPoolFailure(t *testing.T) {
 
 func TestCacheBatchGetShardReadPoolFailure(t *testing.T) {
 	miscPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), 1, 4096, &failPool{}, miscPool, "", 0)
+	c, _ := NewStandardCache(context.Background(), 1, 4096, &failPool{}, miscPool, 0, "", 0)
 
 	keys := map[string]types.BatchGetResult{"a": {}, "b": {}}
 	require.NoError(t, c.BatchGet(noopRead, keys))
@@ -464,6 +496,48 @@ func TestCacheGetCacheSizeInfoAggregatesShards(t *testing.T) {
 	bytes, entries := impl.getCacheSizeInfo()
 	require.Equal(t, uint64(20), entries)
 	require.Greater(t, bytes, uint64(0))
+}
+
+// ---------------------------------------------------------------------------
+// estimatedOverheadPerEntry
+// ---------------------------------------------------------------------------
+
+func TestCacheSizeInfoIncludesOverhead(t *testing.T) {
+	const overhead = 200
+	pool := threading.NewAdHocPool()
+	c, err := NewStandardCache(context.Background(), 1, 100_000, pool, pool, overhead, "", 0)
+	require.NoError(t, err)
+	impl := c.(*cache)
+
+	c.Set([]byte("ab"), []byte("cd"))
+	c.Set([]byte("efg"), []byte("hi"))
+
+	bytes, entries := impl.getCacheSizeInfo()
+	require.Equal(t, uint64(2), entries)
+	// (2+2+200) + (3+2+200) = 409
+	require.Equal(t, uint64(409), bytes)
+}
+
+func TestCacheOverheadCausesEarlierEviction(t *testing.T) {
+	const overhead = 200
+	pool := threading.NewAdHocPool()
+	// Single shard, maxSize=500. Each 10-byte value entry costs 1+10+200=211 bytes.
+	// Two entries = 422 < 500. Three entries = 633 > 500, so one must be evicted.
+	c, err := NewStandardCache(context.Background(), 1, 500, pool, pool, overhead, "", 0)
+	require.NoError(t, err)
+	impl := c.(*cache)
+
+	c.Set([]byte("a"), []byte("0123456789"))
+	c.Set([]byte("b"), []byte("0123456789"))
+
+	_, entries := impl.getCacheSizeInfo()
+	require.Equal(t, uint64(2), entries, "two entries should fit")
+
+	c.Set([]byte("c"), []byte("0123456789"))
+
+	bytes, entries := impl.getCacheSizeInfo()
+	require.Equal(t, uint64(2), entries, "third entry should trigger eviction")
+	require.LessOrEqual(t, bytes, uint64(500))
 }
 
 // ---------------------------------------------------------------------------
@@ -657,7 +731,7 @@ func TestCacheBatchGetAfterBatchSetWithDeletes(t *testing.T) {
 func TestNewStandardCachePowerOfTwoShardCounts(t *testing.T) {
 	pool := threading.NewAdHocPool()
 	for _, n := range []uint64{1, 2, 4, 8, 16, 32, 64} {
-		c, err := NewStandardCache(context.Background(), n, n*100, pool, pool, "", 0)
+		c, err := NewStandardCache(context.Background(), n, n*100, pool, pool, 0, "", 0)
 		require.NoError(t, err, "shardCount=%d", n)
 		require.NotNil(t, c, "shardCount=%d", n)
 	}

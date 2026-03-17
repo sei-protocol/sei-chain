@@ -41,6 +41,9 @@ func NewStandardCache(
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
+	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
+	// This value should be derived experimentally, and may differ between different builds and architectures.
+	estimatedOverheadPerEntry uint64,
 	// Name used as the "cache" attribute on metrics. Empty string disables metrics.
 	cacheName string,
 	// How often to scrape cache size for metrics. Ignored if cacheName is empty.
@@ -64,7 +67,7 @@ func NewStandardCache(
 
 	shards := make([]*shard, shardCount)
 	for i := uint64(0); i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readPool, sizePerShard)
+		shards[i], err = NewShard(ctx, readPool, sizePerShard, estimatedOverheadPerEntry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -109,8 +112,8 @@ func (c *cache) BatchSet(updates []CacheUpdate) error {
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
 		err := c.miscPool.Submit(c.ctx, func() {
+			defer wg.Done()
 			c.shards[shardIndex].BatchSet(shardEntries)
-			wg.Done()
 		})
 		if err != nil {
 			return fmt.Errorf("failed to submit batch set: %w", err)
@@ -182,5 +185,10 @@ func (c *cache) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, erro
 func (c *cache) Set(key []byte, value []byte) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
-	shard.Set(key, value)
+
+	if value == nil {
+		shard.Delete(key)
+	} else {
+		shard.Set(key, value)
+	}
 }

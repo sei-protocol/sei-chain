@@ -1,7 +1,6 @@
 package dbcache
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -30,6 +29,10 @@ type shard struct {
 	// The maximum size of this cache, in bytes.
 	maxSize uint64
 
+	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
+	// This value should be derived experimentally, and may differ between different builds and architectures.
+	estimatedOverheadPerEntry uint64
+
 	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *CacheMetrics
 }
@@ -46,7 +49,7 @@ type valueStatus int
 const (
 	// The value is not known and we are not currently attempting to find it.
 	statusUnknown valueStatus = iota
-	// We've scheduled a read of the value but haven't yet finsihed the read.
+	// We've scheduled a read of the value but haven't yet finished the read.
 	statusScheduled
 	// The data is available.
 	statusAvailable
@@ -70,24 +73,45 @@ type shardEntry struct {
 	valueChan chan readResult
 }
 
+/*
+This implementation currently uses a single exlusive lock, as opposed to a RW lock. This is a lot simpler than
+using a RW lock, but it comes at higher risk of contention under certain workloads. If this contention ever
+becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
+for converting to a RW lock:
+
+- Create a background goroutine that is responsible for garbage collection and updating the LRU.
+- The GC goroutine should periodically wake up, grab the lock, and do garbage collection.
+- When Get() is called, the calling goroutine should grab a read lock and attempt to read the value.
+    - If the value is present, send a message to the GC goroutine over a channel (so it can update the LRU)
+	  and return the value. In this way, many readers can read from this shard concurrently.
+	- If the value is missing, drop the read lock and acquire a write lock. Then, handle the read
+	  like we currently handle in the current implementation.
+*/
+
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
+	// A work pool for asynchronous reads.
 	readPool threading.Pool,
+	// The maximum size of this shard, in bytes.
 	maxSize uint64,
+	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
+	// This value should be derived experimentally, and may differ between different builds and architectures.
+	estimatedOverheadPerEntry uint64,
 ) (*shard, error) {
 
-	if maxSize <= 0 {
+	if maxSize == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
 	return &shard{
-		ctx:      ctx,
-		readPool: readPool,
-		lock:     sync.Mutex{},
-		data:     make(map[string]*shardEntry),
-		gcQueue:  newLRUQueue(),
-		maxSize:  maxSize,
+		ctx:                       ctx,
+		readPool:                  readPool,
+		lock:                      sync.Mutex{},
+		data:                      make(map[string]*shardEntry),
+		gcQueue:                   newLRUQueue(),
+		estimatedOverheadPerEntry: estimatedOverheadPerEntry,
+		maxSize:                   maxSize,
 	}, nil
 }
 
@@ -95,7 +119,7 @@ func NewShard(
 func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
 	s.lock.Lock()
 
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, true)
 
 	switch entry.status {
 	case statusAvailable:
@@ -114,7 +138,7 @@ func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, erro
 
 // Handles Get for a key whose value is already cached. Lock must be held; releases it.
 func (s *shard) getAvailable(entry *shardEntry, key []byte, updateLru bool) ([]byte, bool, error) {
-	value := bytes.Clone(entry.value)
+	value := entry.value
 	if updateLru {
 		s.gcQueue.Touch(key)
 	}
@@ -189,12 +213,14 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 		} else if result.value == nil {
 			se.status = statusDeleted
 			se.value = nil
-			se.shard.gcQueue.Push(key, uint64(len(key)))
+			size := uint64(len(key)) + se.shard.estimatedOverheadPerEntry
+			se.shard.gcQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		} else {
 			se.status = statusAvailable
 			se.value = result.value
-			se.shard.gcQueue.Push(key, uint64(len(key)+len(result.value))) //nolint:gosec // G115: len is non-negative
+			size := uint64(len(key)) + uint64(len(result.value)) + se.shard.estimatedOverheadPerEntry
+			se.shard.gcQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		}
 	}
@@ -206,9 +232,12 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
 // when this method is called.
-func (s *shard) getEntry(key []byte) *shardEntry {
+func (s *shard) getEntry(key []byte, createIfMissing bool) *shardEntry {
 	if entry, ok := s.data[string(key)]; ok {
 		return entry
+	}
+	if !createIfMissing {
+		return nil
 	}
 	entry := &shardEntry{
 		shard:  s,
@@ -236,11 +265,11 @@ func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 
 	s.lock.Lock()
 	for key := range keys {
-		entry := s.getEntry([]byte(key))
+		entry := s.getEntry([]byte(key), true)
 
 		switch entry.status {
 		case statusAvailable, statusDeleted:
-			keys[key] = types.BatchGetResult{Value: bytes.Clone(entry.value)}
+			keys[key] = types.BatchGetResult{Value: entry.value}
 			hits++
 		case statusScheduled:
 			pending = append(pending, pendingRead{
@@ -324,11 +353,13 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
-			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)))
+			size := uint64(len(reads[i].key)) + s.estimatedOverheadPerEntry
+			s.gcQueue.Push([]byte(reads[i].key), size)
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)+len(result.value))) //nolint:gosec // G115
+			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.estimatedOverheadPerEntry
+			s.gcQueue.Push([]byte(reads[i].key), size)
 		}
 	}
 	s.evictUnlocked()
@@ -355,17 +386,18 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 func (s *shard) Set(key []byte, value []byte) {
 	s.lock.Lock()
 	s.setUnlocked(key, value)
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
 // Set a value. Caller is required to hold the lock.
 func (s *shard) setUnlocked(key []byte, value []byte) {
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, true)
 	entry.status = statusAvailable
 	entry.value = value
 
-	s.gcQueue.Push(key, uint64(len(key)+len(value))) //nolint:gosec // G115
-	s.evictUnlocked()
+	size := uint64(len(key)) + uint64(len(value)) + s.estimatedOverheadPerEntry
+	s.gcQueue.Push(key, size)
 }
 
 // BatchSet sets the values for a batch of keys.
@@ -378,6 +410,7 @@ func (s *shard) BatchSet(entries []CacheUpdate) {
 			s.setUnlocked(entries[i].Key, entries[i].Value)
 		}
 	}
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
@@ -385,15 +418,20 @@ func (s *shard) BatchSet(entries []CacheUpdate) {
 func (s *shard) Delete(key []byte) {
 	s.lock.Lock()
 	s.deleteUnlocked(key)
+	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
 // Delete a value. Caller is required to hold the lock.
 func (s *shard) deleteUnlocked(key []byte) {
-	entry := s.getEntry(key)
+	entry := s.getEntry(key, false)
+	if entry == nil {
+		// Key is not in the cache, so nothing to do.
+		return
+	}
 	entry.status = statusDeleted
 	entry.value = nil
 
-	s.gcQueue.Push(key, uint64(len(key)))
-	s.evictUnlocked()
+	size := uint64(len(key)) + s.estimatedOverheadPerEntry
+	s.gcQueue.Push(key, size)
 }
