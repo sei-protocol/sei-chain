@@ -200,7 +200,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockHash == (common.Hash{}) {
 		return nil, nil
-  }
+	}
 	if blockHash == genesisBlockHash {
 		return encodeGenesisBlock(), nil
 	}
