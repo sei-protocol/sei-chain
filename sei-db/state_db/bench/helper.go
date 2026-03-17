@@ -20,6 +20,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -27,7 +28,7 @@ import (
 
 const (
 	// EVMStoreName simulates the EVM module store
-	EVMStoreName = "evm"
+	EVMStoreName = commonevm.EVMStoreKey
 
 	// KeySize EVM storage key: 0x03 prefix + 20-byte address + 32-byte slot = 53 bytes
 	KeySize   = 53
@@ -336,7 +337,7 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 		switch i := item.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
 			currModule = i.Store.Name
-			if currModule == "evm" {
+			if currModule == commonevm.EVMStoreKey {
 				if err := importer.AddModule(i.Store.Name); err != nil {
 					return fmt.Errorf("add module %s: %w", i.Store.Name, err)
 				}
@@ -345,7 +346,7 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 				fmt.Printf("[Snapshot] Skipping store: %s\n", i.Store.Name)
 			}
 		case *snapshottypes.SnapshotItem_IAVL:
-			if currModule != "evm" {
+			if currModule != commonevm.EVMStoreKey {
 				continue
 			}
 			if i.IAVL.Height > math.MaxInt8 {

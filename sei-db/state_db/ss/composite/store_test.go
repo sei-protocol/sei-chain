@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1394,6 +1397,231 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 		require.Equal(t, int64(5), store.cosmosStore.GetLatestVersion())
 		require.Equal(t, int64(5), store.evmStore.GetLatestVersion())
 	})
+}
+
+// setupImportTestStore creates a CompositeStateStore with the given write mode for import tests.
+func setupImportTestStore(t *testing.T, writeMode config.WriteMode) (*CompositeStateStore, func()) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ss_import_test")
+	require.NoError(t, err)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       0,
+		ImportNumWorkers: 1,
+		WriteMode:        writeMode,
+		ReadMode:         config.EVMFirstRead,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+
+	return store, func() {
+		store.Close()
+		os.RemoveAll(dir)
+	}
+}
+
+func feedNodes(ch chan<- types.SnapshotNode, nodes []types.SnapshotNode) {
+	for _, n := range nodes {
+		ch <- n
+	}
+	close(ch)
+}
+
+func TestImport_OnlyEvmModule(t *testing.T) {
+	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
+		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 10)
+			nodes := []types.SnapshotNode{
+				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("1000")},
+				{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_key_1"), Value: []byte("val_1")},
+				{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_key_2"), Value: []byte("val_2")},
+			}
+			go feedNodes(ch, nodes)
+
+			err := store.Import(1, ch)
+			require.NoError(t, err)
+
+			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("1000"), bankVal)
+
+			cosmosEVM1, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
+			require.NoError(t, err)
+
+			if mode == config.SplitWrite {
+				require.Nil(t, cosmosEVM1, "SplitWrite should not store evm data in cosmos")
+			} else {
+				require.Equal(t, []byte("val_1"), cosmosEVM1)
+			}
+
+			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("val_1"), evmVal)
+
+				evmVal2, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_2"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("val_2"), evmVal2)
+			}
+		})
+	}
+}
+
+func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
+	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
+		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 10)
+			nodes := []types.SnapshotNode{
+				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("2000")},
+				{StoreKey: commonevm.EVMFlatKVStoreKey, Key: []byte("flatkv_key_1"), Value: []byte("fv_1")},
+				{StoreKey: commonevm.EVMFlatKVStoreKey, Key: []byte("flatkv_key_2"), Value: []byte("fv_2")},
+			}
+			go feedNodes(ch, nodes)
+
+			err := store.Import(1, ch)
+			require.NoError(t, err)
+
+			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("2000"), bankVal)
+
+			cosmosEVM1, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("flatkv_key_1"))
+			require.NoError(t, err)
+
+			if mode == config.SplitWrite {
+				require.Nil(t, cosmosEVM1, "SplitWrite should not store evm data in cosmos")
+			} else {
+				require.Equal(t, []byte("fv_1"), cosmosEVM1, "evm_flatkv should be normalized to evm")
+			}
+
+			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("flatkv_key_1"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("fv_1"), evmVal)
+
+				evmVal2, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("flatkv_key_2"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("fv_2"), evmVal2)
+			}
+		})
+	}
+}
+
+func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
+	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite} {
+		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 20)
+			nodes := []types.SnapshotNode{
+				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("3000")},
+				// Legacy evm module data
+				{StoreKey: commonevm.EVMStoreKey, Key: []byte("shared_key"), Value: []byte("from_evm")},
+				{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_only_key"), Value: []byte("evm_only")},
+				// evm_flatkv data arriving later — should override shared_key and add new keys
+				{StoreKey: commonevm.EVMFlatKVStoreKey, Key: []byte("shared_key"), Value: []byte("from_flatkv")},
+				{StoreKey: commonevm.EVMFlatKVStoreKey, Key: []byte("flatkv_only_key"), Value: []byte("flatkv_only")},
+			}
+			go feedNodes(ch, nodes)
+
+			err := store.Import(1, ch)
+			require.NoError(t, err)
+
+			// bank data should be in cosmos
+			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("3000"), bankVal)
+
+			// EVM store should have all keys: evm_only, shared (overridden by flatkv), flatkv_only
+			require.NotNil(t, store.evmStore)
+			evmOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("evm_only"), evmOnlyVal)
+
+			sharedVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("shared_key"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("from_flatkv"), sharedVal, "flatkv value should override evm value for shared key")
+
+			flatkvOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("flatkv_only_key"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("flatkv_only"), flatkvOnlyVal)
+
+			if mode == config.DualWrite {
+				cosmosShared, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("shared_key"))
+				require.NoError(t, err)
+				require.Equal(t, []byte("from_flatkv"), cosmosShared, "cosmos should also see the flatkv override in DualWrite")
+			}
+		})
+	}
+}
+
+func TestImport_CosmosOnlyWrite_NormalizesEvmFlatkv(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, config.CosmosOnlyWrite)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	nodes := []types.SnapshotNode{
+		{StoreKey: "bank", Key: []byte("supply"), Value: []byte("5000")},
+		{StoreKey: commonevm.EVMFlatKVStoreKey, Key: []byte("fk_1"), Value: []byte("fv_1")},
+		{StoreKey: commonevm.EVMStoreKey, Key: []byte("ek_1"), Value: []byte("ev_1")},
+	}
+	go feedNodes(ch, nodes)
+
+	err := store.Import(1, ch)
+	require.NoError(t, err)
+
+	bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("5000"), bankVal)
+
+	// evm_flatkv normalized to evm — both should land in cosmos store
+	fv, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("fk_1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("fv_1"), fv)
+
+	ev, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("ek_1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("ev_1"), ev)
+}
+
+func TestImport_NonEvmModulesUnaffected(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, config.DualWrite)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	nodes := []types.SnapshotNode{
+		{StoreKey: "bank", Key: []byte("supply"), Value: []byte("9999")},
+		{StoreKey: "staking", Key: []byte("validator"), Value: []byte("active")},
+		{StoreKey: "auth", Key: []byte("account"), Value: []byte("data")},
+	}
+	go feedNodes(ch, nodes)
+
+	err := store.Import(1, ch)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		store, key string
+		value      []byte
+	}{
+		{"bank", "supply", []byte("9999")},
+		{"staking", "validator", []byte("active")},
+		{"auth", "account", []byte("data")},
+	} {
+		val, err := store.cosmosStore.Get(tc.store, 1, []byte(tc.key))
+		require.NoError(t, err)
+		require.Equal(t, tc.value, val, "module %s key %s", tc.store, tc.key)
+	}
 }
 
 func TestE2E_LargeChangesetParallelWrite(t *testing.T) {

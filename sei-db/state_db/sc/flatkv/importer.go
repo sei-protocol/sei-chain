@@ -80,5 +80,12 @@ func (imp *KVImporter) Close() error {
 		return fmt.Errorf("import global metadata: %w", err)
 	}
 
+	// Write a snapshot so the imported data survives store reopen / restart.
+	// Import bypasses the WAL, so without a snapshot the next LoadVersion
+	// would clone from the pre-import snapshot and lose all imported data.
+	if err := imp.store.WriteSnapshot(""); err != nil {
+		return fmt.Errorf("import snapshot: %w", err)
+	}
+
 	return nil
 }
