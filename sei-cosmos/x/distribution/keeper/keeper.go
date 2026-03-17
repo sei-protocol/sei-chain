@@ -3,8 +3,6 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -53,11 +51,6 @@ func NewKeeper(
 		feeCollectorName: feeCollectorName,
 		blockedAddrs:     blockedAddrs,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // SetWithdrawAddr sets a new address that will receive the rewards upon withdrawal

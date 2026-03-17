@@ -26,7 +26,6 @@ package consensus
 //	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 //	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 //	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-//	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 //	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 //	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 //	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -78,12 +77,12 @@ package consensus
 //			blockStore := store.NewBlockStore(blockDB)
 //
 //			// one for mempool, one for consensus
-//			proxyAppConnMem := abciclient.NewLocalClient(logger, app)
-//			proxyAppConnCon := abciclient.NewLocalClient(logger, app)
+//			proxyAppConnMem := abciclient.NewLocalClient( app)
+//			proxyAppConnCon := abciclient.NewLocalClient( app)
 //
 //			// Make Mempool
 //			mempool := mempool.NewTxMempool(
-//				log.NewNopLogger().With("module", "mempool"),
+//				log. logger().With("module", "mempool"),
 //				thisConfig.Mempool,
 //				proxyAppConnMem,
 //			)
@@ -91,16 +90,16 @@ package consensus
 //				mempool.EnableTxsAvailable()
 //			}
 //
-//			eventBus := eventbus.NewDefault(log.NewNopLogger().With("module", "events"))
+//			eventBus := eventbus.NewDefault()
 //			require.NoError(t, eventBus.Start(ctx))
 //
 //			// Make a full instance of the evidence pool
 //			evidenceDB := dbm.NewMemDB()
-//			evpool := evidence.NewPool(logger.With("module", "evidence"), evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+//			evpool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
 //
 //			// Make State
-//			blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-//			cs, err := NewState(logger, thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
+//			blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+//			cs, err := NewState( thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
 //			require.NoError(t, err)
 //			// set private validator
 //			pv := privVals[i]

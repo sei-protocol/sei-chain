@@ -13,7 +13,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/sei-iavl/cache"
 	ibytes "github.com/sei-protocol/sei-chain/sei-iavl/internal/bytes"
-	"github.com/sei-protocol/sei-chain/sei-iavl/internal/logger"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -206,7 +205,7 @@ func (ndb *nodeDB) SaveNode(node *Node) error {
 	if err := ndb.batch.Set(ndb.nodeKey(node.GetHash()), buf.Bytes()); err != nil {
 		return err
 	}
-	logger.Debug("BATCH SAVE %X %p\n", node.GetHash(), node)
+	logger.Debug("BATCH SAVE", "node", node)
 	node.SetPersisted(true)
 	ndb.nodeCache.Add(node)
 	return nil
@@ -655,7 +654,7 @@ func (ndb *nodeDB) SaveOrphans(version int64, orphans map[string]int64) error {
 	}
 
 	for hash, fromVersion := range orphans {
-		logger.Debug("SAVEORPHAN %v-%v %X\n", fromVersion, toVersion, hash)
+		logger.Debug("SAVEORPHAN", "from", fromVersion, "to", toVersion, "hash", hash)
 		err := ndb.saveOrphan([]byte(hash), fromVersion, toVersion)
 		if err != nil {
 			return err
@@ -713,13 +712,13 @@ func (ndb *nodeDB) deleteOrphans(version int64) error {
 		// can delete the orphan.  Otherwise, we shorten its lifetime, by
 		// moving its endpoint to the previous version.
 		if predecessor < fromVersion || fromVersion == toVersion {
-			logger.Debug("DELETE predecessor:%v fromVersion:%v toVersion:%v %X\n", predecessor, fromVersion, toVersion, hash)
+			logger.Debug("DELETE", "predecessor", predecessor, "fromVersion", fromVersion, "toVersion", toVersion, "hash", hash)
 			if err := ndb.batch.Delete(ndb.nodeKey(hash)); err != nil {
 				return err
 			}
 			ndb.nodeCache.Remove(hash)
 		} else {
-			logger.Debug("MOVE predecessor:%v fromVersion:%v toVersion:%v %X\n", predecessor, fromVersion, toVersion, hash)
+			logger.Debug("MOVE", "predecessor", predecessor, "fromVersion", fromVersion, "toVersion", toVersion, "hash", hash)
 			if err := ndb.saveOrphan(hash, fromVersion, predecessor); err != nil {
 				return err
 			}

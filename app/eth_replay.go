@@ -52,16 +52,16 @@ func Replay(a *App) {
 			panic(err)
 		}
 		if latestBlock < uint64(h+initHeight) { //nolint:gosec
-			a.Logger().Info(fmt.Sprintf("Latest block is %d. Sleeping for a minute", latestBlock))
+			logger.Info("latest block behind target, sleeping", "latest-block", latestBlock)
 			time.Sleep(1 * time.Minute)
 			continue
 		}
-		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+initHeight))
+		logger.Info("replaying block height", "height", h+initHeight)
 		if h+initHeight >= 19426587 && evmtypes.DefaultChainConfig().CancunTime < 0 {
-			a.Logger().Error("Reaching Cancun upgrade height. Turn on Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to 0")
+			logger.Error("Reaching Cancun upgrade height. Turn on Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to 0")
 			break
 		} else if h+initHeight < 19426587 && evmtypes.DefaultChainConfig().CancunTime >= 0 {
-			a.Logger().Error("Haven't reached Cancun upgrade height. Turn off Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to -1")
+			logger.Error("Haven't reached Cancun upgrade height. Turn off Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to -1")
 			break
 		}
 		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+initHeight))
@@ -90,7 +90,7 @@ func Replay(a *App) {
 		}
 		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
-			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
+			logger.Info("verifying tx", "tx-hash", tx.Hash())
 			if tx.To() != nil {
 				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
 				if a.EvmKeeper.EthReplayConfig.ContractStateChecks {

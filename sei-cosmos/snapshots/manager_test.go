@@ -6,14 +6,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestManager_List(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
+	manager := snapshots.NewManager(store, nil)
 
 	mgrList, err := manager.List()
 	require.NoError(t, err)
@@ -32,7 +31,7 @@ func TestManager_List(t *testing.T) {
 
 func TestManager_LoadChunk(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
+	manager := snapshots.NewManager(store, nil)
 
 	// Existing chunk should return body
 	chunk, err := manager.LoadChunk(2, 1, 1)
@@ -62,7 +61,7 @@ func TestManager_Take(t *testing.T) {
 		items: items,
 	}
 	expectChunks := snapshotItems(items)
-	manager := snapshots.NewManager(store, snapshotter, log.NewNopLogger())
+	manager := snapshots.NewManager(store, snapshotter)
 
 	// nil manager should return error
 	_, err := (*snapshots.Manager)(nil).Create(1)
@@ -98,7 +97,7 @@ func TestManager_Take(t *testing.T) {
 
 func TestManager_Prune(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
+	manager := snapshots.NewManager(store, nil)
 
 	pruned, err := manager.Prune(2)
 	require.NoError(t, err)
@@ -117,7 +116,7 @@ func TestManager_Prune(t *testing.T) {
 func TestManager_Restore(t *testing.T) {
 	store := setupStore(t)
 	target := &mockSnapshotter{}
-	manager := snapshots.NewManager(store, target, log.NewNopLogger())
+	manager := snapshots.NewManager(store, target)
 
 	expectItems := [][]byte{
 		{1, 2, 3},

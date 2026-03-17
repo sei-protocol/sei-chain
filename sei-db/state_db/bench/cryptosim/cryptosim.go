@@ -138,7 +138,7 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	database := NewDatabase(config, db, metrics)
+	database := NewDatabase(config, db, metrics, 0)
 
 	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
@@ -148,6 +148,7 @@ func NewCryptoSim(
 		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
+	database.nextBlockNumber = dataGenerator.InitialNextBlockNumber()
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1
@@ -159,8 +160,6 @@ func NewCryptoSim(
 		executors[i] = NewTransactionExecutor(
 			ctx, cancel, config, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
 	}
-
-	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator, dataGenerator.InitialNextBlockNumber())
 
 	var recieptsChan chan *block
 	if config.GenerateReceipts {
@@ -177,6 +176,8 @@ func NewCryptoSim(
 	if config.MaxTPS > 0 {
 		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTPS), config.TransactionsPerBlock)
 	}
+
+	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator)
 
 	c := &CryptoSim{
 		ctx:                               ctx,
@@ -252,10 +253,9 @@ func (c *CryptoSim) setupAccounts() error {
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 		finalized, err := c.database.MaybeFinalizeBlock(
-			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(),
-			c.dataGenerator.InitialNextBlockNumber())
+			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
@@ -276,8 +276,7 @@ func (c *CryptoSim) setupAccounts() error {
 		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 
 	err := c.database.FinalizeBlock(
-		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(),
-		c.dataGenerator.InitialNextBlockNumber(), true)
+		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
@@ -312,15 +311,14 @@ func (c *CryptoSim) setupErc20Contracts() error {
 			break
 		}
 
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 
 		_, _, err := c.dataGenerator.CreateNewErc20Contract(c.config.Erc20ContractSize, true)
 		if err != nil {
 			return fmt.Errorf("failed to create new ERC20 contract: %w", err)
 		}
 		finalized, err := c.database.MaybeFinalizeBlock(
-			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(),
-			c.dataGenerator.InitialNextBlockNumber())
+			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
 			return fmt.Errorf("failed to maybe commit batch: %w", err)
 		}
@@ -346,7 +344,6 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	err := c.database.FinalizeBlock(
 		c.dataGenerator.NextAccountID(),
 		c.dataGenerator.NextErc20ContractID(),
-		c.dataGenerator.InitialNextBlockNumber(),
 		true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
@@ -421,16 +418,17 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 	c.mostRecentBlock = blk
 	c.metrics.SetMainThreadPhase("send_to_executors")
 
-	c.database.IncrementTransactionCount(blk.TransactionCount())
+	for i := int64(0); i < blk.TransactionCount(); i++ {
+		c.database.IncrementTransactionCount()
+	}
 
 	for txn := range blk.Iterator() {
 		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
 		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
 	}
 
-	_, err := c.database.MaybeFinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID(), blk.BlockNumber()+1)
-	if err != nil {
-		fmt.Printf("failed to maybe finalize block: %v\n", err)
+	if err := c.database.FinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID(), false); err != nil {
+		fmt.Printf("failed to finalize block: %v\n", err)
 		c.cancel()
 		return
 	}
@@ -450,11 +448,7 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 func (c *CryptoSim) suspend() {
 
 	if c.mostRecentBlock != nil {
-		err := c.database.FinalizeBlock(
-			c.mostRecentBlock.nextAccountID,
-			c.nextERC20ContractID,
-			c.mostRecentBlock.BlockNumber()+1,
-			true)
+		err := c.database.FinalizeBlock(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID, true)
 		if err != nil {
 			fmt.Printf("failed to finalize block: %v\n", err)
 			c.cancel()
@@ -493,11 +487,7 @@ func (c *CryptoSim) teardown() {
 			fmt.Printf("failed to close database: %v\n", err)
 		}
 	} else {
-		err := c.database.Close(
-			c.mostRecentBlock.nextAccountID,
-			c.nextERC20ContractID,
-			c.mostRecentBlock.BlockNumber()+1,
-		)
+		err := c.database.Close(c.mostRecentBlock.nextAccountID, c.nextERC20ContractID)
 		if err != nil {
 			fmt.Printf("failed to close database: %v\n", err)
 		}

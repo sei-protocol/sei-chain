@@ -21,7 +21,7 @@ type blockBuilder struct {
 	blocksChan chan *block
 
 	// The next block number to be used.
-	nextBlockNumber uint64
+	nextBlockNumber int64
 }
 
 // Asyncronously produces blocks of transactions.
@@ -30,15 +30,13 @@ func NewBlockBuilder(
 	config *CryptoSimConfig,
 	metrics *CryptosimMetrics,
 	dataGenerator *DataGenerator,
-	nextBlockNumber uint64,
 ) *blockBuilder {
 	return &blockBuilder{
-		ctx:             ctx,
-		config:          config,
-		metrics:         metrics,
-		dataGenerator:   dataGenerator,
-		blocksChan:      make(chan *block, config.BlockChannelCapacity),
-		nextBlockNumber: nextBlockNumber,
+		ctx:           ctx,
+		config:        config,
+		metrics:       metrics,
+		dataGenerator: dataGenerator,
+		blocksChan:    make(chan *block, config.BlockChannelCapacity),
 	}
 }
 
@@ -76,8 +74,8 @@ func (b *blockBuilder) buildBlock() *block {
 			receipt, err := BuildERC20TransferReceiptFromTxn(
 				b.dataGenerator.Rand(),
 				b.dataGenerator.FeeCollectionAddress(),
-				blk.BlockNumber(),
-				uint32(i), //nolint:gosec
+				uint64(blk.BlockNumber()), //nolint:gosec
+				uint32(i),                 //nolint:gosec
 				txn,
 			)
 			if err != nil {

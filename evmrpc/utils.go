@@ -33,6 +33,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"golang.org/x/mod/semver"
 )
 
 const LatestCtxHeight int64 = -1
@@ -356,7 +357,7 @@ func getTxHashesFromBlock(
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
-	if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
+	if semver.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
 		return receipt.EffectiveGasPrice == 0
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||

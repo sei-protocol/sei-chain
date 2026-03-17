@@ -8,13 +8,14 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "gov")
 
 // EndBlocker called every block, process inflation, update validator set.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
-
-	logger := keeper.Logger(ctx)
 
 	// delete inactive proposal from store and its deposits
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {

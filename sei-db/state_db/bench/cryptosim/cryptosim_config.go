@@ -153,6 +153,18 @@ type CryptoSimConfig struct {
 
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
+
+	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
+	ReceiptKeepRecent int64
+
+	// Interval in seconds between prune checks. 0 disables pruning.
+	ReceiptPruneIntervalSeconds int64
+
+	// Maximum number of blocks stored per parquet file before rotation. Default 500.
+	ReceiptMaxBlocksPerFile int
+
+	// Number of blocks to buffer before flushing to parquet. Default 1 (matches real node).
+	ReceiptBlockFlushInterval int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -176,7 +188,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   32,
+		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
@@ -196,6 +208,10 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
 		MaxTPS:                            0,
+		ReceiptKeepRecent:                 100_000,
+		ReceiptPruneIntervalSeconds:       600,
+		ReceiptMaxBlocksPerFile:           500,
+		ReceiptBlockFlushInterval:         1,
 	}
 }
 

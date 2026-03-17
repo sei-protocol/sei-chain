@@ -16,8 +16,9 @@ type block struct {
 	// If receipt generation is enabled, this will contain the receipts for each transaction in the block.
 	reciepts []*evmtypes.Receipt
 
-	// The block number.
-	blockNumber uint64
+	// The block number. This is not currently preserved across benchmark restarts, but otherwise monotonically
+	// increases as you'd expect.
+	blockNumber int64
 
 	// The next account ID to be used when creating a new account, as of the end of this block.
 	nextAccountID int64
@@ -35,7 +36,7 @@ type block struct {
 func NewBlock(
 	config *CryptoSimConfig,
 	metrics *CryptosimMetrics,
-	blockNumber uint64,
+	blockNumber int64,
 	capacity int,
 ) *block {
 
@@ -75,7 +76,7 @@ func (b *block) AddReceipt(receipt *evmtypes.Receipt) {
 }
 
 // Returns the block number.
-func (b *block) BlockNumber() uint64 {
+func (b *block) BlockNumber() int64 {
 	return b.blockNumber
 }
 

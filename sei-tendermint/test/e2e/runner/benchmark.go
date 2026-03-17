@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "test", "e2e", "runner")
 
 // Benchmark is a simple function for fetching, calculating and printing
 // the following metrics:
@@ -22,7 +24,7 @@ import (
 //
 // Metrics are based of the `benchmarkLength`, the amount of consecutive blocks
 // sampled from in the testnet
-func Benchmark(ctx context.Context, logger log.Logger, testnet *e2e.Testnet, benchmarkLength int64) error {
+func Benchmark(ctx context.Context, testnet *e2e.Testnet, benchmarkLength int64) error {
 	block, err := getLatestBlock(ctx, testnet)
 	if err != nil {
 		return err
@@ -224,11 +226,4 @@ func extractTestnetStats(intervals []time.Duration) testnetStats {
 		max:  max,
 		min:  min,
 	}
-}
-
-func min(a, b int64) int64 {
-	if a > b {
-		return b
-	}
-	return a
 }

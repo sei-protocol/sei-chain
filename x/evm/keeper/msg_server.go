@@ -20,6 +20,7 @@ import (
 	occtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -30,6 +31,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+var logger = seilog.NewLogger("x", "evm", "keeper")
 
 type msgServer struct {
 	*Keeper
@@ -78,13 +81,13 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		if pe := recover(); pe != nil {
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				debug.PrintStack()
-				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+				logger.Error("EVM PANIC", "err", pe)
 				seimetrics.SafeTelemetryIncrCounter(1, types.ModuleName, "panics")
 			}
 			panic(pe)
 		}
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
+			logger.Error("Got EVM state transition error (not VM error)", "err", err)
 
 			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "state_transition"},
@@ -99,7 +102,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			err = ferr
-			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
+			logger.Error("failed to finalize EVM stateDB", "err", err)
 
 			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "stateDB_finalize"},
@@ -133,7 +136,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		receipt, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), serverRes.GasUsed, serverRes.VmError)
 		if rerr != nil {
 			err = rerr
-			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
+			logger.Error("failed to write EVM receipt", "err", err)
 
 			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "write_receipt"},
@@ -356,7 +359,7 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 	existingEvmAddr, ok := server.GetEVMAddress(ctx, addr)
 	if ok {
 		if existingEvmAddr.Cmp(evmAddr) != 0 {
-			ctx.Logger().Error(fmt.Sprintf("unexpected associated EVM address %s exists for contract %s: expecting %s", existingEvmAddr.Hex(), addr.String(), evmAddr.Hex()))
+			logger.Error("unexpected associated EVM address exists for contract", "existing", existingEvmAddr, "contract", addr, "expected", evmAddr)
 		}
 		return nil, errors.New("contract already has an associated address")
 	}

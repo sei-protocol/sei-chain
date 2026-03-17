@@ -10,7 +10,10 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "antedecorators")
 
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteDecorator
@@ -70,7 +73,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			ctx.Logger().Error("panic recovered in IsTxGasless", "panic", r)
+			logger.Error("panic recovered in IsTxGasless", "err", r)
 			err = fmt.Errorf("panic in IsTxGasless: %v", r)
 			isGasless = false
 		}

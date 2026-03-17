@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtimemocks "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -117,7 +116,7 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		Time:       tc.genesisTime,
 		Validators: validators,
 	})
-	cs := newState(ctx, t, log.NewNopLogger(), state, privVals[0], kvstore.NewApplication())
+	cs := newState(ctx, t, state, privVals[0], kvstore.NewApplication())
 	vss := make([]*validatorStub, validators)
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))

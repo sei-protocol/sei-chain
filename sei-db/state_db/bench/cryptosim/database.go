@@ -26,6 +26,9 @@ type Database struct {
 	// The number of blocks that have been executed since the last commit.
 	uncommittedBlockCount int64
 
+	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
+	nextBlockNumber uint64
+
 	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
 	batch *SyncMap[string, []byte]
@@ -42,12 +45,14 @@ func NewDatabase(
 	config *CryptoSimConfig,
 	db wrappers.DBWrapper,
 	metrics *CryptosimMetrics,
+	initialNextBlockNumber uint64,
 ) *Database {
 	return &Database{
-		config:  config,
-		db:      db,
-		batch:   NewSyncMap[string, []byte](),
-		metrics: metrics,
+		config:          config,
+		db:              db,
+		batch:           NewSyncMap[string, []byte](),
+		metrics:         metrics,
+		nextBlockNumber: initialNextBlockNumber,
 	}
 }
 
@@ -80,10 +85,10 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// Signal that transactions have been added to the current block.
-func (d *Database) IncrementTransactionCount(count int64) {
-	d.transactionCount += count
-	d.transactionsInCurrentBlock += count
+// Signal that a transaction has been added to the current block.
+func (d *Database) IncrementTransactionCount() {
+	d.transactionCount++
+	d.transactionsInCurrentBlock++
 }
 
 // Reset the transaction count. Useful for when changing test phases.
@@ -102,10 +107,9 @@ func (d *Database) TransactionCount() int64 {
 func (d *Database) MaybeFinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
-	nextBlockNumber uint64,
 ) (bool, error) {
 	if d.transactionsInCurrentBlock >= int64(d.config.TransactionsPerBlock) {
-		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, nextBlockNumber, false)
+		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, false)
 		if err != nil {
 			return false, fmt.Errorf("failed to finalize block: %w", err)
 		}
@@ -118,7 +122,6 @@ func (d *Database) MaybeFinalizeBlock(
 func (d *Database) FinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
-	nextBlockNumber uint64,
 	forceCommit bool,
 ) error {
 
@@ -168,13 +171,14 @@ func (d *Database) FinalizeBlock(
 
 	// Persist the block number counter in every batch.
 	blockNumberValue := make([]byte, 8)
-	binary.BigEndian.PutUint64(blockNumberValue, nextBlockNumber)
+	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
 		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
 		}},
 	})
+	d.nextBlockNumber++
 
 	err := d.db.ApplyChangeSets(changeSets)
 	if err != nil {
@@ -202,10 +206,10 @@ func (d *Database) FinalizeBlock(
 }
 
 // Close the database and release any resources.
-func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64, nextBlockNumber uint64) error {
+func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 	fmt.Printf("Committing final batch.\n")
 
-	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, nextBlockNumber, true); err != nil {
+	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, true); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 

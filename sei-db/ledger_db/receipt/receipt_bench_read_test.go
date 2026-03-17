@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -248,7 +247,7 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 	cfg.PruneIntervalSeconds = 0
 	cfg.Backend = backend
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	if err != nil {
 		b.Fatalf("failed to create %s receipt store: %v", backend, err)
 	}

@@ -13,7 +13,6 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v580"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
@@ -346,8 +345,4 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
-}
-
-func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("precompile", "bank")
 }

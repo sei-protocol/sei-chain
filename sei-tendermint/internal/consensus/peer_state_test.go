@@ -8,13 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func peerStateSetup(h, r, v int) *PeerState {
-	ps := NewPeerState(log.NewNopLogger(), "testPeerState")
+	ps := NewPeerState("testPeerState")
 	ps.PRS.Height = int64(h)
 	ps.PRS.Round = int32(r)
 	ps.ensureVoteBitArrays(int64(h), v)
@@ -185,9 +184,9 @@ func TestSetHasProposal(t *testing.T) {
 }
 
 func TestSetHasProposalMemoryLimit(t *testing.T) {
-	logger := log.NewTestingLogger(t)
+
 	peerID := types.NodeID("aa")
-	ps := NewPeerState(logger, peerID)
+	ps := NewPeerState(peerID)
 
 	// Create a valid block hash
 	hash := crypto.CRandBytes(crypto.HashSize)
@@ -228,7 +227,7 @@ func TestSetHasProposalMemoryLimit(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset peer state and set height/round to match proposal
-			ps = NewPeerState(logger, peerID)
+			ps = NewPeerState(peerID)
 			ps.PRS.Height = proposal.Height
 			ps.PRS.Round = proposal.Round
 
@@ -254,9 +253,9 @@ func TestSetHasProposalMemoryLimit(t *testing.T) {
 }
 
 func TestInitProposalBlockPartsMemoryLimit(t *testing.T) {
-	logger := log.NewTestingLogger(t)
+
 	peerID := types.NodeID("test-peer")
-	ps := NewPeerState(logger, peerID)
+	ps := NewPeerState(peerID)
 
 	testCases := []struct {
 		name           string
@@ -272,7 +271,7 @@ func TestInitProposalBlockPartsMemoryLimit(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset peer state for each test
-			ps = NewPeerState(logger, peerID)
+			ps = NewPeerState(peerID)
 
 			header := types.PartSetHeader{
 				Total: tc.total,
@@ -293,9 +292,9 @@ func TestInitProposalBlockPartsMemoryLimit(t *testing.T) {
 }
 
 func TestInitProposalBlockPartsAlreadySet(t *testing.T) {
-	logger := log.NewTestingLogger(t)
+
 	peerID := types.NodeID("test-peer")
-	ps := NewPeerState(logger, peerID)
+	ps := NewPeerState(peerID)
 
 	// Set up initial proposal block parts
 	initialHeader := types.PartSetHeader{
@@ -320,7 +319,7 @@ func TestInitProposalBlockPartsAlreadySet(t *testing.T) {
 }
 
 func TestSetHasProposalEdgeCases(t *testing.T) {
-	logger := log.NewTestingLogger(t)
+
 	peerID := types.NodeID("test-peer")
 
 	testCases := []struct {
@@ -431,7 +430,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ps := NewPeerState(logger, peerID)
+			ps := NewPeerState(peerID)
 			tc.setupPeerState(ps)
 
 			if tc.expectPanic {

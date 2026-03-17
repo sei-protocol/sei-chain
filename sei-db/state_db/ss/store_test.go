@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
@@ -20,7 +19,7 @@ func TestNewStateStore(t *testing.T) {
 		AsyncWriteBuffer: 100,
 		KeepRecent:       500,
 	}
-	stateStore, err := NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
+	stateStore, err := NewStateStore(homeDir, ssConfig)
 	require.NoError(t, err)
 	for i := 1; i < 50; i++ {
 		var changesets []*proto.NamedChangeSet
@@ -43,7 +42,7 @@ func TestNewStateStore(t *testing.T) {
 	err = stateStore.Close()
 	require.NoError(t, err)
 
-	stateStore, err = NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
+	stateStore, err = NewStateStore(homeDir, ssConfig)
 	require.NoError(t, err)
 
 	for i := 1; i < 50; i++ {

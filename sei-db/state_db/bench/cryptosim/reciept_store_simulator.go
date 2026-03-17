@@ -8,13 +8,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// A simulated receipt store.
+// A simulated receipt store with WAL, flush, rotation, and pruning.
 type RecieptStoreSimulator struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -36,14 +35,23 @@ func NewRecieptStoreSimulator(
 ) (*RecieptStoreSimulator, error) {
 	derivedCtx, cancel := context.WithCancel(ctx)
 
+	maxBlocksPerFile := uint64(config.ReceiptMaxBlocksPerFile)
+	if maxBlocksPerFile == 0 {
+		maxBlocksPerFile = 500
+	}
+	blockFlushInterval := uint64(config.ReceiptBlockFlushInterval)
+	if blockFlushInterval == 0 {
+		blockFlushInterval = 1
+	}
+
 	storeCfg := parquet.StoreConfig{
 		DBDirectory:          filepath.Join(config.DataDir, "receipts"),
-		BlockFlushInterval:   25,
-		MaxBlocksPerFile:     500,
-		KeepRecent:           0,
-		PruneIntervalSeconds: 0,
+		BlockFlushInterval:   blockFlushInterval,
+		MaxBlocksPerFile:     maxBlocksPerFile,
+		KeepRecent:           config.ReceiptKeepRecent,
+		PruneIntervalSeconds: config.ReceiptPruneIntervalSeconds,
 	}
-	store, err := parquet.NewStore(dbLogger.NewNopLogger(), storeCfg)
+	store, err := parquet.NewStore(storeCfg)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create parquet receipt store: %w", err)
@@ -62,7 +70,7 @@ func NewRecieptStoreSimulator(
 }
 
 func (r *RecieptStoreSimulator) mainLoop() {
-	defer func() { _ = r.store.Close() }()
+	defer r.store.Close()
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -73,9 +81,9 @@ func (r *RecieptStoreSimulator) mainLoop() {
 	}
 }
 
-// Processes a block of reciepts.
+// Processes a block of receipts: marshal, write to parquet (WAL + buffer).
 func (r *RecieptStoreSimulator) processBlock(blk *block) {
-	blockNumber := blk.BlockNumber()
+	blockNumber := uint64(blk.BlockNumber()) //nolint:gosec
 	blockHash := common.Hash{}
 
 	inputs := make([]parquet.ReceiptInput, 0, len(blk.reciepts))
@@ -128,7 +136,8 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		r.metrics.RecordReceiptBlockWriteDuration(time.Since(start).Seconds())
 		r.metrics.ReportReceiptsWritten(int64(len(inputs)))
 	}
-	r.store.UpdateLatestVersion(int64(blockNumber)) //nolint:gosec // block numbers won't exceed int64 max
+
+	r.store.UpdateLatestVersion(int64(blockNumber)) //nolint:gosec
 }
 
 // convertLogsForTx converts evmtypes.Log entries to ethtypes.Log entries.

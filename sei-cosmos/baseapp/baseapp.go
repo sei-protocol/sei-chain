@@ -22,9 +22,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	dbm "github.com/tendermint/tm-db"
@@ -61,6 +61,8 @@ const (
 )
 
 var (
+	logger = seilog.NewLogger("cosmos", "baseapp")
+
 	_ abci.Application = (*BaseApp)(nil)
 )
 
@@ -80,7 +82,6 @@ type (
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
 	// initialized on creation
-	logger            log.Logger
 	name              string // application name from abci.Info
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
@@ -222,7 +223,7 @@ type snapshotData struct {
 //
 // NOTE: The db is used to store the version number for now.
 func NewBaseApp(
-	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
+	name string, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
 	cms := store.NewCommitMultiStore(db)
 	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
@@ -253,8 +254,7 @@ func NewBaseApp(
 		tr = tp.Tracer("component-main")
 	}
 	app := &BaseApp{
-		logger: logger,
-		name:   name,
+		name: name,
 		appStore: appStore{
 			db:             db,
 			cms:            cms,
@@ -318,7 +318,7 @@ func (app *BaseApp) ConcurrencyWorkers() int {
 	return app.concurrencyWorkers
 }
 
-// OccEnabled returns the whether OCC is enabled for the BaseApp.
+// OccEnabled returns whether OCC is enabled for the BaseApp.
 func (app *BaseApp) OccEnabled() bool {
 	return app.occEnabled
 }
@@ -326,11 +326,6 @@ func (app *BaseApp) OccEnabled() bool {
 // Version returns the application's version string.
 func (app *BaseApp) Version() string {
 	return app.version
-}
-
-// Logger returns the logger of the BaseApp.
-func (app *BaseApp) Logger() log.Logger {
-	return app.logger
 }
 
 // Trace returns the boolean value for logging error stack traces.
@@ -541,7 +536,7 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // on Commit.
 func (app *BaseApp) setCheckState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices)
+	ctx := sdk.NewContext(ms, header, true).WithMinGasPrices(app.minGasPrices)
 	app.checkTxStateLock.Lock()
 	defer app.checkTxStateLock.Unlock()
 	if app.checkState == nil {
@@ -562,7 +557,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // Commit.
 func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
+	ctx := sdk.NewContext(ms, header, false)
 	if app.deliverState == nil {
 		app.deliverState = &state{
 			ms:  ms,
@@ -577,7 +572,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 
 func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
+	ctx := sdk.NewContext(ms, header, false)
 	if app.prepareProposalState == nil {
 		app.prepareProposalState = &state{
 			ms:  ms,
@@ -592,7 +587,7 @@ func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
+	ctx := sdk.NewContext(ms, header, false)
 	if app.processProposalState == nil {
 		app.processProposalState = &state{
 			ms:  ms,
@@ -1115,11 +1110,11 @@ func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
 			for {
 				time.Sleep(time.Duration(app.compactionInterval) * time.Second) //nolint:gosec // compactionInterval is a small config value
 				if err := goleveldb.DB().CompactRange(leveldbutils.Range{Start: nil, Limit: nil}); err != nil {
-					app.Logger().Error(fmt.Sprintf("error compacting DB: %s", err))
+					logger.Error("Failed to compact DB", "err", err)
 				}
 			}
 		} else {
-			app.Logger().Info("exit compaction routine because underlying DB does not support compaction")
+			logger.Info("Exit compaction routine because underlying DB does not support compaction")
 		}
 	}()
 }

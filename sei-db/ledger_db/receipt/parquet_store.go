@@ -8,7 +8,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -20,14 +19,14 @@ type parquetReceiptStore struct {
 	storeKey sdk.StoreKey
 }
 
-func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	storeCfg := parquet.StoreConfig{
 		DBDirectory:          cfg.DBDirectory,
 		KeepRecent:           int64(cfg.KeepRecent),
 		PruneIntervalSeconds: int64(cfg.PruneIntervalSeconds),
 	}
 
-	store, err := parquet.NewStore(log, storeCfg)
+	store, err := parquet.NewStore(storeCfg)
 	if err != nil {
 		return nil, err
 	}

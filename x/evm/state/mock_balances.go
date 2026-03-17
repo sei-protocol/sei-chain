@@ -16,8 +16,6 @@ package state
 import (
 	"math/big"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
 	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -64,7 +62,7 @@ func (s *DBImpl) topOffAccount(seiAddr sdk.AccAddress, amt *big.Int) {
 	// Mint and send (use NopLogger to suppress log spam)
 	usei, wei := SplitUseiWeiAmount(amt)
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei.Add(sdk.OneInt())))
-	ctx := s.ctx.WithLogger(log.NewNopLogger())
+	ctx := s.ctx
 	if err := s.k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt); err != nil {
 		return
 	}

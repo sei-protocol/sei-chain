@@ -84,7 +84,7 @@ func TestIntegrationTestSuite(t *testing.T) {
 func NewAppConstructor(encodingCfg params.EncodingConfig) network.AppConstructor {
 	return func(val network.Validator) servertypes.Application {
 		return simapp.NewSimApp(
-			val.Ctx.Logger, dbm.NewMemDB(), nil, true, make(map[int64]bool), val.Ctx.Config.RootDir, 0,
+			dbm.NewMemDB(), nil, true, make(map[int64]bool), val.Ctx.Config.RootDir, 0,
 			nil, encodingCfg,
 			simapp.EmptyAppOptions{},
 			baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),

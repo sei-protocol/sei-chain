@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -18,19 +15,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
 )
 
 func newCompositeStateStoreWithStores(
 	cosmosStore types.StateStore,
 	evmStore types.StateStore,
 	ssConfig config.StateStoreConfig,
-	log logger.Logger,
 ) *CompositeStateStore {
 	return &CompositeStateStore{
 		cosmosStore: cosmosStore,
 		evmStore:    evmStore,
 		config:      ssConfig,
-		logger:      log,
 	}
 }
 
@@ -38,8 +34,6 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_recovery_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
-
-	log := logger.NewNopLogger()
 
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
@@ -53,15 +47,15 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
 	require.NoError(t, err)
 	defer evmStore.Close()
 
-	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig)
 	defer compositeStore.Close()
 
 	changelogDir := filepath.Join(dir, "changelog")
-	walLog, err := wal.NewChangelogWAL(log, changelogDir, wal.Config{})
+	walLog, err := wal.NewChangelogWAL(changelogDir, wal.Config{})
 	require.NoError(t, err)
 
 	addr := make([]byte, 20)
@@ -94,7 +88,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	}
 	walLog.Close()
 
-	err = RecoverCompositeStateStore(log, changelogDir, compositeStore)
+	err = RecoverCompositeStateStore(changelogDir, compositeStore)
 	require.NoError(t, err)
 
 	cosmosVal, err := compositeStore.cosmosStore.Get(evm.EVMStoreKey, 5, evmKey)
@@ -112,8 +106,6 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_sync_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
-
-	log := logger.NewNopLogger()
 
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
@@ -144,7 +136,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	}
 
 	changelogDir := filepath.Join(dir, "changelog")
-	walLog, err := wal.NewChangelogWAL(log, changelogDir, wal.Config{})
+	walLog, err := wal.NewChangelogWAL(changelogDir, wal.Config{})
 	require.NoError(t, err)
 
 	for version := int64(1); version <= 10; version++ {
@@ -170,16 +162,16 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	ssConfig.ReadMode = config.EVMFirstRead
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
-	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig, log)
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
 	require.NoError(t, err)
 
-	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig, log)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig)
 	defer compositeStore.Close()
 
 	require.Equal(t, int64(0), compositeStore.evmStore.GetLatestVersion())
 	require.Equal(t, int64(10), compositeStore.cosmosStore.GetLatestVersion())
 
-	err = RecoverCompositeStateStore(log, changelogDir, compositeStore)
+	err = RecoverCompositeStateStore(changelogDir, compositeStore)
 	require.NoError(t, err)
 
 	require.Equal(t, int64(10), compositeStore.evmStore.GetLatestVersion())
@@ -227,8 +219,6 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	log := logger.NewNopLogger()
-
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
@@ -262,7 +252,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	mvccDB.Close()
 
 	changelogPath := utils.GetChangelogPath(dbHome)
-	walLog, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
+	walLog, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
 	require.NoError(t, err)
 	for v := int64(1); v <= 5; v++ {
 		require.NoError(t, walLog.Write(proto.ChangelogEntry{
@@ -281,7 +271,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	}
 	walLog.Close()
 
-	compositeStore, err := NewCompositeStateStore(ssConfig, dir, log)
+	compositeStore, err := NewCompositeStateStore(ssConfig, dir)
 	require.NoError(t, err)
 	defer compositeStore.Close()
 
