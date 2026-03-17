@@ -27,6 +27,9 @@ type Reader func(key []byte) (value []byte, found bool, err error)
 // - the Reader method returns an error (for methods that accpet a Reader)
 // - the cache is shutting down
 // - the cache's work pools are shutting down
+//
+// Cache errors are are generally not recoverable, and it should be assumed that a cache that has returned an error
+// is in a corrupted state, and should be discarded.
 type Cache interface {
 
 	// Get returns the value for the given key, or (nil, false, nil) if not found.
@@ -69,6 +72,14 @@ type Cache interface {
 	BatchSet(updates []CacheUpdate) error
 }
 
+// DefaultEstimatedOverheadPerEntry is a rough estimate of the fixed heap overhead per cache entry
+// on a 64-bit architecture (amd64/arm64). It accounts for the shardEntry struct (48 B),
+// list.Element (48 B), lruQueueEntry (32 B), two map-entry costs (~64 B), string allocation
+// rounding (~16 B), and a margin for the duplicate key copy stored in the LRU. Derived from
+// static analysis of Go size classes and map bucket layout; validate experimentally for your
+// target platform.
+const DefaultEstimatedOverheadPerEntry uint64 = 250
+
 // CacheUpdate describes a single key-value mutation to apply to the cache.
 type CacheUpdate struct {
 	// The key to update.
@@ -89,6 +100,7 @@ func BuildCache(
 	maxSize uint64,
 	readPool threading.Pool,
 	miscPool threading.Pool,
+	estimatedOverheadPerEntry uint64,
 	cacheName string,
 	metricsScrapeInterval time.Duration,
 ) (Cache, error) {
@@ -103,6 +115,7 @@ func BuildCache(
 		maxSize,
 		readPool,
 		miscPool,
+		estimatedOverheadPerEntry,
 		cacheName,
 		metricsScrapeInterval,
 	)

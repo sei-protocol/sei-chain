@@ -30,6 +30,10 @@ type shard struct {
 	// The maximum size of this cache, in bytes.
 	maxSize uint64
 
+	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
+	// This value should be derived experimentally, and may differ between different builds and architectures.
+	estimatedOverheadPerEntry uint64
+
 	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *CacheMetrics
 }
@@ -73,8 +77,13 @@ type shardEntry struct {
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
+	// A work pool for asynchronous reads.
 	readPool threading.Pool,
+	// The maximum size of this shard, in bytes.
 	maxSize uint64,
+	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
+	// This value should be derived experimentally, and may differ between different builds and architectures.
+	estimatedOverheadPerEntry uint64,
 ) (*shard, error) {
 
 	if maxSize <= 0 {
@@ -82,12 +91,13 @@ func NewShard(
 	}
 
 	return &shard{
-		ctx:      ctx,
-		readPool: readPool,
-		lock:     sync.Mutex{},
-		data:     make(map[string]*shardEntry),
-		gcQueue:  newLRUQueue(),
-		maxSize:  maxSize,
+		ctx:                       ctx,
+		readPool:                  readPool,
+		lock:                      sync.Mutex{},
+		data:                      make(map[string]*shardEntry),
+		gcQueue:                   newLRUQueue(),
+		estimatedOverheadPerEntry: estimatedOverheadPerEntry,
+		maxSize:                   maxSize,
 	}, nil
 }
 
@@ -189,12 +199,14 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 		} else if result.value == nil {
 			se.status = statusDeleted
 			se.value = nil
-			se.shard.gcQueue.Push(key, uint64(len(key)))
+			size := uint64(len(key)) + se.shard.estimatedOverheadPerEntry
+			se.shard.gcQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		} else {
 			se.status = statusAvailable
 			se.value = result.value
-			se.shard.gcQueue.Push(key, uint64(len(key)+len(result.value))) //nolint:gosec // G115: len is non-negative
+			size := uint64(len(key)) + uint64(len(result.value)) + se.shard.estimatedOverheadPerEntry
+			se.shard.gcQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		}
 	}
@@ -324,11 +336,13 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
-			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)))
+			size := uint64(len(reads[i].key)) + s.estimatedOverheadPerEntry
+			s.gcQueue.Push([]byte(reads[i].key), size)
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			s.gcQueue.Push([]byte(reads[i].key), uint64(len(reads[i].key)+len(result.value))) //nolint:gosec // G115
+			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.estimatedOverheadPerEntry
+			s.gcQueue.Push([]byte(reads[i].key), size)
 		}
 	}
 	s.evictUnlocked()
@@ -364,7 +378,8 @@ func (s *shard) setUnlocked(key []byte, value []byte) {
 	entry.status = statusAvailable
 	entry.value = value
 
-	s.gcQueue.Push(key, uint64(len(key)+len(value))) //nolint:gosec // G115
+	size := uint64(len(key)) + uint64(len(value)) + s.estimatedOverheadPerEntry
+	s.gcQueue.Push(key, size)
 	s.evictUnlocked()
 }
 
@@ -394,6 +409,7 @@ func (s *shard) deleteUnlocked(key []byte) {
 	entry.status = statusDeleted
 	entry.value = nil
 
-	s.gcQueue.Push(key, uint64(len(key)))
+	size := uint64(len(key)) + s.estimatedOverheadPerEntry
+	s.gcQueue.Push(key, size)
 	s.evictUnlocked()
 }
