@@ -55,8 +55,9 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 	return lthash.Unmarshal(data)
 }
 
-// commitGlobalMetadata atomically commits global version, global LtHash,
-// and per-DB LtHashes to metadata DB.
+// commitGlobalMetadata atomically commits global version and global LtHash
+// to metadata DB. Per-DB LtHashes are stored in each DB's LocalMeta
+// (committed atomically with data in commitBatches).
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
 	batch := s.metadataDB.NewBatch()
 	defer func() { _ = batch.Close() }()
@@ -73,54 +74,14 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 		return fmt.Errorf("failed to set global lthash: %w", err)
 	}
 
-	for dbDir, metaKey := range perDBLtHashKeys {
-		if h := s.perDBCommittedLtHash[dbDir]; h != nil {
-			if err := batch.Set([]byte(metaKey), h.Marshal()); err != nil {
-				return fmt.Errorf("failed to set %s lthash: %w", dbDir, err)
-			}
-		}
-	}
-
 	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
 }
 
 // newPerDBLtHashMap returns a map with a fresh zero LtHash for each data DB.
 func newPerDBLtHashMap() map[string]*lthash.LtHash {
-	m := make(map[string]*lthash.LtHash, len(perDBLtHashKeys))
-	for dbDir := range perDBLtHashKeys {
+	m := make(map[string]*lthash.LtHash, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
 		m[dbDir] = lthash.New()
 	}
 	return m
-}
-
-// snapshotLtHashes clones working hashes (global + per-DB) into committed state.
-func (s *CommitStore) snapshotLtHashes() {
-	s.committedLtHash = s.workingLtHash.Clone()
-	for dbDir, h := range s.perDBWorkingLtHash {
-		s.perDBCommittedLtHash[dbDir] = h.Clone()
-	}
-}
-
-// loadPerDBLtHashes reads per-DB LtHashes from metadataDB.
-// If a key is not found (fresh start), initializes to zero.
-func (s *CommitStore) loadPerDBLtHashes() error {
-	for dbDir, metaKey := range perDBLtHashKeys {
-		data, err := s.metadataDB.Get([]byte(metaKey))
-		if errorutils.IsNotFound(err) {
-			logger.Warn("No lattice hash found for DB, initializing to fresh hash", "db", dbDir)
-			s.perDBCommittedLtHash[dbDir] = lthash.New()
-			s.perDBWorkingLtHash[dbDir] = lthash.New()
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read %s lthash: %w", dbDir, err)
-		}
-		h, err := lthash.Unmarshal(data)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal %s lthash: %w", dbDir, err)
-		}
-		s.perDBCommittedLtHash[dbDir] = h
-		s.perDBWorkingLtHash[dbDir] = h.Clone()
-	}
-	return nil
 }

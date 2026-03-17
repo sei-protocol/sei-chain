@@ -145,7 +145,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		}
 
 		s.committedVersion = entry.Version
-		s.snapshotLtHashes()
+		s.committedLtHash = s.workingLtHash.Clone()
 		s.clearPendingWrites()
 
 		replayed++

@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"path/filepath"
 	"testing"
 
@@ -67,26 +68,29 @@ func verifyPerDBLtHash(t *testing.T, s *CommitStore) {
 }
 
 // commitMixedState applies changesets with data across all 4 DB types.
-func commitMixedState(t *testing.T, s *CommitStore, round int) {
+// round must be in [0, 255] since it is used as a byte to derive unique addresses/slots.
+func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	t.Helper()
-	addr := addrN(byte(round))
-	slot := slotN(byte(round))
+	addr := addrN(round)
+	slot := slotN(round)
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	cs1 := namedCS(
 		noncePair(addr, uint64(round)),
-		codeHashPair(addr, codeHashN(byte(round))),
-		codePair(addr, []byte{0x60, 0x80, byte(round)}),
-		storagePair(addr, slot, []byte{byte(round), 0xAA}),
+		codeHashPair(addr, codeHashN(round)),
+		codePair(addr, []byte{0x60, 0x80, round}),
+		storagePair(addr, slot, []byte{round, 0xAA}),
 	)
-	cs2 := makeChangeSet(legacyKey, []byte{byte(round), 0xBB}, false)
+	cs2 := makeChangeSet(legacyKey, []byte{round, 0xBB}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
 	_, err := s.Commit()
 	require.NoError(t, err)
 }
 
-// Test: Crash recovery with global/local skew -- verify per-DB LTHash
-// is correct after catchup replays the skewed version.
+// Test: Crash recovery where metadataDB is behind data DBs.
+// Simulates a crash after commitBatches (step 2) but before
+// commitGlobalMetadata (step 4) by rolling back metadataDB's
+// global version. Data DBs and their LocalMeta remain at v2.
 func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -100,20 +104,21 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	verifyPerDBLtHash(t, s1)
 	require.NoError(t, s1.Close())
 
-	// Tamper with accountDB's LocalMeta to simulate incomplete commit
-	// (accountDB thinks it's at v1, but global says v2)
+	// Roll back metadataDB global version to 1 to simulate crash
+	// after commitBatches completed but before commitGlobalMetadata.
 	flatkvDir := dbDir
 	snapDir, _, err := currentSnapshotDir(flatkvDir)
 	require.NoError(t, err)
 
-	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false)
+	metaDBPath := filepath.Join(snapDir, metadataDir)
+	db, err := pebbledb.Open(t.Context(), metaDBPath, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	lagMeta := &LocalMeta{CommittedVersion: 1}
-	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))
+	versionBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(versionBuf, 1)
+	require.NoError(t, db.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
-	// Reopen -- should detect skew and catchup
+	// Reopen -- catchup should replay version 2 from WAL
 	s2 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -133,7 +138,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	_, err := s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	for i := 1; i <= 10; i++ {
+	for i := byte(1); i <= 10; i++ {
 		commitMixedState(t, s1, i)
 	}
 	verifyPerDBLtHash(t, s1)
@@ -149,10 +154,13 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	verifyPerDBLtHash(t, s2)
 	verifyLtHashAtHeight(t, s2, 10)
 
-	for dbDir, wh := range s2.perDBWorkingLtHash {
-		ch := s2.perDBCommittedLtHash[dbDir]
-		require.True(t, wh.Equal(ch),
-			"per-DB committed and working hashes should match on open for %s", dbDir)
+	for _, dbDir := range dataDBDirs {
+		wh := s2.perDBWorkingLtHash[dbDir]
+		meta := s2.localMeta[dbDir]
+		require.NotNil(t, meta.LtHash,
+			"LocalMeta LtHash should be loaded for %s", dbDir)
+		require.True(t, wh.Equal(meta.LtHash),
+			"per-DB working hash should match LocalMeta LtHash on open for %s", dbDir)
 	}
 }
 
@@ -212,7 +220,7 @@ func TestPerDBLtHashSumEqualsGlobal(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	for i := 1; i <= 5; i++ {
+	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
 
@@ -312,10 +320,13 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	verifyPerDBLtHash(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
-	for dbDir, wh := range s.perDBWorkingLtHash {
-		ch := s.perDBCommittedLtHash[dbDir]
-		require.True(t, wh.Equal(ch),
-			"per-DB committed and working hashes should match after import for %s", dbDir)
+	for _, dbDir := range dataDBDirs {
+		wh := s.perDBWorkingLtHash[dbDir]
+		meta := s.localMeta[dbDir]
+		require.NotNil(t, meta.LtHash,
+			"LocalMeta LtHash should exist after import for %s", dbDir)
+		require.True(t, wh.Equal(meta.LtHash),
+			"per-DB working hash should match LocalMeta LtHash after import for %s", dbDir)
 	}
 	require.NoError(t, s.Close())
 }
@@ -345,8 +356,8 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-// Test: per-DB keys are present in metadataDB after normal commit cycle.
-func TestPerDBLtHashPersistedInMetadataDB(t *testing.T) {
+// Test: per-DB LtHashes are persisted in each DB's LocalMeta after normal commit cycle.
+func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
@@ -357,13 +368,20 @@ func TestPerDBLtHashPersistedInMetadataDB(t *testing.T) {
 	commitMixedState(t, s, 1)
 	commitMixedState(t, s, 2)
 
-	for dbDir, metaKey := range perDBLtHashKeys {
-		data, err := s.metadataDB.Get([]byte(metaKey))
-		require.NoError(t, err, "per-DB key %s should exist in metadataDB after commit", dbDir)
-		h, err := lthash.Unmarshal(data)
-		require.NoError(t, err)
-		require.True(t, s.perDBCommittedLtHash[dbDir].Equal(h),
-			"metadataDB per-DB hash should match committed hash for %s", dbDir)
+	dbInstances := map[string]types.KeyValueDB{
+		accountDBDir: s.accountDB,
+		codeDBDir:    s.codeDB,
+		storageDBDir: s.storageDB,
+		legacyDBDir:  s.legacyDB,
+	}
+	for _, dbDirName := range dataDBDirs {
+		db := dbInstances[dbDirName]
+		meta, err := loadLocalMeta(db)
+		require.NoError(t, err, "LocalMeta should be readable for %s", dbDirName)
+		require.NotNil(t, meta.LtHash,
+			"LocalMeta LtHash should be non-nil for %s", dbDirName)
+		require.True(t, s.perDBWorkingLtHash[dbDirName].Equal(meta.LtHash),
+			"LocalMeta LtHash should match working hash for %s", dbDirName)
 	}
 
 	require.NoError(t, s.Close())
