@@ -16,9 +16,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	"github.com/sei-protocol/sei-chain/x/evm/blobfee"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const DefaultBlockGasLimit = 10000000
@@ -266,14 +264,24 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
 }
 
+// ErrCodeBlobsNotSupported is the JSON-RPC error code (-32000) for blob-not-supported errors.
+// Matches go-ethereum rpc errcodeDefault (unexported).
+const ErrCodeBlobsNotSupported = -32000
+
+type ErrBlobsNotSupported struct{}
+
+func (e *ErrBlobsNotSupported) Error() string {
+	return "blobs not supported on this chain"
+}
+
+func (e *ErrBlobsNotSupported) ErrorCode() int {
+	return ErrCodeBlobsNotSupported
+}
+
 func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
-	sdkCtx := i.ctxProvider(LatestCtxHeight)
-	chainConfig := types.DefaultChainConfig().EthereumConfig(i.keeper.ChainID(sdkCtx))
-	blockTime := toUint64(sdkCtx.BlockTime().Unix())
-	fee := blobfee.BlobBaseFeeForNextBlock(chainConfig, blockTime, nil)
-	return (*hexutil.Big)(fee), nil
+	return nil, &ErrBlobsNotSupported{}
 }
 
 func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {

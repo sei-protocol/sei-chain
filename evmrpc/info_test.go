@@ -183,11 +183,10 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 func TestBlobBaseFee(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	resObj := sendRequestGood(t, "blobBaseFee")
-	_, hasErr := resObj["error"]
-	require.False(t, hasErr, "blobBaseFee should not return error")
-	result, ok := resObj["result"].(string)
-	require.True(t, ok, "result should be string (hex quantity)")
-	require.Equal(t, "0x1", result, "blob base fee should be 1 wei (canonical hex)")
+	require.Contains(t, resObj, "error", "blobBaseFee should return error (blobs not supported)")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeBlobsNotSupported), errObj["code"], "error code should be ErrCodeServerError")
+	require.Equal(t, "blobs not supported on this chain", errObj["message"])
 }
 
 func TestBlobBaseFee_Direct(t *testing.T) {
@@ -199,9 +198,12 @@ func TestBlobBaseFee_Direct(t *testing.T) {
 	}
 	api := newInfoAPIWithWatermarks(ctxProvider)
 	fee, err := api.BlobBaseFee(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, fee)
-	require.Equal(t, "0x1", fee.String(), "BlobBaseFee should return 1 wei as canonical hex")
+	require.Error(t, err)
+	require.Nil(t, fee)
+	var errWithCode *evmrpc.ErrBlobsNotSupported
+	require.True(t, errors.As(err, &errWithCode))
+	require.Equal(t, evmrpc.ErrCodeBlobsNotSupported, errWithCode.ErrorCode())
+	require.Contains(t, err.Error(), "blobs not supported")
 }
 
 func TestGasPriceLogic(t *testing.T) {
