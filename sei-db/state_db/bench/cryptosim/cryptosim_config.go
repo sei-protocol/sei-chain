@@ -159,12 +159,6 @@ type CryptoSimConfig struct {
 
 	// Interval in seconds between prune checks. 0 disables pruning.
 	ReceiptPruneIntervalSeconds int64
-
-	// Maximum number of blocks stored per parquet file before rotation. Default 500.
-	ReceiptMaxBlocksPerFile int
-
-	// Number of blocks to buffer before flushing to parquet. Default 1 (matches real node).
-	ReceiptBlockFlushInterval int
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -210,8 +204,6 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MaxTPS:                            0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
-		ReceiptMaxBlocksPerFile:           500,
-		ReceiptBlockFlushInterval:         1,
 	}
 }
 
