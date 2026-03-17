@@ -46,6 +46,11 @@ type CryptosimMetrics struct {
 	receiptChannelDepth       metric.Int64Gauge
 	receiptsWrittenTotal      metric.Int64Counter
 	receiptErrorsTotal        metric.Int64Counter
+	receiptReadDuration       metric.Float64Histogram
+	receiptReadsTotal         metric.Int64Counter
+	receiptCacheHitsTotal     metric.Int64Counter
+	receiptCacheMissesTotal   metric.Int64Counter
+	receiptLogFilterDuration  metric.Float64Histogram
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -166,6 +171,31 @@ func NewCryptosimMetrics(
 		metric.WithDescription("Total receipt processing errors (marshal or write failures)"),
 		metric.WithUnit("{count}"),
 	)
+	receiptReadDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_read_duration_seconds",
+		metric.WithDescription("DuckDB receipt read latency (cache misses only)"),
+		metric.WithUnit("s"),
+	)
+	receiptReadsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_total",
+		metric.WithDescription("Total receipt read attempts"),
+		metric.WithUnit("{count}"),
+	)
+	receiptCacheHitsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_cache_hits_total",
+		metric.WithDescription("Receipt reads served from the ledger cache"),
+		metric.WithUnit("{count}"),
+	)
+	receiptCacheMissesTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_cache_misses_total",
+		metric.WithDescription("Receipt reads that went to DuckDB"),
+		metric.WithUnit("{count}"),
+	)
+	receiptLogFilterDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_log_filter_duration_seconds",
+		metric.WithDescription("DuckDB eth_getLogs filter query latency"),
+		metric.WithUnit("s"),
+	)
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
@@ -195,6 +225,11 @@ func NewCryptosimMetrics(
 		receiptChannelDepth:          receiptChannelDepth,
 		receiptsWrittenTotal:         receiptsWrittenTotal,
 		receiptErrorsTotal:           receiptErrorsTotal,
+		receiptReadDuration:          receiptReadDuration,
+		receiptReadsTotal:            receiptReadsTotal,
+		receiptCacheHitsTotal:        receiptCacheHitsTotal,
+		receiptCacheMissesTotal:      receiptCacheMissesTotal,
+		receiptLogFilterDuration:     receiptLogFilterDuration,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
@@ -452,6 +487,41 @@ func (m *CryptosimMetrics) ReportReceiptError() {
 		return
 	}
 	m.receiptErrorsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordReceiptReadDuration(seconds float64) {
+	if m == nil || m.receiptReadDuration == nil {
+		return
+	}
+	m.receiptReadDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) ReportReceiptRead() {
+	if m == nil || m.receiptReadsTotal == nil {
+		return
+	}
+	m.receiptReadsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptCacheHit() {
+	if m == nil || m.receiptCacheHitsTotal == nil {
+		return
+	}
+	m.receiptCacheHitsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptCacheMiss() {
+	if m == nil || m.receiptCacheMissesTotal == nil {
+		return
+	}
+	m.receiptCacheMissesTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordReceiptLogFilterDuration(seconds float64) {
+	if m == nil || m.receiptLogFilterDuration == nil {
+		return
+	}
+	m.receiptLogFilterDuration.Record(context.Background(), seconds)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -13,7 +14,12 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// A simulated receipt store with WAL, flush, rotation, and pruning.
+const (
+	// Size of the ring buffer for tracking written tx hashes.
+	defaultTxHashRingSize = 1_000_000
+)
+
+// A simulated receipt store with concurrent reads, writes, cache, WAL, and pruning.
 type RecieptStoreSimulator struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -23,10 +29,13 @@ type RecieptStoreSimulator struct {
 	recieptsChan chan *block
 
 	store   *parquet.Store
+	cache   *receiptSimCache
+	txRing  *txHashRing
 	metrics *CryptosimMetrics
 }
 
-// Creates a new receipt store simulator.
+// Creates a new receipt store simulator with the full production-like stack:
+// WAL, flush, rotation, pruning, ledger cache, and concurrent readers.
 func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -57,15 +66,25 @@ func NewRecieptStoreSimulator(
 		return nil, fmt.Errorf("failed to create parquet receipt store: %w", err)
 	}
 
+	cache := newReceiptSimCache(maxBlocksPerFile)
+	txRing := newTxHashRing(defaultTxHashRingSize, config.Seed+42)
+
 	r := &RecieptStoreSimulator{
 		ctx:          derivedCtx,
 		cancel:       cancel,
 		config:       config,
 		recieptsChan: recieptsChan,
 		store:        store,
+		cache:        cache,
+		txRing:       txRing,
 		metrics:      metrics,
 	}
 	go r.mainLoop()
+
+	if config.ReceiptReadConcurrency > 0 && config.ReceiptReadsPerSecond > 0 {
+		r.startReaders()
+	}
+
 	return r, nil
 }
 
@@ -85,12 +104,19 @@ func (r *RecieptStoreSimulator) mainLoop() {
 	}
 }
 
-// Processes a block of receipts: marshal, write to parquet (WAL + buffer).
+// Processes a block of receipts: marshal, write to parquet (WAL + buffer), populate cache.
 func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	blockNumber := uint64(blk.BlockNumber()) //nolint:gosec
 	blockHash := common.Hash{}
 
 	inputs := make([]parquet.ReceiptInput, 0, len(blk.reciepts))
+
+	type cacheEntry struct {
+		txHash          common.Hash
+		receiptBytes    []byte
+		contractAddress common.Address
+	}
+	cacheEntries := make([]cacheEntry, 0, len(blk.reciepts))
 
 	var logStartIndex uint
 	var marshalErrors int64
@@ -124,6 +150,12 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 			Logs:         receiptpkg.BuildParquetLogRecords(txLogs, blockHash),
 			ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 		})
+
+		cacheEntries = append(cacheEntries, cacheEntry{
+			txHash:          txHash,
+			receiptBytes:    receiptBytes,
+			contractAddress: common.HexToAddress(receipt.ContractAddress),
+		})
 	}
 
 	for range marshalErrors {
@@ -141,7 +173,119 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		r.metrics.ReportReceiptsWritten(int64(len(inputs)))
 	}
 
-	r.store.UpdateLatestVersion(int64(blockNumber)) //nolint:gosec
+	// Populate cache and ring buffer after successful write (mirrors real cachedReceiptStore).
+	r.cache.MaybeRotate(blockNumber)
+	for _, entry := range cacheEntries {
+		r.cache.Add(entry.txHash, entry.receiptBytes)
+		r.txRing.Push(entry.txHash, blockNumber, entry.contractAddress)
+	}
+
+	r.store.UpdateLatestVersion(int64(blockNumber)) //nolint:gosec // block numbers won't exceed int64 max
+}
+
+// startReaders launches concurrent reader goroutines that simulate RPC receipt lookups.
+func (r *RecieptStoreSimulator) startReaders() {
+	readerCount := r.config.ReceiptReadConcurrency
+	totalReadsPerSec := r.config.ReceiptReadsPerSecond
+	if totalReadsPerSec <= 0 {
+		totalReadsPerSec = 1000
+	}
+
+	// Distribute reads evenly across readers.
+	readsPerReader := totalReadsPerSec / readerCount
+	if readsPerReader < 1 {
+		readsPerReader = 1
+	}
+
+	for i := 0; i < readerCount; i++ {
+		//nolint:gosec // deterministic per-reader seed for benchmarks
+		readerRng := rand.New(rand.NewSource(r.config.Seed + int64(i) + 100))
+		go r.readerLoop(readsPerReader, readerRng)
+	}
+
+	fmt.Printf("Started %d receipt reader goroutines (%d reads/sec each, %.0f%% cold read ratio)\n",
+		readerCount, readsPerReader, r.config.ReceiptColdReadRatio*100)
+}
+
+func (r *RecieptStoreSimulator) readerLoop(readsPerSecond int, rng *rand.Rand) {
+	interval := time.Second / time.Duration(readsPerSecond)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.executeRead(rng)
+		}
+	}
+}
+
+func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
+	entry := r.txRing.RandomEntry()
+	if entry == nil {
+		return // no entries yet
+	}
+
+	// Decide if this is a log filter query (eth_getLogs) or a receipt lookup.
+	if r.config.ReceiptLogFilterRatio > 0 && rng.Float64() < r.config.ReceiptLogFilterRatio {
+		r.executeLogFilterRead(entry, rng)
+		return
+	}
+
+	r.metrics.ReportReceiptRead()
+
+	// Decide whether this read bypasses the cache (cold read to DuckDB).
+	forceCold := rng.Float64() < r.config.ReceiptColdReadRatio
+
+	if !forceCold {
+		if _, ok := r.cache.Get(entry.txHash); ok {
+			r.metrics.ReportReceiptCacheHit()
+			return
+		}
+	}
+
+	// Cache miss (or forced cold read) — query DuckDB.
+	r.metrics.ReportReceiptCacheMiss()
+	start := time.Now()
+	_, err := r.store.GetReceiptByTxHash(r.ctx, entry.txHash)
+	r.metrics.RecordReceiptReadDuration(time.Since(start).Seconds())
+
+	if err != nil {
+		r.metrics.ReportReceiptError()
+	}
+}
+
+// executeLogFilterRead simulates an eth_getLogs query filtering by contract address
+// over a small block range, which is the typical RPC pattern.
+func (r *RecieptStoreSimulator) executeLogFilterRead(entry *txHashEntry, rng *rand.Rand) {
+	latestVersion := r.store.LatestVersion()
+	if latestVersion <= 0 {
+		return
+	}
+
+	// Query a range of 10-100 blocks around the entry's block number.
+	rangeSize := uint64(10 + rng.Intn(91))
+	fromBlock := entry.blockNumber
+	toBlock := fromBlock + rangeSize
+	if toBlock > uint64(latestVersion) { //nolint:gosec
+		toBlock = uint64(latestVersion) //nolint:gosec
+	}
+
+	filter := parquet.LogFilter{
+		FromBlock: &fromBlock,
+		ToBlock:   &toBlock,
+		Addresses: []common.Address{entry.contractAddress},
+	}
+
+	start := time.Now()
+	_, err := r.store.GetLogs(r.ctx, filter)
+	r.metrics.RecordReceiptLogFilterDuration(time.Since(start).Seconds())
+
+	if err != nil {
+		r.metrics.ReportReceiptError()
+	}
 }
 
 // convertLogsForTx converts evmtypes.Log entries to ethtypes.Log entries.

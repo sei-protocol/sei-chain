@@ -154,6 +154,21 @@ type CryptoSimConfig struct {
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
 
+	// Number of concurrent reader goroutines issuing receipt lookups. 0 disables reads.
+	ReceiptReadConcurrency int
+
+	// Target total receipt reads per second across all reader goroutines.
+	// Reads are distributed evenly across readers.
+	ReceiptReadsPerSecond int
+
+	// Fraction of reads that bypass the cache and go directly to DuckDB (0.0-1.0).
+	// This simulates reads for older transactions not in the ledger cache.
+	ReceiptColdReadRatio float64
+
+	// Fraction of reads that are eth_getLogs filter queries instead of single receipt lookups (0.0-1.0).
+	// Log filter queries scan a block range by contract address and are more expensive than receipt lookups.
+	ReceiptLogFilterRatio float64
+
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
 	ReceiptKeepRecent int64
 
@@ -208,6 +223,10 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
 		MaxTPS:                            0,
+		ReceiptReadConcurrency:            0,
+		ReceiptReadsPerSecond:             1000,
+		ReceiptColdReadRatio:              0.1,
+		ReceiptLogFilterRatio:             0.05,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 		ReceiptMaxBlocksPerFile:           500,
@@ -292,6 +311,15 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
+	if c.ReceiptColdReadRatio < 0 || c.ReceiptColdReadRatio > 1 {
+		return fmt.Errorf("ReceiptColdReadRatio must be in [0, 1] (got %f)", c.ReceiptColdReadRatio)
+	}
+	if c.ReceiptLogFilterRatio < 0 || c.ReceiptLogFilterRatio > 1 {
+		return fmt.Errorf("ReceiptLogFilterRatio must be in [0, 1] (got %f)", c.ReceiptLogFilterRatio)
+	}
+	if c.ReceiptReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
 	}
 	return nil
 }
