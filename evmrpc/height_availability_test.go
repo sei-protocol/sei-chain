@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -166,6 +167,18 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 	receipts, err = api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.HexToHash(notFoundHashHex), true))
 	require.NoError(t, err)
 	require.Nil(t, receipts)
+}
+
+// TestGetBlockTransactionCountByHashGenesis verifies that the genesis block hash returned by
+// eth_getBlockByNumber("0x0") is accepted by eth_getBlockTransactionCountByHash (consistency).
+func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
+	t.Parallel()
+
+	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	count, err := api.GetBlockTransactionCountByHash(context.Background(), genesisBlockHash)
+	require.NoError(t, err)
+	require.NotNil(t, count)
+	require.Equal(t, hexutil.Uint(0), *count)
 }
 
 func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
