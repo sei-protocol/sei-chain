@@ -271,7 +271,7 @@ func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnE
 	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
 	sdkCtx := i.ctxProvider(LatestCtxHeight)
 	chainConfig := types.DefaultChainConfig().EthereumConfig(i.keeper.ChainID(sdkCtx))
-	blockTime := uint64(sdkCtx.BlockTime().Unix())
+	blockTime := toUint64(sdkCtx.BlockTime().Unix())
 	fee := blobfee.BlobBaseFeeForNextBlock(chainConfig, blockTime, nil)
 	return (*hexutil.Big)(fee), nil
 }
