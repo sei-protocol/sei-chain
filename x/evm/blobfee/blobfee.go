@@ -4,7 +4,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 // BlobBaseFeeForNextBlock returns the blob base fee for the next block in wei.
@@ -15,5 +14,5 @@ func BlobBaseFeeForNextBlock(chainConfig *params.ChainConfig, blockTime uint64, 
 	_ = blockTime
 	_ = excessBlobGas
 	// Cancun not enabled / no dynamic blob fee: fixed 1 wei (matches execution BlockContext).
-	return utils.Big1
+	return new(big.Int).SetUint64(1)
 }

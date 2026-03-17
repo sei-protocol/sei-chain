@@ -69,7 +69,7 @@ func TestBlobBaseFeeForNextBlock(t *testing.T) {
 func TestBlobBaseFeeForNextBlock_ReturnsCanonicalOneWei(t *testing.T) {
 	// Ensure RPC/execution contract: blob base fee is 1 wei in current implementation.
 	got := blobfee.BlobBaseFeeForNextBlock(nil, 0, nil)
-	require.Same(t, utils.Big1, got, "should return utils.Big1 for minimal footprint")
+	require.Equal(t, utils.Big1, got, "should return value equal to utils.Big1")
 }
 
 func ptrUint64(u uint64) *uint64 {
