@@ -98,6 +98,9 @@ const (
 
 	// chain info
 	FlagChainID = "chain-id"
+
+	// validation overrides
+	FlagSkipAppHashValidation = "skip-app-hash-validation"
 )
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
@@ -267,6 +270,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
 
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
+	cmd.Flags().Bool(FlagSkipAppHashValidation, false, "Skip AppHash validation during block sync so a shadow node with a different execution engine can continue syncing")
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)

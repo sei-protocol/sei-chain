@@ -30,6 +30,13 @@ import (
 // multiple times simultaneously.
 var SkipLastResultsHashValidation atomic.Bool
 
+// SkipAppHashValidation controls whether AppHash validation is skipped
+// during block validation. Enabled via --skip-app-hash-validation so a
+// shadow node running a different execution engine can continue to block
+// sync even when its locally-computed AppHash diverges from the canonical
+// chain's header.
+var SkipAppHashValidation atomic.Bool
+
 const (
 	// MaxHeaderBytes is a maximum header size.
 	// NOTE: Because app hash can be of arbitrary size, the header is therefore not
