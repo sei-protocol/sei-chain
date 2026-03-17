@@ -149,6 +149,10 @@ func TestGetAfterDelete(t *testing.T) {
 	store := map[string][]byte{"k": []byte("v")}
 	s, read := newTestShard(t, 4096, store)
 
+	// Warm the cache so the key is present before deleting.
+	_, _, err := s.Get(read, []byte("k"), true)
+	require.NoError(t, err)
+
 	s.Delete([]byte("k"))
 
 	val, found, err := s.Get(read, []byte("k"), true)
