@@ -405,11 +405,23 @@ func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 
 	prunedCount := 0
 	for _, filePair := range filesToPrune {
-		receiptRemoved := filePair.ReceiptFile == ""
+		// Step 1: Remove from tracking (brief mu.Lock) so new reader
+		// snapshots won't include these files.
 		if filePair.ReceiptFile != "" {
 			s.Reader.RemoveTrackedReceiptFile(filePair.StartBlock)
+		}
+		if filePair.LogFile != "" {
+			s.Reader.RemoveTrackedLogFile(filePair.StartBlock)
+		}
+
+		// Step 2: Wait for in-flight readers to finish, then delete.
+		// pruneMu.Lock blocks until all current pruneMu.RLock holders
+		// (active queries) release.
+		s.Reader.pruneMu.Lock()
+
+		receiptRemoved := filePair.ReceiptFile == ""
+		if filePair.ReceiptFile != "" {
 			if err := removeFile(filePair.ReceiptFile); err != nil && !os.IsNotExist(err) {
-				s.Reader.AddTrackedReceiptFile(filePair.StartBlock)
 				logger.Error("failed to prune receipt file", "file", filePair.ReceiptFile, "err", err)
 			} else {
 				receiptRemoved = true
@@ -418,13 +430,22 @@ func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 
 		logRemoved := filePair.LogFile == ""
 		if filePair.LogFile != "" {
-			s.Reader.RemoveTrackedLogFile(filePair.StartBlock)
 			if err := removeFile(filePair.LogFile); err != nil && !os.IsNotExist(err) {
-				s.Reader.AddTrackedLogFile(filePair.StartBlock)
 				logger.Error("failed to prune log file", "file", filePair.LogFile, "err", err)
 			} else {
 				logRemoved = true
 			}
+		}
+
+		s.Reader.pruneMu.Unlock()
+
+		// Re-add to tracking if deletion failed (outside pruneMu to
+		// avoid holding both locks).
+		if !receiptRemoved && filePair.ReceiptFile != "" {
+			s.Reader.AddTrackedReceiptFile(filePair.StartBlock)
+		}
+		if !logRemoved && filePair.LogFile != "" {
+			s.Reader.AddTrackedLogFile(filePair.StartBlock)
 		}
 
 		if receiptRemoved && logRemoved {
