@@ -20,6 +20,19 @@ type IterOptions struct {
 	UpperBound []byte
 }
 
+// BatchGetResult describes the result of a single key lookup within a BatchGet call.
+type BatchGetResult struct {
+	// The value for the given key. If nil, the key was not found (but no error occurred).
+	Value []byte
+	// The error, if any, that occurred during the read.
+	Error error
+}
+
+// IsFound returns true if the key was found (i.e. Value is not nil).
+func (b BatchGetResult) IsFound() bool {
+	return b.Value != nil
+}
+
 // OpenOptions configures opening a DB.
 //
 // NOTE: This is intentionally minimal today. Most performance-critical knobs
@@ -37,14 +50,26 @@ type OpenOptions struct {
 //
 // Get returns a value copy (safe to use after the call returns).
 type KeyValueDB interface {
+
+	// Get returns the value for the given key, returning an error if the key is not found.
 	Get(key []byte) (value []byte, err error)
+
+	// Set sets the value for the given key.
 	Set(key, value []byte, opts WriteOptions) error
+
+	// Delete deletes the value for the given key.
 	Delete(key []byte, opts WriteOptions) error
 
+	// NewIter returns a new iterator over the key-value store.
 	NewIter(opts *IterOptions) (KeyValueDBIterator, error)
+
+	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
 
+	// Flush flushes the database to disk.
 	Flush() error
+
+	// Close closes the database.
 	io.Closer
 }
 
