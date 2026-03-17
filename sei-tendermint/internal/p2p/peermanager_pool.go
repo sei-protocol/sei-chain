@@ -98,15 +98,19 @@ type poolManager struct {
 }
 
 func newPoolManager(cfg *poolConfig) *poolManager {
-	h := sha256.New()
 	var seed [32]byte
 	utils.OrPanic1(rand.Read(seed[:]))
-	utils.OrPanic1(h.Write(seed[:]))
 	// PRF defining peer priority.
 	// It makes the global topology converge to an uniformly random graph
 	// of a bounded degree.
 	priority := func(id types.NodeID) uint64 {
-		return binary.LittleEndian.Uint64(h.Sum([]byte(id)))
+		// NOTE: theoretically it would be more efficient to create a hasher once
+		// (sha256.New), then push seed to it (via hash.Write), then copy the hasher
+		// at every call to priority and push the id afterwards. However the difference
+		// is marginal AND the way that hash.Cloner is supposed to be used is disgusting.
+		// NOTE: converting string to []byte allocates a new slice.
+		hash := sha256.Sum256(append([]byte(id), seed[:]...))
+		return binary.LittleEndian.Uint64(hash[:])
 	}
 	p := &poolManager{
 		cfg:           cfg,
