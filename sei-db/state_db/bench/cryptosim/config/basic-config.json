@@ -22,7 +22,7 @@
   "NewAccountDormancyProbability": 1.0,
   "NewAccountProbability": 0.001,
   "NumberOfHotAccounts": 100,
-  "PaddedAccountSize": 69,
+  "PaddedAccountSize": 32,
   "Seed": 1337,
   "SetupUpdateIntervalCount": 100000,
   "ThreadsPerCore": 2.0,

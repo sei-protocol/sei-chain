@@ -1,7 +1,6 @@
 package cryptosim
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
@@ -34,11 +33,11 @@ type transaction struct {
 	dstAccountSlot []byte
 
 	// Pre-generated random value for the source account's new native balance.
-	newSrcBalance int64
+	newSrcBalance []byte
 	// Pre-generated random value for the destination account's new native balance.
-	newDstBalance int64
+	newDstBalance []byte
 	// Pre-generated random value for the fee collection account's new native balance.
-	newFeeBalance int64
+	newFeeBalance []byte
 	// Pre-generated random value for the source account's ERC20 storage slot.
 	newSrcAccountSlot []byte
 	// Pre-generated random value for the destination account's ERC20 storage slot.
@@ -101,9 +100,9 @@ func BuildTransaction(
 		srcAccountSlot:    srcAccountSlot,
 		dstAccountSlot:    dstAccountSlot,
 		erc20Contract:     erc20Contract,
-		newSrcBalance:     dataGenerator.rand.Int64(),
-		newDstBalance:     dataGenerator.rand.Int64(),
-		newFeeBalance:     dataGenerator.rand.Int64(),
+		newSrcBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
+		newDstBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
+		newFeeBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
 		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
 		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
 		captureMetrics:    captureMetrics,
@@ -219,32 +218,21 @@ func (txn *transaction) Execute(
 
 	phaseTimer.SetPhase("update_balances")
 
-	// Apply the random values from the transaction to the account and slot data.
-	const minAccountBytes = 8 // balance at offset 0
-	if len(srcAccountValue) < minAccountBytes ||
-		len(dstAccountValue) < minAccountBytes ||
-		len(feeValue) < minAccountBytes {
-		return fmt.Errorf("account value too short for balance update (need %d bytes)", minAccountBytes)
-	}
-	binary.BigEndian.PutUint64(srcAccountValue[:8], uint64(txn.newSrcBalance)) //nolint:gosec
-	binary.BigEndian.PutUint64(dstAccountValue[:8], uint64(txn.newDstBalance)) //nolint:gosec
-	binary.BigEndian.PutUint64(feeValue[:8], uint64(txn.newFeeBalance))        //nolint:gosec
-
 	// Write the following:
-	// - the sender's native balance / nonce / codehash
+	// - the sender's native balance
 	// - the receiver's native balance
 	// - the sender's storage slot for the ERC20 contract
 	// - the receiver's storage slot for the ERC20 contract
 	// - the fee collection account's native balance
 
 	// Write the sender's account data.
-	err = database.Put(txn.srcAccount, srcAccountValue)
+	err = database.Put(txn.srcAccount, txn.newSrcBalance)
 	if err != nil {
 		return fmt.Errorf("failed to put source account: %w", err)
 	}
 
 	// Write the receiver's account data.
-	err = database.Put(txn.dstAccount, dstAccountValue)
+	err = database.Put(txn.dstAccount, txn.newDstBalance)
 	if err != nil {
 		return fmt.Errorf("failed to put destination account: %w", err)
 	}
@@ -262,7 +250,7 @@ func (txn *transaction) Execute(
 	}
 
 	// Write the fee collection account's native balance.
-	err = database.Put(feeCollectionAddress, feeValue)
+	err = database.Put(feeCollectionAddress, txn.newFeeBalance)
 	if err != nil {
 		return fmt.Errorf("failed to put fee collection account: %w", err)
 	}

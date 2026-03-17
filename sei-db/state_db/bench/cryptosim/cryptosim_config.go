@@ -68,6 +68,9 @@ type CryptoSimConfig struct {
 	// The size of a simulated ERC20 storage slot, in bytes.
 	Erc20StorageSlotSize int
 
+	// The size of a simulated account balance, in bytes.
+	AccountBalanceSize int
+
 	// The number of ERC20 tokens that each account will interact with.
 	// Each account will have an eth storage slot for tracking the balance of each ERC20 token it owns.
 	// It is not legal to modify this value after the benchmark has started.
@@ -150,12 +153,13 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
 		NewAccountProbability:             0.001,
-		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
 		HotErc20ContractSetSize:           100,
 		Erc20ContractSize:                 1024 * 2, // 2kb
 		Erc20StorageSlotSize:              32,
+		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
 		BlocksPerCommit:                   1,
