@@ -180,6 +180,30 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	assert.Equal(t, "0x3b9aca00", resObj["result"])
 }
 
+func TestBlobBaseFee(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "blobBaseFee")
+	_, hasErr := resObj["error"]
+	require.False(t, hasErr, "blobBaseFee should not return error")
+	result, ok := resObj["result"].(string)
+	require.True(t, ok, "result should be string (hex quantity)")
+	require.Equal(t, "0x1", result, "blob base fee should be 1 wei (canonical hex)")
+}
+
+func TestBlobBaseFee_Direct(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx.WithBlockHeight(MockHeight8)
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
+	fee, err := api.BlobBaseFee(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, fee)
+	require.Equal(t, "0x1", fee.String(), "BlobBaseFee should return 1 wei as canonical hex")
+}
+
 func TestGasPriceLogic(t *testing.T) {
 	oneGwei := big.NewInt(1000000000)
 	onePointOneGwei := big.NewInt(1100000000)
