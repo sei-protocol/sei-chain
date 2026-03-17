@@ -654,7 +654,16 @@ func TestOverheadIncludedInSizeAfterSet(t *testing.T) {
 
 func TestOverheadIncludedInSizeAfterDelete(t *testing.T) {
 	const overhead = 100
+	store := map[string][]byte{"abc": []byte("val")}
+	read := Reader(func(key []byte) ([]byte, bool, error) {
+		v, ok := store[string(key)]
+		return v, ok, nil
+	})
 	s, _ := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+
+	// Warm the cache so the key is present before deleting.
+	_, _, err := s.Get(read, []byte("abc"), true)
+	require.NoError(t, err)
 
 	s.Delete([]byte("abc"))
 
