@@ -160,23 +160,16 @@ func (v AccountValue) Encode() []byte {
 // EncodeAccountValue encodes v into a variable-length slice.
 // EOA accounts (no code) are encoded as 40 bytes, contracts as 72 bytes.
 func EncodeAccountValue(v AccountValue) []byte {
-	if !v.HasCode() {
-		// EOA: balance(32) || nonce(8)
-		b := make([]byte, 0, accountValueEOALen)
-		b = append(b, v.Balance[:]...)
-		var nonce [NonceLen]byte
-		binary.BigEndian.PutUint64(nonce[:], v.Nonce)
-		b = append(b, nonce[:]...)
-		return b
+	size := accountValueEOALen
+	if v.HasCode() {
+		size = accountValueContractLen
 	}
-
-	// Contract: balance(32) || nonce(8) || codehash(32)
-	b := make([]byte, 0, accountValueContractLen)
-	b = append(b, v.Balance[:]...)
-	var nonce [NonceLen]byte
-	binary.BigEndian.PutUint64(nonce[:], v.Nonce)
-	b = append(b, nonce[:]...)
-	b = append(b, v.CodeHash[:]...)
+	b := make([]byte, size)
+	copy(b, v.Balance[:])
+	binary.BigEndian.PutUint64(b[BalanceLen:], v.Nonce)
+	if v.HasCode() {
+		copy(b[BalanceLen+NonceLen:], v.CodeHash[:])
+	}
 	return b
 }
 

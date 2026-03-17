@@ -335,6 +335,7 @@ func (s *CommitStore) clearPendingWrites() {
 // Also called by catchup to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
+	localMetaBytes := MarshalLocalMeta(&LocalMeta{CommittedVersion: version})
 
 	type pendingCommit struct {
 		dbDir string
@@ -363,97 +364,47 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
+		if err := batch.Set(DBLocalMetaKey, localMetaBytes); err != nil {
 			return fmt.Errorf("accountDB local meta set: %w", err)
 		}
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
 
-	// Commit to codeDB
-	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_code_db_prepare")
-		batch := s.codeDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.codeWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("codeDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("codeDB set: %w", err)
-				}
-			}
-		}
-
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("codeDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{codeDBDir, batch})
+	// Commit to codeDB, storageDB, legacyDB (identical logic per KV DB).
+	kvDBs := [...]struct {
+		dir    string
+		phase  string
+		writes map[string]*pendingKVWrite
+		db     types.KeyValueDB
+	}{
+		{codeDBDir, "commit_code_db_prepare", s.codeWrites, s.codeDB},
+		{storageDBDir, "commit_storage_db_prepare", s.storageWrites, s.storageDB},
+		{legacyDBDir, "commit_legacy_db_prepare", s.legacyWrites, s.legacyDB},
 	}
+	for _, spec := range kvDBs {
+		if len(spec.writes) == 0 && version <= s.localMeta[spec.dir].CommittedVersion {
+			continue
+		}
+		s.phaseTimer.SetPhase(spec.phase)
+		batch := spec.db.NewBatch()
+		defer func(b types.Batch) { _ = b.Close() }(batch)
 
-	// Commit to storageDB
-	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_storage_db_prepare")
-		batch := s.storageDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.storageWrites {
+		for _, pw := range spec.writes {
 			if pw.isDelete {
 				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("storageDB delete: %w", err)
+					return fmt.Errorf("%s delete: %w", spec.dir, err)
 				}
 			} else {
 				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("storageDB set: %w", err)
+					return fmt.Errorf("%s set: %w", spec.dir, err)
 				}
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
+		if err := batch.Set(DBLocalMetaKey, localMetaBytes); err != nil {
+			return fmt.Errorf("%s local meta set: %w", spec.dir, err)
 		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("storageDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{storageDBDir, batch})
-	}
-
-	// Commit to legacyDB
-	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_legacy_db_prepare")
-		batch := s.legacyDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.legacyWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("legacyDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("legacyDB set: %w", err)
-				}
-			}
-		}
-
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("legacyDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{legacyDBDir, batch})
+		pending = append(pending, pendingCommit{spec.dir, batch})
 	}
 
 	if len(pending) == 0 {
