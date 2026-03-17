@@ -35,11 +35,11 @@ func NewRecieptStoreSimulator(
 ) (*RecieptStoreSimulator, error) {
 	derivedCtx, cancel := context.WithCancel(ctx)
 
-	maxBlocksPerFile := uint64(config.ReceiptMaxBlocksPerFile)
+	maxBlocksPerFile := uint64(max(config.ReceiptMaxBlocksPerFile, 0)) //nolint:gosec // validated non-negative
 	if maxBlocksPerFile == 0 {
 		maxBlocksPerFile = 500
 	}
-	blockFlushInterval := uint64(config.ReceiptBlockFlushInterval)
+	blockFlushInterval := uint64(max(config.ReceiptBlockFlushInterval, 0)) //nolint:gosec // validated non-negative
 	if blockFlushInterval == 0 {
 		blockFlushInterval = 1
 	}
@@ -70,7 +70,11 @@ func NewRecieptStoreSimulator(
 }
 
 func (r *RecieptStoreSimulator) mainLoop() {
-	defer r.store.Close()
+	defer func() {
+		if err := r.store.Close(); err != nil {
+			fmt.Printf("failed to close receipt store: %v\n", err)
+		}
+	}()
 	for {
 		select {
 		case <-r.ctx.Done():
