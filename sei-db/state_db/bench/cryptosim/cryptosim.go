@@ -106,7 +106,7 @@ func NewCryptoSim(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	dataDir, err := resolveAndCreateDataDir(config.DataDir)
+	dataDir, err := ResolveAndCreateDir(config.DataDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)

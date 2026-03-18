@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
@@ -138,6 +139,14 @@ type CryptoSimConfig struct {
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
+
+	// Directory for seilog output files. Independent of DataDir so logs and data
+	// live in separate trees. Supports ~ expansion and relative paths (resolved
+	// from cwd). Must be set, there is no default.
+	LogDir string
+
+	// Log level for seilog output. Valid values: debug, info, warn, error.
+	LogLevel string
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -178,6 +187,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
 		BlockChannelCapacity:              8,
+		LogLevel:                          "info",
 	}
 }
 
@@ -194,6 +204,9 @@ func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
 func (c *CryptoSimConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")
+	}
+	if c.LogDir == "" {
+		return fmt.Errorf("LogDir is required")
 	}
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)
@@ -252,6 +265,11 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BlockChannelCapacity < 1 {
 		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
+	switch strings.ToLower(c.LogLevel) {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
 	}
 
 	return nil

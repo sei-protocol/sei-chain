@@ -35,6 +35,7 @@ type CryptosimMetrics struct {
 	dbCommitsTotal             metric.Int64Counter
 	dataDirSizeBytes           metric.Int64Gauge
 	dataDirAvailableBytes      metric.Int64Gauge
+	logDirSizeBytes            metric.Int64Gauge
 	processReadBytesTotal      metric.Int64Counter
 	processWriteBytesTotal     metric.Int64Counter
 	processReadCountTotal      metric.Int64Counter
@@ -114,6 +115,11 @@ func NewCryptosimMetrics(
 		metric.WithDescription("Available disk space in bytes on the filesystem containing the data directory"),
 		metric.WithUnit("By"),
 	)
+	logDirSizeBytes, _ := meter.Int64Gauge(
+		"cryptosim_log_dir_size_bytes",
+		metric.WithDescription("Approximate size in bytes of the log directory"),
+		metric.WithUnit("By"),
+	)
 	processReadBytesTotal, _ := meter.Int64Counter(
 		"cryptosim_process_read_bytes_total",
 		metric.WithDescription("Bytes read from storage by benchmark. Use rate() for throughput. Linux only."),
@@ -159,6 +165,7 @@ func NewCryptosimMetrics(
 		dbCommitsTotal:               dbCommitsTotal,
 		dataDirSizeBytes:             dataDirSizeBytes,
 		dataDirAvailableBytes:        dataDirAvailableBytes,
+		logDirSizeBytes:              logDirSizeBytes,
 		processReadBytesTotal:        processReadBytesTotal,
 		processWriteBytesTotal:       processWriteBytesTotal,
 		processReadCountTotal:        processReadCountTotal,
@@ -167,9 +174,16 @@ func NewCryptosimMetrics(
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
-	if config != nil && config.BackgroundMetricsScrapeInterval > 0 && config.DataDir != "" {
-		if dataDir, err := resolveAndCreateDataDir(config.DataDir); err == nil {
-			m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
+	if config != nil && config.BackgroundMetricsScrapeInterval > 0 {
+		if config.DataDir != "" {
+			if dataDir, err := ResolveAndCreateDir(config.DataDir); err == nil {
+				m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
+			}
+		}
+		if config.LogDir != "" {
+			if logDir, err := ResolveAndCreateDir(config.LogDir); err == nil {
+				m.startLogDirSizeSampling(logDir, config.BackgroundMetricsScrapeInterval)
+			}
 		}
 		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)
 		m.startUptimeSampling(time.Now())
@@ -280,6 +294,32 @@ func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeco
 			}
 			if m.dataDirAvailableBytes != nil {
 				m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dataDir))
+			}
+		}
+		sample()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				sample()
+			}
+		}
+	}()
+}
+
+func (m *CryptosimMetrics) startLogDirSizeSampling(logDir string, intervalSeconds int) {
+	if m == nil || intervalSeconds <= 0 || logDir == "" {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	ctx := context.Background()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		sample := func() {
+			if m.logDirSizeBytes != nil {
+				m.logDirSizeBytes.Record(ctx, measureDataDirSize(logDir))
 			}
 		}
 		sample()
