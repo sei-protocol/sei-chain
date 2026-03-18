@@ -165,44 +165,21 @@ func (s *shard) Get(
 ) ([]byte, bool, error) {
 	s.lock.Lock()
 
-	if version < s.oldestVersion {
+	if err := s.validateVersionUnlocked(version); err != nil {
 		s.lock.Unlock()
-		return nil, false, fmt.Errorf("version (%d) is less than the oldest version (%d)", version, s.oldestVersion)
-	}
-	if version > s.currentVersion {
-		s.lock.Unlock()
-		return nil, false, fmt.Errorf(
-			"version (%d) is greater than or equal to the current version (%d)", version, s.currentVersion)
+		return nil, false, err
 	}
 
 	// First, check to see if we have this value in the versioned data map.
-	deque, ok := s.versionedData[string(key)]
-	if ok {
-		if version == s.oldestVersion {
-			// Special case: if we are reading the oldest version, just check oldest entry.
-			next := deque.PeekFront()
-			if next.version == version {
-				s.lock.Unlock()
-				return next.value, next.value != nil, nil
-			}
-		} else {
-			// Otherwise, iterate along the deque to find the proper version.
-			for i := deque.Len() - 1; i >= 0; i-- {
-				next := deque.Get(i)
-				if next.version <= version {
-					// We've found the value for the requested version.
-					s.lock.Unlock()
-					return next.value, next.value != nil, nil
-				}
-			}
-		}
-
+	if value, found := s.lookupVersionedUnlocked(string(key), version); found {
+		s.lock.Unlock()
+		return value, value != nil, nil
 	}
 
 	// If we reach this point, we didn't find a value for this version in the versioned data map.
 	// Check the DB cache, and potentially read from the DB if it's not in memory.
 
-	entry := s.getEntry(key, true) // TODO rename
+	entry := s.getDBCacheEntry(key, true)
 
 	switch entry.status {
 	case statusAvailable:
@@ -313,9 +290,9 @@ func (se *dbCacheEntry) injectValue(key []byte, result readResult) {
 	se.valueChan <- result
 }
 
-// Get a shard entry for a given key. Caller is responsible for holding the shard's lock
+// Get a cb cache entry for a given key. Caller is responsible for holding the shard's lock
 // when this method is called.
-func (s *shard) getEntry(key []byte, createIfMissing bool) *dbCacheEntry {
+func (s *shard) getDBCacheEntry(key []byte, createIfMissing bool) *dbCacheEntry {
 	if entry, ok := s.dbCache[string(key)]; ok {
 		return entry
 	}
@@ -329,6 +306,42 @@ func (s *shard) getEntry(key []byte, createIfMissing bool) *dbCacheEntry {
 	keyStr := string(key)
 	s.dbCache[keyStr] = entry
 	return entry
+}
+
+// validateVersionUnlocked checks that the given version is within the valid range.
+// Caller must hold the lock.
+func (s *shard) validateVersionUnlocked(version uint64) error {
+	if version < s.oldestVersion {
+		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, s.oldestVersion)
+	}
+	if version > s.currentVersion {
+		return fmt.Errorf("version (%d) is greater than the current version (%d)", version, s.currentVersion)
+	}
+	return nil
+}
+
+// lookupVersionedUnlocked checks versioned data for a key at the given version.
+// Returns (value, true) if found in versioned data, (nil, false) if the dbCache should be consulted.
+// Caller must hold the lock.
+func (s *shard) lookupVersionedUnlocked(key string, version uint64) ([]byte, bool) {
+	deque, ok := s.versionedData[key]
+	if !ok {
+		return nil, false
+	}
+	if version == s.oldestVersion {
+		next := deque.PeekFront()
+		if next.version == version {
+			return next.value, true
+		}
+		return nil, false
+	}
+	for i := deque.Len() - 1; i >= 0; i-- {
+		next := deque.Get(i)
+		if next.version <= version {
+			return next.value, true
+		}
+	}
+	return nil, false
 }
 
 // Tracks a key whose value is not yet available and must be waited on.
@@ -352,8 +365,20 @@ func (s *shard) BatchGet(
 	var hits int64
 
 	s.lock.Lock()
+
+	if err := s.validateVersionUnlocked(version); err != nil {
+		s.lock.Unlock()
+		return err
+	}
+
 	for key := range keys {
-		entry := s.getEntry([]byte(key), true)
+		if value, found := s.lookupVersionedUnlocked(key, version); found {
+			keys[key] = types.BatchGetResult{Value: value}
+			hits++
+			continue
+		}
+
+		entry := s.getDBCacheEntry([]byte(key), true)
 
 		switch entry.status {
 		case statusAvailable, statusDeleted:
@@ -470,18 +495,23 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 	return s.dbCacheGCQueue.GetTotalSize(), s.dbCacheGCQueue.GetCount()
 }
 
-// Set sets the value for the given key.
+// Set sets the value for the given key at the current version.
 func (s *shard) Set(key []byte, value []byte) {
 	s.lock.Lock()
+	s.setUnlocked(key, value)
+	s.lock.Unlock()
+}
 
-	// Insert the value into the version diffs map.
-	s.versionDiffs[s.currentVersion][string(key)] = value
+// setUnlocked writes a value to the versioned data structures at the current version.
+// Caller must hold the lock.
+func (s *shard) setUnlocked(key []byte, value []byte) {
+	keyStr := string(key)
+	s.versionDiffs[s.currentVersion][keyStr] = value
 
-	// Update the versioned data map.
-	deque, ok := s.versionedData[string(key)]
+	deque, ok := s.versionedData[keyStr]
 	if !ok {
 		deque = NewDeque[versionedValue]()
-		s.versionedData[string(key)] = deque
+		s.versionedData[keyStr] = deque
 	}
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
@@ -489,13 +519,11 @@ func (s *shard) Set(key []byte, value []byte) {
 		deque.PopBack()
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
 	}
-
-	s.lock.Unlock()
 }
 
 // Set a value. Caller is required to hold the lock.
 func (s *shard) setInDBCacheUnlocked(key []byte, value []byte) {
-	entry := s.getEntry(key, true)
+	entry := s.getDBCacheEntry(key, true)
 	entry.status = statusAvailable
 	entry.value = value
 
@@ -503,17 +531,12 @@ func (s *shard) setInDBCacheUnlocked(key []byte, value []byte) {
 	s.dbCacheGCQueue.Push(key, size)
 }
 
-// BatchSet sets the values for a batch of keys.
+// BatchSet sets the values for a batch of keys at the current version.
 func (s *shard) BatchSet(entries []CacheUpdate) {
 	s.lock.Lock()
 	for i := range entries {
-		if entries[i].IsDelete() {
-			s.deleteInDBCacheUnlocked(entries[i].Key)
-		} else {
-			s.setInDBCacheUnlocked(entries[i].Key, entries[i].Value)
-		}
+		s.setUnlocked(entries[i].Key, entries[i].Value)
 	}
-	s.evictUnlocked()
 	s.lock.Unlock()
 }
 
@@ -524,7 +547,7 @@ func (s *shard) Delete(key []byte) {
 
 // Delete a value. Caller is required to hold the lock.
 func (s *shard) deleteInDBCacheUnlocked(key []byte) {
-	entry := s.getEntry(key, false)
+	entry := s.getDBCacheEntry(key, false)
 	if entry == nil {
 		// Key is not in the cache, so nothing to do.
 		return
