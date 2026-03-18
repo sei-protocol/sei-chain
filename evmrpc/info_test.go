@@ -200,10 +200,19 @@ func TestBlobBaseFee_Direct(t *testing.T) {
 	fee, err := api.BlobBaseFee(context.Background())
 	require.Error(t, err)
 	require.Nil(t, fee)
-	var errWithCode *evmrpc.ErrBlobsNotSupported
+	var errWithCode *evmrpc.ErrEVMNotSupported
 	require.True(t, errors.As(err, &errWithCode))
-	require.Equal(t, evmrpc.ErrCodeBlobsNotSupported, errWithCode.ErrorCode())
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, errWithCode.ErrorCode())
 	require.Contains(t, err.Error(), "blobs not supported")
+}
+
+func TestSyncingNotSupported(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "syncing")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_syncing")
 }
 
 func TestGasPriceLogic(t *testing.T) {
