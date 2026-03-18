@@ -219,25 +219,30 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 		pend.Wait()
 		return nil, err
 	}
+	evm := vm.NewEVM(mainBlockCtx, statedb, api.backend.ChainConfigAtHeight(block.Number().Int64()), vm.Config{}, api.backend.GetCustomPrecompiles(block.Number().Int64()))
 	var failed error
 
 	advanceState := func(i int, tx *gethtypes.Transaction) error {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
-		txctx := &tracers.Context{
-			BlockHash:   blockHash,
-			BlockNumber: block.Number(),
-			TxIndex:     i,
-			TxHash:      tx.Hash(),
-		}
-		recorder := traceprofile.FromContext(ctx)
-		if recorder != nil {
-			start := time.Now()
-			recorder.AddCount("trace_tx_advance_count", 1)
-			err := api.profiledAdvanceTx(ctx, tx, msg, txctx, mainBlockCtx, statedb, nil)
-			recorder.AddDuration("trace_tx_advance_total", time.Since(start))
+		statedb.SetTxContext(tx.Hash(), i)
+		if err := api.backend.PrepareTx(statedb, tx); err != nil {
 			return err
 		}
-		return api.profiledAdvanceTx(ctx, tx, msg, txctx, mainBlockCtx, statedb, nil)
+		var start time.Time
+		recorder := traceprofile.FromContext(ctx)
+		if recorder != nil {
+			start = time.Now()
+			recorder.AddCount("trace_tx_advance_count", 1)
+		}
+		_, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit))
+		if recorder != nil {
+			recorder.AddDuration("trace_tx_advance_total", time.Since(start))
+		}
+		if err != nil {
+			return err
+		}
+		statedb.Finalise(evm.ChainConfig().IsEIP158(block.Number()))
+		return nil
 	}
 
 	feedTraceTask := func(i int) error {
@@ -316,47 +321,6 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 		}
 	}
 	return results, nil
-}
-
-func (api *DebugAPI) profiledAdvanceTx(
-	ctx context.Context,
-	tx *gethtypes.Transaction,
-	message *core.Message,
-	txctx *tracers.Context,
-	vmctx vm.BlockContext,
-	statedb vm.StateDB,
-	precompiles vm.PrecompiledContracts,
-) (returnErr error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	startingNonce := statedb.GetNonce(message.From)
-	defer func() {
-		if recover() != nil {
-			returnErr = nil
-		}
-		nonce := statedb.GetNonce(message.From)
-		if nonce == startingNonce {
-			statedb.SetNonce(message.From, nonce+1, gethtracing.NonceChangeUnspecified)
-		}
-	}()
-
-	txContext := core.NewEVMTxContext(message)
-	evm := vm.NewEVM(vmctx, statedb, api.backend.ChainConfigAtHeight(vmctx.BlockNumber.Int64()), vm.Config{NoBaseFee: true}, api.backend.GetCustomPrecompiles(vmctx.BlockNumber.Int64()))
-	if precompiles != nil {
-		evm.SetPrecompiles(precompiles)
-	}
-	evm.SetTxContext(txContext)
-
-	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	if err := api.backend.PrepareTx(statedb, tx); err != nil {
-		return nil
-	}
-
-	var usedGas uint64
-	_, _ = core.ApplyTransactionWithEVM(message, new(core.GasPool).AddGas(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, evm)
-	return nil
 }
 
 func (api *DebugAPI) profiledTraceTx(ctx context.Context, tx *gethtypes.Transaction, message *core.Message, txctx *tracers.Context, vmctx vm.BlockContext, statedb vm.StateDB, config *tracers.TraceConfig, precompiles vm.PrecompiledContracts) (value interface{}, returnErr error) {
