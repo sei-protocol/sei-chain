@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
@@ -17,7 +16,6 @@ func TestWriteSnapshotWithEmptyTree(t *testing.T) {
 	dir := t.TempDir()
 
 	tree := NewWithInitialVersion(0)
-	tree.logger = logger.NewNopLogger()
 
 	snapshotDir := filepath.Join(dir, "empty-snapshot")
 	err := tree.WriteSnapshot(context.Background(), snapshotDir)
@@ -38,7 +36,6 @@ func TestWriteSnapshotWithData(t *testing.T) {
 	dir := t.TempDir()
 
 	tree := NewWithInitialVersion(0)
-	tree.logger = logger.NewNopLogger()
 
 	// Add some data
 	for i := range 100 {
@@ -70,7 +67,7 @@ func TestMultiTreeWriteSnapshotSequential(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a DB with multiple stores
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"store1", "store2", "store3"},
@@ -136,7 +133,6 @@ func TestSnapshotWriteWithContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 
 	tree := NewWithInitialVersion(0)
-	tree.logger = logger.NewNopLogger()
 
 	// Add a moderate amount of data
 	for i := range 100 {

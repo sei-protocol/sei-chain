@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"errors"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	pqgo "github.com/parquet-go/parquet-go"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -83,7 +83,7 @@ func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -112,7 +112,7 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	txHash := common.HexToHash("0x20")
@@ -125,7 +125,7 @@ func TestParquetReceiptStoreReopenQueries(t *testing.T) {
 	}))
 	require.NoError(t, store.Close())
 
-	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -149,7 +149,7 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	txHash := common.HexToHash("0x30")
@@ -174,7 +174,7 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 		require.NoError(t, os.Remove(file))
 	}
 
-	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -183,14 +183,40 @@ func TestParquetReceiptStoreWALReplay(t *testing.T) {
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 }
 
+func TestParquetReceiptStoreUsesConfiguredDirectory(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x31")
+	receipt := makeTestReceipt(txHash, 11, 0, common.HexToAddress("0x401"), nil)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(11), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, receiptFiles, "receipt parquet files should be written under the configured db directory")
+
+	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.NotEmpty(t, logFiles, "log parquet files should be written under the configured db directory")
+}
+
 func TestParquetFilePruning(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
-	cfg.KeepRecent = 600 // Keep 600 blocks, so files with blocks < (latest - 600) get pruned
+	cfg.KeepRecent = 600
+	cfg.PruneIntervalSeconds = 0 // Disable background pruning; we trigger it manually below.
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	// Write receipts across multiple files (500 blocks per file)
@@ -198,7 +224,7 @@ func TestParquetFilePruning(t *testing.T) {
 	// File 1: blocks 501-1000
 	// File 2: blocks 1001-1500
 	for block := uint64(1); block <= 1500; block++ {
-		txHash := common.BigToHash(common.Big1.SetUint64(block))
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
 		receipt := makeTestReceipt(txHash, block, 0, common.HexToAddress("0x1"), nil)
 		err := store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
 			{TxHash: txHash, Receipt: receipt},
@@ -209,22 +235,37 @@ func TestParquetFilePruning(t *testing.T) {
 	// Close to flush all files
 	require.NoError(t, store.Close())
 
-	// Verify we have at least 2 receipt and log files
-	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	// Verify we have at least 2 receipt and log files before pruning
+	receiptFilesBefore, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(receiptFiles), 2, "should have at least 2 receipt files")
+	require.GreaterOrEqual(t, len(receiptFilesBefore), 2, "should have at least 2 receipt files")
 
-	logFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	logFilesBefore, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(logFiles), 2, "should have at least 2 log files")
+	require.GreaterOrEqual(t, len(logFilesBefore), 2, "should have at least 2 log files")
 
-	// Reopen store - pruning will run in background
-	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	// Reopen store (no background pruning because PruneIntervalSeconds == 0)
+	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
+	// Manually trigger pruning synchronously: prune files entirely before block 900
+	// (latestVersion 1500 - keepRecent 600 = 900)
+	pqStore := store.(*cachedReceiptStore).backend.(*parquetReceiptStore)
+	pruned := pqStore.store.PruneOldFiles(900)
+	require.Greater(t, pruned, 0, "should have pruned at least one file pair")
+
+	// Verify files were actually removed from disk
+	receiptFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.Less(t, len(receiptFilesAfter), len(receiptFilesBefore), "pruning should have removed receipt files")
+
+	logFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "logs_*.parquet"))
+	require.NoError(t, err)
+	require.Less(t, len(logFilesAfter), len(logFilesBefore), "pruning should have removed log files")
+
 	// Verify we can still query recent data
-	txHash := common.BigToHash(common.Big1.SetUint64(1400))
+	txHash := common.BigToHash(new(big.Int).SetUint64(1400))
 	_, err = store.GetReceiptFromStore(ctx, txHash)
 	require.NoError(t, err)
 }
@@ -269,7 +310,7 @@ func TestParquetPruneOldFiles(t *testing.T) {
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0 // Disable auto-pruning
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	// Write enough data to create multiple files
@@ -288,7 +329,7 @@ func TestParquetPruneOldFiles(t *testing.T) {
 	require.GreaterOrEqual(t, len(receiptFilesBefore), 2, "should have at least 2 receipt files")
 
 	// Reopen store
-	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
@@ -334,7 +375,7 @@ func TestParquetCorruptFileRecoveryFromWAL(t *testing.T) {
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 
 	txHash := common.HexToHash("0x40")
@@ -358,7 +399,7 @@ func TestParquetCorruptFileRecoveryFromWAL(t *testing.T) {
 	// Reopen — should delete the corrupt file and recover from WAL.
 	// The file with the same name may be re-created by WAL replay (the
 	// receipt is at the same block number), which is expected.
-	store, err = NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 

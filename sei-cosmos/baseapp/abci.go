@@ -180,7 +180,7 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
 	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
 	if err != nil {
-		ctx.Logger().Error("error while processing scheduler", "err", err)
+		logger.Error("error while processing scheduler", "err", err)
 		panic(err)
 	}
 	for _, tx := range txRes {
@@ -336,7 +336,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 func (app *BaseApp) SnapshotIfApplicable(height uint64) {
 	if app.snapshotInterval > 0 && height%app.snapshotInterval == 0 {
 		if height > uint64(math.MaxInt64) {
-			app.logger.Error("snapshot height exceeds max int64", "height", height)
+			logger.Error("snapshot height exceeds max int64", "height", height)
 			return
 		}
 		go app.Snapshot(int64(height)) //nolint:gosec // bounds checked above
@@ -346,7 +346,7 @@ func (app *BaseApp) SnapshotIfApplicable(height uint64) {
 // halt attempts to gracefully shutdown the node via SIGINT and SIGTERM falling
 // back on os.Exit if both fail.
 func (app *BaseApp) halt() {
-	app.logger.Info("halting node per configuration", "height", app.haltHeight, "time", app.haltTime)
+	logger.Info("halting node per configuration", "height", app.haltHeight, "time", app.haltTime)
 
 	p, err := os.FindProcess(os.Getpid())
 	if err == nil {
@@ -361,42 +361,42 @@ func (app *BaseApp) halt() {
 
 	// Resort to exiting immediately if the process could not be found or killed
 	// via SIGINT/SIGTERM signals.
-	app.logger.Info("failed to send SIGINT/SIGTERM; exiting...")
+	logger.Info("failed to send SIGINT/SIGTERM; exiting...")
 	os.Exit(0)
 }
 
 // Snapshot takes a snapshot of the current state and prunes any old snapshottypes.
 func (app *BaseApp) Snapshot(height int64) {
 	if app.snapshotManager == nil {
-		app.logger.Info("snapshot manager not configured")
+		logger.Info("snapshot manager not configured")
 		return
 	}
 
 	if height < 0 {
-		app.logger.Error("cannot create snapshot for negative height", "height", height)
+		logger.Error("cannot create snapshot for negative height", "height", height)
 		return
 	}
 
-	app.logger.Info("creating state snapshot", "height", height)
+	logger.Info("creating state snapshot", "height", height)
 
 	snapshot, err := app.snapshotManager.Create(uint64(height)) //nolint:gosec // bounds checked above
 	if err != nil {
-		app.logger.Error("failed to create state snapshot", "height", height, "err", err)
+		logger.Error("failed to create state snapshot", "height", height, "err", err)
 		return
 	}
 
-	app.logger.Info("completed state snapshot", "height", height, "format", snapshot.Format)
+	logger.Info("completed state snapshot", "height", height, "format", snapshot.Format)
 
 	if app.snapshotKeepRecent > 0 {
-		app.logger.Debug("pruning state snapshots")
+		logger.Debug("pruning state snapshots")
 
 		pruned, err := app.snapshotManager.Prune(app.snapshotKeepRecent)
 		if err != nil {
-			app.logger.Error("Failed to prune state snapshots", "err", err)
+			logger.Error("Failed to prune state snapshots", "err", err)
 			return
 		}
 
-		app.logger.Debug("pruned state snapshots", "pruned", pruned)
+		logger.Debug("pruned state snapshots", "pruned", pruned)
 	}
 }
 
@@ -462,14 +462,14 @@ func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestList
 
 	snapshots, err := app.snapshotManager.List()
 	if err != nil {
-		app.logger.Error("failed to list snapshots", "err", err)
+		logger.Error("failed to list snapshots", "err", err)
 		return resp, nil
 	}
 
 	for _, snapshot := range snapshots {
 		abciSnapshot, err := snapshot.ToABCI()
 		if err != nil {
-			app.logger.Error("failed to list snapshots", "err", err)
+			logger.Error("failed to list snapshots", "err", err)
 			return resp, nil
 		}
 		resp.Snapshots = append(resp.Snapshots, &abciSnapshot)
@@ -485,7 +485,7 @@ func (app *BaseApp) LoadSnapshotChunk(context context.Context, req *abci.Request
 	}
 	chunk, err := app.snapshotManager.LoadChunk(req.Height, req.Format, req.Chunk)
 	if err != nil {
-		app.logger.Error(
+		logger.Error(
 			"failed to load snapshot chunk",
 			"height", req.Height,
 			"format", req.Format,
@@ -500,18 +500,18 @@ func (app *BaseApp) LoadSnapshotChunk(context context.Context, req *abci.Request
 // OfferSnapshot implements the ABCI interface. It delegates to app.snapshotManager if set.
 func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 	if app.snapshotManager == nil {
-		app.logger.Error("snapshot manager not configured")
+		logger.Error("snapshot manager not configured")
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ABORT}, nil
 	}
 
 	if req.Snapshot == nil {
-		app.logger.Error("received nil snapshot")
+		logger.Error("received nil snapshot")
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 	}
 
 	snapshot, err := snapshottypes.SnapshotFromABCI(req.Snapshot)
 	if err != nil {
-		app.logger.Error("failed to decode snapshot metadata", "err", err)
+		logger.Error("failed to decode snapshot metadata", "err", err)
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 	}
 
@@ -524,7 +524,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT_FORMAT}, nil
 
 	case errors.Is(err, snapshottypes.ErrInvalidMetadata):
-		app.logger.Error(
+		logger.Error(
 			"rejecting invalid snapshot",
 			"height", req.Snapshot.Height,
 			"format", req.Snapshot.Format,
@@ -533,7 +533,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 
 	default:
-		app.logger.Error(
+		logger.Error(
 			"failed to restore snapshot",
 			"height", req.Snapshot.Height,
 			"format", req.Snapshot.Format,
@@ -549,7 +549,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 // ApplySnapshotChunk implements the ABCI interface. It delegates to app.snapshotManager if set.
 func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 	if app.snapshotManager == nil {
-		app.logger.Error("snapshot manager not configured")
+		logger.Error("snapshot manager not configured")
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 
@@ -564,7 +564,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 
 	case errors.Is(err, snapshottypes.ErrChunkHashMismatch):
-		app.logger.Error(
+		logger.Error(
 			"chunk checksum mismatch; rejecting sender and requesting refetch",
 			"chunk", req.Index,
 			"sender", req.Sender,
@@ -577,7 +577,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 		}, nil
 
 	default:
-		app.logger.Error("failed to restore snapshot", "err", err)
+		logger.Error("failed to restore snapshot", "err", err)
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 }
@@ -677,7 +677,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 	checkStateCtx := app.checkState.Context()
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
-		cacheMS, checkStateCtx.BlockHeader(), true, app.logger,
+		cacheMS, checkStateCtx.BlockHeader(), true,
 	).WithMinGasPrices(app.minGasPrices).WithBlockHeight(height)
 
 	return ctx, nil
@@ -987,7 +987,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 
 	defer func() {
 		if err := recover(); err != nil {
-			app.logger.Error(
+			logger.Error(
 				"panic recovered in PrepareProposal",
 				"height", req.Height,
 				"time", req.Time,
@@ -1060,7 +1060,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 	defer func() {
 		if err := recover(); err != nil {
-			app.logger.Error(
+			logger.Error(
 				"panic recovered in ProcessProposal",
 				"height", req.Height,
 				"time", req.Time,
@@ -1162,7 +1162,7 @@ func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxP
 			// vectors where a malicious actor crafts a transaction that panics the
 			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
 			// back to zero priority in this case and log the panic for monitoring purposes.
-			app.logger.Error("tx prioritizer base app panicked. Falling back on no priority", "error", r)
+			logger.Error("tx prioritizer base app panicked. Falling back on no priority", "error", r)
 			if _err == nil {
 				_resp = &abci.ResponseGetTxPriorityHint{Priority: 0}
 			}

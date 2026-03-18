@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -48,7 +47,6 @@ type TxMempoolOption func(*TxMempool)
 // when a block proposer constructs a block and a thread-safe linked-list that
 // is used to gossip transactions to peers in a FIFO manner.
 type TxMempool struct {
-	logger       log.Logger
 	metrics      *Metrics
 	config       *config.MempoolConfig
 	proxyAppConn abci.Application
@@ -125,7 +123,6 @@ type TxMempool struct {
 }
 
 func NewTxMempool(
-	logger log.Logger,
 	cfg *config.MempoolConfig,
 	proxyAppConn abci.Application,
 	router router,
@@ -133,7 +130,6 @@ func NewTxMempool(
 ) *TxMempool {
 
 	txmp := &TxMempool{
-		logger:              logger,
 		config:              cfg,
 		proxyAppConn:        proxyAppConn,
 		height:              -1,
@@ -315,7 +311,7 @@ func (txmp *TxMempool) CheckTx(
 		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
-			txmp.logger.Error("failed to get tx priority hint", "err", err)
+			logger.Error("failed to get tx priority hint", "err", err)
 			return err
 		}
 		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, nil)
@@ -699,7 +695,7 @@ func (txmp *TxMempool) Update(
 	// transactions are left.
 	if txmp.Size() > 0 {
 		if recheck {
-			txmp.logger.Debug(
+			logger.Debug(
 				"executing re-CheckTx for all remaining transactions",
 				"num_txs", txmp.Size(),
 				"height", blockHeight,
@@ -744,10 +740,10 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 
 	if err != nil || res.Code != abci.CodeTypeOK {
 		// ignore bad transactions
-		txmp.logger.Info(
+		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
-			"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+			"tx", wtx.tx.Key(),
 			"peer_id", txInfo.SenderNodeID,
 			"code", res.Code,
 			"post_check_err", err,
@@ -765,9 +761,9 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 
 	if len(sender) > 0 {
 		if wtx := txmp.txStore.GetTxBySender(sender); wtx != nil {
-			txmp.logger.Error(
+			logger.Error(
 				"rejected incoming good transaction; tx already exists for sender",
-				"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+				"tx", wtx.tx.Key(),
 				"sender", sender,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
@@ -786,10 +782,10 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			// No room for the new incoming transaction so we just remove it from
 			// the cache.
 			wtx.removeHandler(true)
-			txmp.logger.Error(
+			logger.Error(
 				"rejected incoming good transaction; mempool full",
-				"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
-				"err", err.Error(),
+				"tx", wtx.tx.Key(),
+				"err", err,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
 			return nil
@@ -802,11 +798,11 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		//   reCheckTx callback is being executed for the same transaction.
 		for _, toEvict := range evictTxs {
 			txmp.removeTx(toEvict, true, true, true)
-			txmp.logger.Debug(
+			logger.Debug(
 				"evicted existing good transaction; mempool full",
 				"old_tx", fmt.Sprintf("%X", toEvict.tx.Hash()),
 				"old_priority", toEvict.priority,
-				"new_tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+				"new_tx", wtx.tx.Key(),
 				"new_priority", wtx.priority,
 			)
 			txmp.metrics.EvictedTxs.Add(1)
@@ -826,10 +822,10 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 	}
 
 	if txmp.insertTx(wtx) {
-		txmp.logger.Debug(
+		logger.Debug(
 			"inserted good transaction",
 			"priority", wtx.priority,
-			"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+			"tx", wtx.tx.Key(),
 			"height", txmp.height,
 			"num_txs", txmp.NumTxsNotPending(),
 		)
@@ -864,7 +860,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// the one we received from the ABCI application.
 	for !bytes.Equal(tx, wtx.tx) {
 
-		txmp.logger.Debug(
+		logger.Debug(
 			"re-CheckTx transaction mismatch",
 			"got", wtx.tx.Hash(),
 			"expected", tx.Key(),
@@ -895,10 +891,10 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {
 			wtx.priority = res.Priority
 		} else {
-			txmp.logger.Debug(
+			logger.Debug(
 				"existing transaction no longer valid; failed re-CheckTx callback",
 				"priority", wtx.priority,
-				"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+				"tx", wtx.tx.Key(),
 				"err", err,
 				"code", res.Code,
 			)
@@ -919,7 +915,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	}
 
 	if txmp.recheckCursor == nil {
-		txmp.logger.Debug("finished rechecking transactions")
+		logger.Debug("finished rechecking transactions")
 
 		if txmp.NumTxsNotPending() > 0 {
 			txmp.notifyTxsAvailable()
@@ -942,7 +938,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 	if txmp.Size() == 0 {
 		panic("attempted to update re-CheckTx txs when mempool is empty")
 	}
-	txmp.logger.Debug(
+	logger.Debug(
 		"executing re-CheckTx for all remaining transactions",
 		"num_txs", txmp.Size(),
 		"height", txmp.height,
@@ -963,7 +959,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				txmp.logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", fmt.Sprintf("%x", wtx.tx.Hash()))
+				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.tx.Hash())
 				continue
 			}
 			txmp.handleRecheckResult(wtx.tx, res)
@@ -1069,7 +1065,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 			rtx := reenqueue.tx
 			go func() {
 				if err := txmp.CheckTx(context.Background(), rtx, nil, TxInfo{}); err != nil {
-					txmp.logger.Error(fmt.Sprintf("failed to reenqueue transaction %X due to %s", rtx.Hash(), err))
+					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
 				}
 			}()
 		}
@@ -1088,10 +1084,10 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 		return
 	}
 
-	txmp.logger.Info(
+	logger.Info(
 		"transaction expired",
 		"priority", wtx.priority,
-		"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+		"tx", wtx.tx.Key(),
 		"address", wtx.evmAddress,
 		"evm", wtx.isEVM,
 		"nonce", wtx.evmNonce,
@@ -1178,7 +1174,7 @@ func (txmp *TxMempool) handlePendingTransactions() {
 	for _, tx := range accepted {
 		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-tx.tx.Size()))
 		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
-			txmp.logger.Error(fmt.Sprintf("error adding pending transaction: %s", err))
+			logger.Error("error adding pending transaction", "err", err)
 		}
 	}
 	for _, tx := range rejected {

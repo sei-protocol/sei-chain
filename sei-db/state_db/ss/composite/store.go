@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -15,7 +15,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "ss", "composite")
 
 // Compile-time check.
 var _ types.StateStore = (*CompositeStateStore)(nil)
@@ -27,7 +30,6 @@ type CompositeStateStore struct {
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
 	config         config.StateStoreConfig
-	logger         logger.Logger
 	closeOnce      sync.Once
 	closeErr       error
 }
@@ -37,7 +39,6 @@ type CompositeStateStore struct {
 func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
-	log logger.Logger,
 ) (*CompositeStateStore, error) {
 	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
@@ -53,7 +54,6 @@ func NewCompositeStateStore(
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
-		logger:      log,
 	}
 
 	if ssConfig.EVMEnabled() {
@@ -62,17 +62,17 @@ func NewCompositeStateStore(
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
 		}
 
-		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig, log)
+		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig)
 		if err != nil {
 			_ = cs.cosmosStore.Close()
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		log.Info("EVM state store enabled", "dir", evmDir, "writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
+		logger.Info("EVM state store enabled", "dir", evmDir, "writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 
 	changelogPath := utils.GetChangelogPath(dbHome)
-	if err := RecoverCompositeStateStore(log, changelogPath, cs); err != nil {
+	if err := RecoverCompositeStateStore(changelogPath, cs); err != nil {
 		_ = cs.Close()
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
@@ -83,7 +83,7 @@ func NewCompositeStateStore(
 }
 
 func (s *CompositeStateStore) StartPruning() {
-	pm := pruning.NewPruningManager(s.logger, s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
+	pm := pruning.NewPruningManager(s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	s.pruningManager = pm
 }
@@ -148,12 +148,12 @@ func (s *CompositeStateStore) Close() error {
 		var lastErr error
 		if s.evmStore != nil {
 			if err := s.evmStore.Close(); err != nil {
-				s.logger.Error("failed to close EVM store", "error", err)
+				logger.Error("failed to close EVM store", "error", err)
 				lastErr = err
 			}
 		}
 		if err := s.cosmosStore.Close(); err != nil {
-			s.logger.Error("failed to close Cosmos store", "error", err)
+			logger.Error("failed to close Cosmos store", "error", err)
 			lastErr = err
 		}
 		s.closeErr = lastErr
@@ -171,7 +171,7 @@ func (s *CompositeStateStore) SetLatestVersion(version int64) error {
 	}
 	if s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite {
 		if err := s.evmStore.SetLatestVersion(version); err != nil {
-			s.logger.Error("failed to set EVM store latest version", "error", err)
+			logger.Error("failed to set EVM store latest version", "error", err)
 		}
 	}
 	return nil
@@ -183,7 +183,7 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	}
 	if s.evmStore != nil {
 		if err := s.evmStore.SetEarliestVersion(version, ignoreVersion); err != nil {
-			s.logger.Error("failed to set EVM store earliest version", "error", err)
+			logger.Error("failed to set EVM store earliest version", "error", err)
 		}
 	}
 	return nil
@@ -254,8 +254,22 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+	// Normalize evm_flatkv → evm so downstream routing and storage work
+	// correctly regardless of whether the snapshot was exported with the
+	// FlatKV module or only the legacy evm module.
+	normalized := make(chan types.SnapshotNode, cap(ch))
+	go func() {
+		defer close(normalized)
+		for node := range ch {
+			if node.StoreKey == commonevm.EVMFlatKVStoreKey {
+				node.StoreKey = evm.EVMStoreKey
+			}
+			normalized <- node
+		}
+	}()
+
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		return s.cosmosStore.Import(version, ch)
+		return s.cosmosStore.Import(version, normalized)
 	}
 
 	splitWrite := s.config.WriteMode == config.SplitWrite
@@ -278,7 +292,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		evmErr = s.evmStore.Import(version, evmCh)
 	}()
 
-	for node := range ch {
+	for node := range normalized {
 		isEVM := node.StoreKey == evm.EVMStoreKey
 		if !isEVM || !splitWrite {
 			cosmosCh <- node
@@ -300,7 +314,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 func (s *CompositeStateStore) Prune(version int64) error {
 	if s.evmStore != nil {
 		if err := s.evmStore.Prune(version); err != nil {
-			s.logger.Error("failed to prune EVM store", "error", err)
+			logger.Error("failed to prune EVM store", "error", err)
 		}
 	}
 	return s.cosmosStore.Prune(version)
@@ -311,7 +325,6 @@ func (s *CompositeStateStore) Prune(version int64) error {
 // =============================================================================
 
 func RecoverCompositeStateStore(
-	logger logger.Logger,
 	changelogPath string,
 	compositeStore *CompositeStateStore,
 ) error {
@@ -339,7 +352,7 @@ func RecoverCompositeStateStore(
 		"changelogPath", changelogPath,
 	)
 
-	return ReplayWAL(logger, changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
+	return ReplayWAL(changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
 		if compositeStore.cosmosStore != nil && entry.Version > cosmosVersion {
 			changesets := entry.Changesets
 			if splitWrite {
@@ -372,13 +385,12 @@ func RecoverCompositeStateStore(
 type WALEntryHandler func(entry proto.ChangelogEntry) error
 
 func ReplayWAL(
-	logger logger.Logger,
 	changelogPath string,
 	fromVersion int64,
 	toVersion int64,
 	handler WALEntryHandler,
 ) error {
-	streamHandler, err := wal.NewChangelogWAL(logger, changelogPath, wal.Config{})
+	streamHandler, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to open WAL at %s: %w", changelogPath, err)
 	}

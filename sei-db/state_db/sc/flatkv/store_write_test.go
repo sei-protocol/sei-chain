@@ -1,10 +1,13 @@
 package flatkv
 
 import (
+	"encoding/binary"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
@@ -56,7 +59,8 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	addr := Address{0x12, 0x34}
 	slot := Slot{0x56, 0x78}
 
-	// Create changesets for all three key types
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
 	pairs := []*iavl.KVPair{
 		// Storage key
 		{
@@ -73,10 +77,15 @@ func TestStoreWriteAllDBs(t *testing.T) {
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 			Value: []byte{0x60, 0x60, 0x60}, // some bytecode
 		},
+		// Legacy key (codeSize: 0x09 || addr)
+		{
+			Key:   legacyKey,
+			Value: []byte{0x00, 0x03},
+		},
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: pairs,
 		},
@@ -85,29 +94,19 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// Verify all three DBs have their LocalMeta updated to version 1
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion, "storageDB should be at version 1")
-	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion, "accountDB should be at version 1")
-	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion, "codeDB should be at version 1")
-
-	// Verify LocalMeta is persisted in each DB
-	storageMetaBytes, err := s.storageDB.Get(DBLocalMetaKey)
-	require.NoError(t, err)
-	storageMeta, err := UnmarshalLocalMeta(storageMetaBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), storageMeta.CommittedVersion)
-
-	accountMetaBytes, err := s.accountDB.Get(DBLocalMetaKey)
-	require.NoError(t, err)
-	accountMeta, err := UnmarshalLocalMeta(accountMetaBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), accountMeta.CommittedVersion)
-
-	codeMetaBytes, err := s.codeDB.Get(DBLocalMetaKey)
-	require.NoError(t, err)
-	codeMeta, err := UnmarshalLocalMeta(codeMetaBytes)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), codeMeta.CommittedVersion)
+	// Verify all 4 DBs have their LocalMeta updated to version 1 (persisted)
+	for name, db := range map[string]types.KeyValueDB{
+		"storageDB": s.storageDB,
+		"accountDB": s.accountDB,
+		"codeDB":    s.codeDB,
+		"legacyDB":  s.legacyDB,
+	} {
+		raw, err := db.Get(DBLocalMetaKey)
+		require.NoError(t, err, "%s LocalMeta read", name)
+		meta, err := UnmarshalLocalMeta(raw)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), meta.CommittedVersion, "%s persisted LocalMeta", name)
+	}
 
 	// Verify storage data was written
 	storageData, err := s.storageDB.Get(StorageKey(addr, slot))
@@ -125,6 +124,16 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	codeValue, found := s.Get(codeKey)
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
+
+	// Verify bytecode stored directly in codeDB (raw key = addr)
+	codeRaw, err := s.codeDB.Get(addr[:])
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeRaw)
+
+	// Verify legacy data persisted in legacyDB (full key preserved)
+	legacyVal, err := s.legacyDB.Get(legacyKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
 
 func TestStoreWriteEmptyCommit(t *testing.T) {
@@ -133,17 +142,13 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 
 	// Commit version 1 with no writes
 	emptyCS := &proto.NamedChangeSet{
-		Name:      "empty",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: nil},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
-	// All DBs should have LocalMeta at version 1
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 
 	// Commit version 2 with storage write only
 	addr := Address{0x99}
@@ -153,11 +158,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// All DBs should have LocalMeta at version 2, even though only storage had data
-	require.Equal(t, int64(2), s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, int64(2), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(2), s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, int64(2), s.localMeta[legacyDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 2)
 }
 
 func TestStoreWriteAccountAndCode(t *testing.T) {
@@ -189,7 +190,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: pairs,
 		},
@@ -198,10 +199,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// Verify LocalMeta is updated in all DBs for version consistency
-	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 
 	// Verify account data was written
 	nonceKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:])
@@ -256,7 +254,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	}
 
 	cs1 := &proto.NamedChangeSet{
-		Name:      "write",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -280,7 +278,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	}
 
 	cs2 := &proto.NamedChangeSet{
-		Name:      "delete",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: deletePairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
@@ -301,10 +299,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	_, found = s.Get(codeKeyDel)
 	require.False(t, found, "code should be deleted")
 
-	// LocalMeta should still be at version 2
-	require.Equal(t, int64(2), s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, int64(2), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(2), s.localMeta[codeDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 2)
 }
 
 func TestAccountValueStorage(t *testing.T) {
@@ -328,7 +323,7 @@ func TestAccountValueStorage(t *testing.T) {
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name:      "test",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 
@@ -426,18 +421,14 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 	}
 
 	cs := &proto.NamedChangeSet{
-		Name:      "test",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// All four DBs should have LocalMeta at version 1
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 
 	// Verify legacy data persisted
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
@@ -503,16 +494,13 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 
 	// Commit with no writes — all DBs including legacy should advance LocalMeta
 	emptyCS := &proto.NamedChangeSet{
-		Name:      "empty",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: nil},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 }
 
 // =============================================================================
@@ -522,8 +510,8 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, DefaultConfig())
-		_, err := store.LoadVersion(0)
+		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -534,10 +522,10 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		dir := t.TempDir()
-		store := NewCommitStore(dir, nil, Config{
+		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), Config{
 			Fsync: false,
 		})
-		_, err := store.LoadVersion(0)
+		_, err := store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -570,8 +558,8 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 		SnapshotInterval:   5,
 		SnapshotKeepRecent: 2,
 	}
-	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -594,8 +582,8 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 		SnapshotInterval:   10,
 		SnapshotKeepRecent: 2,
 	}
-	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -621,8 +609,8 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{SnapshotInterval: 0}
-	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -713,8 +701,8 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
 		dir := t.TempDir()
-		s := NewCommitStore(dir, nil, DefaultConfig())
-		_, err := s.LoadVersion(0)
+		s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+		_, err := s.LoadVersion(0, false)
 		require.NoError(t, err)
 
 		commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -765,7 +753,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 		0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20}
 
 	cs := &proto.NamedChangeSet{
-		Name: "test",
+		Name: "evm",
 		Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 10}},
@@ -800,7 +788,7 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 		{Key: key, Value: []byte{0x02}},
 	}
 	cs := &proto.NamedChangeSet{
-		Name:      "test",
+		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -837,8 +825,8 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 func TestStoreFsyncEnabled(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{Fsync: true}
-	s := NewCommitStore(dir, nil, cfg)
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -858,8 +846,8 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -878,8 +866,8 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 func TestWALRecordsChangesets(t *testing.T) {
 	dir := t.TempDir()
-	s := NewCommitStore(dir, nil, DefaultConfig())
-	_, err := s.LoadVersion(0)
+	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	_, err := s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -899,4 +887,411 @@ func TestWALRecordsChangesets(t *testing.T) {
 	require.Equal(t, []int64{1, 2, 3}, versions)
 
 	require.NoError(t, s.Close())
+}
+
+// =============================================================================
+// Delete Semantics — Asymmetric Account Read Behavior (W-P0-3)
+// =============================================================================
+
+func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0xDD}
+	ch := codeHashN(0x99)
+
+	cs := namedCS(
+		noncePair(addr, 42),
+		codeHashPair(addr, ch),
+		codePair(addr, []byte{0x60}),
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	delCS := namedCS(
+		nonceDeletePair(addr),
+		codeHashDeletePair(addr),
+		codeDeletePair(addr),
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	commitAndCheck(t, s)
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found, "nonce Get should return found=true after delete")
+	require.Equal(t, make([]byte, NonceLen), nonceVal, "nonce should be zero bytes")
+
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	chVal, found := s.Get(chKey)
+	require.False(t, found, "codehash Get should return found=false after delete")
+	require.Nil(t, chVal)
+
+	require.False(t, s.Has(chKey), "Has(codehash) should be false after delete")
+	require.True(t, s.Has(nonceKey), "Has(nonce) should be true after delete")
+
+	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	_, found = s.Get(codeKey)
+	require.False(t, found, "code should be physically deleted")
+
+	raw, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err, "accountDB entry should persist after account delete")
+	require.NotNil(t, raw)
+}
+
+// =============================================================================
+// Cross-ApplyChangeSets Ordering (W-P0-5)
+// =============================================================================
+
+func TestCrossApplyChangeSetsOrdering(t *testing.T) {
+	t.Run("write-then-delete", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := Address{0x01}
+		slot := Slot{0x01}
+
+		cs1 := namedCS(storagePair(addr, slot, []byte{0xAA}))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(storageDeletePair(addr, slot))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+		_, found := s.Get(key)
+		require.False(t, found, "write-then-delete: key should be gone")
+	})
+
+	t.Run("delete-then-write", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := Address{0x02}
+		slot := Slot{0x02}
+
+		cs0 := namedCS(storagePair(addr, slot, []byte{0x11}))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		commitAndCheck(t, s)
+
+		cs1 := namedCS(storageDeletePair(addr, slot))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(storagePair(addr, slot, []byte{0xBB}))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+		val, found := s.Get(key)
+		require.True(t, found, "delete-then-write: key should exist")
+		require.Equal(t, []byte{0xBB}, val)
+	})
+
+}
+
+// =============================================================================
+// Empty Commit WAL Payload Distinction (W-P0-6)
+// =============================================================================
+
+func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
+	sNil := setupTestStore(t)
+	defer sNil.Close()
+	require.NoError(t, sNil.ApplyChangeSets(nil))
+	commitAndCheck(t, sNil)
+
+	sEmpty := setupTestStore(t)
+	defer sEmpty.Close()
+	emptyCS := &proto.NamedChangeSet{
+		Name:      "evm",
+		Changeset: iavl.ChangeSet{Pairs: nil},
+	}
+	require.NoError(t, sEmpty.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	commitAndCheck(t, sEmpty)
+
+	nilFirst, _ := sNil.changelog.FirstOffset()
+	nilLast, _ := sNil.changelog.LastOffset()
+	var nilEntry proto.ChangelogEntry
+	err := sNil.changelog.Replay(nilFirst, nilLast, func(_ uint64, e proto.ChangelogEntry) error {
+		nilEntry = e
+		return nil
+	})
+	require.NoError(t, err)
+
+	emptyFirst, _ := sEmpty.changelog.FirstOffset()
+	emptyLast, _ := sEmpty.changelog.LastOffset()
+	var emptyEntry proto.ChangelogEntry
+	err = sEmpty.changelog.Replay(emptyFirst, emptyLast, func(_ uint64, e proto.ChangelogEntry) error {
+		emptyEntry = e
+		return nil
+	})
+	require.NoError(t, err)
+
+	require.Len(t, nilEntry.Changesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
+	require.Len(t, emptyEntry.Changesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
+}
+
+// =============================================================================
+// Sub-DB Entry Count (W-P0-10)
+// =============================================================================
+
+func TestSubDBEntryCount(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr1 := Address{0x01}
+	addr2 := Address{0x02}
+	slot1 := Slot{0x01}
+	slot2 := Slot{0x02}
+
+	cs := namedCS(
+		storagePair(addr1, slot1, []byte{0xAA}),
+		storagePair(addr2, slot2, []byte{0xBB}),
+		noncePair(addr1, 1),
+		codeHashPair(addr1, codeHashN(0x11)),
+		noncePair(addr2, 2),
+		codeHashPair(addr2, codeHashN(0x22)),
+		codePair(addr1, []byte{0x60}),
+		codePair(addr2, []byte{0x61}),
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "storageDB should have 2 entries")
+	require.Equal(t, 2, countLiveEntries(t, s.accountDB), "accountDB should have 2 entries")
+	require.Equal(t, 2, countLiveEntries(t, s.codeDB), "codeDB should have 2 entries")
+
+	cs2 := namedCS(storagePair(addr1, slot1, []byte{0xCC}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "overwrite should not increase count")
+
+	cs3 := namedCS(storageDeletePair(addr1, slot1))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	commitAndCheck(t, s)
+	require.Equal(t, 1, countLiveEntries(t, s.storageDB), "delete should decrease count")
+
+	cs4 := namedCS(nonceDeletePair(addr1))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs4}))
+	commitAndCheck(t, s)
+	require.Equal(t, 2, countLiveEntries(t, s.accountDB), "account delete should not decrease count")
+}
+
+// =============================================================================
+// ApplyChangeSets Input Validation Error Paths
+// =============================================================================
+
+func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x01}
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{
+				{
+					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+					Value: []byte{0x01, 0x02, 0x03}, // 3 bytes, expected 8
+				},
+			},
+		},
+	}
+	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid nonce value length")
+}
+
+func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x01}
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{
+				{
+					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
+					Value: []byte{0x01, 0x02}, // 2 bytes, expected 32
+				},
+			},
+		},
+	}
+	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid codehash value length")
+}
+
+// =============================================================================
+// Cross-ApplyChangeSets Account Field Ordering
+// =============================================================================
+
+func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
+	t.Run("nonce-write-then-delete", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := addrN(0x01)
+		cs1 := namedCS(noncePair(addr, 42))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(nonceDeletePair(addr))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+		val, found := s.Get(key)
+		require.True(t, found, "nonce delete zeroes but row persists")
+		require.Equal(t, make([]byte, NonceLen), val)
+	})
+
+	t.Run("nonce-delete-then-write", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := addrN(0x02)
+		cs0 := namedCS(noncePair(addr, 10))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		commitAndCheck(t, s)
+
+		cs1 := namedCS(nonceDeletePair(addr))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(noncePair(addr, 99))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+		val, found := s.Get(key)
+		require.True(t, found)
+		require.Equal(t, uint64(99), bytesToNonce(val))
+	})
+
+	t.Run("codehash-write-then-delete", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := addrN(0x03)
+		cs1 := namedCS(codeHashPair(addr, codeHashN(0xFF)))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(codeHashDeletePair(addr))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+		_, found := s.Get(key)
+		require.False(t, found, "codehash delete -> not found (asymmetric with nonce)")
+	})
+
+	t.Run("codehash-delete-then-write", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+
+		addr := addrN(0x04)
+		cs0 := namedCS(codeHashPair(addr, codeHashN(0xAA)))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		commitAndCheck(t, s)
+
+		cs1 := namedCS(codeHashDeletePair(addr))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+
+		cs2 := namedCS(codeHashPair(addr, codeHashN(0xBB)))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+		commitAndCheck(t, s)
+
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+		val, found := s.Get(key)
+		require.True(t, found, "codehash should be restored after delete-then-write")
+		expected := codeHashN(0xBB)
+		require.Equal(t, expected[:], val)
+	})
+}
+
+func bytesToNonce(b []byte) uint64 {
+	if len(b) != NonceLen {
+		return 0
+	}
+	return binary.BigEndian.Uint64(b)
+}
+
+// =============================================================================
+// AccountValue Encoding Transition (40 → 72 → 40 bytes)
+// =============================================================================
+
+func TestAccountValueEncodingTransition(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+
+	// Step 1: Write nonce only → EOA encoding (40 bytes)
+	cs1 := namedCS(noncePair(addr, 7))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	raw1, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueEOALen, len(raw1), "nonce-only should produce EOA encoding (40 bytes)")
+
+	// Step 2: Add codehash → contract encoding (72 bytes)
+	cs2 := namedCS(codeHashPair(addr, codeHashN(0xAB)))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	raw2, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueContractLen, len(raw2), "nonce+codehash should produce contract encoding (72 bytes)")
+
+	av2, err := DecodeAccountValue(raw2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), av2.Nonce, "nonce should be preserved after codehash write")
+	require.Equal(t, codeHashN(0xAB), av2.CodeHash)
+
+	// Step 3: Delete codehash → back to EOA encoding (40 bytes)
+	cs3 := namedCS(codeHashDeletePair(addr))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	commitAndCheck(t, s)
+
+	raw3, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err)
+	require.Equal(t, accountValueEOALen, len(raw3), "codehash delete should shrink back to EOA encoding (40 bytes)")
+
+	av3, err := DecodeAccountValue(raw3)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), av3.Nonce, "nonce should survive codehash deletion")
+	require.Equal(t, CodeHash{}, av3.CodeHash, "codehash should be zero after delete")
+}
+
+// =============================================================================
+// Write Test Helpers
+// =============================================================================
+
+func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
+	t.Helper()
+	iter, err := db.NewIter(&types.IterOptions{
+		LowerBound: metaKeyLowerBound(),
+	})
+	require.NoError(t, err)
+	defer iter.Close()
+
+	count := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		count++
+	}
+	require.NoError(t, iter.Error())
+	return count
+}
+
+func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
+	t.Helper()
+	require.Equal(t, ver, s.localMeta[storageDBDir].CommittedVersion)
+	require.Equal(t, ver, s.localMeta[accountDBDir].CommittedVersion)
+	require.Equal(t, ver, s.localMeta[codeDBDir].CommittedVersion)
+	require.Equal(t, ver, s.localMeta[legacyDBDir].CommittedVersion)
 }

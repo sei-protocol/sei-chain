@@ -1,6 +1,7 @@
 package wrappers
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -27,4 +28,10 @@ type DBWrapper interface {
 
 	// Importer return an importer which load snapshot data into the database
 	Importer(version int64) (types.Importer, error)
+
+	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
+	// integration with external phases of execution.
+	//
+	// If the underlying DB does not support phase timers, return nil.
+	GetPhaseTimer() *metrics.PhaseTimer
 }

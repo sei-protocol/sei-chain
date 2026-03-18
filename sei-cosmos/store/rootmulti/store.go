@@ -16,8 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
@@ -30,6 +30,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
+
+var logger = seilog.NewLogger("cosmos", "store", "rootmulti")
 
 const (
 	latestVersionKey = "s/latest"
@@ -46,7 +48,6 @@ const iavlDisablefastNodeDefault = true
 // the CommitMultiStore interface.
 type Store struct {
 	db                  dbm.DB
-	logger              log.Logger
 	archivalDb          dbm.DB
 	lastCommitInfo      *types.CommitInfo
 	lastCommitInfoMtx   sync.RWMutex
@@ -92,10 +93,9 @@ func keysForStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
 // store will be created with a PruneNothing pruning strategy by default. After
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
 // LoadVersion must be called.
-func NewStore(db dbm.DB, logger log.Logger) *Store {
+func NewStore(db dbm.DB) *Store {
 	return &Store{
 		db:                  db,
-		logger:              logger,
 		pruningOpts:         types.PruneNothing,
 		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
 		iavlDisableFastNode: iavlDisablefastNodeDefault,
@@ -106,8 +106,8 @@ func NewStore(db dbm.DB, logger log.Logger) *Store {
 	}
 }
 
-func NewStoreWithArchival(db, archivalDb dbm.DB, archivalVersion int64, logger log.Logger) *Store {
-	store := NewStore(db, logger)
+func NewStoreWithArchival(db, archivalDb dbm.DB, archivalVersion int64) *Store {
+	store := NewStore(db)
 	store.archivalDb = archivalDb
 	store.archivalVersion = archivalVersion
 	return store
@@ -790,7 +790,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		if err != nil {
 			return err
 		}
-		rs.logger.Info(fmt.Sprintf("Exporting snapshot for store %s", store.name))
+		logger.Info("Exporting snapshot for store", "store", store.name)
 		for {
 			node, err := exporter.Next()
 			if errors.Is(err, iavltree.ExportDone) {
@@ -830,8 +830,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			float32(totalValueBytes),
 			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
 		)
-		rs.logger.Info(fmt.Sprintf("Exported snapshot for store %s, with total number of keys %d, total key bytes %d, total value bytes %d",
-			store.name, totalNumKeys, totalKeyBytes, totalValueBytes))
+		logger.Info("Exported snapshot for store", "store",
+			store.name, "key-count", totalNumKeys, "key-bytes", totalKeyBytes, "value-bytes", totalValueBytes)
 		exporter.Close()
 	}
 
@@ -958,9 +958,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		var err error
 
 		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
+			store, err = iavl.LoadStore(db, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
 		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
+			store, err = iavl.LoadStoreWithInitialVersion(db, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
 		}
 
 		if err != nil {
@@ -1051,7 +1051,7 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
 	if cInfo != nil {
-		rs.logger.Info("App State Saved height=%d hash=%X\n", cInfo.CommitID().Version, cInfo.CommitID().Hash)
+		logger.Info("App State Saved", "height", cInfo.CommitID().Version, "hash", cInfo.CommitID().Hash)
 	}
 }
 

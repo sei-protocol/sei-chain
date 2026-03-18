@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -52,14 +51,12 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
 			// turn on Cancun for block test
 			evmtypes.CancunTime = 0
 			a := app.New(
-				logger,
 				db,
 				nil,
 				true,

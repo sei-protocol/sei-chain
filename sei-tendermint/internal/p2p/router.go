@@ -9,7 +9,6 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -20,6 +19,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// the maximum amount of addresses that can be included in a PEX batch.
+const MaxPexAddrs = 100
+
 type errBadNetwork struct{ error }
 
 type PeerManager = peerManager[*ConnV2]
@@ -29,7 +31,6 @@ type ConnSet = connSet[*ConnV2]
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
 	*service.BaseService
-	logger log.Logger
 
 	metrics *Metrics
 	lc      *metricsLabelCache
@@ -60,7 +61,6 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 
 // NewRouter creates a new Router.
 func NewRouter(
-	logger log.Logger,
 	metrics *Metrics,
 	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
@@ -82,7 +82,6 @@ func NewRouter(
 		}
 	}
 	router := &Router{
-		logger:           logger,
 		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
@@ -96,7 +95,7 @@ func NewRouter(
 	if gigaCfg, ok := options.Giga.Get(); ok {
 		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
 	}
-	router.BaseService = service.NewBaseService(logger, "router", router)
+	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
 }
 
@@ -144,7 +143,8 @@ func (r *Router) Addresses(id types.NodeID) []NodeAddress {
 }
 
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
-	return r.peerManager.Advertise(maxAddrs)
+	addrs := r.peerManager.Advertise()
+	return addrs[:min(len(addrs), maxAddrs)]
 }
 
 // OpenChannel opens a new channel for the given message type.
@@ -217,7 +217,20 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
+					var pexAddrs []NodeAddress
+					if r.options.PexOnHandshake {
+						pexAddrs = r.Advertise(MaxPexAddrs)
+					}
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, handshakeSpec{
+						SelfAddr: r.options.SelfAddress,
+						// Listener has to send pex data, so that dialer can learn about more peers in
+						// case listener does not have capacity for new connections.
+						// Dialer also could potentially send pex data, but there is no benefit from doing so:
+						// - if listener is full, then it won't use the new data and it won't gossip it further either, since only verified data is gossiped.
+						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
+						PexAddrs:          pexAddrs,
+						SeiGigaConnection: r.giga.IsPresent(),
+					})
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
@@ -234,9 +247,9 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
 					release()
-					return r.runConn(ctx, hConn.conn, info, utils.None[NodeAddress]())
+					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -265,17 +278,24 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								return fmt.Errorf("r.dial(): %w", err)
 							}
 							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-
 							var hConn *handshakedConn
 							var info types.NodeInfo
 							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
 								var err error
-								hConn, err = handshake(ctx, tcpConn, r.privKey, false)
+								hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
+									SelfAddr:          r.options.SelfAddress,
+									SeiGigaConnection: false,
+								})
 								if err != nil {
 									return fmt.Errorf("handshake(): %w", err)
 								}
 								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
 									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
+								}
+								if r.options.PexOnHandshake {
+									if err := r.AddAddrs(hConn.msg.PexAddrs); err != nil {
+										return fmt.Errorf("r.AddAddrs(): %w", err)
+									}
 								}
 								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 								if err != nil {
@@ -287,12 +307,12 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 								r.peerManager.DialFailed(addr)
 								return err
 							}
-							if err := r.runConn(ctx, hConn.conn, info, utils.Some(addr)); err != nil {
+							if err := r.runConn(ctx, hConn, info, utils.Some(addr)); err != nil {
 								return fmt.Errorf("r.runConn(): %w", err)
 							}
 							return nil
 						})
-						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
+						logger.Error("r.runConn(outbound)", "addr", addr, "err", err)
 						return nil
 					})
 				}
@@ -334,13 +354,13 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 			return err
 		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		r.peerManager.LogState(r.logger)
+		r.peerManager.LogState()
 	}
 }
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	r.logger.Error("evicting", "peer", id, "err", err)
+	logger.Error("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 
@@ -364,7 +384,7 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		defer cancel()
 	}
 
-	r.logger.Debug("dialing peer address", "peer", addr)
+	logger.Debug("dialing peer address", "peer", addr)
 	endpoints, err := addr.Resolve(resolveCtx)
 	if err != nil {
 		return tcp.Conn{}, fmt.Errorf("address.Resolve(): %w", err)
@@ -385,10 +405,10 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		}
 		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
 		if err != nil {
-			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
+			logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
+		logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return c, nil
 	}
 	return tcp.Conn{}, errors.New("all endpoints failed")

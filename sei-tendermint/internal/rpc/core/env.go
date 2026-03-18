@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/cors"
+	"github.com/sei-protocol/seilog"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -25,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -46,6 +46,8 @@ const (
 	// chunk in the genesis structure for the chunked API
 	genesisChunkSize = 16 * 1024 * 1024 // 16
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "rpc", "core")
 
 //----------------------------------------------
 // These interfaces are used by RPC and must be thread safe
@@ -94,8 +96,6 @@ type Environment struct {
 	EventLog          *eventlog.Log
 	Mempool           mempool.Mempool
 	StateSyncMetricer statesync.Metricer
-
-	Logger log.Logger
 
 	Config config.RPCConfig
 
@@ -265,11 +265,11 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		}
 		go func() {
 			// N.B. Use background for unsubscribe, ctx is already terminated.
-			defer env.EventBus.UnsubscribeAll(context.Background(), subscriberID) // nolint:errcheck
+			defer func() { _ = env.EventBus.UnsubscribeAll(context.Background(), subscriberID) }()
 			for {
 				msg, err := sub.Next(ctx)
 				if err != nil {
-					env.Logger.Error("Subscription terminated", "err", err)
+					logger.Error("Subscription terminated", "err", err)
 					return
 				}
 				etype, ok := eventlog.FindType(msg.Events())
@@ -279,27 +279,25 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			}
 		}()
 
-		env.Logger.Info("Event log subscription enabled")
+		logger.Info("Event log subscription enabled")
 	}
 
 	// We may expose the RPC over both TCP and a Unix-domain socket.
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
 		mux := http.NewServeMux()
-		rpcLogger := env.Logger.With("module", "rpc-server")
-		rpcserver.RegisterRPCFuncs(mux, routes, rpcLogger)
+		rpcserver.RegisterRPCFuncs(mux, routes)
 
 		if conf.RPC.ExperimentalDisableWebsocket {
-			rpcLogger.Info("Disabling websocket endpoints (experimental-disable-websocket=true)")
+			logger.Info("Disabling websocket endpoints (experimental-disable-websocket=true)", "module", "rpc-server")
 		} else {
-			rpcLogger.Info("WARNING: Websocket RPC access is deprecated and will be removed " +
-				"in Tendermint v0.37. See https://tinyurl.com/adr075 for more information.")
-			wmLogger := rpcLogger.With("protocol", "websocket")
-			wm := rpcserver.NewWebsocketManager(wmLogger, routes,
+			logger.Info("WARNING: Websocket RPC access is deprecated and will be removed "+
+				"in Tendermint v0.37. See https://tinyurl.com/adr075 for more information.", "module", "rpc-server")
+			wm := rpcserver.NewWebsocketManager(routes,
 				rpcserver.OnDisconnect(func(remoteAddr string) {
 					err := env.EventBus.UnsubscribeAll(context.Background(), remoteAddr)
 					if err != nil && err != tmpubsub.ErrSubscriptionNotFound {
-						wmLogger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "err", err)
+						logger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "protocol", "websocket", "err", err)
 					}
 				}),
 				rpcserver.ReadLimit(cfg.MaxBodyBytes),
@@ -332,10 +330,9 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 					rootHandler,
 					conf.RPC.CertFile(),
 					conf.RPC.KeyFile(),
-					rpcLogger,
 					cfg,
 				); err != nil {
-					env.Logger.Error("error serving server with TLS", "err", err)
+					logger.Error("error serving server with TLS", "err", err)
 				}
 			}()
 		} else {
@@ -344,10 +341,9 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 					ctx,
 					listener,
 					rootHandler,
-					rpcLogger,
 					cfg,
 				); err != nil {
-					env.Logger.Error("error serving server", "err", err)
+					logger.Error("error serving server", "err", err)
 				}
 			}()
 		}

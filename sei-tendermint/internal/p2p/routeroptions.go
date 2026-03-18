@@ -38,6 +38,16 @@ type RouterOptions struct {
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
 	SelfAddress utils.Option[NodeAddress]
 
+	// Whether node should participate in peer exchange during handshake.
+	// TODO(gprusak): the real intent behind disabling pex (on handshake and in general),
+	// is to prevent node from connecting to random peers.
+	// We should deprecate the "pex" flag in favor of setting "MaxConnected" to 0.
+	// TODO(gprusak): currently PEX is a separate reactor, while it should rather be
+	// a property of the router. To fix that, the whole pex package would have to be merged
+	// into p2p package (kinda ugly), or we would have to break the p2p package
+	// (it is getting large anyway) but thats a major refactor.
+	PexOnHandshake bool
+
 	// Whether sei giga connections should be established.
 	Giga utils.Option[*GigaRouterConfig]
 

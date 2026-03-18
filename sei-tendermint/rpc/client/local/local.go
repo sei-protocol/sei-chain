@@ -11,11 +11,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "rpc", "client", "local")
 
 /*
 Local is a Client implementation that directly executes the rpc
@@ -39,8 +41,7 @@ backoff (10ms -> 20ms -> 40ms) until successful.
 */
 type Local struct {
 	*eventbus.EventBus
-	Logger log.Logger
-	env    *rpccore.Environment
+	env *rpccore.Environment
 }
 
 // NodeService describes the portion of the node interface that the
@@ -51,14 +52,13 @@ type NodeService interface {
 }
 
 // New configures a client that calls the Node directly.
-func New(logger log.Logger, node NodeService) (*Local, error) {
+func New(node NodeService) (*Local, error) {
 	env := node.RPCEnvironment()
 	if env == nil {
 		return nil, errors.New("rpc is nil")
 	}
 	return &Local{
 		EventBus: node.EventBus(),
-		Logger:   logger,
 		env:      env,
 	}, nil
 }
@@ -257,8 +257,7 @@ func (c *Local) eventsRoutine(ctx context.Context, sub eventbus.Subscription, su
 		if errors.Is(err, pubsub.ErrUnsubscribed) {
 			return // client unsubscribed
 		} else if err != nil {
-			c.Logger.Error("subscription was canceled, resubscribing",
-				"err", err, "query", subArgs.Query.String())
+			logger.Error("subscription was canceled, resubscribing", "query", subArgs.Query, "err", err)
 			sub = c.resubscribe(ctx, subArgs)
 			if sub == nil {
 				return // client terminated

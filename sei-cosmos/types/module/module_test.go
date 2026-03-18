@@ -256,5 +256,5 @@ func TestManager_MidBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
 	mockAppModule2.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
-	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), height)
+	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false), height)
 }

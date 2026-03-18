@@ -9,7 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (
@@ -78,9 +77,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 	ctx := t.Context()
 
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	key := testKey
 	value := key
 	tx := []byte(key)
@@ -94,9 +92,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 func TestPersistentKVStoreInfo(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	if err := InitKVStore(ctx, kvstore); err != nil {
 		t.Fatal(err)
 	}

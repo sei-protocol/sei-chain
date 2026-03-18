@@ -32,7 +32,6 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -65,7 +64,7 @@ var DefaultConsensusParams = &tmproto.ConsensusParams{
 func setup(withGenesis bool, invCheckPeriod uint) (*SimApp, GenesisState) {
 	db := dbm.NewMemDB()
 	encCdc := MakeTestEncodingConfig()
-	app := NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, DefaultNodeHome, invCheckPeriod, nil, encCdc, EmptyAppOptions{})
+	app := NewSimApp(db, nil, true, map[int64]bool{}, DefaultNodeHome, invCheckPeriod, nil, encCdc, EmptyAppOptions{})
 	if withGenesis {
 		return app, NewDefaultGenesisState(encCdc.Marshaler)
 	}

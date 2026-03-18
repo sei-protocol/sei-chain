@@ -10,7 +10,6 @@ import (
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -40,6 +39,6 @@ type TestingApp interface {
 func SetupTestingApp() (TestingApp, map[string]json.RawMessage) {
 	db := dbm.NewMemDB()
 	encCdc := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, encCdc, simapp.EmptyAppOptions{})
+	app := simapp.NewSimApp(db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, encCdc, simapp.EmptyAppOptions{})
 	return app, simapp.NewDefaultGenesisState(encCdc.Marshaler)
 }

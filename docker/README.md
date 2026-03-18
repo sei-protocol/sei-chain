@@ -28,7 +28,7 @@ make build-docker-node && make run-local-node
 
 **To start 4 node cluster**
 
-This will start a 4 node sei chain cluster as well as having the oracle price feeder run for each node.
+This will start a 4 node sei chain cluster.
 ```sh
 # If this is the first time or you want to rebuild the binary:
 make docker-cluster-start
@@ -50,6 +50,22 @@ tail -f build/generated/logs/seid-0.log
 docker ps -a
 # SSH into a running container
 docker exec -it [container_name] /bin/bash
+```
+
+## Prometheus / Grafana (monitornode)
+
+To run local Prometheus and Grafana containers for metrics visualization:
+
+```sh
+./docker/monitornode/scripts/start-prometheus.sh
+./docker/monitornode/scripts/start-grafana.sh
+```
+
+Grafana UI: http://localhost:3000 (login: admin / admin). To stop:
+
+```sh
+./docker/monitornode/scripts/stop-prometheus.sh
+./docker/monitornode/scripts/stop-grafana.sh
 ```
 
 ## State Sync RPC Node

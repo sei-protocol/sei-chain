@@ -33,6 +33,13 @@ func (si *SnapshotImporter) Close() error {
 }
 
 func (si *SnapshotImporter) AddModule(name string) error {
+	si.currentModule = name
+	if name == EVMFlatKVStoreName {
+		if si.evmImporter != nil {
+			return si.evmImporter.AddModule(name)
+		}
+		return nil
+	}
 	if si.cosmosImporter != nil {
 		return si.cosmosImporter.AddModule(name)
 	}
@@ -40,10 +47,13 @@ func (si *SnapshotImporter) AddModule(name string) error {
 }
 
 func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {
+	if si.currentModule == EVMFlatKVStoreName {
+		if si.evmImporter != nil {
+			si.evmImporter.AddNode(node)
+		}
+		return
+	}
 	if si.cosmosImporter != nil {
 		si.cosmosImporter.AddNode(node)
-	}
-	if si.evmImporter != nil && si.currentModule == "evm" && node.Height == 0 {
-		si.evmImporter.AddNode(node)
 	}
 }

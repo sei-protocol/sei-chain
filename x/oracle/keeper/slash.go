@@ -6,7 +6,10 @@ import (
 	cosmostelemetry "github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("x", "oracle", "keeper")
 
 // SlashAndResetCounters do slash any operator who over criteria & clear all operators miss counter to zero
 func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
@@ -23,7 +26,7 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 		// as opposed to the one expected based on the number of vote period expected based on the ending slash window or vote period
 		totalVotes := votePenaltyCounter.SuccessCount + votePenaltyCounter.AbstainCount + votePenaltyCounter.MissCount
 		if totalVotes == 0 {
-			ctx.Logger().Error("zero votes in penalty counter, this should never happen")
+			logger.Error("zero votes in penalty counter, this should never happen")
 			return false
 		}
 		validVoteRate := sdk.NewDecFromInt(

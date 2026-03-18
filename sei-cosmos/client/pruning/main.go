@@ -3,7 +3,6 @@ package pruning
 import (
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -15,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -63,8 +61,7 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 				return err
 			}
 
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
-			app := appCreator(logger, db, nil, nil, vp)
+			app := appCreator(db, nil, nil, vp)
 			cms := app.CommitMultiStore()
 
 			rootMultiStore, ok := cms.(*rootmulti.Store)

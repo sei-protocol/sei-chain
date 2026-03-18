@@ -203,7 +203,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
 				// If we can't calculate the ratio, use 0.0 as fallback
-				sdkCtx.Logger().Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
+				logger.Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
 			} else {
 				gasUsedRatio = calculatedRatio
@@ -292,7 +292,8 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		// okay to get from latest since receipt is immutable
 		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
-			return nil, err
+			// tx doesn't have a receipt because of nonce mismatch
+			continue
 		}
 		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
 		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {

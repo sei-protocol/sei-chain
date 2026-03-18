@@ -16,11 +16,13 @@ import (
 	"unsafe"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/sys/unix"
 	"golang.org/x/time/rate"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "sc", "memiavl")
 
 const (
 	// SnapshotFileMagic is little endian encoded b"IAVL"
@@ -133,8 +135,7 @@ type Snapshot struct {
 	leavesLayout Leaves
 
 	// nil means empty snapshot
-	root   *PersistedNode
-	logger logger.Logger
+	root *PersistedNode
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
@@ -227,7 +228,6 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	}
 
 	snapshot := &Snapshot{
-		logger: opts.Logger,
 
 		nodesMap:  nodesMap,
 		leavesMap: leavesMap,
@@ -468,7 +468,7 @@ func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir strin
 	// Use 128MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
-	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, limiter, t.logger, func(w *snapshotWriter) (uint32, error) {
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, limiter, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
 		}
@@ -494,7 +494,6 @@ func writeSnapshotWithBuffer(
 	bufSize int,
 	totalNodes int64,
 	limiter *rate.Limiter,
-	log logger.Logger,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
@@ -552,7 +551,7 @@ func writeSnapshotWithBuffer(
 	leavesWriter := bufio.NewWriterSize(leavesRateLimited, bufSize)
 	kvsWriter := bufio.NewWriterSize(kvsRateLimited, bufSize)
 
-	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter, log)
+	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter)
 	w.treeName = filepath.Base(dir) // Set tree name for progress reporting
 	w.totalNodes = totalNodes       // Set total nodes for progress percentage
 	w.traversalStartTime = time.Now()
@@ -625,7 +624,7 @@ func writeSnapshot(
 	doWrite func(*snapshotWriter) (uint32, error),
 ) error {
 	// Use nop logger and no rate limit for backward compatibility
-	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, nil, logger.NewNopLogger(), doWrite)
+	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, nil, doWrite)
 }
 
 // kvWriteOp represents a key-value write operation
@@ -671,7 +670,6 @@ type snapshotWriter struct {
 	traversalStartTime     time.Time
 	lastProgressReport     time.Time
 	progressReportInterval time.Duration
-	logger                 logger.Logger
 
 	// Pipeline for async writes - separate channels for each file
 	kvChan     chan kvWriteOp
@@ -694,7 +692,7 @@ func SetPipelineBufferSize(size int) {
 	nodeChanSize = max(100, min(size, 100000))
 }
 
-func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer, log logger.Logger) *snapshotWriter {
+func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer) *snapshotWriter {
 	// Create a cancelable context so we can stop producers on error
 	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now()
@@ -715,7 +713,6 @@ func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter
 		kvWriter:               kvsWriter,
 		lastProgressReport:     now,
 		progressReportInterval: 30 * time.Second,
-		logger:                 log,
 		kvChan:                 kvChan,
 		leafChan:               leafChan,
 		branchChan:             branchChan,
@@ -771,14 +768,12 @@ func (w *snapshotWriter) branchWriterLoop() {
 // fail records an error and cancels the context to stop producers
 func (w *snapshotWriter) fail(err error) {
 	// Log the error immediately for debugging
-	if w.logger != nil {
-		w.logger.Error("snapshot writer failed, canceling operation",
-			"tree", w.treeName,
-			"error", err.Error(),
-			"branches_written", w.branchCounter,
-			"leaves_written", w.leafCounter,
-		)
-	}
+	logger.Error("snapshot writer failed, canceling operation",
+		"tree", w.treeName,
+		"error", err.Error(),
+		"branches_written", w.branchCounter,
+		"leaves_written", w.leafCounter,
+	)
 
 	select {
 	case w.writeErrors <- err:
@@ -795,13 +790,11 @@ func (w *snapshotWriter) waitForWrites() error {
 	close(w.leafChan)
 	close(w.branchChan)
 
-	if w.logger != nil {
-		w.logger.Info("waiting for async writers to complete",
-			"tree", w.treeName,
-			"branches_queued", w.branchCounter,
-			"leaves_queued", w.leafCounter,
-		)
-	}
+	logger.Info("waiting for async writers to complete",
+		"tree", w.treeName,
+		"branches_queued", w.branchCounter,
+		"leaves_queued", w.leafCounter,
+	)
 
 	// Wait for all writer goroutines to finish
 	w.wg.Wait()
@@ -809,21 +802,17 @@ func (w *snapshotWriter) waitForWrites() error {
 	// Check for any errors
 	select {
 	case err := <-w.writeErrors:
-		if w.logger != nil {
-			w.logger.Error("async writer reported error after completion",
-				"tree", w.treeName,
-				"error", err.Error(),
-			)
-		}
+		logger.Error("async writer reported error after completion",
+			"tree", w.treeName,
+			"error", err.Error(),
+		)
 		return err
 	default:
-		if w.logger != nil {
-			w.logger.Info("all async writers completed successfully",
-				"tree", w.treeName,
-				"total_branches", w.branchCounter,
-				"total_leaves", w.leafCounter,
-			)
-		}
+		logger.Info("all async writers completed successfully",
+			"tree", w.treeName,
+			"total_branches", w.branchCounter,
+			"total_leaves", w.leafCounter,
+		)
 		return nil
 	}
 }
@@ -1018,30 +1007,30 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	if !needsPreload {
 		return
 	}
-	log := snapshot.logger
 
 	// If most pages are already in page cache, skip prefetch
 	residentNodes, errNodes := residentRatio(snapshot.nodes)
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			log.Info(fmt.Sprintf("Skipped prefetching for tree %s (nodes: %.2f%%, leaves: %.2f%%, threshold: %.2f%%)",
-				treeName, residentNodes*100, residentLeaves*100, prefetchThreshold*100))
+			logger.Info("skipped prefetching for tree",
+				"tree", treeName, "nodes-pct", residentNodes*100, "leaves-pct", residentLeaves*100, "threshold-pct", prefetchThreshold*100)
 			return
 		}
 	}
 
 	if residentNodes < prefetchThreshold {
-		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f", treeName, residentNodes, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameNodes))
+		logger.Info("tree nodes page cache residency below threshold", "tree", treeName, "resident-ratio", residentNodes, "threshold", prefetchThreshold)
+		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
 	}
 
 	if residentLeaves < prefetchThreshold {
-		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f", treeName, residentLeaves, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(log, filepath.Join(snapshotDir, FileNameLeaves))
+		logger.Info("tree leaves page cache residency below threshold", "tree", treeName, "resident-ratio", residentLeaves, "threshold", prefetchThreshold)
+		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
-	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.", treeName, time.Since(startTime).Seconds()))
+	logger.Info("prefetch snapshot completed; consider adding more RAM for page cache to avoid preloading during restart",
+		"tree", treeName, "elapsed-sec", time.Since(startTime).Seconds())
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name
@@ -1060,7 +1049,7 @@ func shouldPreloadTree(treeName string) bool {
 	return activeTrees[treeName]
 }
 
-func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
+func SequentialReadAndFillPageCache(filePath string) error {
 	filePath = filepath.Clean(filePath)
 	startTime := time.Now()
 	f, err := os.Open(filePath)
@@ -1078,18 +1067,18 @@ func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
 
 	totalSize := fileInfo.Size()
 	if totalSize == 0 {
-		log.Debug("skipping empty file for prefetch", "path", filePath)
+		logger.Debug("skipping empty file for prefetch", "path", filePath)
 		return nil
 	}
 
 	sizeMiB := float64(totalSize) / (1024 * 1024)
-	log.Debug("starting to prefetch file", "path", filePath, "size_mib", sizeMiB)
+	logger.Debug("starting to prefetch file", "path", filePath, "size_mib", sizeMiB)
 
 	reportDone := make(chan struct{})
 	var totalRead int64
 	defer close(reportDone) // Stop progress reporter before returning
 
-	startPrefetchProgressReporter(log, filePath, totalSize, &totalRead, startTime, reportDone)
+	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
 
 	concurrency := runtime.NumCPU()
 	var wg sync.WaitGroup
@@ -1120,7 +1109,7 @@ func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
 	elapsed := time.Since(startTime).Seconds()
 	completedSizeMiB := float64(totalSize) / (1024 * 1024)
 	avgSpeedMiBps := float64(totalSize) / elapsed / (1024 * 1024)
-	log.Debug("completed prefetching file",
+	logger.Debug("completed prefetching file",
 		"path", filePath,
 		"size_mib", completedSizeMiB,
 		"elapsed_sec", elapsed,
@@ -1129,7 +1118,7 @@ func SequentialReadAndFillPageCache(log logger.Logger, filePath string) error {
 }
 
 // startPrefetchProgressReporter periodically logs progress until done is closed.
-func startPrefetchProgressReporter(log logger.Logger, filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
+func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -1148,7 +1137,7 @@ func startPrefetchProgressReporter(log logger.Logger, filePath string, totalSize
 				speedMiBps := float64(tr) / elapsed / (1024 * 1024)
 				progressPct := float64(tr) * 100 / float64(totalSize)
 				remaining := float64(totalSize-tr) / (speedMiBps * 1024 * 1024)
-				log.Debug("prefetching file progress",
+				logger.Debug("prefetching file progress",
 					"path", filePath,
 					"read_mib", readMiB,
 					"total_mib", totalMiB,

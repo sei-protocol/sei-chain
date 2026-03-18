@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmservice "github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/stretchr/testify/require"
@@ -262,13 +261,6 @@ func New(t *testing.T, cfg Config) *Network {
 				appCfg.GRPCWeb.Enable = true
 			}
 		}
-
-		logger := log.NewNopLogger()
-		if cfg.EnableLogging {
-			logger = log.NewTestingLogger(t)
-		}
-
-		ctx.Logger = logger
 
 		nodeDirName := fmt.Sprintf("node%d", i)
 		nodeDir := filepath.Join(network.BaseDir, nodeDirName, "simd")

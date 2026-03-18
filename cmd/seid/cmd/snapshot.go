@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -57,9 +56,6 @@ func SnapshotCmd() *cobra.Command {
 				panic(err)
 			}
 
-			// Create logger
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
-
 			// Get app options from server context
 			appOpts := serverCtx.Viper
 
@@ -68,7 +64,6 @@ func SnapshotCmd() *cobra.Command {
 
 			// Initialize app with correct options
 			app := app.New(
-				logger,
 				dbm.NewMemDB(),
 				nil,
 				true,

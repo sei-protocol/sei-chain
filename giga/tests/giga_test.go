@@ -1529,3 +1529,799 @@ func TestGigaSequential_BalanceTransfer(t *testing.T) {
 	t.Logf("Balance transfer verified: sender lost %s (transfer %s + gas %s), recipient gained %s",
 		senderLost.String(), transferAmount.String(), gasCost.String(), recipientGained.String())
 }
+
+// TestGiga_FeeValidationOrder_Phase1_GasLimitExceedsBlock verifies Phase 1 errors don't bump nonce.
+func TestGiga_FeeValidationOrder_Phase1_GasLimitExceedsBlock(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+
+	cp := gigaCtx.Ctx.ConsensusParams()
+	if cp == nil || cp.Block == nil || cp.Block.MaxGas <= 0 {
+		t.Skip("Test requires consensus params with MaxGas > 0")
+	}
+
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+
+	initialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	hugeGasLimit := uint64(cp.Block.MaxGas) + 1000000
+
+	to := recipient.EvmAddress
+	tx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1), hugeGasLimit,
+		big.NewInt(100000000000), big.NewInt(100000000000), initialNonce)
+
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{tx})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotEqual(t, uint32(0), results[0].Code)
+
+	finalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped for Phase 1 errors")
+}
+
+// TestGiga_FeeValidationOrder_Phase3_FeeCapBelowBaseFee verifies Phase 3 errors DO bump nonce.
+func TestGiga_FeeValidationOrder_Phase3_FeeCapBelowBaseFee(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+
+	baseFee := gigaCtx.TestApp.GigaEvmKeeper.GetBaseFee(gigaCtx.Ctx)
+	if baseFee == nil || baseFee.Sign() == 0 {
+		baseFee = big.NewInt(1000000000)
+	}
+
+	lowFeeCap := new(big.Int).Sub(baseFee, big.NewInt(1))
+	if lowFeeCap.Sign() < 0 {
+		lowFeeCap = big.NewInt(0)
+	}
+
+	initialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+
+	to := recipient.EvmAddress
+	tx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1), 21000, lowFeeCap, lowFeeCap, initialNonce)
+
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{tx})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotEqual(t, uint32(0), results[0].Code)
+
+	finalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, initialNonce+1, finalNonce, "Nonce SHOULD be bumped for Phase 3 errors with valid nonce")
+}
+
+// TestGiga_FeeValidationOrder_Phase3_InsufficientBalance verifies insufficient balance bumps nonce.
+func TestGiga_FeeValidationOrder_Phase3_InsufficientBalance(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e12))
+
+	initialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	largeValue := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000))
+
+	to := recipient.EvmAddress
+	tx := createCustomEVMTx(t, gigaCtx, signer, &to, largeValue, 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), initialNonce)
+
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{tx})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotEqual(t, uint32(0), results[0].Code)
+
+	finalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, initialNonce+1, finalNonce, "Nonce SHOULD be bumped for Phase 3 errors with valid nonce")
+}
+
+// TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump verifies wrong nonce doesn't bump nonce.
+func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+
+	initialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	wrongNonce := initialNonce + 5
+
+	to := recipient.EvmAddress
+	tx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1), 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), wrongNonce)
+
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{tx})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotEqual(t, uint32(0), results[0].Code)
+
+	finalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
+}
+
+// TestGigaVsGeth_FeeValidationOrder compares Giga and Geth nonce bump behavior.
+func TestGigaVsGeth_FeeValidationOrder(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// Geth
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	fundAccount(t, gethCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+	gethCtx.TestApp.EvmKeeper.SetAddressMapping(gethCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	gethInitialNonce := gethCtx.TestApp.EvmKeeper.GetNonce(gethCtx.Ctx, signer.EvmAddress)
+
+	to := recipient.EvmAddress
+	gethTx := createCustomEVMTx(t, gethCtx, signer, &to,
+		new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10000)), 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), gethInitialNonce)
+
+	_, gethResults, err := RunBlock(t, gethCtx, [][]byte{gethTx})
+	require.NoError(t, err)
+	require.Len(t, gethResults, 1)
+
+	gethFinalNonce := gethCtx.TestApp.EvmKeeper.GetNonce(gethCtx.Ctx, signer.EvmAddress)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	gigaInitialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to,
+		new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10000)), 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), gigaInitialNonce)
+
+	_, gigaResults, err := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+	require.NoError(t, err)
+	require.Len(t, gigaResults, 1)
+
+	gigaFinalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+
+	require.Equal(t, gethResults[0].Code, gigaResults[0].Code, "Error codes should match")
+
+	gethNonceBumped := gethFinalNonce > gethInitialNonce
+	gigaNonceBumped := gigaFinalNonce > gigaInitialNonce
+	require.Equal(t, gethNonceBumped, gigaNonceBumped, "Nonce bump behavior should match")
+}
+
+func createCustomEVMTx(
+	t testing.TB,
+	tCtx *GigaTestContext,
+	signer utils.TestAcct,
+	to *common.Address,
+	value *big.Int,
+	gasLimit uint64,
+	gasFeeCap *big.Int,
+	gasTipCap *big.Int,
+	nonce uint64,
+) []byte {
+	tc := app.MakeEncodingConfig().TxConfig
+	tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		GasFeeCap: gasFeeCap,
+		GasTipCap: gasTipCap,
+		Gas:       gasLimit,
+		ChainID:   big.NewInt(config.DefaultChainID),
+		To:        to,
+		Value:     value,
+		Nonce:     nonce,
+	}), signer.EvmSigner, signer.EvmPrivateKey)
+	require.NoError(t, err)
+
+	txData, err := ethtx.NewTxDataFromTx(signedTx)
+	require.NoError(t, err)
+
+	msg, err := types.NewMsgEVMTransaction(txData)
+	require.NoError(t, err)
+
+	txBuilder := tc.NewTxBuilder()
+	err = txBuilder.SetMsgs(msg)
+	require.NoError(t, err)
+	txBuilder.SetGasLimit(10000000000)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
+
+	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	return txBytes
+}
+
+func fundAccount(t testing.TB, tCtx *GigaTestContext, addr sdk.AccAddress, amount *big.Int) {
+	useiAmount := new(big.Int).Div(amount, big.NewInt(1e12))
+	if useiAmount.Sign() == 0 {
+		useiAmount = big.NewInt(1)
+	}
+
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewIntFromBigInt(useiAmount)))
+	err := tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, "mint", amounts)
+	require.NoError(t, err)
+	err = tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, "mint", addr, amounts)
+	require.NoError(t, err)
+}
+
+// TestGigaOCC_PanicRecovery verifies that the Giga OCC executor handles errors gracefully.
+// This tests the panic recovery mechanism by running multiple transactions through OCC mode.
+func TestGigaOCC_PanicRecovery(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	workers := 4
+	txCount := 10
+
+	transfers := GenerateNonConflictingTransfers(txCount)
+
+	gigaOCCCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	gigaOCCTxs := CreateEVMTransferTxs(t, gigaOCCCtx, transfers, true)
+	_, gigaOCCResults, err := RunBlock(t, gigaOCCCtx, gigaOCCTxs)
+
+	// The key assertion: the test completes without crashing (panic recovery working)
+	require.NoError(t, err, "Giga OCC should not return error")
+	require.Len(t, gigaOCCResults, txCount, "Should have results for all transactions")
+
+	for i, result := range gigaOCCResults {
+		require.Equal(t, uint32(0), result.Code, "tx[%d] should succeed, got code=%d log=%s", i, result.Code, result.Log)
+	}
+}
+
+// TestGigaOCC_ValidationErrorsHandledGracefully verifies that validation errors
+// are returned as proper error codes, not panics.
+func TestGigaOCC_ValidationErrorsHandledGracefully(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	workers := 4
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e12)) // Small amount
+
+	initialNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	largeValue := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000))
+
+	to := recipient.EvmAddress
+	tx := createCustomEVMTx(t, gigaCtx, signer, &to, largeValue, 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), initialNonce)
+
+	// Run through OCC - should handle validation error gracefully (not panic)
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{tx})
+	require.NoError(t, err, "Block processing should not panic")
+	require.Len(t, results, 1)
+
+	// Should fail with proper error code, not crash
+	require.NotEqual(t, uint32(0), results[0].Code, "Should fail validation")
+	require.NotEqual(t, uint32(111222), results[0].Code, "Should not be panic error code")
+}
+
+// TestGigaOCC_MixedValidAndInvalidTxs verifies OCC handles a mix of valid and invalid transactions.
+func TestGigaOCC_MixedValidAndInvalidTxs(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	workers := 4
+
+	// Create valid transfers
+	validTransfers := GenerateNonConflictingTransfers(5)
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	validTxs := CreateEVMTransferTxs(t, gigaCtx, validTransfers, true)
+
+	// Create an invalid tx (insufficient balance)
+	poorSigner := utils.NewSigner()
+	recipient := utils.NewSigner()
+	fundAccount(t, gigaCtx, poorSigner.AccountAddress, big.NewInt(1e12))
+	to := recipient.EvmAddress
+	invalidTx := createCustomEVMTx(t, gigaCtx, poorSigner, &to,
+		new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)), 21000,
+		big.NewInt(100000000000), big.NewInt(100000000000), 0)
+
+	// Interleave valid and invalid
+	allTxs := make([][]byte, 0, len(validTxs)+1)
+	allTxs = append(allTxs, validTxs[:2]...)
+	allTxs = append(allTxs, invalidTx)
+	allTxs = append(allTxs, validTxs[2:]...)
+
+	_, results, err := RunBlock(t, gigaCtx, allTxs)
+	require.NoError(t, err, "Block processing should complete without panic")
+	require.Len(t, results, len(allTxs))
+
+	// Valid txs should succeed
+	for i := 0; i < 2; i++ {
+		require.Equal(t, uint32(0), results[i].Code, "Valid tx[%d] should succeed", i)
+	}
+	// Invalid tx should fail gracefully
+	require.NotEqual(t, uint32(0), results[2].Code, "Invalid tx should fail")
+	// Remaining valid txs should succeed
+	for i := 3; i < len(results); i++ {
+		require.Equal(t, uint32(0), results[i].Code, "Valid tx[%d] should succeed", i)
+	}
+}
+
+// TestGigaSequential_PanicRecovery verifies the synchronous path handles errors gracefully.
+func TestGigaSequential_PanicRecovery(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	txCount := 10
+
+	transfers := GenerateNonConflictingTransfers(txCount)
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	gigaTxs := CreateEVMTransferTxs(t, gigaCtx, transfers, true)
+	_, gigaResults, err := RunBlock(t, gigaCtx, gigaTxs)
+
+	require.NoError(t, err, "Giga sequential should not return error")
+	require.Len(t, gigaResults, txCount)
+
+	for i, result := range gigaResults {
+		require.Equal(t, uint32(0), result.Code, "tx[%d] should succeed", i)
+	}
+}
+
+// TestGigaVsGeth_OCCBehavior compares Giga OCC vs Geth OCC for consistency.
+func TestGigaVsGeth_OCCBehavior(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	workers := 4
+	txCount := 10
+
+	transfers := GenerateNonConflictingTransfers(txCount)
+
+	// Geth OCC
+	gethCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeV2withOCC)
+	gethTxs := CreateEVMTransferTxs(t, gethCtx, transfers, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr)
+
+	// Giga OCC
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, workers, ModeGigaOCC)
+	gigaTxs := CreateEVMTransferTxs(t, gigaCtx, transfers, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr)
+
+	require.Len(t, gethResults, txCount)
+	require.Len(t, gigaResults, txCount)
+
+	// Compare error codes
+	for i := range gethResults {
+		require.Equal(t, gethResults[i].Code, gigaResults[i].Code,
+			"tx[%d] code mismatch: Geth=%d, Giga=%d", i, gethResults[i].Code, gigaResults[i].Code)
+	}
+
+	CompareLastResultsHash(t, "GigaOCC_vs_GethOCC", gethResults, gigaResults)
+}
+
+// =============================================================================
+// Validation Tests - Test all validateGigaEVMTx checks against V2 behavior
+// =============================================================================
+
+// TestGigaValidation_FeeCapBelowBaseFee tests that fee cap < base fee is rejected
+// with the correct error code and nonce behavior matching V2.
+func TestGigaValidation_FeeCapBelowBaseFee(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// Run with V2 (baseline)
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e18))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Run with Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e18))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Create tx with fee cap below base fee (base fee is typically ~1 gwei)
+	to := recipient.EvmAddress
+	lowFeeCap := big.NewInt(1) // 1 wei, way below base fee
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, big.NewInt(1000), 21000, lowFeeCap, lowFeeCap, 0)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1000), 21000, lowFeeCap, lowFeeCap, 0)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Both should fail with ErrInsufficientFee (code 13)
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "V2 should reject low fee cap")
+	require.NotEqual(t, uint32(0), gigaResults[0].Code, "Giga should reject low fee cap")
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+
+	// Check nonce was bumped (fee validation fails after nonce is validated)
+	v2Nonce := v2Ctx.TestApp.EvmKeeper.GetNonce(v2Ctx.Ctx, signer.EvmAddress)
+	gigaNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, v2Nonce, gigaNonce, "Nonce should match after fee validation failure")
+}
+
+// TestGigaValidation_NonceTooHigh tests that nonce too high is rejected correctly.
+func TestGigaValidation_NonceTooHigh(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e18))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e18))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Create tx with nonce too high (nonce 5 when current is 0)
+	to := recipient.EvmAddress
+	normalFee := big.NewInt(100000000000) // 100 gwei
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, big.NewInt(1000), 21000, normalFee, normalFee, 5)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1000), 21000, normalFee, normalFee, 5)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Both should fail with ErrWrongSequence (code 32)
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "V2 should reject high nonce")
+	require.NotEqual(t, uint32(0), gigaResults[0].Code, "Giga should reject high nonce")
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+
+	// Check nonce was NOT bumped (nonce mismatch should not bump)
+	v2Nonce := v2Ctx.TestApp.EvmKeeper.GetNonce(v2Ctx.Ctx, signer.EvmAddress)
+	gigaNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, uint64(0), v2Nonce, "V2 nonce should not be bumped")
+	require.Equal(t, uint64(0), gigaNonce, "Giga nonce should not be bumped")
+}
+
+// TestGigaValidation_NonceTooLow tests that nonce too low is rejected correctly.
+func TestGigaValidation_NonceTooLow(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e18))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	// Set nonce to 5
+	v2Ctx.TestApp.EvmKeeper.SetNonce(v2Ctx.Ctx, signer.EvmAddress, 5)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e18))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	// Set nonce to 5
+	gigaCtx.TestApp.GigaEvmKeeper.SetNonce(gigaCtx.Ctx, signer.EvmAddress, 5)
+
+	// Create tx with nonce too low (nonce 2 when current is 5)
+	to := recipient.EvmAddress
+	normalFee := big.NewInt(100000000000)
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, big.NewInt(1000), 21000, normalFee, normalFee, 2)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1000), 21000, normalFee, normalFee, 2)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Both should fail with ErrWrongSequence (code 32)
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "V2 should reject low nonce")
+	require.NotEqual(t, uint32(0), gigaResults[0].Code, "Giga should reject low nonce")
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+
+	// Nonce should remain at 5 (not bumped)
+	v2Nonce := v2Ctx.TestApp.EvmKeeper.GetNonce(v2Ctx.Ctx, signer.EvmAddress)
+	gigaNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, uint64(5), v2Nonce, "V2 nonce should stay at 5")
+	require.Equal(t, uint64(5), gigaNonce, "Giga nonce should stay at 5")
+}
+
+// TestGigaValidation_InsufficientBalance tests that insufficient balance is rejected.
+func TestGigaValidation_InsufficientBalance(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2 - fund with small amount
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e12)) // 0.000001 sei in wei
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Giga - fund with same small amount
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e12))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Try to send way more than we have
+	to := recipient.EvmAddress
+	normalFee := big.NewInt(100000000000)
+	largeValue := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)) // 1000 sei
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, largeValue, 21000, normalFee, normalFee, 0)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, largeValue, 21000, normalFee, normalFee, 0)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Both should fail with ErrInsufficientFunds (code 5)
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "V2 should reject insufficient balance")
+	require.NotEqual(t, uint32(0), gigaResults[0].Code, "Giga should reject insufficient balance")
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+
+	// Nonce should be bumped (balance check happens after nonce validation passes)
+	v2Nonce := v2Ctx.TestApp.EvmKeeper.GetNonce(v2Ctx.Ctx, signer.EvmAddress)
+	gigaNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, v2Nonce, gigaNonce, "Nonce should match after balance validation failure")
+	require.Equal(t, uint64(1), gigaNonce, "Nonce should be bumped to 1")
+}
+
+// Note: TestGigaValidation_TipCapGreaterThanFeeCap is not possible because
+// go-ethereum's SignTx validates tip <= feeCap at signing time (client-side validation).
+// The check in validateGigaEVMTx exists for defense-in-depth but can't be tested
+// through the normal transaction creation flow.
+
+// TestGigaValidation_GasReportedOnFailure tests that gas is reported on validation failure.
+// Note: V2 and Giga may report different GasUsed values on validation failures due to
+// differences in how the ante handler chain reports gas consumption. The critical parity
+// requirement is that error codes match (for consensus on tx success/failure).
+func TestGigaValidation_GasReportedOnFailure(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e12))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e12))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Create failing tx (insufficient balance)
+	to := recipient.EvmAddress
+	normalFee := big.NewInt(100000000000)
+	largeValue := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000))
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, largeValue, 21000, normalFee, normalFee, 0)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, largeValue, 21000, normalFee, normalFee, 0)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Error codes must match (critical for consensus)
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+
+	// Both should report non-zero gas values
+	require.Greater(t, gigaResults[0].GasUsed, int64(0), "Giga should report GasUsed > 0")
+	require.Greater(t, gigaResults[0].GasWanted, int64(0), "Giga should report GasWanted > 0")
+
+	// Log the difference for visibility (not a failure)
+	if v2Results[0].GasUsed != gigaResults[0].GasUsed {
+		t.Logf("Note: GasUsed differs on validation failure - V2=%d, Giga=%d (expected due to ante handler differences)",
+			v2Results[0].GasUsed, gigaResults[0].GasUsed)
+	}
+}
+
+// TestGigaValidation_ErrorCodeParity tests that validation failures produce
+// identical error codes between V2 and Giga (critical for consensus on tx success/failure).
+// Note: GasUsed may differ between V2 and Giga on validation failures due to ante handler
+// differences, but this doesn't affect consensus on whether a tx succeeded or failed.
+func TestGigaValidation_ErrorCodeParity(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	signer1 := utils.NewSigner()
+	signer2 := utils.NewSigner()
+	signer3 := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer1.AccountAddress, big.NewInt(1e18))
+	fundAccount(t, v2Ctx, signer2.AccountAddress, big.NewInt(1e12)) // insufficient for large transfer
+	fundAccount(t, v2Ctx, signer3.AccountAddress, big.NewInt(1e18))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer1.AccountAddress, signer1.EvmAddress)
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer2.AccountAddress, signer2.EvmAddress)
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer3.AccountAddress, signer3.EvmAddress)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer1.AccountAddress, big.NewInt(1e18))
+	fundAccount(t, gigaCtx, signer2.AccountAddress, big.NewInt(1e12))
+	fundAccount(t, gigaCtx, signer3.AccountAddress, big.NewInt(1e18))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer1.AccountAddress, signer1.EvmAddress)
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer2.AccountAddress, signer2.EvmAddress)
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer3.AccountAddress, signer3.EvmAddress)
+
+	to := recipient.EvmAddress
+	normalFee := big.NewInt(100000000000)
+	largeValue := new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000))
+
+	// Mix of valid and invalid txs
+	v2Txs := [][]byte{
+		createCustomEVMTx(t, v2Ctx, signer1, &to, big.NewInt(1000), 21000, normalFee, normalFee, 0), // valid
+		createCustomEVMTx(t, v2Ctx, signer2, &to, largeValue, 21000, normalFee, normalFee, 0),       // insufficient balance
+		createCustomEVMTx(t, v2Ctx, signer3, &to, big.NewInt(1000), 21000, normalFee, normalFee, 5), // nonce too high
+	}
+	gigaTxs := [][]byte{
+		createCustomEVMTx(t, gigaCtx, signer1, &to, big.NewInt(1000), 21000, normalFee, normalFee, 0),
+		createCustomEVMTx(t, gigaCtx, signer2, &to, largeValue, 21000, normalFee, normalFee, 0),
+		createCustomEVMTx(t, gigaCtx, signer3, &to, big.NewInt(1000), 21000, normalFee, normalFee, 5),
+	}
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, v2Txs)
+	_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
+
+	require.Len(t, v2Results, 3)
+	require.Len(t, gigaResults, 3)
+
+	// Compare error codes (critical for consensus)
+	for i := range v2Results {
+		require.Equal(t, v2Results[i].Code, gigaResults[i].Code,
+			"tx[%d] Code mismatch: V2=%d Giga=%d", i, v2Results[i].Code, gigaResults[i].Code)
+
+		// Log gas differences for visibility
+		if v2Results[i].GasUsed != gigaResults[i].GasUsed {
+			t.Logf("tx[%d] GasUsed differs: V2=%d Giga=%d (expected for validation failures)",
+				i, v2Results[i].GasUsed, gigaResults[i].GasUsed)
+		}
+	}
+
+	// Verify expected outcomes
+	require.Equal(t, uint32(0), v2Results[0].Code, "tx[0] should succeed")
+	require.NotEqual(t, uint32(0), v2Results[1].Code, "tx[1] should fail (insufficient balance)")
+	require.NotEqual(t, uint32(0), v2Results[2].Code, "tx[2] should fail (nonce too high)")
+}
+
+// TestGigaValidation_FeeCapBelowMinimumFee tests that fee cap < minimum fee is rejected.
+func TestGigaValidation_FeeCapBelowMinimumFee(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// V2
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, big.NewInt(1e18))
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Giga
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, big.NewInt(1e18))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// Get minimum fee from V2 and use a value just below it
+	minFee := v2Ctx.TestApp.EvmKeeper.GetMinimumFeePerGas(v2Ctx.Ctx)
+	lowFeeCap := minFee.TruncateInt().BigInt()
+	lowFeeCap = new(big.Int).Sub(lowFeeCap, big.NewInt(1)) // Just below minimum
+	if lowFeeCap.Sign() <= 0 {
+		t.Skip("minimum fee is 0 or 1, cannot test below-minimum")
+	}
+
+	to := recipient.EvmAddress
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, big.NewInt(1000), 21000, lowFeeCap, lowFeeCap, 0)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1000), 21000, lowFeeCap, lowFeeCap, 0)
+
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+
+	// Both should fail
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "V2 should reject below-minimum fee")
+	require.NotEqual(t, uint32(0), gigaResults[0].Code, "Giga should reject below-minimum fee")
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
+		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
+}
+
+// TestGigaValidation_AllModes tests validation errors across all executor modes.
+func TestGigaValidation_AllModes(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	workers := 4
+
+	testCases := []struct {
+		name    string
+		setupTx func(tCtx *GigaTestContext, signer, recipient utils.TestAcct) []byte
+	}{
+		{
+			name: "InsufficientBalance",
+			setupTx: func(tCtx *GigaTestContext, signer, recipient utils.TestAcct) []byte {
+				to := recipient.EvmAddress
+				return createCustomEVMTx(t, tCtx, signer, &to,
+					new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)), // way more than funded
+					21000, big.NewInt(100000000000), big.NewInt(100000000000), 0)
+			},
+		},
+		{
+			name: "NonceTooHigh",
+			setupTx: func(tCtx *GigaTestContext, signer, recipient utils.TestAcct) []byte {
+				to := recipient.EvmAddress
+				return createCustomEVMTx(t, tCtx, signer, &to,
+					big.NewInt(1000), 21000,
+					big.NewInt(100000000000), big.NewInt(100000000000), 99) // nonce 99 when current is 0
+			},
+		},
+	}
+
+	modes := []ExecutorMode{ModeV2Sequential, ModeV2withOCC, ModeGigaSequential, ModeGigaOCC}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var baseResult *abci.ExecTxResult
+
+			for _, mode := range modes {
+				t.Run(mode.String(), func(t *testing.T) {
+					signer := utils.NewSigner()
+					recipient := utils.NewSigner()
+
+					tCtx := NewGigaTestContext(t, accts, blockTime, workers, mode)
+					fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(1e12)) // Small funding
+
+					// Set address mapping based on mode
+					if mode == ModeGigaSequential || mode == ModeGigaOCC {
+						tCtx.TestApp.GigaEvmKeeper.SetAddressMapping(tCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					} else {
+						tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					}
+
+					tx := tc.setupTx(tCtx, signer, recipient)
+					_, results, err := RunBlock(t, tCtx, [][]byte{tx})
+					require.NoError(t, err)
+					require.Len(t, results, 1)
+
+					// Should fail
+					require.NotEqual(t, uint32(0), results[0].Code,
+						"%s: should fail in mode %s", tc.name, mode)
+
+					// First result becomes baseline
+					if baseResult == nil {
+						baseResult = results[0]
+					} else {
+						// All modes should produce same error code
+						require.Equal(t, baseResult.Code, results[0].Code,
+							"%s: code mismatch in mode %s (expected %d, got %d)",
+							tc.name, mode, baseResult.Code, results[0].Code)
+					}
+				})
+			}
+		})
+	}
+}

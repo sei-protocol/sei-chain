@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - release/**
+  merge_group:
+    branches:
+      - main
+      - release/**
   push:
     branches:
       - main
@@ -16,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
 

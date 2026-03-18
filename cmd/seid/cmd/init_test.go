@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/genesis"
@@ -14,7 +16,6 @@ import (
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
@@ -149,6 +150,7 @@ func TestInitModeConfiguration(t *testing.T) {
 
 			// Build custom template with all sections
 			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
+				seidbconfig.ReceiptStoreConfigTemplate +
 				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
 
 			srvconfig.SetConfigTemplate(customAppTemplate)
@@ -167,8 +169,38 @@ func TestInitModeConfiguration(t *testing.T) {
 			if tt.validateApp != nil {
 				tt.validateApp(t, configDir)
 			}
+
+			v := viper.New()
+			v.SetConfigFile(appTomlPath)
+			err = v.ReadInConfig()
+			require.NoError(t, err)
+			require.Equal(t, "pebbledb", v.GetString("receipt-store.rs-backend"))
+			require.Equal(t, "", v.GetString("receipt-store.db-directory"))
+			require.Equal(t, seidbconfig.DefaultReceiptStoreConfig().AsyncWriteBuffer, v.GetInt("receipt-store.async-write-buffer"))
+			require.Equal(t, seidbconfig.DefaultReceiptStoreConfig().KeepRecent, v.GetInt("receipt-store.keep-recent"))
+			require.Equal(t, seidbconfig.DefaultReceiptStoreConfig().PruneIntervalSeconds, v.GetInt("receipt-store.prune-interval-seconds"))
 		})
 	}
+}
+
+func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, customAppConfig)
+	require.NoError(t, err)
+
+	output := buf.String()
+	require.Contains(t, output, "[receipt-store]")
+	require.Contains(t, output, `rs-backend = "pebbledb"`)
+	require.Contains(t, output, `db-directory = ""`)
+	require.Contains(t, output, "async-write-buffer =")
+	require.Contains(t, output, "keep-recent =")
+	require.Contains(t, output, "prune-interval-seconds =")
+	require.NotContains(t, output, "use-default-comparer")
 }
 
 // TestInitModeFlag verifies the mode flag validation
@@ -293,7 +325,7 @@ func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -313,7 +345,7 @@ func TestLoadOrWriteGenesis_WrongChainID(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	_, err = loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err = loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "chain_id")
 }
@@ -325,7 +357,7 @@ func TestLoadOrWriteGenesis_PathIsDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(genFile, 0755))
 
 	encCfg := app.MakeEncodingConfig()
-	_, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err := loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "directory")
 }
@@ -338,7 +370,7 @@ func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
 	require.True(t, genesis.IsWellKnown(chainID), "atlantic-2 should be well-known")
 	encCfg := app.MakeEncodingConfig()
 
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -358,7 +390,7 @@ func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
 	require.NoError(t, existing.SaveAs(genFile))
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	// Should be overwritten
@@ -373,7 +405,7 @@ func TestLoadOrWriteGenesis_UnknownChainWritesDefault(t *testing.T) {
 	require.False(t, genesis.IsWellKnown(chainID), "custom-chain-1 should not be well-known")
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)

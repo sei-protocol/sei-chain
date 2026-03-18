@@ -6,7 +6,6 @@ import (
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/viper"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -18,14 +17,14 @@ import (
 )
 
 func ExecInitCmd(testMbm module.BasicManager, home string, cdc codec.Codec) error {
-	logger := log.NewNopLogger()
+
 	cfg, err := CreateDefaultTendermintConfig(home)
 	if err != nil {
 		return err
 	}
 
 	cmd := genutilcli.InitCmd(testMbm, home)
-	serverCtx := server.NewContext(viper.New(), cfg, logger)
+	serverCtx := server.NewContext(viper.New(), cfg)
 	clientCtx := client.Context{}.WithCodec(cdc).WithHomeDir(home)
 
 	_, out := testutil.ApplyMockIO(cmd)
