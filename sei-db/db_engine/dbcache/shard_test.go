@@ -242,7 +242,7 @@ func TestGetUpdateLruTrue(t *testing.T) {
 	s.Get(read, []byte("a"), true)
 
 	s.lock.Lock()
-	lru := s.gcQueue.PopLeastRecentlyUsed()
+	lru := s.dbCacheGCQueue.PopLeastRecentlyUsed()
 	s.lock.Unlock()
 
 	require.Equal(t, "b", lru)
@@ -261,7 +261,7 @@ func TestGetUpdateLruFalse(t *testing.T) {
 	s.Get(read, []byte("a"), false)
 
 	s.lock.Lock()
-	lru := s.gcQueue.PopLeastRecentlyUsed()
+	lru := s.dbCacheGCQueue.PopLeastRecentlyUsed()
 	s.lock.Unlock()
 
 	require.Equal(t, "a", lru, "updateLru=false should not move entry")
@@ -579,8 +579,8 @@ func TestEvictionOrderIsLRU(t *testing.T) {
 	s.Set([]byte("d"), []byte("4444"))
 
 	s.lock.Lock()
-	_, bExists := s.data["b"]
-	_, aExists := s.data["a"]
+	_, bExists := s.dbCache["b"]
+	_, aExists := s.dbCache["a"]
 	s.lock.Unlock()
 
 	require.False(t, bExists, "expected 'b' to be evicted (it was LRU)")
@@ -773,7 +773,7 @@ func TestInjectValueNotFound(t *testing.T) {
 	require.Nil(t, val)
 
 	s.lock.Lock()
-	entry, ok := s.data["missing"]
+	entry, ok := s.dbCache["missing"]
 	s.lock.Unlock()
 	require.True(t, ok, "entry should exist in map")
 	require.Equal(t, statusDeleted, entry.status)

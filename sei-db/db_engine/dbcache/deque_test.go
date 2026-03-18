@@ -158,13 +158,9 @@ func TestGrowthDoublesCapacity(t *testing.T) {
 	require.Equal(t, minDequeCapacity*2, len(d.data))
 
 	for i := 0; i < minDequeCapacity; i++ {
-		v, ok := d.Get(i)
-		require.True(t, ok)
-		require.Equal(t, i, v)
+		require.Equal(t, i, d.Get(i))
 	}
-	v, ok := d.Get(minDequeCapacity)
-	require.True(t, ok)
-	require.Equal(t, 999, v)
+	require.Equal(t, 999, d.Get(minDequeCapacity))
 }
 
 func TestCapacityNeverShrinks(t *testing.T) {
@@ -339,9 +335,7 @@ func TestGetPositiveIndex(t *testing.T) {
 	d.PushBack("c")
 
 	for i, want := range []string{"a", "b", "c"} {
-		v, ok := d.Get(i)
-		require.True(t, ok)
-		require.Equal(t, want, v)
+		require.Equal(t, want, d.Get(i))
 	}
 }
 
@@ -351,42 +345,26 @@ func TestGetNegativeIndex(t *testing.T) {
 	d.PushBack("b")
 	d.PushBack("c")
 
-	v, ok := d.Get(-1)
-	require.True(t, ok)
-	require.Equal(t, "c", v)
-
-	v, ok = d.Get(-2)
-	require.True(t, ok)
-	require.Equal(t, "b", v)
-
-	v, ok = d.Get(-3)
-	require.True(t, ok)
-	require.Equal(t, "a", v)
+	require.Equal(t, "c", d.Get(-1))
+	require.Equal(t, "b", d.Get(-2))
+	require.Equal(t, "a", d.Get(-3))
 }
 
-func TestGetOutOfBounds(t *testing.T) {
+func TestGetOutOfBoundsPanics(t *testing.T) {
 	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PushBack(2)
 
-	_, ok := d.Get(2)
-	require.False(t, ok)
-
-	_, ok = d.Get(-3)
-	require.False(t, ok)
-
-	_, ok = d.Get(100)
-	require.False(t, ok)
+	require.Panics(t, func() { d.Get(2) })
+	require.Panics(t, func() { d.Get(-3) })
+	require.Panics(t, func() { d.Get(100) })
 }
 
-func TestGetOnEmptyDeque(t *testing.T) {
+func TestGetOnEmptyDequePanics(t *testing.T) {
 	d := NewDeque[int]()
 
-	_, ok := d.Get(0)
-	require.False(t, ok)
-
-	_, ok = d.Get(-1)
-	require.False(t, ok)
+	require.Panics(t, func() { d.Get(0) })
+	require.Panics(t, func() { d.Get(-1) })
 }
 
 func TestGetWithWrappedBuffer(t *testing.T) {
@@ -403,9 +381,7 @@ func TestGetWithWrappedBuffer(t *testing.T) {
 	// Logical: [4, 5, 10, 11]
 	expected := []int{4, 5, 10, 11}
 	for i, want := range expected {
-		v, ok := d.Get(i)
-		require.True(t, ok)
-		require.Equal(t, want, v)
+		require.Equal(t, want, d.Get(i))
 	}
 }
 
@@ -419,9 +395,7 @@ func TestSetPositiveIndex(t *testing.T) {
 
 	d.Set(1, 99)
 
-	v, ok := d.Get(1)
-	require.True(t, ok)
-	require.Equal(t, 99, v)
+	require.Equal(t, 99, d.Get(1))
 }
 
 func TestSetNegativeIndex(t *testing.T) {
@@ -432,28 +406,20 @@ func TestSetNegativeIndex(t *testing.T) {
 
 	d.Set(-1, 77)
 
-	v, ok := d.Get(2)
-	require.True(t, ok)
-	require.Equal(t, 77, v)
+	require.Equal(t, 77, d.Get(2))
 }
 
-func TestSetOutOfBoundsIsNoop(t *testing.T) {
+func TestSetOutOfBoundsPanics(t *testing.T) {
 	d := NewDeque[int]()
 	d.PushBack(1)
 
-	d.Set(5, 99)
-	d.Set(-5, 99)
-
-	v, ok := d.Get(0)
-	require.True(t, ok)
-	require.Equal(t, 1, v)
-	require.Equal(t, 1, d.Len())
+	require.Panics(t, func() { d.Set(5, 99) })
+	require.Panics(t, func() { d.Set(-5, 99) })
 }
 
-func TestSetOnEmptyDequeIsNoop(t *testing.T) {
+func TestSetOnEmptyDequePanics(t *testing.T) {
 	d := NewDeque[int]()
-	d.Set(0, 99)
-	require.True(t, d.IsEmpty())
+	require.Panics(t, func() { d.Set(0, 99) })
 }
 
 // --- Clear ---
@@ -803,9 +769,7 @@ func TestLargeNumberOfElements(t *testing.T) {
 	require.Equal(t, n, d.Len())
 
 	for i := 0; i < n; i++ {
-		v, ok := d.Get(i)
-		require.True(t, ok)
-		require.Equal(t, i, v)
+		require.Equal(t, i, d.Get(i))
 	}
 
 	for i := 0; i < n/2; i++ {
@@ -863,10 +827,5 @@ func TestSingleElementGetZeroAndNegativeOne(t *testing.T) {
 	d := NewDeque[int]()
 	d.PushBack(42)
 
-	v0, ok0 := d.Get(0)
-	vn1, okn1 := d.Get(-1)
-
-	require.True(t, ok0)
-	require.True(t, okn1)
-	require.Equal(t, v0, vn1)
+	require.Equal(t, d.Get(0), d.Get(-1))
 }

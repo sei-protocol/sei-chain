@@ -1,6 +1,7 @@
 package dbcache
 
 import (
+	"fmt"
 	"iter"
 	"math/bits"
 )
@@ -153,30 +154,20 @@ func (r *Deque[T]) Clear() {
 	r.size = 0
 }
 
-// Get the value at the given index. Returns the value and true if the index is valid,
-// otherwise returns the zero value and false.
+// Get the value at the given index. Panics if the index is out of range.
 //
 // Positive indices are relative to the front of the deque, while negative indices are relative to the back
 // (similar to python list semantics).
-func (r *Deque[T]) Get(index int) (T, bool) {
-	resolved, ok := r.resolveIndex(index)
-	if !ok {
-		var zero T
-		return zero, false
-	}
-	return r.data[resolved], true
+func (r *Deque[T]) Get(index int) T {
+	return r.data[r.resolveIndex(index)]
 }
 
-// Set the value at the given index.
+// Set the value at the given index. Panics if the index is out of range.
 //
 // Positive indices are relative to the front of the deque, while negative indices are relative to the back
 // (similar to python list semantics).
 func (r *Deque[T]) Set(index int, value T) {
-	resolved, ok := r.resolveIndex(index)
-	if !ok {
-		return
-	}
-	r.data[resolved] = value
+	r.data[r.resolveIndex(index)] = value
 }
 
 // Forward returns an iterator that yields (index, value) pairs from front to back.
@@ -202,14 +193,18 @@ func (r *Deque[T]) Backward() iter.Seq2[int, T] {
 	}
 }
 
-func (r *Deque[T]) resolveIndex(index int) (int, bool) {
+func (r *Deque[T]) resolveIndex(index int) int {
+	original := index
 	if index < 0 {
 		index += r.size
 	}
 	if index < 0 || index >= r.size {
-		return 0, false
+		if r.size == 0 {
+			panic(fmt.Sprintf("deque index %d out of range for empty deque", original))
+		}
+		panic(fmt.Sprintf("deque index %d out of range [%d, %d]", original, -r.size, r.size-1))
 	}
-	return (r.firstIndex + index) & r.mask, true
+	return (r.firstIndex + index) & r.mask
 }
 
 func (r *Deque[T]) growIfFull() {
