@@ -73,8 +73,9 @@ func PositiveHash64(x int64) int64 {
 	return result
 }
 
-// resolveAndCreateDataDir expands ~ to the home directory and creates the directory if it doesn't exist.
-func resolveAndCreateDataDir(dataDir string) (string, error) {
+// ResolveAndCreateDir expands ~ to the home directory, resolves the path to
+// an absolute path, and creates the directory if it doesn't exist.
+func ResolveAndCreateDir(dataDir string) (string, error) {
 	if dataDir == "~" || strings.HasPrefix(dataDir, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
