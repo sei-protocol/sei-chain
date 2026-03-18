@@ -1255,11 +1255,11 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			go func() {
 				// ProcessBlock has panic recovery and returns error for any processing failures
 				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
-				bpreq := &BlockProcessRequest {
-					Hash: req.Hash,
+				bpreq := &BlockProcessRequest{
+					Hash:                req.Hash,
 					ByzantineValidators: req.ByzantineValidators,
-					Height: req.Header.Height,
-					Time: req.Header.Time,
+					Height:              req.Header.Height,
+					Time:                req.Header.Time,
 				}
 				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false)
 
@@ -1339,11 +1339,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	logger.Info("optimistic processing ineligible")
-	bpreq := &BlockProcessRequest {
-		Hash: req.Hash,
+	bpreq := &BlockProcessRequest{
+		Hash:                req.Hash,
 		ByzantineValidators: req.ByzantineValidators,
-		Height: req.Header.Height,
-		Time: req.Header.Time,
+		Height:              req.Header.Height,
+		Time:                req.Header.Time,
 	}
 	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, false)
 	if processErr != nil {

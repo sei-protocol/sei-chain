@@ -1021,7 +1021,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 	if app.ChainID != req.Header.ChainID {
-		return nil,fmt.Errorf("unexpected ChainID, got %q, want %q",req.Header.ChainID,app.ChainID)
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.processProposalState == nil {
 		app.setProcessProposalState(*req.Header)
@@ -1074,7 +1074,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		))
 	}
 	if app.ChainID != req.Header.ChainID {
-		return nil,fmt.Errorf("unexpected ChainID, got %q, want %q",req.Header.ChainID,app.ChainID)
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.deliverState == nil {
 		app.setDeliverState(*req.Header)

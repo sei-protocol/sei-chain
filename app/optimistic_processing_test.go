@@ -113,7 +113,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_NewOptimi
 	req := &abci.RequestProcessProposal{
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
-		Header: &tmproto.Header {Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
 	}
 
 	// Ensure no existing optimistic processing

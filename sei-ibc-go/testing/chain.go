@@ -291,7 +291,7 @@ func (chain *TestChain) NextBlock() {
 	}
 
 	_, err := chain.App.FinalizeBlock(chain.Context(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header {
+		Header: &tmproto.Header{
 			Height:  chain.App.LastBlockHeight() + 1,
 			Time:    chain.CurrentHeader.Time,
 			AppHash: chain.CurrentHeader.AppHash,

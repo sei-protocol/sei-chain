@@ -19,8 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -76,9 +76,9 @@ func Replay(a *App) {
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Hash:              hash,
-			Header: &tmproto.Header {
-				Height:            h,
-				Time:              time.Now(),
+			Header: &tmproto.Header{
+				Height: h,
+				Time:   time.Now(),
 			},
 		})
 		if err != nil {
@@ -178,11 +178,11 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 			Txs:               txs,
 			Hash:              blockHash[:],
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
-			Header: &tmproto.Header {
-				ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
-				LastBlockId: tmproto.BlockID { Hash: parentHash[:] },
-				Height:            h,
-				Time:              time.Now(),
+			Header: &tmproto.Header{
+				ProposerAddress: a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
+				LastBlockId:     tmproto.BlockID{Hash: parentHash[:]},
+				Height:          h,
+				Time:            time.Now(),
 			},
 		})
 		if err != nil {

@@ -273,7 +273,7 @@ func (chain *TestChain) NextBlock() {
 
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 	_, err := wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header {
+		Header: &tmproto.Header{
 			Height:  chain.App.LastBlockHeight() + 1,
 			Time:    chain.CurrentHeader.Time,
 			AppHash: chain.CurrentHeader.AppHash,

@@ -41,7 +41,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &types.Header{Height: 1}})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
 		commitData = append(commitData, data)
@@ -100,14 +100,14 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req := &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{Height: 1},
 	}
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		txs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
 	)
@@ -123,14 +123,14 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req = &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{Height: 1},
 	}
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		diffOrderTxs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
 	)
@@ -158,7 +158,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	badProposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, emptyTx},
-		Height: 1,
+		Header: &types.Header{Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
@@ -319,7 +319,7 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			proposal := abci.RequestProcessProposal{
 				Txs:    txs,
-				Height: 1,
+				Header: &types.Header{Height: 1},
 			}
 			res, err := ap.ProcessProposalHandler(ctx, &proposal)
 			require.Nil(t, err)
@@ -348,7 +348,7 @@ func TestOverflowGas(t *testing.T) {
 
 	proposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, secondTx},
-		Height: 1,
+		Header: &types.Header{Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &proposal)
 	require.Nil(t, err)
@@ -571,7 +571,7 @@ func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
 	}
 
 	req := &abci.RequestProcessProposal{
-		Height: ctx.BlockHeight(),
+		Header: &types.Header{Height: ctx.BlockHeight()},
 		Hash:   []byte("panic-test"),
 		Txs:    [][]byte{maliciousTx}, // Include the malicious transaction
 	}
@@ -726,4 +726,19 @@ func TestDeliverTxWithNilTypedTxDoesNotPanic(t *testing.T) {
 		result := sei.DeliverTxWithResult(ctx, malformedTxBytes, nil)
 		require.NotNil(t, result)
 	})
+}
+
+func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {
+	var height int64
+	var blockTime time.Time
+	if req.Header != nil {
+		height = req.Header.Height
+		blockTime = req.Header.Time
+	}
+	return &app.BlockProcessRequest{
+		Hash:                req.Hash,
+		ByzantineValidators: req.ByzantineValidators,
+		Height:              height,
+		Time:                blockTime,
+	}
 }

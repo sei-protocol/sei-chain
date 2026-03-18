@@ -133,11 +133,11 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: 1}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: 2}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 

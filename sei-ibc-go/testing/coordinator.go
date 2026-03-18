@@ -71,7 +71,7 @@ func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	_, err := chain.App.FinalizeBlock(
 		chain.Context(),
 		&abci.RequestFinalizeBlock{
-			Header: &tmproto.Header {
+			Header: &tmproto.Header{
 				Height:             chain.App.LastBlockHeight() + 1,
 				Time:               chain.CurrentHeader.Time,
 				AppHash:            chain.CurrentHeader.AppHash,
@@ -206,10 +206,10 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
 		_, err := chain.App.FinalizeBlock(coord.Context(), &abci.RequestFinalizeBlock{
-			Header: &tmproto.Header {
-				Height:  chain.App.LastBlockHeight() + 1,
-				Time:    chain.CurrentHeader.Time,
-				AppHash: chain.CurrentHeader.AppHash,
+			Header: &tmproto.Header{
+				Height:             chain.App.LastBlockHeight() + 1,
+				Time:               chain.CurrentHeader.Time,
+				AppHash:            chain.CurrentHeader.AppHash,
 				ValidatorsHash:     chain.Vals.Hash(),
 				NextValidatorsHash: chain.Vals.Hash(),
 			},

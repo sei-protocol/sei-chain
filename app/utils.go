@@ -18,8 +18,8 @@ type OptimisticProcessingInfo struct {
 }
 
 type BlockProcessRequest struct {
-	Hash []byte
+	Hash                []byte
 	ByzantineValidators []abci.Misbehavior
-	Height int64
-	Time time.Time
+	Height              int64
+	Time                time.Time
 }

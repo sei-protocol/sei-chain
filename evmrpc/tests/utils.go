@@ -57,9 +57,9 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		height := blockHeight + int64(i)
 		blockTime := time.Now()
 		res, err := ts.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:    block,
-			Hash:   mockHash(height, 0),
-			Header: &tmproto.Header {
+			Txs:  block,
+			Hash: mockHash(height, 0),
+			Header: &tmproto.Header{
 				Height: height,
 				Time:   blockTime,
 			},
@@ -80,9 +80,9 @@ func initializeApp(
 	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Txs:    [][]byte{},
-		Hash:   mockHash(1, 0),
-		Header: &tmproto.Header {
+		Txs:  [][]byte{},
+		Hash: mockHash(1, 0),
+		Header: &tmproto.Header{
 			Height: 1,
 			Time:   time.Now(),
 		},
@@ -110,9 +110,9 @@ func SetupTestServer(
 		height := int64(i + 2)
 		blockTime := time.Now()
 		res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:    block,
-			Hash:   mockHash(height, 0),
-			Header: &tmproto.Header {
+			Txs:  block,
+			Hash: mockHash(height, 0),
+			Header: &tmproto.Header{
 				Height: height,
 				Time:   blockTime,
 			},

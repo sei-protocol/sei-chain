@@ -81,7 +81,7 @@ func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	chain.CurrentHeader.Time = coord.CurrentTime.UTC()
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 	_, err := wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header {
+		Header: &tmproto.Header{
 			Height:  chain.App.LastBlockHeight() + 1,
 			Time:    chain.CurrentHeader.Time,
 			AppHash: chain.CurrentHeader.AppHash,
@@ -218,7 +218,7 @@ func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
 		wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 		_, err := wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Header: &tmproto.Header {
+			Header: &tmproto.Header{
 				Height:  chain.App.LastBlockHeight() + 1,
 				Time:    chain.CurrentHeader.Time,
 				AppHash: chain.CurrentHeader.AppHash,
