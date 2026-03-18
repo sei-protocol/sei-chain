@@ -20,7 +20,7 @@
 | debug_getRawHeader | 2 | get-block-n.iox, get-genesis.iox |
 | debug_getRawReceipts | 2 | get-block-n.iox, get-genesis.iox |
 | debug_getRawTransaction | 1 | get-tx.iox |
-| eth_blobBaseFee | 1 | get-current-blobfee.iox |
+| eth_blobBaseFee | 1 | blobs-not-supported-error.iox |
 | eth_call | 1 | call-callenv-options-eip1559.iox (EIP1559 params; Sei returns error) |
 | eth_createAccessList | 3 | create-al-abi-revert, create-al-contract-eip1559, create-al-contract (insufficient funds / gas fee) |
 | eth_estimateGas | 2 | estimate-with-eip4844.iox, estimate-with-eip7702.iox (parse error) |
@@ -44,7 +44,7 @@
 | debug_getRawHeader | get-block-n, get-genesis | No GetRawHeader |
 | debug_getRawReceipts | get-block-n, get-genesis | No GetRawReceipts |
 | debug_getRawTransaction | get-tx.iox | No GetRawTransaction |
-| eth_blobBaseFee | get-current-blobfee.iox | Not exposed on eth API |
+| eth_blobBaseFee | blobs-not-supported-error.iox | Not exposed on eth API |
 | eth_newPendingTransactionFilter | newPendingTransactionFilter.iox | No NewPendingTransactionFilter in FilterAPI |
 | eth_syncing | check-syncing.iox | No Syncing on InfoAPI |
 
