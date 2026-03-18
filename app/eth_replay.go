@@ -179,6 +179,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 			Hash:              blockHash[:],
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Header: &tmproto.Header{
+				ChainID:         gendoc.ChainID,
 				ProposerAddress: a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
 				LastBlockId:     tmproto.BlockID{Hash: parentHash[:]},
 				Height:          h,
