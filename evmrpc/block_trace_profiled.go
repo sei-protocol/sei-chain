@@ -288,8 +288,32 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 
 	close(jobs)
 	pend.Wait()
+
 	if failed != nil {
-		return nil, failed
+		// Fill error entries for txs that were never dispatched to workers,
+		// matching the sequential path's per-tx error semantics.
+		if len(metadata) == 0 {
+			for i := range results {
+				if results[i] == nil {
+					results[i] = &tracers.TxTraceResult{
+						TxHash: txs[i].Hash(),
+						Error:  fmt.Sprintf("state advancement failed at prior tx: %v", failed),
+					}
+				}
+			}
+		} else {
+			for _, md := range metadata {
+				if md.ShouldIncludeInTraceResult {
+					i := md.IdxInEthBlock
+					if results[i] == nil {
+						results[i] = &tracers.TxTraceResult{
+							TxHash: txs[i].Hash(),
+							Error:  fmt.Sprintf("state advancement failed at prior tx: %v", failed),
+						}
+					}
+				}
+			}
+		}
 	}
 	return results, nil
 }
