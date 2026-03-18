@@ -232,11 +232,14 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
-	// Global LTHash = sum of per-DB hashes (homomorphic property)
-	s.workingLtHash.Reset()
+	// Global LTHash = sum of per-DB hashes (homomorphic property).
+	// Compute into a fresh hash and swap to avoid a transient empty state
+	// on workingLtHash (safe for future pipelining / async callers).
+	globalHash := lthash.New()
 	for _, dir := range dataDBDirs {
-		s.workingLtHash.MixIn(s.perDBWorkingLtHash[dir])
+		globalHash.MixIn(s.perDBWorkingLtHash[dir])
 	}
+	s.workingLtHash = globalHash
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
