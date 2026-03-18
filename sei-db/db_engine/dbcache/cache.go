@@ -33,14 +33,10 @@ type Reader func(key []byte) (value []byte, found bool, err error)
 type Cache interface {
 
 	// Get returns the value for the given key, or (nil, false, nil) if not found.
-	// On a cache miss the provided Reader is called to fetch from the backing store,
-	// and the result is loaded into the cache.
 	//
 	// It is not safe to mutate the key slice after calling this method, nor is it safe to mutate the value slice
 	// that is returned.
 	Get(
-		// Reads a value from the backing store on cache miss.
-		read Reader,
 		// The entry to fetch.
 		key []byte,
 		// If true, the LRU queue will be updated. If false, the LRU queue will not be updated.
@@ -50,11 +46,11 @@ type Cache interface {
 	) ([]byte, bool, error)
 
 	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
-	// map with the results. On cache misses the provided Reader is called to fetch from the backing store.
+	// map with the results.
 	//
 	// It is not thread safe to read or mutate the map while this method is running. It is also not safe to mutate the
 	// key or value slices in the map after calling this method.
-	BatchGet(read Reader, keys map[string]types.BatchGetResult) error
+	BatchGet(keys map[string]types.BatchGetResult) error
 
 	// Set sets the value for the given key.
 	//
@@ -70,6 +66,46 @@ type Cache interface {
 	//
 	// It is not safe to mutate the key or value slices in the CacheUpdate structs after calling this method.
 	BatchSet(updates []CacheUpdate) error
+
+	// Create a point-in-time snapshot of the data in the cache. This snapshot is thread safe to read, even
+	// if concurrent operations are performed on this cache instance.
+	Snapshot() (CacheSnapshot, error)
+}
+
+// A read-only snapshot of the data in the cache.
+type CacheSnapshot interface {
+	// Get returns the value for the given key, or (nil, false, nil) if not found.
+	//
+	// It is not safe to mutate the key slice after calling this method, nor is it safe to mutate the value slice
+	// that is returned.
+	Get(
+		// The entry to fetch.
+		key []byte,
+		// If true, the LRU queue will be updated. If false, the LRU queue will not be updated.
+		// Useful for when an operation is performed multiple times in close succession on the same key,
+		// since it requires non-zero overhead to do so with little benefit.
+		updateLru bool,
+	) ([]byte, bool, error)
+
+	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
+	// map with the results.
+	//
+	// It is not thread safe to read or mutate the map while this method is running. It is also not safe to mutate the
+	// key or value slices in the map after calling this method.
+	BatchGet(keys map[string]types.BatchGetResult) error
+
+	// Get the diff contained within this snapshot, reletive to the previous snapshot.
+	GetDiff() (map[string][]byte, error)
+
+	// Acquire a reservation for the cache. While the reservation count exceeds 0, this snapshot is safe to read.
+	// Once the reservation count reaches 0, the snapshot is no longer safe to read and its internal data
+	// becomes eligible for cleanup.
+	Reserve() error
+
+	// Release a reservation for the cache. This must be called exactly once for each reservation acquired.
+	// Note that when a snapshot is created, its reservation count is 1, meaning that this method should always
+	// be called a number of times equal to the number of times Reserve() was called plus one.
+	Release() error
 }
 
 // DefaultEstimatedOverheadPerEntry is a rough estimate of the fixed heap overhead per cache entry
