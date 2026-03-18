@@ -224,6 +224,9 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 	advanceState := func(i int, tx *gethtypes.Transaction) error {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		statedb.SetTxContext(tx.Hash(), i)
+		if err := api.backend.PrepareTx(statedb, tx); err != nil {
+			return err
+		}
 		if _, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit)); err != nil {
 			return err
 		}
@@ -272,8 +275,32 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 
 	close(jobs)
 	pend.Wait()
+
 	if failed != nil {
-		return nil, failed
+		// Fill error entries for txs that were never dispatched to workers,
+		// matching the sequential path's per-tx error semantics.
+		if len(metadata) == 0 {
+			for i := range results {
+				if results[i] == nil {
+					results[i] = &tracers.TxTraceResult{
+						TxHash: txs[i].Hash(),
+						Error:  fmt.Sprintf("state advancement failed at prior tx: %v", failed),
+					}
+				}
+			}
+		} else {
+			for _, md := range metadata {
+				if md.ShouldIncludeInTraceResult {
+					i := md.IdxInEthBlock
+					if results[i] == nil {
+						results[i] = &tracers.TxTraceResult{
+							TxHash: txs[i].Hash(),
+							Error:  fmt.Sprintf("state advancement failed at prior tx: %v", failed),
+						}
+					}
+				}
+			}
+		}
 	}
 	return results, nil
 }
