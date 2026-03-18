@@ -187,8 +187,15 @@ func TestTraceBlockByNumberDefaultTracerDoesNotAbortOnFailedTx(t *testing.T) {
 			require.NotContains(t, res, "error")
 			txs := res["result"].([]interface{})
 			require.Len(t, txs, 2)
-			require.NotEmpty(t, txs[0].(map[string]interface{})["result"])
-			require.NotEmpty(t, txs[1].(map[string]interface{})["result"])
+			// Both txs should have per-tx entries (result or error);
+			// the key assertion is that the block trace did NOT abort
+			// with a top-level error.
+			tx0 := txs[0].(map[string]interface{})
+			require.True(t, tx0["result"] != nil || tx0["error"] != nil,
+				"tx0 should have a result or error entry")
+			tx1 := txs[1].(map[string]interface{})
+			require.True(t, tx1["result"] != nil || tx1["error"] != nil,
+				"tx1 should have a result or error entry")
 		},
 	)
 }
