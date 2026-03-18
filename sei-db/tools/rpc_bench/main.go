@@ -98,11 +98,14 @@ func rpcCall(endpoint, method string, params []interface{}) (*RPCResponse, time.
 	if err != nil {
 		return nil, elapsed, err
 	}
-	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
+	closeErr := resp.Body.Close()
 	if err != nil {
 		return nil, elapsed, err
+	}
+	if closeErr != nil {
+		return nil, elapsed, closeErr
 	}
 
 	var rpcResp RPCResponse
@@ -201,7 +204,9 @@ func getLatestBlockNumber(endpoint string) (int64, error) {
 		return 0, err
 	}
 	var num int64
-	fmt.Sscanf(hex, "0x%x", &num)
+	if _, err := fmt.Sscanf(hex, "0x%x", &num); err != nil {
+		return 0, fmt.Errorf("parse latest block number %q: %w", hex, err)
+	}
 	return num, nil
 }
 
@@ -480,17 +485,25 @@ func writePlotPNG(path, title, xLabel, yLabel string, points [][2]float64, conne
 	writeLabel(img, width/2-len(xLabel)*3, height-30, xLabel, textColor)
 	writeLabel(img, 20, 30, yLabel, textColor)
 
-	file, err := os.Create(path)
+	cleanPath := filepath.Clean(path)
+	// The output filename is fixed by the caller and joined onto a cleaned plot directory.
+	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
-	return png.Encode(file, img)
+	if err := png.Encode(file, img); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writePerBlockTracePlots(plotDir string, samples []PerBlockTraceSample) ([]string, error) {
-	if err := os.MkdirAll(plotDir, 0o755); err != nil {
+	plotDir = filepath.Clean(plotDir)
+	if err := os.MkdirAll(plotDir, 0o750); err != nil {
 		return nil, err
 	}
 
