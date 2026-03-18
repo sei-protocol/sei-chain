@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -72,6 +73,19 @@ func (c *heightTestClient) Status(context.Context) (*coretypes.ResultStatus, err
 	}, nil
 }
 
+// blockNotFoundTestClient returns ResultBlock{Block: nil} for a specific hash to simulate Tendermint "block not found".
+type blockNotFoundTestClient struct {
+	*heightTestClient
+	notFoundHash bytes.HexBytes
+}
+
+func (c *blockNotFoundTestClient) BlockByHash(ctx context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+	if hash.String() == c.notFoundHash.String() {
+		return &coretypes.ResultBlock{Block: nil}, nil
+	}
+	return c.heightTestClient.BlockByHash(ctx, hash)
+}
+
 func mustDecodeHex(h string) []byte {
 	bz, err := hex.DecodeString(h)
 	if err != nil {
@@ -97,6 +111,74 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "requested height")
+}
+
+// TestGetBlockByHashNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash
+// returns (nil, nil) so RPC responds with result: null, not an error (see get-block-by-empty-hash.iox, get-block-by-notfound-hash.iox).
+func TestGetBlockByHashNotFoundReturnsNull(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	base := newHeightTestClient(latest+5, earliest, latest)
+	notFoundHashHex := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+	client := &blockNotFoundTestClient{
+		heightTestClient: base,
+		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
+	}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	// Empty hash: short-circuit, result null
+	result, err := api.GetBlockByHash(ctx, common.Hash{}, false)
+	require.NoError(t, err)
+	require.Nil(t, result)
+
+	// Non-existent hash (client returns Block: nil): result null
+	result, err = api.GetBlockByHash(ctx, common.HexToHash(notFoundHashHex), false)
+	require.NoError(t, err)
+	require.Nil(t, result)
+}
+
+// TestGetBlockReceiptsNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash
+// returns (nil, nil) so RPC responds with result: null (see get-block-receipts-empty.iox, get-block-receipts-not-found.iox).
+func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	base := newHeightTestClient(latest+5, earliest, latest)
+	notFoundHashHex := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+	client := &blockNotFoundTestClient{
+		heightTestClient: base,
+		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
+	}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	// Empty hash: short-circuit, result null
+	receipts, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.Hash{}, true))
+	require.NoError(t, err)
+	require.Nil(t, receipts)
+
+	// Non-existent hash (client returns Block: nil): result null
+	receipts, err = api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.HexToHash(notFoundHashHex), true))
+	require.NoError(t, err)
+	require.Nil(t, receipts)
+}
+
+// TestGetBlockTransactionCountByHashGenesis verifies that the genesis block hash returned by
+// eth_getBlockByNumber("0x0") is accepted by eth_getBlockTransactionCountByHash (consistency).
+func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
+	t.Parallel()
+
+	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	count, err := api.GetBlockTransactionCountByHash(context.Background(), genesisBlockHash)
+	require.NoError(t, err)
+	require.NotNil(t, count)
+	require.Equal(t, hexutil.Uint(0), *count)
 }
 
 func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
