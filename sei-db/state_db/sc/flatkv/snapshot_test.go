@@ -314,8 +314,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	accountDBPath := filepath.Join(snapDir, accountDBDir)
 	db, err := pebbledb.Open(t.Context(), accountDBPath, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	lagMeta := &LocalMeta{CommittedVersion: 1}
-	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
@@ -1400,13 +1399,13 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	workingMeta := filepath.Join(dbDir, "working", metadataDir)
 	db, err := pebbledb.Open(context.Background(), workingMeta, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	require.NoError(t, db.Set([]byte(MetaGlobalVersion), []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	snapMeta := filepath.Join(dbDir, snapshotName(1), metadataDir)
 	db2, err := pebbledb.Open(context.Background(), snapMeta, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	require.NoError(t, db2.Set([]byte(MetaGlobalVersion), []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
@@ -1462,18 +1461,18 @@ func TestLocalMetaCorruption(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
-	// Corrupt accountDB LocalMeta in working dir: write 3 garbage bytes (expected 8).
+	// Corrupt accountDB meta version in working dir: write 3 garbage bytes (expected 8).
 	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
 	db, err := pebbledb.Open(context.Background(), workingAccount, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	require.NoError(t, db.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Same corruption in the snapshot dir.
 	snapAccount := filepath.Join(dbDir, snapshotName(1), accountDBDir)
 	db2, err := pebbledb.Open(context.Background(), snapAccount, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	require.NoError(t, db2.Set(DBLocalMetaKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
 
 	// Remove SNAPSHOT_BASE to force re-clone from corrupted snapshot.
@@ -1481,8 +1480,8 @@ func TestLocalMetaCorruption(t *testing.T) {
 
 	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
 	_, err = s2.LoadVersion(0, false)
-	require.Error(t, err, "open should fail when LocalMeta is corrupted (invalid size)")
-	require.Contains(t, err.Error(), "invalid LocalMeta size")
+	require.Error(t, err, "open should fail when meta version is corrupted")
+	require.Contains(t, err.Error(), "invalid meta version length")
 }
 
 // TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
@@ -1506,9 +1505,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	workingMeta := filepath.Join(dbDir, "working", metadataDir)
 	mdb, err := pebbledb.Open(context.Background(), workingMeta, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	versionBuf := make([]byte, 8)
-	versionBuf[7] = 1 // version = 1
-	require.NoError(t, mdb.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())
 
 	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.

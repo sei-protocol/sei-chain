@@ -4,21 +4,32 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-// DBLocalMetaKey is the key for per-DB local metadata.
-// It is a single-byte key (0x00), which cannot collide with any valid user key
-// because all user keys have minimum length of 20 bytes (EVM address).
-//
-// Invariant: All user keys are >= 20 bytes (address=20, storage=52).
-var DBLocalMetaKey = []byte{0x00}
+const metaKeyPrefix = "_meta/"
 
-// metaKeyLowerBound returns the iterator lower bound that excludes DBLocalMetaKey.
-// Lexicographically: 0x00 (1 byte) < 0x00,0x00 (2 bytes) < any user key (>=20 bytes).
-// This ensures metadata key is excluded while all user keys (even those starting
-// with 0x00) are included.
-func metaKeyLowerBound() []byte {
-	return []byte{0x00, 0x00}
+const (
+	metaVersion = metaKeyPrefix + "version"
+	metaLtHash  = metaKeyPrefix + "hash"
+)
+
+var (
+	metaKeyPrefixBytes = []byte(metaKeyPrefix)
+	metaVersionKey     = []byte(metaVersion)
+	metaLtHashKey      = []byte(metaLtHash)
+)
+
+// isMetaKey reports whether key is a per-DB internal metadata key (not user data).
+//
+// Safety: _meta/ keys are 10–13 bytes; the shortest user key is 20 bytes
+// (an EVM address). Prefix collision would require an address starting with
+// 0x5F6D657461 ("_meta") — probability ~2^-48 for random addresses and
+// negligible even under CREATE2 brute-force. Legacy DB keys must not use
+// the _meta/ prefix.
+func isMetaKey(key []byte) bool {
+	return bytes.HasPrefix(key, metaKeyPrefixBytes)
 }
 
 const (
@@ -27,32 +38,13 @@ const (
 	SlotLen     = 32
 	BalanceLen  = 32
 	NonceLen    = 8
-
-	// localMetaSize is the serialized size of LocalMeta (version = 8 bytes)
-	localMetaSize = 8
 )
 
 // LocalMeta stores per-DB version tracking metadata.
-// Stored inside each DB at DBLocalMetaKey (0x00).
+// Version is stored at _meta/version, LtHash at _meta/hash.
 type LocalMeta struct {
-	CommittedVersion int64 // Current committed version in this DB
-}
-
-// MarshalLocalMeta encodes LocalMeta as fixed 8 bytes (big-endian).
-func MarshalLocalMeta(m *LocalMeta) []byte {
-	buf := make([]byte, localMetaSize)
-	binary.BigEndian.PutUint64(buf, uint64(m.CommittedVersion)) //nolint:gosec // version is always non-negative
-	return buf
-}
-
-// UnmarshalLocalMeta decodes LocalMeta from bytes.
-func UnmarshalLocalMeta(data []byte) (*LocalMeta, error) {
-	if len(data) != localMetaSize {
-		return nil, fmt.Errorf("invalid LocalMeta size: got %d, want %d", len(data), localMetaSize)
-	}
-	return &LocalMeta{
-		CommittedVersion: int64(binary.BigEndian.Uint64(data)), //nolint:gosec // version won't exceed int64 max
-	}, nil
+	CommittedVersion int64          // Current committed version in this DB
+	LtHash           *lthash.LtHash // nil for old format (version-only)
 }
 
 // Address is an EVM address (20 bytes).

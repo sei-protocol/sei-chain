@@ -225,17 +225,31 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
 
-	// Combine all pairs and update working LtHash
-	allPairs := make([]lthash.KVPairWithLastValue, 0, len(storagePairs)+len(accountPairs)+len(codePairs)+len(legacyPairs))
-	allPairs = append(allPairs, storagePairs...)
-	allPairs = append(allPairs, accountPairs...)
-	allPairs = append(allPairs, codePairs...)
-	allPairs = append(allPairs, legacyPairs...)
-
-	if len(allPairs) > 0 {
-		newLtHash, _ := lthash.ComputeLtHash(s.workingLtHash, allPairs)
-		s.workingLtHash = newLtHash
+	// Per-DB LTHash updates
+	type dbPairs struct {
+		dir   string
+		pairs []lthash.KVPairWithLastValue
 	}
+	for _, dp := range [4]dbPairs{
+		{storageDBDir, storagePairs},
+		{accountDBDir, accountPairs},
+		{codeDBDir, codePairs},
+		{legacyDBDir, legacyPairs},
+	} {
+		if len(dp.pairs) > 0 {
+			newHash, _ := lthash.ComputeLtHash(s.perDBWorkingLtHash[dp.dir], dp.pairs)
+			s.perDBWorkingLtHash[dp.dir] = newHash
+		}
+	}
+
+	// Global LTHash = sum of per-DB hashes (homomorphic property).
+	// Compute into a fresh hash and swap to avoid a transient empty state
+	// on workingLtHash (safe for future pipelining / async callers).
+	globalHash := lthash.New()
+	for _, dir := range dataDBDirs {
+		globalHash.MixIn(s.perDBWorkingLtHash[dir])
+	}
+	s.workingLtHash = globalHash
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
@@ -335,7 +349,6 @@ func (s *CommitStore) clearPendingWrites() {
 // Also called by catchup to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
-	localMetaBytes := MarshalLocalMeta(&LocalMeta{CommittedVersion: version})
 
 	type pendingCommit struct {
 		dbDir string
@@ -364,8 +377,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		if err := batch.Set(DBLocalMetaKey, localMetaBytes); err != nil {
-			return fmt.Errorf("accountDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[accountDBDir]); err != nil {
+			return fmt.Errorf("accountDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
@@ -401,8 +414,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		if err := batch.Set(DBLocalMetaKey, localMetaBytes); err != nil {
-			return fmt.Errorf("%s local meta set: %w", spec.dir, err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[spec.dir]); err != nil {
+			return fmt.Errorf("%s local meta: %w", spec.dir, err)
 		}
 		pending = append(pending, pendingCommit{spec.dir, batch})
 	}
@@ -430,10 +443,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 
-	// Update in-memory local meta after all commits succeed
-	newLocalMeta := &LocalMeta{CommittedVersion: version}
+	// Update in-memory local meta after all commits succeed.
 	for _, p := range pending {
-		s.localMeta[p.dbDir] = newLocalMeta
+		s.localMeta[p.dbDir] = &LocalMeta{
+			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
+		}
 	}
 	return nil
 }

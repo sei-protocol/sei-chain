@@ -42,12 +42,11 @@ const (
 
 	readOnlyDirPrefix = "readonly-"
 
-	// Metadata DB keys
-	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
-	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
-
 	flatkvMeterName = "seidb_flatkv"
 )
+
+// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
+var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
 type pendingKVWrite struct {
@@ -92,6 +91,11 @@ type CommitStore struct {
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
 
+	// Per-DB working LTHash tracking. Authoritative copies live in each
+	// DB's LocalMeta (atomically committed with data). On startup the
+	// working hashes are loaded from LocalMeta.
+	perDBWorkingLtHash map[string]*lthash.LtHash
+
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
 	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
@@ -126,18 +130,19 @@ func NewCommitStore(
 	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
-		ctx:               ctx,
-		config:            cfg,
-		dbDir:             dbDir,
-		localMeta:         make(map[string]*LocalMeta),
-		accountWrites:     make(map[string]*pendingAccountWrite),
-		codeWrites:        make(map[string]*pendingKVWrite),
-		storageWrites:     make(map[string]*pendingKVWrite),
-		legacyWrites:      make(map[string]*pendingKVWrite),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		ctx:                ctx,
+		config:             cfg,
+		dbDir:              dbDir,
+		localMeta:          make(map[string]*LocalMeta),
+		accountWrites:      make(map[string]*pendingAccountWrite),
+		codeWrites:         make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*pendingKVWrite),
+		legacyWrites:       make(map[string]*pendingKVWrite),
+		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
+		committedLtHash:    lthash.New(),
+		workingLtHash:      lthash.New(),
+		perDBWorkingLtHash: newPerDBLtHashMap(),
+		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -500,6 +505,26 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
+
+	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// If any DB's version is behind the global version (partial commit or
+	// corruption), lower committedVersion so catchup replays from there.
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta != nil && meta.LtHash != nil {
+			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+		} else {
+			s.perDBWorkingLtHash[dbDir] = lthash.New()
+		}
+		if meta != nil && meta.CommittedVersion < s.committedVersion {
+			logger.Warn("DB LocalMeta version behind global version, will catchup",
+				"db", dbDir,
+				"localVersion", meta.CommittedVersion,
+				"globalVersion", s.committedVersion)
+			s.committedVersion = meta.CommittedVersion
+		}
+	}
+
 	return nil
 }
 
