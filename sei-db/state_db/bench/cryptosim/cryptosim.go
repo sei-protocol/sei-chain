@@ -18,8 +18,9 @@ const (
 
 // EVM key sizes (matches sei-db/common/evm).
 const (
-	AddressLen = 20 // EVM address length
-	SlotLen    = 32 // EVM storage slot length
+	AddressLen    = 20 // EVM address length
+	SlotLen       = 32 // EVM storage slot length
+	StorageKeyLen = AddressLen + SlotLen
 )
 
 // The test runner for the cryptosim benchmark.
