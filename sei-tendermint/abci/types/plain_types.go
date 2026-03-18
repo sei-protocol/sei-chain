@@ -352,27 +352,6 @@ func (m *RequestInfo) GetVersion() string {
 	return ""
 }
 
-func (m *RequestInfo) GetBlockVersion() uint64 {
-	if m != nil {
-		return m.BlockVersion
-	}
-	return 0
-}
-
-func (m *RequestInfo) GetP2PVersion() uint64 {
-	if m != nil {
-		return m.P2PVersion
-	}
-	return 0
-}
-
-func (m *RequestInfo) GetAbciVersion() string {
-	if m != nil {
-		return m.AbciVersion
-	}
-	return ""
-}
-
 func (m *RequestInitChain) GetTime() time.Time {
 	if m != nil {
 		return m.Time
@@ -401,13 +380,6 @@ func (m *RequestInitChain) GetValidators() []ValidatorUpdate {
 	return nil
 }
 
-func (m *RequestInitChain) GetAppStateBytes() []byte {
-	if m != nil {
-		return m.AppStateBytes
-	}
-	return nil
-}
-
 func (m *RequestInitChain) GetInitialHeight() int64 {
 	if m != nil {
 		return m.InitialHeight
@@ -432,20 +404,6 @@ func (m *RequestQuery) GetPath() string {
 func (m *RequestQuery) GetHeight() int64 {
 	if m != nil {
 		return m.Height
-	}
-	return 0
-}
-
-func (m *RequestQuery) GetProve() bool {
-	if m != nil {
-		return m.Prove
-	}
-	return false
-}
-
-func (m *RequestPrepareProposal) GetMaxTxBytes() int64 {
-	if m != nil {
-		return m.MaxTxBytes
 	}
 	return 0
 }
@@ -527,27 +485,6 @@ func (m *RequestPrepareProposal) GetEvidenceHash() []byte {
 	return nil
 }
 
-func (m *RequestPrepareProposal) GetLastBlockHash() []byte {
-	if m != nil {
-		return m.LastBlockHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetLastBlockPartSetTotal() int64 {
-	if m != nil {
-		return m.LastBlockPartSetTotal
-	}
-	return 0
-}
-
-func (m *RequestPrepareProposal) GetLastBlockPartSetHash() []byte {
-	if m != nil {
-		return m.LastBlockPartSetHash
-	}
-	return nil
-}
-
 func (m *RequestPrepareProposal) GetLastCommitHash() []byte {
 	if m != nil {
 		return m.LastCommitHash
@@ -562,25 +499,11 @@ func (m *RequestPrepareProposal) GetLastResultsHash() []byte {
 	return nil
 }
 
-func (m *RequestPrepareProposal) GetLocalLastCommitInfo() CommitInfo {
-	if m != nil {
-		return m.LocalLastCommitInfo
-	}
-	return CommitInfo{}
-}
-
 func (m *RequestBeginBlock) GetHash() []byte {
 	if m != nil {
 		return m.Hash
 	}
 	return nil
-}
-
-func (m *RequestBeginBlock) GetLastCommitInfo() LastCommitInfo {
-	if m != nil {
-		return m.LastCommitInfo
-	}
-	return LastCommitInfo{}
 }
 
 func (m *RequestBeginBlock) GetByzantineValidators() []Evidence {
@@ -590,23 +513,9 @@ func (m *RequestBeginBlock) GetByzantineValidators() []Evidence {
 	return nil
 }
 
-func (m *RequestBeginBlock) GetSimulate() bool {
-	if m != nil {
-		return m.Simulate
-	}
-	return false
-}
-
 func (m *RequestEndBlock) GetHeight() int64 {
 	if m != nil {
 		return m.Height
-	}
-	return 0
-}
-
-func (m *RequestEndBlock) GetBlockGasUsed() int64 {
-	if m != nil {
-		return m.BlockGasUsed
 	}
 	return 0
 }
@@ -642,13 +551,6 @@ func (m *ResponseInitChain) GetValidators() []ValidatorUpdate {
 func (m *ResponseInitChain) GetAppHash() []byte {
 	if m != nil {
 		return m.AppHash
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetTxRecords() []*TxRecord {
-	if m != nil {
-		return m.TxRecords
 	}
 	return nil
 }
@@ -735,13 +637,6 @@ func (m *VoteInfo) GetValidator() Validator {
 		return m.Validator
 	}
 	return Validator{}
-}
-
-func (m *VoteInfo) GetSignedLastBlock() bool {
-	if m != nil {
-		return m.SignedLastBlock
-	}
-	return false
 }
 
 func (m *Misbehavior) GetType() MisbehaviorType {
