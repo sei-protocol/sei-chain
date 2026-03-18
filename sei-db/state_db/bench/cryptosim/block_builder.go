@@ -69,6 +69,21 @@ func (b *blockBuilder) buildBlock() *block {
 			continue
 		}
 		blk.AddTransaction(txn)
+
+		if b.config.GenerateReceipts {
+			receipt, err := BuildERC20TransferReceiptFromTxn(
+				b.dataGenerator.Rand(),
+				b.dataGenerator.FeeCollectionAddress(),
+				uint64(blk.BlockNumber()), //nolint:gosec
+				uint32(i),                 //nolint:gosec
+				txn,
+			)
+			if err != nil {
+				fmt.Printf("failed to build receipt: %v\n", err)
+				continue
+			}
+			blk.AddReceipt(receipt)
+		}
 	}
 
 	blk.SetBlockAccountStats(

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
@@ -67,6 +68,9 @@ type CryptoSimConfig struct {
 
 	// The size of a simulated ERC20 storage slot, in bytes.
 	Erc20StorageSlotSize int
+
+	// The size of a simulated account balance, in bytes.
+	AccountBalanceSize int
 
 	// The number of ERC20 tokens that each account will interact with.
 	// Each account will have an eth storage slot for tracking the balance of each ERC20 token it owns.
@@ -135,6 +139,38 @@ type CryptoSimConfig struct {
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
+
+	// If true, the benchmark will generate receipts for each transaction in each block and
+	// feed those receipts into the receipt store.
+	GenerateReceipts bool
+
+	// The capacity of the channel that holds blocks sent to the receipt store.
+	RecieptChannelCapacity int
+
+	// If true, disables simulation of transaction execution, and writes very little to the database. This is
+	// potentially useful when benchmarking things other than state storage (e.g. the receipt store).
+	//
+	// Note that switching execution on after previously running with execution disabled may result in buggy behavior,
+	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
+	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
+	DisableTransactionExecution bool
+
+	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
+	MaxTPS float64
+
+	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
+	ReceiptKeepRecent int64
+
+	// Interval in seconds between prune checks. 0 disables pruning.
+	ReceiptPruneIntervalSeconds int64
+
+	// Directory for seilog output files. Independent of DataDir so logs and data
+	// live in separate trees. Supports ~ expansion and relative paths (resolved
+	// from cwd). Must be set, there is no default.
+	LogDir string
+
+	// Log level for seilog output. Valid values: debug, info, warn, error.
+	LogLevel string
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -150,12 +186,13 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
 		NewAccountProbability:             0.001,
-		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
 		HotErc20ContractSetSize:           100,
 		Erc20ContractSize:                 1024 * 2, // 2kb
 		Erc20StorageSlotSize:              32,
+		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
 		BlocksPerCommit:                   1,
@@ -174,6 +211,13 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
 		BlockChannelCapacity:              8,
+		GenerateReceipts:                  false,
+		RecieptChannelCapacity:            32,
+		DisableTransactionExecution:       false,
+		MaxTPS:                            0,
+		ReceiptKeepRecent:                 100_000,
+		ReceiptPruneIntervalSeconds:       600,
+		LogLevel:                          "info",
 	}
 }
 
@@ -190,6 +234,9 @@ func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
 func (c *CryptoSimConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")
+	}
+	if c.LogDir == "" {
+		return fmt.Errorf("LogDir is required")
 	}
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)
@@ -248,6 +295,17 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BlockChannelCapacity < 1 {
 		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
+	if c.RecieptChannelCapacity < 1 {
+		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
+	}
+	if c.MaxTPS < 0 {
+		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
+	switch strings.ToLower(c.LogLevel) {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
 	}
 
 	return nil
