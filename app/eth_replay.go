@@ -77,8 +77,9 @@ func Replay(a *App) {
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Hash:              hash,
 			Header: &tmproto.Header{
-				Height: h,
-				Time:   time.Now(),
+				ChainID: a.ChainID,
+				Height:  h,
+				Time:    time.Now(),
 			},
 		})
 		if err != nil {
