@@ -1224,7 +1224,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// by recording the decoding results and avoid decoding again later on.
 
 	if !app.checkTotalBlockGas(ctx, req.Txs) {
-		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
+		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
@@ -1235,7 +1235,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	if shouldStartOptimisticProcessing {
 		completionSignal := make(chan struct{}, 1)
 		app.optimisticProcessingInfo = OptimisticProcessingInfo{
-			Height:     req.Height,
+			Height:     req.Header.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
