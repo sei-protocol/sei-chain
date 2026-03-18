@@ -165,3 +165,23 @@ func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
 		},
 	)
 }
+
+func TestTraceBlockWithFailureThenSuccessDefaultTracer(t *testing.T) {
+	maxUseiInWei := sdk.NewInt(math.MaxInt64).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+	insufficientFundsTx := signAndEncodeTx(sendAmount(0, maxUseiInWei), mnemonic1)
+	successTx := signAndEncodeTx(send(1), mnemonic1)
+	SetupTestServer(t, [][][]byte{{insufficientFundsTx, successTx}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2")
+			require.NotContains(t, res, "error")
+
+			traces := res["result"].([]interface{})
+			require.Len(t, traces, 2)
+			require.Empty(t, traces[0].(map[string]interface{})["error"])
+			require.Empty(t, traces[0].(map[string]interface{})["result"].(map[string]interface{}))
+			secondTrace := traces[1].(map[string]interface{})["result"].(map[string]interface{})
+			require.Equal(t, float64(21000), secondTrace["gas"])
+			require.Equal(t, false, secondTrace["failed"])
+		},
+	)
+}
