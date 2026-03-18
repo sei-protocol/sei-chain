@@ -140,20 +140,16 @@ func (txn *transaction) Execute(
 	phaseTimer.SetPhase("read_src_account")
 
 	// Read the sender's native balance / nonce / codehash.
-	srcAccountValue, found, err := database.Get(txn.srcAccount)
+	_, found, err = database.Get(txn.srcAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
 	}
-	srcAccountValueCopy := make([]byte, len(srcAccountValue))
-	copy(srcAccountValueCopy, srcAccountValue)
-	srcAccountValue = srcAccountValueCopy
 
 	if txn.isSrcNew {
 		// This is a new account, so we should not find it in the DB.
 		if found {
 			return fmt.Errorf("should not find source account in DB, account should be new")
 		}
-		srcAccountValue = txn.newSrcData
 	} else {
 		// This is an existing account, so we should find it in the DB.
 		if !found {
@@ -164,7 +160,7 @@ func (txn *transaction) Execute(
 	phaseTimer.SetPhase("read_dst_account")
 
 	// Read the receiver's native balance.
-	dstAccountValue, found, err := database.Get(txn.dstAccount)
+	_, found, err = database.Get(txn.dstAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account: %w", err)
 	}
@@ -173,16 +169,12 @@ func (txn *transaction) Execute(
 		if found {
 			return fmt.Errorf("should not find destination account in DB, account should be new")
 		}
-		dstAccountValue = txn.newDstData
 	} else {
 		// This is an existing account, so we should find it in the DB.
 		if !found {
 			return fmt.Errorf("destination account not found")
 		}
 	}
-	dstAccountValueCopy := make([]byte, len(dstAccountValue))
-	copy(dstAccountValueCopy, dstAccountValue)
-	dstAccountValue = dstAccountValueCopy
 
 	phaseTimer.SetPhase("read_src_account_slot")
 
@@ -205,16 +197,13 @@ func (txn *transaction) Execute(
 	phaseTimer.SetPhase("read_fee_collection_account")
 
 	// Read the fee collection account's native balance.
-	feeValue, found, err := database.Get(feeCollectionAddress)
+	_, found, err = database.Get(feeCollectionAddress)
 	if err != nil {
 		return fmt.Errorf("failed to get fee collection account: %w", err)
 	}
 	if !found {
 		return fmt.Errorf("fee collection account not found")
 	}
-	feeValueCopy := make([]byte, len(feeValue))
-	copy(feeValueCopy, feeValue)
-	feeValue = feeValueCopy
 
 	phaseTimer.SetPhase("update_balances")
 
