@@ -25,6 +25,12 @@ var receiptWriteLatencyBuckets = []float64{
 	0.1, 0.25, 0.5, 0.75, 1, 2.5, 5,
 }
 
+var receiptReadLatencyBuckets = []float64{
+	0.00001, 0.00005, 0.0001, 0.00025, 0.0005,
+	0.001, 0.0025, 0.005, 0.01, 0.025,
+	0.05, 0.1, 0.25, 0.5, 1,
+}
+
 // CryptosimMetrics holds OpenTelemetry metrics for the cryptosim benchmark.
 // Metrics are exported via whatever exporter is configured on the global OTel
 // MeterProvider (e.g., Prometheus, OTLP). This package does not import Prometheus.
@@ -56,6 +62,8 @@ type CryptosimMetrics struct {
 	receiptReadsTotal         metric.Int64Counter
 	receiptCacheHitsTotal     metric.Int64Counter
 	receiptCacheMissesTotal   metric.Int64Counter
+	receiptReadsFoundTotal    metric.Int64Counter
+	receiptReadsNotFoundTotal metric.Int64Counter
 	receiptLogFilterDuration  metric.Float64Histogram
 
 	mainThreadPhase              *metrics.PhaseTimer
@@ -180,7 +188,8 @@ func NewCryptosimMetrics(
 	)
 	receiptReadDuration, _ := meter.Float64Histogram(
 		"cryptosim_receipt_read_duration_seconds",
-		metric.WithDescription("DuckDB receipt read latency (cache misses only)"),
+		metric.WithDescription("End-to-end receipt read latency (includes cache layer)"),
+		metric.WithExplicitBucketBoundaries(receiptReadLatencyBuckets...),
 		metric.WithUnit("s"),
 	)
 	receiptReadsTotal, _ := meter.Int64Counter(
@@ -195,7 +204,17 @@ func NewCryptosimMetrics(
 	)
 	receiptCacheMissesTotal, _ := meter.Int64Counter(
 		"cryptosim_receipt_cache_misses_total",
-		metric.WithDescription("Receipt reads that went to DuckDB"),
+		metric.WithDescription("Receipt reads that missed the in-memory ledger cache and fell through to the backend"),
+		metric.WithUnit("{count}"),
+	)
+	receiptReadsFoundTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_found_total",
+		metric.WithDescription("Receipt reads that returned a receipt"),
+		metric.WithUnit("{count}"),
+	)
+	receiptReadsNotFoundTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_not_found_total",
+		metric.WithDescription("Receipt reads that returned no receipt because the hash was absent or pruned"),
 		metric.WithUnit("{count}"),
 	)
 	receiptLogFilterDuration, _ := meter.Float64Histogram(
@@ -236,6 +255,8 @@ func NewCryptosimMetrics(
 		receiptReadsTotal:            receiptReadsTotal,
 		receiptCacheHitsTotal:        receiptCacheHitsTotal,
 		receiptCacheMissesTotal:      receiptCacheMissesTotal,
+		receiptReadsFoundTotal:       receiptReadsFoundTotal,
+		receiptReadsNotFoundTotal:    receiptReadsNotFoundTotal,
 		receiptLogFilterDuration:     receiptLogFilterDuration,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
@@ -522,6 +543,20 @@ func (m *CryptosimMetrics) ReportReceiptCacheMiss() {
 		return
 	}
 	m.receiptCacheMissesTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptReadFound() {
+	if m == nil || m.receiptReadsFoundTotal == nil {
+		return
+	}
+	m.receiptReadsFoundTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptReadNotFound() {
+	if m == nil || m.receiptReadsNotFoundTotal == nil {
+		return
+	}
+	m.receiptReadsNotFoundTotal.Add(context.Background(), 1)
 }
 
 func (m *CryptosimMetrics) RecordReceiptLogFilterDuration(seconds float64) {

@@ -169,6 +169,14 @@ type CryptoSimConfig struct {
 	// Log filter queries scan a block range by contract address and are more expensive than receipt lookups.
 	ReceiptLogFilterRatio float64
 
+	// Exponent controlling the recency bias of receipt reads (power-law distribution).
+	// 1.0 = uniform across the unpruned range; higher values skew reads toward recent blocks.
+	// With 3.0, ~50% of reads target the most recent 20% of blocks.
+	// With 5.0, ~50% of reads target the most recent 13% of blocks.
+	// This models real-world traffic where block explorers and dApps poll recent transactions
+	// far more often than old ones.
+	ReceiptReadRecencyExponent float64
+
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
 	ReceiptKeepRecent int64
 
@@ -221,6 +229,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadsPerSecond:             1000,
 		ReceiptColdReadRatio:              0.1,
 		ReceiptLogFilterRatio:             0.05,
+		ReceiptReadRecencyExponent:        3.0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 	}
@@ -312,6 +321,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptReadConcurrency < 0 {
 		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
+	}
+	if c.ReceiptReadRecencyExponent < 1 {
+		return fmt.Errorf("ReceiptReadRecencyExponent must be >= 1.0 (got %f)", c.ReceiptReadRecencyExponent)
 	}
 	return nil
 }

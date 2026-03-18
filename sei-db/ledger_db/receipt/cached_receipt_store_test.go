@@ -18,6 +18,19 @@ type fakeReceiptBackend struct {
 	filterLogCalls  int
 }
 
+type fakeReceiptReadObserver struct {
+	cacheHits   int
+	cacheMisses int
+}
+
+func (f *fakeReceiptReadObserver) ReportReceiptCacheHit() {
+	f.cacheHits++
+}
+
+func (f *fakeReceiptReadObserver) ReportReceiptCacheMiss() {
+	f.cacheMisses++
+}
+
 func newFakeReceiptBackend() *fakeReceiptBackend {
 	return &fakeReceiptBackend{
 		receipts: make(map[common.Hash]*types.Receipt),
@@ -70,7 +83,7 @@ func (f *fakeReceiptBackend) Close() error {
 func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	txHash := common.HexToHash("0x1")
 	addr := common.HexToAddress("0x100")
@@ -89,7 +102,7 @@ func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
 func TestCachedReceiptStoreFilterLogsDelegates(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	txHash := common.HexToHash("0x2")
 	addr := common.HexToAddress("0x200")
@@ -124,7 +137,7 @@ func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
 			Index:       0,
 		},
 	}
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	receiptA := makeTestReceipt(common.HexToHash("0xa"), 11, 1, common.HexToAddress("0x210"), []common.Hash{common.HexToHash("0x1")})
 	receiptB := makeTestReceipt(common.HexToHash("0xb"), 11, 0, common.HexToAddress("0x220"), []common.Hash{common.HexToHash("0x2")})
@@ -142,4 +155,37 @@ func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
 	require.Equal(t, uint64(11), logs[2].BlockNumber)
 	require.Equal(t, uint(1), logs[2].TxIndex)
 	require.Equal(t, uint64(12), logs[3].BlockNumber)
+}
+
+func TestCachedReceiptStoreReportsCacheHit(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	observer := &fakeReceiptReadObserver{}
+	store := newCachedReceiptStore(backend, observer)
+
+	txHash := common.HexToHash("0x10")
+	receipt := makeTestReceipt(txHash, 7, 1, common.HexToAddress("0x100"), nil)
+
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
+
+	backend.getReceiptCalls = 0
+	got, err := store.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+	require.Equal(t, 0, backend.getReceiptCalls)
+	require.Equal(t, 1, observer.cacheHits)
+	require.Equal(t, 0, observer.cacheMisses)
+}
+
+func TestCachedReceiptStoreReportsCacheMiss(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	observer := &fakeReceiptReadObserver{}
+	store := newCachedReceiptStore(backend, observer)
+
+	_, err := store.GetReceipt(ctx, common.HexToHash("0x404"))
+	require.ErrorIs(t, err, ErrNotFound)
+	require.Equal(t, 1, backend.getReceiptCalls)
+	require.Equal(t, 0, observer.cacheHits)
+	require.Equal(t, 1, observer.cacheMisses)
 }

@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"path/filepath"
 	"sync"
@@ -112,7 +113,9 @@ func NewRecieptStoreSimulator(
 	}
 
 	// nil StoreKey is safe: the parquet write path never touches the legacy KV store.
-	store, err := receipt.NewReceiptStore(storeCfg, nil)
+	// Cryptosim passes its metrics as a read observer so cache hits/misses are measured
+	// at the cache wrapper, which is the only layer that can distinguish them reliably.
+	store, err := receipt.NewReceiptStoreWithReadObserver(storeCfg, nil, metrics)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create receipt store: %w", err)
@@ -275,10 +278,18 @@ func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
 
 // executeReceiptRead reconstructs a tx hash from a random (block, txIndex) pair and queries it.
 //
-// The valid block range is [max(1, latest - KeepRecent + 1), latest]. Hashes outside this
-// range may have been pruned — that's fine, the query simply returns no result and we
-// count it as a miss. No ring buffer or hash storage is needed because SyntheticTxHash
-// can recompute any hash from its coordinates alone (see receipt.go).
+// Block selection uses a power-law recency bias controlled by ReceiptReadRecencyExponent:
+//
+//	offset = u^exponent * blockRange,  where u ~ Uniform[0, 1)
+//
+// The exponent skews u toward 0, so most offsets are small (recent blocks).
+// With exponent=1.0 this degenerates to uniform; with 3.0, ~50% of reads land in the
+// most recent 20% of blocks — matching real-world traffic where block explorers and
+// dApps query recent transactions far more than old ones. Cache-hit rates and DuckDB
+// query latency both depend heavily on this distribution.
+//
+// No ring buffer or hash storage is needed because SyntheticTxHash can recompute any
+// hash from its (block, txIndex) coordinates alone (see receipt.go).
 func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 	latestBlock := r.store.LatestVersion()
 	if latestBlock <= 0 {
@@ -291,7 +302,15 @@ func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 	}
 
 	blockRange := latestBlock - earliestBlock + 1
-	randomBlock := earliestBlock + rng.Int63n(blockRange)
+
+	// Power-law recency bias: u^exponent maps uniform [0,1) toward 0 (recent).
+	// offset=0 means latestBlock; offset=blockRange-1 means earliestBlock.
+	u := rng.Float64()
+	offset := int64(math.Pow(u, r.config.ReceiptReadRecencyExponent) * float64(blockRange))
+	if offset >= blockRange {
+		offset = blockRange - 1
+	}
+	randomBlock := latestBlock - offset
 	randomTxIdx := rng.Intn(r.config.TransactionsPerBlock)
 
 	hashBytes := SyntheticTxHash(r.crand, uint64(randomBlock), uint32(randomTxIdx)) //nolint:gosec
@@ -301,12 +320,18 @@ func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 
 	sdkCtx := sdk.NewContext(nil, tmproto.Header{}, false)
 	start := time.Now()
-	_, err := r.store.GetReceipt(sdkCtx, txHash)
+	rcpt, err := r.store.GetReceipt(sdkCtx, txHash)
 	r.metrics.RecordReceiptReadDuration(time.Since(start).Seconds())
 
 	if err != nil {
 		r.metrics.ReportReceiptError()
+		return
 	}
+	if rcpt != nil {
+		r.metrics.ReportReceiptReadFound()
+		return
+	}
+	r.metrics.ReportReceiptReadNotFound()
 }
 
 // executeLogFilterRead simulates an eth_getLogs query filtering by contract address

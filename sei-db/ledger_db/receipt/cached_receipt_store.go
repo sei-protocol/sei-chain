@@ -28,9 +28,10 @@ type cachedReceiptStore struct {
 	cacheRotateInterval uint64
 	cacheNextRotate     uint64
 	cacheMu             sync.Mutex
+	readObserver        ReceiptReadObserver
 }
 
-func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
+func newCachedReceiptStore(backend ReceiptStore, observer ReceiptReadObserver) ReceiptStore {
 	if backend == nil {
 		return nil
 	}
@@ -44,6 +45,7 @@ func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 		backend:             backend,
 		cache:               newLedgerCache(),
 		cacheRotateInterval: interval,
+		readObserver:        observer,
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
 		store.cacheReceipts(provider.warmupReceipts())
@@ -65,15 +67,19 @@ func (s *cachedReceiptStore) SetEarliestVersion(version int64) error {
 
 func (s *cachedReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+		s.reportCacheHit()
 		return receipt, nil
 	}
+	s.reportCacheMiss()
 	return s.backend.GetReceipt(ctx, txHash)
 }
 
 func (s *cachedReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+		s.reportCacheHit()
 		return receipt, nil
 	}
+	s.reportCacheMiss()
 	return s.backend.GetReceiptFromStore(ctx, txHash)
 }
 
@@ -218,5 +224,17 @@ func (s *cachedReceiptStore) maybeRotateCacheLocked(blockNumber uint64) {
 	for blockNumber >= s.cacheNextRotate {
 		s.cache.Rotate()
 		s.cacheNextRotate += s.cacheRotateInterval
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheHit() {
+	if s.readObserver != nil {
+		s.readObserver.ReportReceiptCacheHit()
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheMiss() {
+	if s.readObserver != nil {
+		s.readObserver.ReportReceiptCacheMiss()
 	}
 }
