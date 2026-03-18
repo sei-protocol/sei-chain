@@ -82,6 +82,57 @@ func TestBuildERC20TransferReceipt_InvalidInputs(t *testing.T) {
 	}
 }
 
+// Regression test: account keys with EVMKeyCode prefix must still be accepted.
+func TestBuildERC20TransferReceipt_EVMKeyCodeAccounts(t *testing.T) {
+	crand := NewCannedRandom(1<<20, 42)
+	keyRand := NewCannedRandom(4096, 1)
+
+	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
+	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
+	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAddr)
+	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 2, AddressLen))
+
+	senderSlotBytes := make([]byte, StorageKeyLen)
+	copy(senderSlotBytes[:AddressLen], srcAddr)
+	copy(senderSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 11))
+	senderSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, senderSlotBytes)
+
+	receiverSlotBytes := make([]byte, StorageKeyLen)
+	copy(receiverSlotBytes[:AddressLen], keyRand.Address(accountPrefix, 2, AddressLen))
+	copy(receiverSlotBytes[AddressLen:], keyRand.SeededBytes(SlotLen, 12))
+	receiverSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, receiverSlotBytes)
+
+	erc20Contract := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(contractPrefix, 0, AddressLen))
+
+	_, err := BuildERC20TransferReceipt(crand, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0)
+	if err != nil {
+		t.Fatalf("EVMKeyCode accounts should be accepted: %v", err)
+	}
+}
+
+// Regression test: uses the exact key formats produced by data_generator.go
+// (EVMKeyCodeHash for accounts, EVMKeyStorage with full StorageKeyLen payload).
+func TestBuildERC20TransferReceipt_DataGeneratorKeyFormats(t *testing.T) {
+	crand := NewCannedRandom(1<<20, 42)
+	keyRand := NewCannedRandom(4096, 1)
+
+	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
+	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 1, AddressLen))
+	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 2, AddressLen))
+
+	senderSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, keyRand.Address(ethStoragePrefix, 10, StorageKeyLen))
+	receiverSlot := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, keyRand.Address(ethStoragePrefix, 20, StorageKeyLen))
+	erc20Contract := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(contractPrefix, 0, AddressLen))
+
+	receipt, err := BuildERC20TransferReceipt(crand, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0)
+	if err != nil {
+		t.Fatalf("data_generator key formats should be accepted: %v", err)
+	}
+	if receipt.Status != uint32(ethtypes.ReceiptStatusSuccessful) {
+		t.Errorf("expected successful status, got %d", receipt.Status)
+	}
+}
+
 func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
 	keyRand := NewCannedRandom(4096, 1)
 	receiptRand := NewCannedRandom(1<<20, 2)
