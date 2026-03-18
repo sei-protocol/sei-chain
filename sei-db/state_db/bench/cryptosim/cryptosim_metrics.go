@@ -440,11 +440,11 @@ func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
 	m.mainThreadPhase.SetPhase(phase)
 }
 
-func (m *CryptosimMetrics) RecordReceiptBlockWriteDuration(seconds float64) {
+func (m *CryptosimMetrics) RecordReceiptBlockWriteDuration(latency time.Duration) {
 	if m == nil || m.receiptBlockWriteDuration == nil {
 		return
 	}
-	m.receiptBlockWriteDuration.Record(context.Background(), seconds)
+	m.receiptBlockWriteDuration.Record(context.Background(), latency.Seconds())
 }
 
 func (m *CryptosimMetrics) ReportReceiptsWritten(count int64) {
