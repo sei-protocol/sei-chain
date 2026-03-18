@@ -11,11 +11,11 @@ func makeTestKeys(t *testing.T) (feeAccount, srcAccount, dstAccount, senderSlot,
 	t.Helper()
 	keyRand := NewCannedRandom(4096, 1)
 
-	feeAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
+	feeAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
-	srcAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAddr)
+	srcAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, srcAddr)
 	dstAddr := keyRand.Address(accountPrefix, 2, AddressLen)
-	dstAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, dstAddr)
+	dstAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, dstAddr)
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
 	copy(senderSlotBytes[:AddressLen], srcAddr)
@@ -86,11 +86,11 @@ func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
 	keyRand := NewCannedRandom(4096, 1)
 	receiptRand := NewCannedRandom(1<<20, 2)
 
-	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
+	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
-	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, srcAddr)
+	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, srcAddr)
 	dstAddr := keyRand.Address(accountPrefix, 2, AddressLen)
-	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, dstAddr)
+	dstAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, dstAddr)
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
 	copy(senderSlotBytes[:AddressLen], srcAddr)
