@@ -291,12 +291,14 @@ func (chain *TestChain) NextBlock() {
 	}
 
 	_, err := chain.App.FinalizeBlock(chain.Context(), &abci.RequestFinalizeBlock{
-		Height:  chain.App.LastBlockHeight() + 1,
-		Time:    chain.CurrentHeader.Time,
-		AppHash: chain.CurrentHeader.AppHash,
+		Header: &tmproto.Header {
+			Height:  chain.App.LastBlockHeight() + 1,
+			Time:    chain.CurrentHeader.Time,
+			AppHash: chain.CurrentHeader.AppHash,
 
-		ValidatorsHash:     chain.Vals.Hash(),
-		NextValidatorsHash: chain.Vals.Hash(),
+			ValidatorsHash:     chain.Vals.Hash(),
+			NextValidatorsHash: chain.Vals.Hash(),
+		},
 	})
 	require.NoError(chain.T, err)
 }

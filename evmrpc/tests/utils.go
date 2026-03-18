@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -58,8 +59,10 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		res, err := ts.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:    block,
 			Hash:   mockHash(height, 0),
-			Height: height,
-			Time:   blockTime,
+			Header: &tmproto.Header {
+				Height: height,
+				Time:   blockTime,
+			},
 		})
 		if err != nil {
 			panic(err)
@@ -79,8 +82,10 @@ func initializeApp(
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    [][]byte{},
 		Hash:   mockHash(1, 0),
-		Height: 1,
-		Time:   time.Now(),
+		Header: &tmproto.Header {
+			Height: 1,
+			Time:   time.Now(),
+		},
 	})
 	if err != nil {
 		panic(err)
@@ -107,8 +112,10 @@ func SetupTestServer(
 		res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:    block,
 			Hash:   mockHash(height, 0),
-			Height: height,
-			Time:   blockTime,
+			Header: &tmproto.Header {
+				Height: height,
+				Time:   blockTime,
+			},
 		})
 		if err != nil {
 			panic(err)

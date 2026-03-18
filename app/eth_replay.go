@@ -20,6 +20,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -74,9 +75,11 @@ func Replay(a *App) {
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
-			Height:            h,
 			Hash:              hash,
-			Time:              time.Now(),
+			Header: &tmproto.Header {
+				Height:            h,
+				Time:              time.Now(),
+			},
 		})
 		if err != nil {
 			panic(err)
@@ -173,12 +176,14 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		txs := utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               txs,
-			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
-			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
-			Height:            h,
 			Hash:              blockHash[:],
-			LastBlockHash:     parentHash[:],
-			Time:              time.Now(),
+			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
+			Header: &tmproto.Header {
+				ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
+				LastBlockId: tmproto.BlockID { Hash: parentHash[:] },
+				Height:            h,
+				Time:              time.Now(),
+			},
 		})
 		if err != nil {
 			panic(err)
