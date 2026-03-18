@@ -3,11 +3,9 @@ syntax = "proto3";
 package tendermint.abci;
 
 import "gogoproto/gogo.proto";
-import "google/protobuf/timestamp.proto";
 import "tendermint/crypto/keys.proto";
 import "tendermint/crypto/proof.proto";
 import "tendermint/types/params.proto";
-import "tendermint/types/types.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types";
 
@@ -16,99 +14,14 @@ option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types
 // https://github.com/gogo/protobuf/blob/master/custom_types.md#warnings-and-issues
 
 //----------------------------------------
-message RequestEcho {
-  string message = 1;
-}
-
-message RequestFlush {}
-
-message RequestInfo {
-  string version = 1;
-  uint64 block_version = 2;
-  uint64 p2p_version = 3;
-  string abci_version = 4;
-}
-
-message RequestQuery {
-  bytes data = 1;
-  string path = 2;
-  int64 height = 3;
-  bool prove = 4;
-}
-
-message RequestCommit {}
-
-message RequestPrepareProposal {
-  // the modified transactions cannot exceed this size.
-  int64 max_tx_bytes = 1;
-  // txs is an array of transactions that will be included in a block,
-  // sent to the app for possible modifications.
-  repeated bytes txs = 2;
-  reserved 3; // local_last_commit
-  reserved "local_last_commit";
-  repeated Misbehavior byzantine_validators = 4 [(gogoproto.nullable) = false];
-  int64 height = 5;
-  google.protobuf.Timestamp time = 6 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  bytes next_validators_hash = 7;
-  // address of the public key of the validator proposing the block.
-  bytes proposer_address = 8;
-  bytes app_hash = 9;
-  bytes validators_hash = 10;
-  bytes consensus_hash = 11;
-  bytes data_hash = 12;
-  bytes evidence_hash = 13;
-  bytes last_block_hash = 14;
-  int64 last_block_part_set_total = 15;
-  bytes last_block_part_set_hash = 16;
-  bytes last_commit_hash = 17;
-  bytes last_results_hash = 18;
-  CommitInfo local_last_commit_info = 19 [(gogoproto.nullable) = false]; // meant to replace the deprecated ExtendedCommitInfo local_last_commit
-}
-
-message RequestBeginBlock {
-  bytes hash = 1;
-  tendermint.types.Header header = 2 [(gogoproto.nullable) = false];
-  LastCommitInfo last_commit_info = 3 [(gogoproto.nullable) = false];
-  repeated Evidence byzantine_validators = 4 [(gogoproto.nullable) = false];
-  bool simulate = 5;
-}
-
-message RequestEndBlock {
-  int64 height = 1;
-  int64 block_gas_used = 2;
-}
-
-//----------------------------------------
 // nondeterministic
-message ResponseException {
-  string error = 1;
-}
-
-message ResponseEcho {
-  string message = 1;
-}
-
-message ResponseFlush {}
-
 message ResponseInfo {
-  string data = 1;
-
-  // this is the software version of the application. TODO: remove?
+  string data = 1; // nondeterministic
   string version = 2;
   uint64 app_version = 3;
-
   int64 last_block_height = 4;
   bytes last_block_app_hash = 5;
   string minimum_gas_prices = 6;
-}
-
-message ResponseInitChain {
-  tendermint.types.ConsensusParams consensus_params = 1;
-  repeated ValidatorUpdate validators = 2 [(gogoproto.nullable) = false];
-  bytes app_hash = 3;
 }
 
 message ResponseQuery {
@@ -173,14 +86,6 @@ message ResponseCommit {
   int64 retain_height = 3;
 }
 
-message ResponsePrepareProposal {
-  repeated TxRecord tx_records = 1;
-  bytes app_hash = 2;
-  repeated ExecTxResult tx_results = 3;
-  repeated ValidatorUpdate validator_updates = 4;
-  tendermint.types.ConsensusParams consensus_param_updates = 5;
-}
-
 message ResponseFinalizeBlock {
   repeated Event events = 1 [
     (gogoproto.nullable) = false,
@@ -192,22 +97,8 @@ message ResponseFinalizeBlock {
   bytes app_hash = 5;
 }
 
-message ResponseGetTxPriorityHint {
-  int64 priority = 1; // higher is better
-}
-
 //----------------------------------------
 // Misc.
-
-message CommitInfo {
-  int32 round = 1;
-  repeated VoteInfo votes = 2 [(gogoproto.nullable) = false];
-}
-
-message LastCommitInfo {
-  int32 round = 1;
-  repeated VoteInfo votes = 2 [(gogoproto.nullable) = false];
-}
 
 // Event allows application developers to attach additional information to
 // ResponseFinalizeBlock, ResponseDeliverTx, ExecTxResult
@@ -255,17 +146,6 @@ message TxResult {
   ExecTxResult result = 4 [(gogoproto.nullable) = false];
 }
 
-message TxRecord {
-  TxAction action = 1;
-  bytes tx = 2;
-
-  // TxAction contains App-provided information on what to do with a transaction that is part of a raw proposal
-  // Deprecate entire usage: https://github.com/tendermint/tendermint/pull/9283
-  enum TxAction {
-    UNMODIFIED = 0; // The Application did not modify this transaction.
-  }
-}
-
 message BlockParams {
   // Note: must be greater than 0
   int64 max_bytes = 1;
@@ -287,63 +167,16 @@ message ConsensusParams {
 //----------------------------------------
 // Blockchain Types
 
-// Validator
-message Validator {
-  bytes address = 1; // The first 20 bytes of SHA256(public key)
-  // PubKey pub_key = 2 [(gogoproto.nullable)=false];
-  int64 power = 3; // The voting power
-}
-
 // ValidatorUpdate
 message ValidatorUpdate {
   tendermint.crypto.PublicKey pub_key = 1 [(gogoproto.nullable) = false];
   int64 power = 2;
 }
 
-// VoteInfo
-message VoteInfo {
-  Validator validator = 1 [(gogoproto.nullable) = false];
-  bool signed_last_block = 2;
-}
-
 enum MisbehaviorType {
   UNKNOWN = 0;
   DUPLICATE_VOTE = 1;
   LIGHT_CLIENT_ATTACK = 2;
-}
-
-message Misbehavior {
-  MisbehaviorType type = 1;
-  // The offending validator
-  Validator validator = 2 [(gogoproto.nullable) = false];
-  // The height when the offense occurred
-  int64 height = 3;
-  // The corresponding time where the offense occurred
-  google.protobuf.Timestamp time = 4 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  // Total voting power of the validator set in case the ABCI application does
-  // not store historical validators.
-  // https://github.com/tendermint/tendermint/issues/4581
-  int64 total_voting_power = 5;
-}
-
-message Evidence {
-  MisbehaviorType type = 1;
-  // The offending validator
-  Validator validator = 2 [(gogoproto.nullable) = false];
-  // The height when the offense occurred
-  int64 height = 3;
-  // The corresponding time where the offense occurred
-  google.protobuf.Timestamp time = 4 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  // Total voting power of the validator set in case the ABCI application does
-  // not store historical validators.
-  // https://github.com/tendermint/tendermint/issues/4581
-  int64 total_voting_power = 5;
 }
 
 message EvmTxInfo {
@@ -354,15 +187,4 @@ message EvmTxInfo {
   string txHash = 3;
   // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
   string vmError = 4;
-}
-
-//----------------------------------------
-// State Sync Types
-
-message Snapshot {
-  uint64 height = 1; // The height at which the snapshot was taken
-  uint32 format = 2; // The application-specific snapshot format
-  uint32 chunks = 3; // Number of chunks in the snapshot
-  bytes hash = 4; // Arbitrary snapshot hash, equal only if identical
-  bytes metadata = 5; // Arbitrary application metadata
 }
