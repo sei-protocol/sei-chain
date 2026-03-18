@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -33,6 +34,40 @@ const (
 	SeiNamespace  = "sei"
 	Sei2Namespace = "sei2"
 )
+
+// genesisBlockHashHex is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
+// must recognize this so that count/block-by-hash stay consistent with block-by-number.
+const genesisBlockHashHex = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"
+
+var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
+
+// genesisBlockTxCount is the eth_getBlockTransactionCountByHash result for the genesis block (0 transactions).
+var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
+
+func encodeGenesisBlock() map[string]any {
+	return map[string]any{
+		"number":           (*hexutil.Big)(big.NewInt(0)),
+		"hash":             genesisBlockHashHex,
+		"parentHash":       common.Hash{},
+		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
+		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		"logsBloom":        ethtypes.Bloom{},
+		"stateRoot":        common.Hash{},
+		"miner":            common.Address{},
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(0),
+		"gasUsed":          hexutil.Uint64(0),
+		"timestamp":        hexutil.Uint64(0),
+		"transactionsRoot": common.Hash{},
+		"receiptsRoot":     common.Hash{},
+		"size":             hexutil.Uint64(0),
+		"uncles":           []common.Hash{}, // inapplicable to Sei
+		"transactions":     []any{},
+		"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
+	}
+}
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -143,6 +178,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
+	if blockHash == genesisBlockHash {
+		return genesisBlockTxCount, nil
+	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -158,7 +196,18 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
+
+	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
+	if blockHash == (common.Hash{}) {
+		return nil, nil
+	}
+	if blockHash == genesisBlockHash {
+		return encodeGenesisBlock(), nil
+	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	if errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -181,28 +230,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
-		return map[string]interface{}{
-			"number":           (*hexutil.Big)(big.NewInt(0)),
-			"hash":             "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E",
-			"parentHash":       common.Hash{},
-			"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-			"mixHash":          common.Hash{},           // inapplicable to Sei
-			"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-			"logsBloom":        ethtypes.Bloom{},
-			"stateRoot":        common.Hash{},
-			"miner":            common.Address{},
-			"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-			"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-			"gasLimit":         hexutil.Uint64(0),
-			"gasUsed":          hexutil.Uint64(0),
-			"timestamp":        hexutil.Uint64(0),
-			"transactionsRoot": common.Hash{},
-			"receiptsRoot":     common.Hash{},
-			"size":             hexutil.Uint64(0),
-			"uncles":           []common.Hash{}, // inapplicable to Sei
-			"transactions":     []interface{}{},
-			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
-		}, nil
+		return encodeGenesisBlock(), nil
 	}
 	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, nil)
 }
@@ -241,8 +269,15 @@ func (a *BlockAPI) getBlockByNumber(
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
+	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
+	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
+		return nil, nil
+	}
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
+	if errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
