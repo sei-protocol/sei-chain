@@ -10,6 +10,14 @@ const (
 	slotLen    = 32
 )
 
+// EVMStoreKey is the cosmos store/module name for EVM state.
+const EVMStoreKey = "evm"
+
+// EVMFlatKVStoreKey is the module name used when exporting/importing FlatKV
+// EVM data as a separate module in state-sync snapshots. Both the SC and SS
+// layers need to recognise this name and treat it as EVM data.
+const EVMFlatKVStoreKey = "evm_flatkv"
+
 // EVM key prefixes — mirrored from x/evm/types/keys.go.
 // These are immutable on-disk format markers; changing them would break
 // all existing state, so duplicating here is safe and avoids pulling in the
