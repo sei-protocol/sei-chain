@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -40,6 +41,10 @@ const LatestCtxHeight int64 = -1
 
 // EVM launch block heights for different chains
 const Pacific1EVMLaunchHeight int64 = 79123881
+
+// ErrBlockNotFoundByHash is returned when no block exists for the given hash (e.g. empty or unknown hash).
+// Ethereum-compatible RPCs should return result: null for this case instead of an error.
+var ErrBlockNotFoundByHash = errors.New("block not found by hash")
 
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
@@ -186,7 +191,7 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
+		return nil, ErrBlockNotFoundByHash
 	}
 	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
