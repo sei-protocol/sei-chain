@@ -380,7 +380,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	var version int64
 	metaPath := filepath.Join(flatkvDir, metadataDir)
 	if tmpMeta, err := pebbledb.Open(s.ctx, metaPath, types.OpenOptions{}, s.config.EnablePebbleMetrics); err == nil {
-		verData, verErr := tmpMeta.Get([]byte(MetaGlobalVersion))
+		verData, verErr := tmpMeta.Get(metaVersionKey)
 		_ = tmpMeta.Close()
 		if verErr == nil && len(verData) == 8 {
 			version = int64(binary.BigEndian.Uint64(verData)) //nolint:gosec // block height, always < MaxInt64

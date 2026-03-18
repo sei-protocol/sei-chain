@@ -89,6 +89,10 @@ func (e *KVExporter) Next() (interface{}, error) {
 			continue
 		}
 
+		if isMetaKey(e.currentIter.Key()) {
+			e.currentIter.Next()
+			continue
+		}
 		key := bytes.Clone(e.currentIter.Key())
 		value := bytes.Clone(e.currentIter.Value())
 		e.currentIter.Next()
@@ -123,10 +127,8 @@ func (e *KVExporter) Close() error {
 	return nil
 }
 
-// openIterForDB returns an iterator over all user data in the given DB,
-// excluding internal metadata. metaKeyLowerBound() returns {0x00, 0x00} which
-// skips the single-byte DBLocalMetaKey ({0x00}) while including all user keys
-// (minimum 20 bytes for an EVM address).
+// openIterForDB returns an iterator over all user data in the given DB.
+// Metadata keys are filtered out by isMetaKey() in the iteration loop.
 func (e *KVExporter) openIterForDB(db exportDBKind) (dbtypes.KeyValueDBIterator, error) {
 	var kvDB dbtypes.KeyValueDB
 	switch db {
@@ -144,9 +146,7 @@ func (e *KVExporter) openIterForDB(db exportDBKind) (dbtypes.KeyValueDBIterator,
 	if kvDB == nil {
 		return nil, nil
 	}
-	return kvDB.NewIter(&dbtypes.IterOptions{
-		LowerBound: metaKeyLowerBound(),
-	})
+	return kvDB.NewIter(&dbtypes.IterOptions{})
 }
 
 func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*types.SnapshotNode, error) {

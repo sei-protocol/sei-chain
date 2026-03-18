@@ -22,12 +22,13 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	var pairs []lthash.KVPairWithLastValue
 
 	scanDB := func(db types.KeyValueDB) {
-		iter, err := db.NewIter(&types.IterOptions{
-			LowerBound: metaKeyLowerBound(),
-		})
+		iter, err := db.NewIter(&types.IterOptions{})
 		require.NoError(t, err)
 		defer iter.Close()
 		for iter.First(); iter.Valid(); iter.Next() {
+			if isMetaKey(iter.Key()) {
+				continue
+			}
 			key := bytes.Clone(iter.Key())
 			value := bytes.Clone(iter.Value())
 			pairs = append(pairs, lthash.KVPairWithLastValue{

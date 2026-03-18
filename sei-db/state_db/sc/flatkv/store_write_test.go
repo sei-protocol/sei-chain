@@ -101,11 +101,9 @@ func TestStoreWriteAllDBs(t *testing.T) {
 		"codeDB":    s.codeDB,
 		"legacyDB":  s.legacyDB,
 	} {
-		raw, err := db.Get(DBLocalMetaKey)
-		require.NoError(t, err, "%s LocalMeta read", name)
-		meta, err := UnmarshalLocalMeta(raw)
-		require.NoError(t, err)
-		require.Equal(t, int64(1), meta.CommittedVersion, "%s persisted LocalMeta", name)
+		raw, err := db.Get(metaVersionKey)
+		require.NoError(t, err, "%s meta version read", name)
+		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", name)
 	}
 
 	// Verify storage data was written
@@ -1274,14 +1272,15 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 
 func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	t.Helper()
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: metaKeyLowerBound(),
-	})
+	iter, err := db.NewIter(&types.IterOptions{})
 	require.NoError(t, err)
 	defer iter.Close()
 
 	count := 0
 	for iter.First(); iter.Valid(); iter.Next() {
+		if isMetaKey(iter.Key()) {
+			continue
+		}
 		count++
 	}
 	require.NoError(t, iter.Error())
