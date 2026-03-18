@@ -108,7 +108,7 @@ func TestMsgService(t *testing.T) {
 		}, nil
 	})
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header{Height: 1},
+		Header: &tmproto.Header{ChainID: app.ChainID, Height: 1},
 	})
 
 	msg := testdata.MsgCreateDog{Dog: &testdata.Dog{Name: "Spot"}}
@@ -149,7 +149,7 @@ func TestMsgService(t *testing.T) {
 	txBytes, err := encCfg.TxConfig.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 	res, err := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header{Height: 2},
+		Header: &tmproto.Header{ChainID: app.ChainID, Height: 2},
 		Txs:    [][]byte{txBytes},
 	})
 	require.NoError(t, err)
