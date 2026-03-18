@@ -168,6 +168,7 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Hash: app.LastCommitID().Hash,
 		Header: &tmproto.Header{
+			ChainID:            chainID,
 			Height:             app.LastBlockHeight() + 1,
 			ValidatorsHash:     valSet.Hash(),
 			NextValidatorsHash: valSet.Hash(),

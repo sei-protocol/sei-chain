@@ -60,8 +60,9 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 			Txs:  block,
 			Hash: mockHash(height, 0),
 			Header: &tmproto.Header{
-				Height: height,
-				Time:   blockTime,
+				ChainID: ts.app.ChainID,
+				Height:  height,
+				Time:    blockTime,
 			},
 		})
 		if err != nil {
@@ -83,8 +84,9 @@ func initializeApp(
 		Txs:  [][]byte{},
 		Hash: mockHash(1, 0),
 		Header: &tmproto.Header{
-			Height: 1,
-			Time:   time.Now(),
+			ChainID: chainID,
+			Height:  1,
+			Time:    time.Now(),
 		},
 	})
 	if err != nil {
@@ -113,8 +115,9 @@ func SetupTestServer(
 			Txs:  block,
 			Hash: mockHash(height, 0),
 			Header: &tmproto.Header{
-				Height: height,
-				Time:   blockTime,
+				ChainID: a.ChainID,
+				Height:  height,
+				Time:    blockTime,
 			},
 		})
 		if err != nil {

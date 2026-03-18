@@ -97,6 +97,7 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 		ByzantineValidators: []types.Misbehavior{},
 		Hash:                []byte("abc"), // no needed for application logic
 		Header: &tmproto.Header{
+			ChainID:         a.ChainID,
 			Height:          a.height,
 			ProposerAddress: getValAddress(a.GetProposer()),
 			Time:            time.Now(),

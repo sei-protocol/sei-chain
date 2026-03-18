@@ -72,6 +72,7 @@ func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 		chain.Context(),
 		&abci.RequestFinalizeBlock{
 			Header: &tmproto.Header{
+				ChainID:            chain.ChainID,
 				Height:             chain.App.LastBlockHeight() + 1,
 				Time:               chain.CurrentHeader.Time,
 				AppHash:            chain.CurrentHeader.AppHash,
@@ -207,6 +208,7 @@ func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
 		_, err := chain.App.FinalizeBlock(coord.Context(), &abci.RequestFinalizeBlock{
 			Header: &tmproto.Header{
+				ChainID:            chain.ChainID,
 				Height:             chain.App.LastBlockHeight() + 1,
 				Time:               chain.CurrentHeader.Time,
 				AppHash:            chain.CurrentHeader.AppHash,
