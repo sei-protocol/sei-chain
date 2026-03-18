@@ -361,12 +361,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[accountDBDir],
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("accountDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[accountDBDir]); err != nil {
+			return fmt.Errorf("accountDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
@@ -389,12 +385,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[codeDBDir],
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("codeDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[codeDBDir]); err != nil {
+			return fmt.Errorf("codeDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{codeDBDir, batch})
 	}
@@ -417,12 +409,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[storageDBDir],
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("storageDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[storageDBDir]); err != nil {
+			return fmt.Errorf("storageDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{storageDBDir, batch})
 	}
@@ -445,12 +433,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[legacyDBDir],
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("legacyDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[legacyDBDir]); err != nil {
+			return fmt.Errorf("legacyDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{legacyDBDir, batch})
 	}
@@ -478,11 +462,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 
-	// Update in-memory local meta after all commits succeed
+	// Update in-memory local meta after all commits succeed.
 	for _, p := range pending {
 		s.localMeta[p.dbDir] = &LocalMeta{
 			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[p.dbDir],
+			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
 		}
 	}
 	return nil

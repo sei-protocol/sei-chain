@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"path/filepath"
 	"testing"
 
@@ -16,17 +15,18 @@ import (
 )
 
 // testFullScanDBLtHash computes the LtHash of a single data DB by iterating
-// all KV pairs (excluding the LocalMeta key at 0x00). Test-only helper.
+// all KV pairs (excluding _meta/ metadata keys). Test-only helper.
 func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	t.Helper()
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: metaKeyLowerBound(),
-	})
+	iter, err := db.NewIter(&types.IterOptions{})
 	require.NoError(t, err)
 	defer iter.Close()
 
 	var pairs []lthash.KVPairWithLastValue
 	for iter.First(); iter.Valid(); iter.Next() {
+		if isMetaKey(iter.Key()) {
+			continue
+		}
 		pairs = append(pairs, lthash.KVPairWithLastValue{
 			Key:   bytes.Clone(iter.Key()),
 			Value: bytes.Clone(iter.Value()),
@@ -106,16 +106,13 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 
 	// Roll back metadataDB global version to 1 to simulate crash
 	// after commitBatches completed but before commitGlobalMetadata.
-	flatkvDir := dbDir
-	snapDir, _, err := currentSnapshotDir(flatkvDir)
+	snapDir, _, err := currentSnapshotDir(dbDir)
 	require.NoError(t, err)
 
 	metaDBPath := filepath.Join(snapDir, metadataDir)
 	db, err := pebbledb.Open(t.Context(), metaDBPath, types.OpenOptions{}, false)
 	require.NoError(t, err)
-	versionBuf := make([]byte, 8)
-	binary.BigEndian.PutUint64(versionBuf, 1)
-	require.NoError(t, db.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Reopen -- catchup should replay version 2 from WAL

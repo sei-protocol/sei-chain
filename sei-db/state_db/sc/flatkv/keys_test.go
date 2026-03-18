@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -238,78 +237,11 @@ func TestFlatKVTypeConversions(t *testing.T) {
 	})
 }
 
-func TestLocalMetaSerialization(t *testing.T) {
-	t.Run("RoundTripZero", func(t *testing.T) {
-		original := &LocalMeta{CommittedVersion: 0}
-		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaVersionOnly, len(encoded))
-
-		decoded, err := UnmarshalLocalMeta(encoded)
-		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
-		require.Nil(t, decoded.LtHash)
-	})
-
-	t.Run("RoundTripPositive", func(t *testing.T) {
-		original := &LocalMeta{CommittedVersion: 12345}
-		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaVersionOnly, len(encoded))
-
-		decoded, err := UnmarshalLocalMeta(encoded)
-		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
-		require.Nil(t, decoded.LtHash)
-	})
-
-	t.Run("RoundTripMaxInt64", func(t *testing.T) {
-		original := &LocalMeta{CommittedVersion: math.MaxInt64}
-		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaVersionOnly, len(encoded))
-
-		decoded, err := UnmarshalLocalMeta(encoded)
-		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
-		require.Nil(t, decoded.LtHash)
-	})
-
-	t.Run("RoundTripWithLtHash", func(t *testing.T) {
-		h := lthash.New()
-		h.MixIn(func() *lthash.LtHash {
-			pairs := []lthash.KVPairWithLastValue{{Key: []byte("k"), Value: []byte("v")}}
-			r, _ := lthash.ComputeLtHash(nil, pairs)
-			return r
-		}())
-		original := &LocalMeta{CommittedVersion: 42, LtHash: h}
-		encoded := MarshalLocalMeta(original)
-		require.Equal(t, localMetaWithLtHash, len(encoded))
-
-		decoded, err := UnmarshalLocalMeta(encoded)
-		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, decoded.CommittedVersion)
-		require.NotNil(t, decoded.LtHash)
-		require.True(t, original.LtHash.Equal(decoded.LtHash))
-	})
-
-	t.Run("InvalidLength", func(t *testing.T) {
-		// Too short
-		_, err := UnmarshalLocalMeta([]byte{0x00})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LocalMeta size")
-
-		// Neither old nor new format
-		_, err = UnmarshalLocalMeta(make([]byte, localMetaVersionOnly+1))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LocalMeta size")
-	})
-
-	t.Run("BigEndianEncoding", func(t *testing.T) {
-		// Verify big-endian encoding: version 0x0102030405060708
-		meta := &LocalMeta{CommittedVersion: 0x0102030405060708}
-		encoded := MarshalLocalMeta(meta)
-
-		// Big-endian: most significant byte first
-		require.Equal(t, byte(0x01), encoded[0])
-		require.Equal(t, byte(0x02), encoded[1])
-		require.Equal(t, byte(0x08), encoded[7])
-	})
+func TestIsMetaKey(t *testing.T) {
+	require.True(t, isMetaKey(metaVersionKey))
+	require.True(t, isMetaKey(metaLtHashKey))
+	require.True(t, isMetaKey([]byte("_meta/future")))
+	require.False(t, isMetaKey([]byte{0x00}))
+	require.False(t, isMetaKey(AccountKey(Address{0x01})))
+	require.False(t, isMetaKey(StorageKey(Address{0x01}, Slot{0x02})))
 }
