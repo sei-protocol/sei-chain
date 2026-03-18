@@ -3285,6 +3285,8 @@
                 }
               },
               "mappings": [],
+              "max": 1,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -3297,7 +3299,8 @@
                     "value": 80
                   }
                 ]
-              }
+              },
+              "unit": "percentunit"
             },
             "overrides": []
           },
@@ -3329,8 +3332,8 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(cryptosim_receipt_cache_hits_total[$__rate_interval])",
-              "legendFormat": "cache hits",
+              "expr": "rate(cryptosim_receipt_cache_hits_total[$__rate_interval]) / (rate(cryptosim_receipt_cache_hits_total[$__rate_interval]) + rate(cryptosim_receipt_cache_misses_total[$__rate_interval]))",
+              "legendFormat": "cache hit %",
               "range": true,
               "refId": "A"
             },
@@ -3340,14 +3343,14 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(cryptosim_receipt_cache_misses_total[$__rate_interval])",
+              "expr": "rate(cryptosim_receipt_cache_misses_total[$__rate_interval]) / (rate(cryptosim_receipt_cache_hits_total[$__rate_interval]) + rate(cryptosim_receipt_cache_misses_total[$__rate_interval]))",
               "instant": false,
-              "legendFormat": "cache misses",
+              "legendFormat": "cache miss %",
               "range": true,
               "refId": "B"
             }
           ],
-          "title": "Receipt Cache Hit/Miss Rate",
+          "title": "Receipt Cache Hit/Miss %",
           "type": "timeseries"
         },
         {
