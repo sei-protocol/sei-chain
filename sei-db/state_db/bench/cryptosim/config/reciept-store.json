@@ -1,6 +1,8 @@
 {
     "Comment": "For testing with the state store and receipt store both enabled, with concurrent reads, pruning, and cache.",
     "DataDir": "data",
+    "LogDir": "logs",
+    "LogLevel": "info",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 1000000,
     "GenerateReceipts": true,
