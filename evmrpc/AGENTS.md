@@ -7,6 +7,7 @@ EVM RPCs prefixed by `eth_` and `debug_` on Sei generally follows [Ethereum's sp
 - **No Uncle** - Sei does not have the concept of uncle blocks, so any endpoint relevant to uncle is not supported.
 - **No Trie** - Sei does not store states in a trie, so any endpoint relevant to the trie data structure is not supported.
 - **No PoW** - Sei has never used proof-of-work, so endpoints like `eth_mining` and `eth_hashrate` are not supported.
+- **No Blobs** - Sei does not support EIP-4844 blob transactions. `eth_blobBaseFee` is exposed but returns a JSON-RPC error (code -32000, "blobs not supported on this chain") instead of a fee value.
 
 ## `sei_` prefixed endpoints
 Several `eth_` prefixed endpoints have a `sei_` prefixed counterpart. `eth_` endpoints only have visibility into EVM transactions, whereas `sei_` endpoints have visibility into EVM transactions plus Cosmos transactions that have synthetic EVM receipts.

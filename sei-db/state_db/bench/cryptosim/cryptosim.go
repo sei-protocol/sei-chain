@@ -113,15 +113,22 @@ func NewCryptoSim(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	dataDir, err := resolveAndCreateDataDir(config.DataDir)
+	var err error
+	config.DataDir, err = ResolveAndCreateDir(config.DataDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
+	config.LogDir, err = ResolveAndCreateDir(config.LogDir)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to resolve and create log directory: %w", err)
+	}
 
-	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
+	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
+	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := wrappers.NewDBImpl(ctx, config.Backend, dataDir)
+	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)

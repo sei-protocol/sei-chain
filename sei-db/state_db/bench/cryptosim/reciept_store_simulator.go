@@ -215,7 +215,7 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 			r.metrics.ReportReceiptError()
 			return
 		}
-		r.metrics.RecordReceiptBlockWriteDuration(time.Since(start).Seconds())
+		r.metrics.RecordReceiptBlockWriteDuration(time.Since(start))
 		r.metrics.ReportReceiptsWritten(int64(len(records)))
 	}
 

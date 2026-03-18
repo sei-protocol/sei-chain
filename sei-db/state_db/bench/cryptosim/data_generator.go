@@ -14,6 +14,11 @@ const (
 	erc20IdCounterKey = "erc20IdCounterKey"
 	// Used to store the next block number in the database.
 	blockNumberCounterKey = "blockNumberCounterKey"
+
+	// Use the code hash as a proxy. There is currently no mechanism to force FlatKV to update the account balance
+	// field, and code hash keys will cause the account DB to get updated, which is the important part for this
+	// simulation.
+	accountKeyPrefix = evm.EVMKeyCodeHash
 )
 
 // Generates random data for the benchmark. This is not a thread safe utility.
@@ -102,9 +107,8 @@ func NewDataGenerator(
 
 	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber))) //nolint:gosec
 
-	// Use EVMKeyCode for account data; EVMKeyNonce only accepts 8-byte values.
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
-		evm.EVMKeyCode,
+		accountKeyPrefix,
 		rand.Address(accountPrefix, 0, AddressLen),
 	)
 
@@ -162,7 +166,7 @@ func (d *DataGenerator) CreateNewAccount(
 	d.nextAccountID++
 
 	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
+	address = evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr)
 
 	isCold = d.rand.Float64() >= d.config.NewAccountDormancyProbability
 
@@ -236,7 +240,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		lastHotAccountID := d.config.NumberOfHotAccounts
 		accountID := d.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
+		return accountID, evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr), false, nil
 	} else {
 
 		new := d.rand.Float64() < d.config.NewAccountProbability
@@ -256,7 +260,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 
 		accountID := d.rand.Int64Range(firstLegalColdAccountID, lastLegalColdAccountID)
 		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), false, nil
+		return accountID, evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr), false, nil
 	}
 }
 

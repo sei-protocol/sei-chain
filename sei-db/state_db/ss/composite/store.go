@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -253,8 +254,22 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+	// Normalize evm_flatkv → evm so downstream routing and storage work
+	// correctly regardless of whether the snapshot was exported with the
+	// FlatKV module or only the legacy evm module.
+	normalized := make(chan types.SnapshotNode, cap(ch))
+	go func() {
+		defer close(normalized)
+		for node := range ch {
+			if node.StoreKey == commonevm.EVMFlatKVStoreKey {
+				node.StoreKey = evm.EVMStoreKey
+			}
+			normalized <- node
+		}
+	}()
+
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		return s.cosmosStore.Import(version, ch)
+		return s.cosmosStore.Import(version, normalized)
 	}
 
 	splitWrite := s.config.WriteMode == config.SplitWrite
@@ -277,7 +292,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		evmErr = s.evmStore.Import(version, evmCh)
 	}()
 
-	for node := range ch {
+	for node := range normalized {
 		isEVM := node.StoreKey == evm.EVMStoreKey
 		if !isEVM || !splitWrite {
 			cosmosCh <- node

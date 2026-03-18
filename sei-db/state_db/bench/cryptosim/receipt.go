@@ -15,8 +15,9 @@ const (
 	erc20TransferEventSignatureHex = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 	// These mirror immutable memiavl EVM key prefixes and are duplicated here to keep the hot path minimal.
-	evmCodeKeyPrefixByte    = 0x07
-	evmStorageKeyPrefixByte = 0x03
+	evmCodeKeyPrefixByte     = 0x07
+	evmCodeHashKeyPrefixByte = 0x08
+	evmStorageKeyPrefixByte  = 0x03
 
 	hashLen            = 32
 	indexedAddressBase = hashLen - AddressLen
@@ -106,14 +107,14 @@ func BuildERC20TransferReceipt(
 		return nil, errors.New("canned random is required")
 	}
 
-	if err := validateCodeKey("fee collection account", feeCollectionAccount); err != nil {
+	if err := validateAccountKey("fee collection account", feeCollectionAccount); err != nil {
 		return nil, err
 	}
-	srcAddressBytes, err := extractCodeKeyBytes("src account", srcAccount)
+	srcAddressBytes, err := extractAccountKeyBytes("src account", srcAccount)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCodeKey("dst account", dstAccount); err != nil {
+	if err := validateAccountKey("dst account", dstAccount); err != nil {
 		return nil, err
 	}
 	senderAddressBytes, err := extractStorageKeyAddressBytes("sender slot", senderSlot)
@@ -184,9 +185,18 @@ func BuildERC20TransferReceipt(
 	}, nil
 }
 
-func validateCodeKey(name string, key []byte) error {
-	_, err := extractCodeKeyBytes(name, key)
+func validateAccountKey(name string, key []byte) error {
+	_, err := extractAccountKeyBytes(name, key)
 	return err
+}
+
+// extractAccountKeyBytes accepts keys with either EVMKeyCode (0x07) or EVMKeyCodeHash (0x08) prefix,
+// since cryptosim uses EVMKeyCodeHash for accounts while ERC20 contracts use EVMKeyCode.
+func extractAccountKeyBytes(name string, key []byte) ([]byte, error) {
+	if len(key) != 1+AddressLen || (key[0] != evmCodeKeyPrefixByte && key[0] != evmCodeHashKeyPrefixByte) {
+		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, AddressLen)
+	}
+	return key[1:], nil
 }
 
 func extractCodeKeyBytes(name string, key []byte) ([]byte, error) {

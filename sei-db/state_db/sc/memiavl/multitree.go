@@ -16,6 +16,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -491,7 +492,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	otherTrees := make([]NamedTree, 0, len(t.trees))
 
 	for _, entry := range t.trees {
-		if entry.Name == "evm" {
+		if entry.Name == commonevm.EVMStoreKey {
 			evmTree = entry.Tree
 			evmName = entry.Name
 		} else {
