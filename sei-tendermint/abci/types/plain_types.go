@@ -40,25 +40,12 @@ type RequestQuery struct {
 type RequestCommit struct{}
 
 type RequestPrepareProposal struct {
-	MaxTxBytes int64
-	Txs        [][]byte
+	MaxTxBytes          int64
+	Txs                 [][]byte
+	ByzantineValidators []Misbehavior
+	LocalLastCommitInfo CommitInfo
 
-	ByzantineValidators   []Misbehavior
-	Height                int64
-	Time                  time.Time
-	NextValidatorsHash    []byte
-	ProposerAddress       []byte
-	AppHash               []byte
-	ValidatorsHash        []byte
-	ConsensusHash         []byte
-	DataHash              []byte
-	EvidenceHash          []byte
-	LastBlockHash         []byte
-	LastBlockPartSetTotal int64
-	LastBlockPartSetHash  []byte
-	LastCommitHash        []byte
-	LastResultsHash       []byte
-	LocalLastCommitInfo   CommitInfo
+	Header *tmproto.Header
 }
 
 type RequestBeginBlock struct {
@@ -418,83 +405,6 @@ func (m *RequestPrepareProposal) GetTxs() [][]byte {
 func (m *RequestPrepareProposal) GetByzantineValidators() []Misbehavior {
 	if m != nil {
 		return m.ByzantineValidators
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetHeight() int64 {
-	if m != nil {
-		return m.Height
-	}
-	return 0
-}
-
-func (m *RequestPrepareProposal) GetTime() time.Time {
-	if m != nil {
-		return m.Time
-	}
-	return time.Time{}
-}
-
-func (m *RequestPrepareProposal) GetNextValidatorsHash() []byte {
-	if m != nil {
-		return m.NextValidatorsHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetProposerAddress() []byte {
-	if m != nil {
-		return m.ProposerAddress
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetAppHash() []byte {
-	if m != nil {
-		return m.AppHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetValidatorsHash() []byte {
-	if m != nil {
-		return m.ValidatorsHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetConsensusHash() []byte {
-	if m != nil {
-		return m.ConsensusHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetDataHash() []byte {
-	if m != nil {
-		return m.DataHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetEvidenceHash() []byte {
-	if m != nil {
-		return m.EvidenceHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetLastCommitHash() []byte {
-	if m != nil {
-		return m.LastCommitHash
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetLastResultsHash() []byte {
-	if m != nil {
-		return m.LastResultsHash
 	}
 	return nil
 }
