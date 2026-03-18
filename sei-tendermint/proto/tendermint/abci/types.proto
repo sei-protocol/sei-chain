@@ -29,18 +29,6 @@ message RequestInfo {
   string abci_version = 4;
 }
 
-message RequestInitChain {
-  google.protobuf.Timestamp time = 1 [
-    (gogoproto.nullable) = false,
-    (gogoproto.stdtime) = true
-  ];
-  string chain_id = 2;
-  tendermint.types.ConsensusParams consensus_params = 3;
-  repeated ValidatorUpdate validators = 4 [(gogoproto.nullable) = false];
-  bytes app_state_bytes = 5;
-  int64 initial_height = 6;
-}
-
 message RequestQuery {
   bytes data = 1;
   string path = 2;

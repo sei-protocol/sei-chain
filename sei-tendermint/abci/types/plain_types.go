@@ -1,8 +1,21 @@
 package types
 
 import (
+	"time"
+
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
+
+// RequestInitChain carries the genesis-time initialization inputs passed from
+// consensus into the application when bootstrapping a chain.
+type RequestInitChain struct {
+	Time            time.Time
+	ChainId         string
+	ConsensusParams *tmproto.ConsensusParams
+	Validators      []ValidatorUpdate
+	AppStateBytes   []byte
+	InitialHeight   int64
+}
 
 // RequestListSnapshots is emitted at the start of state sync to ask the application
 // which previously committed snapshots are available for peers to download.
