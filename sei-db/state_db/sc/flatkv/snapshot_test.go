@@ -1626,7 +1626,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.NoError(t, err)
 	versionBuf := make([]byte, 8)
 	versionBuf[7] = 1 // version = 1
-	require.NoError(t, mdb.Set([]byte(MetaGlobalVersion), versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Set(metaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())
 
 	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
