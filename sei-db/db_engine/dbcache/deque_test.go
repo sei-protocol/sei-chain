@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewRandomAccessDequeStartsEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+func TestNewDequeStartsEmpty(t *testing.T) {
+	d := NewDeque[int]()
 
 	require.Equal(t, 0, d.Len())
 	require.True(t, d.IsEmpty())
@@ -34,14 +34,14 @@ func TestNewWithCapacityRoundsUpToPowerOf2(t *testing.T) {
 		{1025, 2048},
 	}
 	for _, tt := range tests {
-		d := NewRandomAccessDequeWithCapacity[int](tt.requested)
+		d := NewDequeWithCapacity[int](tt.requested)
 		require.Equal(t, tt.expected, len(d.data), "requested %d", tt.requested)
 		require.Equal(t, tt.expected-1, d.mask, "requested %d", tt.requested)
 	}
 }
 
 func TestNewWithCapacityIsFunctional(t *testing.T) {
-	d := NewRandomAccessDequeWithCapacity[int](1000)
+	d := NewDequeWithCapacity[int](1000)
 	require.Equal(t, 1024, len(d.data))
 
 	for i := 0; i < 1000; i++ {
@@ -65,13 +65,13 @@ func TestNewWithCapacityIsFunctional(t *testing.T) {
 }
 
 func TestDefaultConstructorMatchesMinCapacity(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	require.Equal(t, minDequeCapacity, len(d.data))
 	require.Equal(t, minDequeCapacity-1, d.mask)
 }
 
 func TestMaskStaysConsistentThroughGrowth(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	for i := 0; i < 100; i++ {
 		d.PushBack(i)
@@ -82,7 +82,7 @@ func TestMaskStaysConsistentThroughGrowth(t *testing.T) {
 // --- PushBack ---
 
 func TestPushBackSingleElement(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("a")
 
 	require.Equal(t, 1, d.Len())
@@ -92,7 +92,7 @@ func TestPushBackSingleElement(t *testing.T) {
 }
 
 func TestPushBackMultipleElements(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i)
 	}
@@ -105,7 +105,7 @@ func TestPushBackMultipleElements(t *testing.T) {
 // --- PushFront ---
 
 func TestPushFrontSingleElement(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushFront("x")
 
 	require.Equal(t, 1, d.Len())
@@ -114,7 +114,7 @@ func TestPushFrontSingleElement(t *testing.T) {
 }
 
 func TestPushFrontMultipleElements(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushFront(i)
 	}
@@ -125,7 +125,7 @@ func TestPushFrontMultipleElements(t *testing.T) {
 }
 
 func TestMixedPushFrontAndBack(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("b")
 	d.PushFront("a")
 	d.PushBack("c")
@@ -145,7 +145,7 @@ func TestMixedPushFrontAndBack(t *testing.T) {
 // --- Growth ---
 
 func TestGrowthDoublesCapacity(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	initial := len(d.data)
 	require.Equal(t, minDequeCapacity, initial)
 
@@ -168,7 +168,7 @@ func TestGrowthDoublesCapacity(t *testing.T) {
 }
 
 func TestCapacityNeverShrinks(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 20; i++ {
 		d.PushBack(i)
 	}
@@ -182,7 +182,7 @@ func TestCapacityNeverShrinks(t *testing.T) {
 }
 
 func TestGrowthWithWrappedBuffer(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 6; i++ {
 		d.PushBack(i)
 	}
@@ -205,26 +205,26 @@ func TestGrowthWithWrappedBuffer(t *testing.T) {
 // --- TryPopFront / PopFront ---
 
 func TestTryPopFrontEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	v, ok := d.TryPopFront()
 	require.False(t, ok)
 	require.Equal(t, 0, v)
 }
 
 func TestPopFrontPanicsOnEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	require.Panics(t, func() { d.PopFront() })
 }
 
 func TestPopFrontPanicsAfterDrain(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PopFront()
 	require.Panics(t, func() { d.PopFront() })
 }
 
 func TestTryPopFrontSingleElement(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("only")
 
 	v, ok := d.TryPopFront()
@@ -234,7 +234,7 @@ func TestTryPopFrontSingleElement(t *testing.T) {
 }
 
 func TestPopFrontFIFOOrder(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i)
 	}
@@ -246,26 +246,26 @@ func TestPopFrontFIFOOrder(t *testing.T) {
 // --- TryPopBack / PopBack ---
 
 func TestTryPopBackEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	v, ok := d.TryPopBack()
 	require.False(t, ok)
 	require.Equal(t, 0, v)
 }
 
 func TestPopBackPanicsOnEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	require.Panics(t, func() { d.PopBack() })
 }
 
 func TestPopBackPanicsAfterDrain(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PopBack()
 	require.Panics(t, func() { d.PopBack() })
 }
 
 func TestTryPopBackSingleElement(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("only")
 
 	v, ok := d.TryPopBack()
@@ -275,7 +275,7 @@ func TestTryPopBackSingleElement(t *testing.T) {
 }
 
 func TestPopBackLIFOOrder(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i)
 	}
@@ -287,19 +287,19 @@ func TestPopBackLIFOOrder(t *testing.T) {
 // --- TryPeekFront / PeekFront ---
 
 func TestTryPeekFrontEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	v, ok := d.TryPeekFront()
 	require.False(t, ok)
 	require.Equal(t, 0, v)
 }
 
 func TestPeekFrontPanicsOnEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	require.Panics(t, func() { d.PeekFront() })
 }
 
 func TestPeekFrontDoesNotRemove(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(42)
 
 	require.Equal(t, 42, d.PeekFront())
@@ -310,19 +310,19 @@ func TestPeekFrontDoesNotRemove(t *testing.T) {
 // --- TryPeekBack / PeekBack ---
 
 func TestTryPeekBackEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	v, ok := d.TryPeekBack()
 	require.False(t, ok)
 	require.Equal(t, 0, v)
 }
 
 func TestPeekBackPanicsOnEmpty(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	require.Panics(t, func() { d.PeekBack() })
 }
 
 func TestPeekBackDoesNotRemove(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(42)
 
 	require.Equal(t, 42, d.PeekBack())
@@ -333,7 +333,7 @@ func TestPeekBackDoesNotRemove(t *testing.T) {
 // --- Get ---
 
 func TestGetPositiveIndex(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("a")
 	d.PushBack("b")
 	d.PushBack("c")
@@ -346,7 +346,7 @@ func TestGetPositiveIndex(t *testing.T) {
 }
 
 func TestGetNegativeIndex(t *testing.T) {
-	d := NewRandomAccessDeque[string]()
+	d := NewDeque[string]()
 	d.PushBack("a")
 	d.PushBack("b")
 	d.PushBack("c")
@@ -365,7 +365,7 @@ func TestGetNegativeIndex(t *testing.T) {
 }
 
 func TestGetOutOfBounds(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PushBack(2)
 
@@ -380,7 +380,7 @@ func TestGetOutOfBounds(t *testing.T) {
 }
 
 func TestGetOnEmptyDeque(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	_, ok := d.Get(0)
 	require.False(t, ok)
@@ -390,7 +390,7 @@ func TestGetOnEmptyDeque(t *testing.T) {
 }
 
 func TestGetWithWrappedBuffer(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 6; i++ {
 		d.PushBack(i)
 	}
@@ -412,7 +412,7 @@ func TestGetWithWrappedBuffer(t *testing.T) {
 // --- Set ---
 
 func TestSetPositiveIndex(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(0)
 	d.PushBack(0)
 	d.PushBack(0)
@@ -425,7 +425,7 @@ func TestSetPositiveIndex(t *testing.T) {
 }
 
 func TestSetNegativeIndex(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(0)
 	d.PushBack(0)
 	d.PushBack(0)
@@ -438,7 +438,7 @@ func TestSetNegativeIndex(t *testing.T) {
 }
 
 func TestSetOutOfBoundsIsNoop(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 
 	d.Set(5, 99)
@@ -451,7 +451,7 @@ func TestSetOutOfBoundsIsNoop(t *testing.T) {
 }
 
 func TestSetOnEmptyDequeIsNoop(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.Set(0, 99)
 	require.True(t, d.IsEmpty())
 }
@@ -459,7 +459,7 @@ func TestSetOnEmptyDequeIsNoop(t *testing.T) {
 // --- Clear ---
 
 func TestClearEmptyDeque(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.Clear()
 
 	require.True(t, d.IsEmpty())
@@ -467,7 +467,7 @@ func TestClearEmptyDeque(t *testing.T) {
 }
 
 func TestClearNonEmptyDeque(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 10; i++ {
 		d.PushBack(i)
 	}
@@ -479,7 +479,7 @@ func TestClearNonEmptyDeque(t *testing.T) {
 }
 
 func TestClearWrappedBufferZeroesAllSlots(t *testing.T) {
-	d := NewRandomAccessDeque[*int]()
+	d := NewDeque[*int]()
 	for i := 0; i < 5; i++ {
 		v := new(int)
 		*v = i
@@ -506,7 +506,7 @@ func TestClearWrappedBufferZeroesAllSlots(t *testing.T) {
 }
 
 func TestClearAllowsReuse(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PushBack(2)
 	d.Clear()
@@ -522,7 +522,7 @@ func TestClearAllowsReuse(t *testing.T) {
 // --- GC zeroing ---
 
 func TestPopFrontZeroesSlotForGC(t *testing.T) {
-	d := NewRandomAccessDeque[*int]()
+	d := NewDeque[*int]()
 	x := new(int)
 	*x = 42
 	d.PushBack(x)
@@ -534,7 +534,7 @@ func TestPopFrontZeroesSlotForGC(t *testing.T) {
 }
 
 func TestPopBackZeroesSlotForGC(t *testing.T) {
-	d := NewRandomAccessDeque[*int]()
+	d := NewDeque[*int]()
 	x := new(int)
 	*x = 42
 	d.PushBack(x)
@@ -546,7 +546,7 @@ func TestPopBackZeroesSlotForGC(t *testing.T) {
 }
 
 func TestClearZeroesAllSlotsForGC(t *testing.T) {
-	d := NewRandomAccessDeque[*int]()
+	d := NewDeque[*int]()
 	for i := 0; i < 5; i++ {
 		v := new(int)
 		*v = i
@@ -563,7 +563,7 @@ func TestClearZeroesAllSlotsForGC(t *testing.T) {
 // --- Wrap-around ---
 
 func TestWrapAroundPushFront(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	// firstIndex starts at 0; pushing front wraps to end of backing slice
 	d.PushFront(1)
 	d.PushFront(2)
@@ -578,7 +578,7 @@ func TestWrapAroundPushFront(t *testing.T) {
 }
 
 func TestWrapAroundInterleavedOps(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	// Fill half from back, pop from front to advance firstIndex
 	for i := 0; i < 6; i++ {
@@ -601,7 +601,7 @@ func TestWrapAroundInterleavedOps(t *testing.T) {
 // --- Forward iterator ---
 
 func TestForwardEmptyDeque(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	count := 0
 	for range d.Forward() {
@@ -611,7 +611,7 @@ func TestForwardEmptyDeque(t *testing.T) {
 }
 
 func TestForwardOrder(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i * 10)
 	}
@@ -628,7 +628,7 @@ func TestForwardOrder(t *testing.T) {
 }
 
 func TestForwardEarlyBreak(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 10; i++ {
 		d.PushBack(i)
 	}
@@ -644,7 +644,7 @@ func TestForwardEarlyBreak(t *testing.T) {
 }
 
 func TestForwardWithWrappedBuffer(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 6; i++ {
 		d.PushBack(i)
 	}
@@ -666,7 +666,7 @@ func TestForwardWithWrappedBuffer(t *testing.T) {
 // --- Backward iterator ---
 
 func TestBackwardEmptyDeque(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	count := 0
 	for range d.Backward() {
@@ -676,7 +676,7 @@ func TestBackwardEmptyDeque(t *testing.T) {
 }
 
 func TestBackwardOrder(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i * 10)
 	}
@@ -693,7 +693,7 @@ func TestBackwardOrder(t *testing.T) {
 }
 
 func TestBackwardEarlyBreak(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 10; i++ {
 		d.PushBack(i)
 	}
@@ -709,7 +709,7 @@ func TestBackwardEarlyBreak(t *testing.T) {
 }
 
 func TestBackwardWithWrappedBuffer(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 6; i++ {
 		d.PushBack(i)
 	}
@@ -730,7 +730,7 @@ func TestBackwardWithWrappedBuffer(t *testing.T) {
 // --- Interleaved push/pop ---
 
 func TestInterleavedPushPopFrontBack(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	d.PushBack(1)
 	d.PushBack(2)
@@ -751,7 +751,7 @@ func TestInterleavedPushPopFrontBack(t *testing.T) {
 }
 
 func TestPushAfterFullDrain(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(1)
 	d.PushBack(2)
 	d.PopFront()
@@ -768,7 +768,7 @@ func TestPushAfterFullDrain(t *testing.T) {
 // --- Use as stack (LIFO) ---
 
 func TestUseAsStack(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i)
 	}
@@ -781,7 +781,7 @@ func TestUseAsStack(t *testing.T) {
 // --- Use as queue (FIFO) ---
 
 func TestUseAsQueue(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	for i := 0; i < 5; i++ {
 		d.PushBack(i)
 	}
@@ -794,7 +794,7 @@ func TestUseAsQueue(t *testing.T) {
 // --- Large stress test ---
 
 func TestLargeNumberOfElements(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	n := 10_000
 
 	for i := 0; i < n; i++ {
@@ -820,7 +820,7 @@ func TestLargeNumberOfElements(t *testing.T) {
 // --- Alternating push-front/pop-back stress ---
 
 func TestAlternatingPushFrontPopBack(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 
 	for i := 0; i < 100; i++ {
 		d.PushFront(i)
@@ -841,11 +841,11 @@ func TestAlternatingPushFrontPopBack(t *testing.T) {
 // --- Single element edge cases ---
 
 func TestSingleElementPopFrontAndPopBackEquivalent(t *testing.T) {
-	d1 := NewRandomAccessDeque[int]()
+	d1 := NewDeque[int]()
 	d1.PushBack(42)
 	v1 := d1.PopFront()
 
-	d2 := NewRandomAccessDeque[int]()
+	d2 := NewDeque[int]()
 	d2.PushBack(42)
 	v2 := d2.PopBack()
 
@@ -853,14 +853,14 @@ func TestSingleElementPopFrontAndPopBackEquivalent(t *testing.T) {
 }
 
 func TestSingleElementPeekFrontAndPeekBackEquivalent(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(42)
 
 	require.Equal(t, d.PeekFront(), d.PeekBack())
 }
 
 func TestSingleElementGetZeroAndNegativeOne(t *testing.T) {
-	d := NewRandomAccessDeque[int]()
+	d := NewDeque[int]()
 	d.PushBack(42)
 
 	v0, ok0 := d.Get(0)

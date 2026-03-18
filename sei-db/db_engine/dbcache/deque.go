@@ -7,7 +7,7 @@ import (
 
 const minDequeCapacity = 8
 
-type RandomAccessDeque[T any] struct {
+type Deque[T any] struct {
 	data []T
 	// len(data) - 1; Used to do a cheap modulo since capacity is always a power of 2.
 	mask       int
@@ -15,23 +15,23 @@ type RandomAccessDeque[T any] struct {
 	size       int
 }
 
-func NewRandomAccessDeque[T any]() *RandomAccessDeque[T] {
-	return NewRandomAccessDequeWithCapacity[T](minDequeCapacity)
+func NewDeque[T any]() *Deque[T] {
+	return NewDequeWithCapacity[T](minDequeCapacity)
 }
 
-func NewRandomAccessDequeWithCapacity[T any](capacity int) *RandomAccessDeque[T] {
+func NewDequeWithCapacity[T any](capacity int) *Deque[T] {
 	c := nextPowerOf2(capacity)
 	if c < minDequeCapacity {
 		c = minDequeCapacity
 	}
-	return &RandomAccessDeque[T]{
+	return &Deque[T]{
 		data: make([]T, c),
 		mask: c - 1,
 	}
 }
 
 // Push a value onto the front of the deque. This value will have index 0.
-func (r *RandomAccessDeque[T]) PushFront(value T) {
+func (r *Deque[T]) PushFront(value T) {
 	r.growIfFull()
 	r.firstIndex = (r.firstIndex - 1) & r.mask
 	r.data[r.firstIndex] = value
@@ -39,14 +39,14 @@ func (r *RandomAccessDeque[T]) PushFront(value T) {
 }
 
 // Push a value onto the back of the deque. This value will have index Len() - 1, or -1 if using negative indexing.
-func (r *RandomAccessDeque[T]) PushBack(value T) {
+func (r *Deque[T]) PushBack(value T) {
 	r.growIfFull()
 	r.data[(r.firstIndex+r.size)&r.mask] = value
 	r.size++
 }
 
 // PopFront pops a value off the front of the deque. Panics if the deque is empty.
-func (r *RandomAccessDeque[T]) PopFront() T {
+func (r *Deque[T]) PopFront() T {
 	if r.size == 0 {
 		panic("PopFront called on empty deque")
 	}
@@ -60,7 +60,7 @@ func (r *RandomAccessDeque[T]) PopFront() T {
 
 // TryPopFront pops a value off the front of the deque. Returns the value and true if the deque
 // is not empty, otherwise returns the zero value and false.
-func (r *RandomAccessDeque[T]) TryPopFront() (T, bool) {
+func (r *Deque[T]) TryPopFront() (T, bool) {
 	if r.size == 0 {
 		var zero T
 		return zero, false
@@ -69,7 +69,7 @@ func (r *RandomAccessDeque[T]) TryPopFront() (T, bool) {
 }
 
 // PopBack pops a value off the back of the deque. Panics if the deque is empty.
-func (r *RandomAccessDeque[T]) PopBack() T {
+func (r *Deque[T]) PopBack() T {
 	if r.size == 0 {
 		panic("PopBack called on empty deque")
 	}
@@ -83,7 +83,7 @@ func (r *RandomAccessDeque[T]) PopBack() T {
 
 // TryPopBack pops a value off the back of the deque. Returns the value and true if the deque
 // is not empty, otherwise returns the zero value and false.
-func (r *RandomAccessDeque[T]) TryPopBack() (T, bool) {
+func (r *Deque[T]) TryPopBack() (T, bool) {
 	if r.size == 0 {
 		var zero T
 		return zero, false
@@ -92,7 +92,7 @@ func (r *RandomAccessDeque[T]) TryPopBack() (T, bool) {
 }
 
 // PeekFront returns the value at the front of the deque. Panics if the deque is empty.
-func (r *RandomAccessDeque[T]) PeekFront() T {
+func (r *Deque[T]) PeekFront() T {
 	if r.size == 0 {
 		panic("PeekFront called on empty deque")
 	}
@@ -101,7 +101,7 @@ func (r *RandomAccessDeque[T]) PeekFront() T {
 
 // TryPeekFront returns the value at the front of the deque and true if the deque is not empty,
 // otherwise returns the zero value and false.
-func (r *RandomAccessDeque[T]) TryPeekFront() (T, bool) {
+func (r *Deque[T]) TryPeekFront() (T, bool) {
 	if r.size == 0 {
 		var zero T
 		return zero, false
@@ -110,7 +110,7 @@ func (r *RandomAccessDeque[T]) TryPeekFront() (T, bool) {
 }
 
 // PeekBack returns the value at the back of the deque. Panics if the deque is empty.
-func (r *RandomAccessDeque[T]) PeekBack() T {
+func (r *Deque[T]) PeekBack() T {
 	if r.size == 0 {
 		panic("PeekBack called on empty deque")
 	}
@@ -119,7 +119,7 @@ func (r *RandomAccessDeque[T]) PeekBack() T {
 
 // TryPeekBack returns the value at the back of the deque and true if the deque is not empty,
 // otherwise returns the zero value and false.
-func (r *RandomAccessDeque[T]) TryPeekBack() (T, bool) {
+func (r *Deque[T]) TryPeekBack() (T, bool) {
 	if r.size == 0 {
 		var zero T
 		return zero, false
@@ -128,17 +128,17 @@ func (r *RandomAccessDeque[T]) TryPeekBack() (T, bool) {
 }
 
 // Get the length of the deque.
-func (r *RandomAccessDeque[T]) Len() int {
+func (r *Deque[T]) Len() int {
 	return r.size
 }
 
 // Check if the deque is empty.
-func (r *RandomAccessDeque[T]) IsEmpty() bool {
+func (r *Deque[T]) IsEmpty() bool {
 	return r.size == 0
 }
 
 // Clear the deque.
-func (r *RandomAccessDeque[T]) Clear() {
+func (r *Deque[T]) Clear() {
 	if r.size == 0 {
 		return
 	}
@@ -158,7 +158,7 @@ func (r *RandomAccessDeque[T]) Clear() {
 //
 // Positive indices are relative to the front of the deque, while negative indices are relative to the back
 // (similar to python list semantics).
-func (r *RandomAccessDeque[T]) Get(index int) (T, bool) {
+func (r *Deque[T]) Get(index int) (T, bool) {
 	resolved, ok := r.resolveIndex(index)
 	if !ok {
 		var zero T
@@ -171,7 +171,7 @@ func (r *RandomAccessDeque[T]) Get(index int) (T, bool) {
 //
 // Positive indices are relative to the front of the deque, while negative indices are relative to the back
 // (similar to python list semantics).
-func (r *RandomAccessDeque[T]) Set(index int, value T) {
+func (r *Deque[T]) Set(index int, value T) {
 	resolved, ok := r.resolveIndex(index)
 	if !ok {
 		return
@@ -180,7 +180,7 @@ func (r *RandomAccessDeque[T]) Set(index int, value T) {
 }
 
 // Forward returns an iterator that yields (index, value) pairs from front to back.
-func (r *RandomAccessDeque[T]) Forward() iter.Seq2[int, T] {
+func (r *Deque[T]) Forward() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
 		for i := 0; i < r.size; i++ {
 			if !yield(i, r.data[(r.firstIndex+i)&r.mask]) {
@@ -192,7 +192,7 @@ func (r *RandomAccessDeque[T]) Forward() iter.Seq2[int, T] {
 
 // Backward returns an iterator that yields (index, value) pairs from back to front.
 // The index reflects position from front (i.e. Len()-1 down to 0).
-func (r *RandomAccessDeque[T]) Backward() iter.Seq2[int, T] {
+func (r *Deque[T]) Backward() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
 		for i := r.size - 1; i >= 0; i-- {
 			if !yield(i, r.data[(r.firstIndex+i)&r.mask]) {
@@ -202,7 +202,7 @@ func (r *RandomAccessDeque[T]) Backward() iter.Seq2[int, T] {
 	}
 }
 
-func (r *RandomAccessDeque[T]) resolveIndex(index int) (int, bool) {
+func (r *Deque[T]) resolveIndex(index int) (int, bool) {
 	if index < 0 {
 		index += r.size
 	}
@@ -212,7 +212,7 @@ func (r *RandomAccessDeque[T]) resolveIndex(index int) (int, bool) {
 	return (r.firstIndex + index) & r.mask, true
 }
 
-func (r *RandomAccessDeque[T]) growIfFull() {
+func (r *Deque[T]) growIfFull() {
 	if r.size < len(r.data) {
 		return
 	}
@@ -229,5 +229,6 @@ func nextPowerOf2(n int) int {
 	if n <= 1 {
 		return 1
 	}
-	return 1 << bits.Len(uint(n-1))
+	// n is >= 2 here, so n-1 is >= 1 and safe to convert to uint.
+	return 1 << bits.Len(uint(n-1)) //nolint:gosec
 }
