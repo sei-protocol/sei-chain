@@ -20,7 +20,7 @@ type OptimisticProcessingTestSuite struct {
 
 func (suite *OptimisticProcessingTestSuite) SetupTest() {
 	suite.app = Setup(suite.T(), false, false, false)
-	suite.ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{Height: 1})
+	suite.ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test"})
 }
 
 func TestOptimisticProcessingTestSuite(t *testing.T) {
@@ -113,7 +113,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_NewOptimi
 	req := &abci.RequestProcessProposal{
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	// Ensure no existing optimistic processing
@@ -148,7 +148,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_UpgradePl
 	req := &abci.RequestProcessProposal{
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: nextCtx.BlockHeight()},
+		Header: &tmproto.Header{Height: nextCtx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	// Ensure no existing optimistic processing
@@ -191,7 +191,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMisma
 	req := &abci.RequestProcessProposal{
 		Hash:   []byte("different-hash"), // Different hash
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.ProcessProposalHandler(suite.ctx, req)
@@ -222,7 +222,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashC
 	req := &abci.RequestProcessProposal{
 		Hash:   hash, // Same hash
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.ProcessProposalHandler(suite.ctx, req)
@@ -382,7 +382,7 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_SuccessfulOptimi
 	req := &abci.RequestFinalizeBlock{
 		Hash:   hash,
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -420,7 +420,7 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_AbortedOptimisti
 	req := &abci.RequestFinalizeBlock{
 		Hash:   hash,
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -454,7 +454,7 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_HashMismatch() {
 	req := &abci.RequestFinalizeBlock{
 		Hash:   []byte("request-hash"), // Different hash
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -474,7 +474,7 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_NoOptimisticProc
 	req := &abci.RequestFinalizeBlock{
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
-		Header: &tmproto.Header{Height: suite.ctx.BlockHeight()},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)

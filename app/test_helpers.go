@@ -392,6 +392,7 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -461,6 +462,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -509,6 +511,7 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -610,6 +613,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -737,6 +741,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -746,6 +751,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Hash: app.LastCommitID().Hash,
 		Header: &tmproto.Header{
+			ChainID:            "sei-test",
 			Height:             app.LastBlockHeight() + 1,
 			NextValidatorsHash: valSet.Hash(),
 		},
@@ -778,12 +784,13 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
 }

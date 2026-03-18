@@ -41,7 +41,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &types.Header{Height: 1}})
+		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &types.Header{ChainID: "sei-test", Height: 1}})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
 		commitData = append(commitData, data)
@@ -51,6 +51,17 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	for _, data := range commitData[1:] {
 		require.Equal(t, len(referenceData), len(data))
 	}
+}
+
+func TestFinalizeBlockRequiresChainID(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	_, err := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{Height: 1},
+	})
+	require.Error(t, err)
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
@@ -100,7 +111,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req := &abci.RequestFinalizeBlock{
-		Header: &types.Header{Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
@@ -123,7 +134,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req = &abci.RequestFinalizeBlock{
-		Header: &types.Header{Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
@@ -158,7 +169,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	badProposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, emptyTx},
-		Header: &types.Header{Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
@@ -319,7 +330,7 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			proposal := abci.RequestProcessProposal{
 				Txs:    txs,
-				Header: &types.Header{Height: 1},
+				Header: &types.Header{ChainID: "sei-test", Height: 1},
 			}
 			res, err := ap.ProcessProposalHandler(ctx, &proposal)
 			require.Nil(t, err)
@@ -348,7 +359,7 @@ func TestOverflowGas(t *testing.T) {
 
 	proposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, secondTx},
-		Header: &types.Header{Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &proposal)
 	require.Nil(t, err)
@@ -571,7 +582,7 @@ func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
 	}
 
 	req := &abci.RequestProcessProposal{
-		Header: &types.Header{Height: ctx.BlockHeight()},
+		Header: &types.Header{ChainID: "sei-test", Height: ctx.BlockHeight()},
 		Hash:   []byte("panic-test"),
 		Txs:    [][]byte{maliciousTx}, // Include the malicious transaction
 	}
