@@ -15,17 +15,11 @@ type transaction struct {
 	srcAccount []byte
 	// If true, the source account is new and needs to be created.
 	isSrcNew bool
-	// If the source account is new, this is the data that will be written to the account.
-	// If not new, this will be nil.
-	newSrcData []byte
 
 	// The destination account that will be interacted with. This value is read and written.
 	dstAccount []byte
 	// If true, the destination account is new and needs to be created.
 	isDstNew bool
-	// If the destination account is new, this is the data that will be written to the account.
-	// If not new, this will be nil.
-	newDstData []byte
 
 	// The source account's storage slot that will be interacted with. This value is read and written.
 	srcAccountSlot []byte
@@ -77,26 +71,13 @@ func BuildTransaction(
 		return nil, fmt.Errorf("failed to select ERC20 contract: %w", err)
 	}
 
-	var newSrcData []byte
-	if isSrcNew {
-		b := dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
-		newSrcData = append([]byte(nil), b...)
-	}
-	var newDstData []byte
-	if isDstNew {
-		b := dataGenerator.rand.Bytes(dataGenerator.config.PaddedAccountSize)
-		newDstData = append([]byte(nil), b...)
-	}
-
 	captureMetrics := dataGenerator.rand.Float64() < dataGenerator.config.TransactionMetricsSampleRate
 
 	return &transaction{
 		srcAccount:        srcAccountAddress,
 		isSrcNew:          isSrcNew,
-		newSrcData:        newSrcData,
 		dstAccount:        dstAccountAddress,
 		isDstNew:          isDstNew,
-		newDstData:        newDstData,
 		srcAccountSlot:    srcAccountSlot,
 		dstAccountSlot:    dstAccountSlot,
 		erc20Contract:     erc20Contract,
@@ -140,6 +121,9 @@ func (txn *transaction) Execute(
 	phaseTimer.SetPhase("read_src_account")
 
 	// Read the sender's native balance / nonce / codehash.
+	// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
+	// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
+	// returned to the caller.
 	_, found, err = database.Get(txn.srcAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get source account: %w", err)
@@ -159,7 +143,10 @@ func (txn *transaction) Execute(
 
 	phaseTimer.SetPhase("read_dst_account")
 
-	// Read the receiver's native balance.
+	// Read the receiver's native balance / nonce / codehash
+	// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
+	// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
+	// returned to the caller..
 	_, found, err = database.Get(txn.dstAccount)
 	if err != nil {
 		return fmt.Errorf("failed to get destination account: %w", err)

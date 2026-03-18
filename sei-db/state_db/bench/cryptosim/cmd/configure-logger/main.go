@@ -17,7 +17,7 @@ import (
 )
 
 /*
-This extra binary for setting up logging is a an unfortunate complexity, but we can't really avoid it
+This extra binary for setting up logging is an unfortunate complexity, but we can't really avoid it
 given that the only way to configure logging is to set environment variables before the main process starts.
 */
 

@@ -174,18 +174,14 @@ func NewCryptosimMetrics(
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
-	if config != nil && config.BackgroundMetricsScrapeInterval > 0 {
-		if config.DataDir != "" {
-			if dataDir, err := ResolveAndCreateDir(config.DataDir); err == nil {
-				m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
-			}
-		}
-		if config.LogDir != "" {
-			if logDir, err := ResolveAndCreateDir(config.LogDir); err == nil {
-				m.startLogDirSizeSampling(logDir, config.BackgroundMetricsScrapeInterval)
-			}
-		}
-		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)
+
+	if config.BackgroundMetricsScrapeInterval > 0 {
+		interval := config.BackgroundMetricsScrapeInterval
+
+		m.startDirSizeSampling(config.DataDir, m.dataDirSizeBytes, interval)
+		m.startDirSizeSampling(config.LogDir, m.logDirSizeBytes, interval)
+		m.startAvailableDiskSpaceSampling(config.DataDir, interval)
+		m.startProcessIOSampling(interval)
 		m.startUptimeSampling(time.Now())
 	}
 	return m
@@ -279,59 +275,46 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 	}()
 }
 
-func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeconds int) {
-	if m == nil || intervalSeconds <= 0 || dataDir == "" {
+// startPeriodicSampling runs sampleFn immediately and then every interval
+// seconds in a background goroutine until m.ctx is cancelled.
+func (m *CryptosimMetrics) startPeriodicSampling(intervalSeconds int, sampleFn func()) {
+	if m == nil || intervalSeconds <= 0 || sampleFn == nil {
 		return
 	}
 	interval := time.Duration(intervalSeconds) * time.Second
-	ctx := context.Background()
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		sample := func() {
-			if m.dataDirSizeBytes != nil {
-				m.dataDirSizeBytes.Record(ctx, measureDataDirSize(dataDir))
-			}
-			if m.dataDirAvailableBytes != nil {
-				m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dataDir))
-			}
-		}
-		sample()
+		sampleFn()
 		for {
 			select {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
-				sample()
+				sampleFn()
 			}
 		}
 	}()
 }
 
-func (m *CryptosimMetrics) startLogDirSizeSampling(logDir string, intervalSeconds int) {
-	if m == nil || intervalSeconds <= 0 || logDir == "" {
+func (m *CryptosimMetrics) startDirSizeSampling(dir string, gauge metric.Int64Gauge, intervalSeconds int) {
+	if dir == "" || gauge == nil {
 		return
 	}
-	interval := time.Duration(intervalSeconds) * time.Second
 	ctx := context.Background()
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		sample := func() {
-			if m.logDirSizeBytes != nil {
-				m.logDirSizeBytes.Record(ctx, measureDataDirSize(logDir))
-			}
-		}
-		sample()
-		for {
-			select {
-			case <-m.ctx.Done():
-				return
-			case <-ticker.C:
-				sample()
-			}
-		}
-	}()
+	m.startPeriodicSampling(intervalSeconds, func() {
+		gauge.Record(ctx, measureDataDirSize(dir))
+	})
+}
+
+func (m *CryptosimMetrics) startAvailableDiskSpaceSampling(dir string, intervalSeconds int) {
+	if dir == "" || m.dataDirAvailableBytes == nil {
+		return
+	}
+	ctx := context.Background()
+	m.startPeriodicSampling(intervalSeconds, func() {
+		m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dir))
+	})
 }
 
 // uint64ToInt64Clamped converts a uint64 to int64, clamping to math.MaxInt64 to avoid overflow.

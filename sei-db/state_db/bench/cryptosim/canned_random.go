@@ -175,7 +175,7 @@ func (cr *CannedRandom) Address(
 	}
 
 	result := make([]byte, size)
-	baseBytes := cr.SeededBytes(AddressLen, id)
+	baseBytes := cr.SeededBytes(size, id)
 	copy(result, baseBytes)
 	result[0] = addressType
 	//nolint:gosec // G115 - id is from benchmark data, overflow acceptable for address generation

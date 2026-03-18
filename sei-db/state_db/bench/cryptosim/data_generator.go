@@ -247,7 +247,7 @@ func (d *DataGenerator) randomAccountSlot(accountID int64) ([]byte, error) {
 	slotNumber := d.rand.Int64Range(0, int64(d.config.Erc20InteractionsPerAccount))
 	slotID := accountID*int64(d.config.Erc20InteractionsPerAccount) + slotNumber
 
-	storageKeyBytes := d.rand.Address(ethStoragePrefix, slotID, StorageKeyLen)
+	storageKeyBytes := d.rand.Address(ethStoragePrefix, slotID, AddressLen)
 	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, storageKeyBytes), nil
 }
 
