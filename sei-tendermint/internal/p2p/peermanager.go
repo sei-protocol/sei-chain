@@ -3,7 +3,8 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"net/netip"
+	"maps"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
@@ -16,7 +17,6 @@ var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 type PeerConnInfo struct {
 	ID               types.NodeID
 	Channels         ChannelIDSet
-	RemoteAddr       netip.AddrPort
 	DialedAddr       utils.Option[NodeAddress]
 	SelfDeclaredAddr utils.Option[NodeAddress]
 }
@@ -346,24 +346,36 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 // All addresses in pools.
 // Used by net_info endpoint, which is used by integration tests and for debugging.
 func (m *peerManager[C]) AllAddrs() []NodeAddress {
-	var addrs []NodeAddress
+	addrs := map[types.NodeID]NodeAddress{}
+	for _, info := range m.ConnInfos() {
+		if addr, ok := info.DialedAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
+		}
+	}
 	for inner := range m.inner.Lock() {
 		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
 			for e := range pool.pex.All() {
 				for _, pAddr := range e.addrs {
-					addrs = append(addrs, pAddr.NodeAddress)
+					if _, ok := addrs[pAddr.NodeAddress.NodeID]; !ok {
+						addrs[pAddr.NodeID] = pAddr.NodeAddress
+					}
 				}
 			}
 		}
 	}
-	return addrs
+	return slices.Collect(maps.Values(addrs))
 }
 
 // Infos of connections in the pool.
 func (m *peerManager[C]) ConnInfos() []PeerConnInfo {
-	var infos []PeerConnInfo
+	infos := map[types.NodeID]PeerConnInfo{}
 	for _, conn := range m.Conns().All() {
-		infos = append(infos, conn.Info())
+		info := conn.Info()
+		if _, ok := infos[info.ID]; !ok || info.DialedAddr.IsPresent() {
+			infos[info.ID] = info
+		}
 	}
-	return infos
+	return slices.Collect(maps.Values(infos))
 }

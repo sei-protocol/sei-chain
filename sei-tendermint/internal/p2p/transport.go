@@ -104,7 +104,6 @@ func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo ty
 		PeerConnInfo: PeerConnInfo{
 			ID:               peerInfo.NodeID,
 			Channels:         toChannelIDs(peerInfo.Channels),
-			RemoteAddr:       hConn.conn.RemoteAddr(),
 			DialedAddr:       dialAddr,
 			SelfDeclaredAddr: hConn.msg.SelfAddr,
 		},

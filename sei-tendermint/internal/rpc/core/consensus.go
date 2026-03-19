@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -69,9 +68,16 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 			return nil, err
 		}
 
+		nodeAddress := ""
+		if addr, ok := info.DialedAddr.Get(); ok {
+			nodeAddress = addr.String()
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
+			nodeAddress = addr.String()
+		}
+
 		peerStates[info.ID] = coretypes.PeerStateInfo{
 			// Peer basic info.
-			NodeAddress: p2p.Endpoint{AddrPort: info.RemoteAddr}.NodeAddress(info.ID).String(),
+			NodeAddress: nodeAddress,
 			// Peer consensus state.
 			PeerState: peerStateJSON,
 		}
