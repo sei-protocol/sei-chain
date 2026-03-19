@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -947,5 +948,584 @@ func TestNewStandardCachePowerOfTwoShardCounts(t *testing.T) {
 		c, err := NewStandardCache(context.Background(), config, newTestDB(nil), pool, pool)
 		require.NoError(t, err, "shardCount=%d", n)
 		require.NotNil(t, c, "shardCount=%d", n)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — basic creation and reads
+// ---------------------------------------------------------------------------
+
+func TestSnapshotReturnsNonNil(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetReadsPreSnapshotData(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("a"), []byte("1"))
+	c.Set([]byte("b"), []byte("2"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	val, found, err := snap.Get([]byte("a"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "1", string(val))
+
+	val, found, err = snap.Get([]byte("b"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "2", string(val))
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetReadsFromDB(t *testing.T) {
+	store := map[string][]byte{"db-key": []byte("db-val")}
+	c := newTestCache(t, store, 1, 4096)
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	val, found, err := snap.Get([]byte("db-key"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "db-val", string(val))
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetNotFound(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	val, found, err := snap.Get([]byte("missing"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, val)
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotBatchGet(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("a"), []byte("1"))
+	c.Set([]byte("b"), []byte("2"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	keys := map[string]types.BatchGetResult{"a": {}, "b": {}, "missing": {}}
+	require.NoError(t, snap.BatchGet(keys))
+
+	require.True(t, keys["a"].IsFound())
+	require.Equal(t, "1", string(keys["a"].Value))
+	require.True(t, keys["b"].IsFound())
+	require.Equal(t, "2", string(keys["b"].Value))
+	require.False(t, keys["missing"].IsFound())
+
+	require.NoError(t, snap.Release())
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — isolation
+// ---------------------------------------------------------------------------
+
+func TestSnapshotIsolationFromSubsequentWrites(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("before"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("after"))
+
+	val, found, err := snap.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "before", string(val), "snapshot should not see post-snapshot writes")
+
+	val, found, err = c.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "after", string(val), "mutable cache should see latest write")
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotIsolationFromSubsequentDeletes(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Delete([]byte("k"))
+
+	val, found, err := snap.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "v", string(val), "snapshot should not see post-snapshot deletes")
+
+	_, found, err = c.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.False(t, found, "mutable cache should see delete")
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotIsolationNewKeysNotVisible(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("new-key"), []byte("new-val"))
+
+	_, found, err := snap.Get([]byte("new-key"), false)
+	require.NoError(t, err)
+	require.False(t, found, "snapshot should not see keys written after snapshot")
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotDeletedKeyNotVisibleInSnapshot(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+	c.Delete([]byte("k"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	_, found, err := snap.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.False(t, found, "key deleted before snapshot should not be visible")
+
+	require.NoError(t, snap.Release())
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — multiple snapshots
+// ---------------------------------------------------------------------------
+
+func TestMultipleSnapshotsAtDifferentVersions(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+
+	c.Set([]byte("k"), []byte("v1"))
+	snap1, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v2"))
+	snap2, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v3"))
+
+	val, found, _ := snap1.Get([]byte("k"), false)
+	require.True(t, found)
+	require.Equal(t, "v1", string(val))
+
+	val, found, _ = snap2.Get([]byte("k"), false)
+	require.True(t, found)
+	require.Equal(t, "v2", string(val))
+
+	val, found, _ = c.Get([]byte("k"), false)
+	require.True(t, found)
+	require.Equal(t, "v3", string(val))
+
+	require.NoError(t, snap1.Release())
+	require.NoError(t, snap2.Release())
+}
+
+func TestMultipleSnapshotsDifferentKeys(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+
+	c.Set([]byte("a"), []byte("1"))
+	snap1, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("b"), []byte("2"))
+	snap2, err := c.Snapshot()
+	require.NoError(t, err)
+
+	_, found, _ := snap1.Get([]byte("b"), false)
+	require.False(t, found, "snap1 should not see key 'b' written after it")
+
+	val, found, _ := snap2.Get([]byte("a"), false)
+	require.True(t, found)
+	require.Equal(t, "1", string(val), "snap2 should see key 'a' written before it")
+
+	val, found, _ = snap2.Get([]byte("b"), false)
+	require.True(t, found)
+	require.Equal(t, "2", string(val))
+
+	require.NoError(t, snap1.Release())
+	require.NoError(t, snap2.Release())
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — GetDiff
+// ---------------------------------------------------------------------------
+
+func TestSnapshotGetDiffReturnsWrites(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("a"), []byte("1"))
+	c.Set([]byte("b"), []byte("2"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	diff, err := snap.GetDiff()
+	require.NoError(t, err)
+	require.Equal(t, []byte("1"), diff["a"])
+	require.Equal(t, []byte("2"), diff["b"])
+	require.Equal(t, 2, len(diff))
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetDiffReturnsDeletesAsNil(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+	c.Delete([]byte("k"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	diff, err := snap.GetDiff()
+	require.NoError(t, err)
+	val, exists := diff["k"]
+	require.True(t, exists, "deleted key should appear in diff")
+	require.Nil(t, val, "deleted key should have nil value in diff")
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetDiffEmptyWhenNoWrites(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{"db-key": []byte("db-val")}, 1, 4096)
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	diff, err := snap.GetDiff()
+	require.NoError(t, err)
+	require.Empty(t, diff)
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotGetDiffOnlyIncludesOwnVersion(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+
+	c.Set([]byte("a"), []byte("1"))
+	snap1, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("b"), []byte("2"))
+	snap2, err := c.Snapshot()
+	require.NoError(t, err)
+
+	diff1, err := snap1.GetDiff()
+	require.NoError(t, err)
+	require.Contains(t, diff1, "a")
+	require.NotContains(t, diff1, "b", "snap1 diff should not contain snap2 writes")
+
+	diff2, err := snap2.GetDiff()
+	require.NoError(t, err)
+	require.Contains(t, diff2, "b")
+	require.NotContains(t, diff2, "a", "snap2 diff should not contain snap1 writes")
+
+	require.NoError(t, snap1.Release())
+	require.NoError(t, snap2.Release())
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — Reserve / Release
+// ---------------------------------------------------------------------------
+
+func TestSnapshotReserveAndRelease(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, snap.Reserve())
+
+	require.NoError(t, snap.Release())
+
+	val, found, err := snap.Get([]byte("k"), false)
+	require.NoError(t, err)
+	require.True(t, found, "snapshot should still be readable with one reservation remaining")
+	require.Equal(t, "v", string(val))
+
+	require.NoError(t, snap.Release())
+}
+
+func TestSnapshotDoubleReleaseErrors(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 1, 4096)
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, snap.Release())
+	require.Error(t, snap.Release(), "releasing a fully-released snapshot should error")
+}
+
+// ---------------------------------------------------------------------------
+// GC — data flushed to DB after release
+// ---------------------------------------------------------------------------
+
+func TestGCFlushesDataToDB(t *testing.T) {
+	db := newTestDB(map[string][]byte{})
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	c, err := NewStandardCache(context.Background(), config, db, pool, pool)
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, snap.Release())
+
+	// Allow GC to run and flush to DB.
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	val, exists := db.store["k"]
+	db.mu.RUnlock()
+	require.True(t, exists, "GC should have flushed data to the underlying DB")
+	require.Equal(t, "v", string(val))
+}
+
+func TestGCFlushesDeletesToDB(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("original")})
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	c, err := NewStandardCache(context.Background(), config, db, pool, pool)
+	require.NoError(t, err)
+
+	c.Delete([]byte("k"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, snap.Release())
+
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	_, exists := db.store["k"]
+	db.mu.RUnlock()
+	require.False(t, exists, "GC should have flushed the delete to the underlying DB")
+}
+
+func TestGCRespectsReferenceCount(t *testing.T) {
+	db := newTestDB(map[string][]byte{})
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	c, err := NewStandardCache(context.Background(), config, db, pool, pool)
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v"))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	// Snapshot still held — GC should not flush.
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	_, exists := db.store["k"]
+	db.mu.RUnlock()
+	require.False(t, exists, "GC should not flush data while snapshot is still held")
+
+	require.NoError(t, snap.Release())
+
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	val, exists := db.store["k"]
+	db.mu.RUnlock()
+	require.True(t, exists, "GC should flush after snapshot is released")
+	require.Equal(t, "v", string(val))
+}
+
+func TestGCDoesNotCollectOutOfOrder(t *testing.T) {
+	db := newTestDB(map[string][]byte{})
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	c, err := NewStandardCache(context.Background(), config, db, pool, pool)
+	require.NoError(t, err)
+
+	c.Set([]byte("a"), []byte("1"))
+	snap1, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("b"), []byte("2"))
+	snap2, err := c.Snapshot()
+	require.NoError(t, err)
+
+	// Release snap2 first, but snap1 is still held — neither should be GC'd.
+	require.NoError(t, snap2.Release())
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	_, aExists := db.store["a"]
+	_, bExists := db.store["b"]
+	db.mu.RUnlock()
+	require.False(t, aExists, "snap1 still held, nothing should be GC'd")
+	require.False(t, bExists, "snap2 released but snap1 blocks it")
+
+	// Now release snap1 — both should be GC'd.
+	require.NoError(t, snap1.Release())
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	_, aExists = db.store["a"]
+	_, bExists = db.store["b"]
+	db.mu.RUnlock()
+	require.True(t, aExists, "both versions should be GC'd after snap1 released")
+	require.True(t, bExists, "both versions should be GC'd after snap1 released")
+}
+
+// ---------------------------------------------------------------------------
+// GC — multiple versions overwriting the same key
+// ---------------------------------------------------------------------------
+
+func TestGCMultipleVersionsSameKey(t *testing.T) {
+	db := newTestDB(map[string][]byte{})
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	c, err := NewStandardCache(context.Background(), config, db, pool, pool)
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v1"))
+	snap1, err := c.Snapshot()
+	require.NoError(t, err)
+
+	c.Set([]byte("k"), []byte("v2"))
+	snap2, err := c.Snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, snap1.Release())
+	require.NoError(t, snap2.Release())
+
+	time.Sleep(100 * time.Millisecond)
+
+	db.mu.RLock()
+	val := db.store["k"]
+	db.mu.RUnlock()
+	require.Equal(t, "v2", string(val), "DB should contain the latest value after GC")
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — concurrent reads on snapshot while mutable cache is written
+// ---------------------------------------------------------------------------
+
+func TestSnapshotConcurrentReadsWithMutableWrites(t *testing.T) {
+	c := newTestCache(t, map[string][]byte{}, 4, 100_000)
+	for i := 0; i < 50; i++ {
+		c.Set([]byte(fmt.Sprintf("k-%d", i)), []byte(fmt.Sprintf("v-%d", i)))
+	}
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+
+	// Concurrent reads on snapshot.
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		key := []byte(fmt.Sprintf("k-%d", i))
+		expected := fmt.Sprintf("v-%d", i)
+		go func() {
+			defer wg.Done()
+			val, found, err := snap.Get(key, false)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, expected, string(val))
+		}()
+	}
+
+	// Concurrent writes on mutable cache.
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		key := []byte(fmt.Sprintf("k-%d", i))
+		go func() {
+			defer wg.Done()
+			c.Set(key, []byte("overwritten"))
+		}()
+	}
+
+	wg.Wait()
+	require.NoError(t, snap.Release())
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot — shutdown unblocks backpressure
+// ---------------------------------------------------------------------------
+
+func TestSnapshotShutdownUnblocksBackpressure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := threading.NewAdHocPool()
+	config := DefaultTestCacheConfig()
+	config.MetricsName = "test"
+	config.ShardCount = 1
+	config.MaxSize = 4096
+	config.MaxUnGCdVersions = 2
+	// Very slow GC so versions pile up.
+	config.GCIntervalSeconds = 100
+	c, err := NewStandardCache(ctx, config, newTestDB(nil), pool, pool)
+	require.NoError(t, err)
+
+	// Create and release enough snapshots to exceed MaxUnGCdVersions.
+	for i := uint64(0); i <= config.MaxUnGCdVersions; i++ {
+		c.Set([]byte(fmt.Sprintf("k-%d", i)), []byte("v"))
+		snap, err := c.Snapshot()
+		require.NoError(t, err)
+		require.NoError(t, snap.Release())
+	}
+
+	// Next Snapshot() should block due to backpressure. Cancel context to unblock.
+	done := make(chan error, 1)
+	go func() {
+		c.Set([]byte("blocked"), []byte("v"))
+		_, err := c.Snapshot()
+		done <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "Snapshot should return error after context cancellation")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Snapshot did not unblock after context cancellation")
 	}
 }
