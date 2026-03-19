@@ -69,12 +69,12 @@ func newMockCache() *mockCache {
 	return &mockCache{data: make(map[string][]byte)}
 }
 
-func (mc *mockCache) Get(_ Reader, key []byte, _ bool) ([]byte, bool, error) {
+func (mc *mockCache) Get(key []byte, _ bool) ([]byte, bool, error) {
 	v, ok := mc.data[string(key)]
 	return v, ok, nil
 }
 
-func (mc *mockCache) BatchGet(_ Reader, keys map[string]types.BatchGetResult) error {
+func (mc *mockCache) BatchGet(keys map[string]types.BatchGetResult) error {
 	for k := range keys {
 		v, ok := mc.data[k]
 		if ok {
@@ -104,6 +104,10 @@ func (mc *mockCache) BatchSet(updates []CacheUpdate) error {
 		}
 	}
 	return nil
+}
+
+func (mc *mockCache) Snapshot() (CacheSnapshot, error) {
+	return nil, errors.New("not implemented")
 }
 
 // ---------------------------------------------------------------------------

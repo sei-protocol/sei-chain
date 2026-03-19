@@ -2,12 +2,10 @@ package dbcache
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -94,16 +92,7 @@ func NewStandardCache(
 	}
 	sizePerShard := config.MaxSize / config.ShardCount
 
-	reader := func(key []byte) ([]byte, bool, error) {
-		val, err := db.Get(key)
-		if err != nil {
-			if errors.Is(err, errorutils.ErrNotFound) {
-				return nil, false, nil
-			}
-			return nil, false, fmt.Errorf("failed to read value from database: %w", err)
-		}
-		return val, true, nil
-	}
+	reader := ReaderFromDB(db)
 
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {

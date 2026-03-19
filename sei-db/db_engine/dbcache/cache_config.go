@@ -38,6 +38,7 @@ type CacheConfig struct {
 	TargetKeysPerFlush int
 }
 
+// Default configuration for a production cache.
 func DefaultCacheConfig() *CacheConfig {
 	return &CacheConfig{
 		ShardCount:                   8,
@@ -48,6 +49,16 @@ func DefaultCacheConfig() *CacheConfig {
 		MaxUnGCdVersions:             4,
 		TargetKeysPerFlush:           1024 * 10,
 	}
+}
+
+// Default configuration for unit tests. Main difference is that allocated space is much smaller by default.
+func DefaultTestCacheConfig() *CacheConfig {
+	config := DefaultCacheConfig()
+	config.MaxSize = unit.MB * 16
+	config.MetricsEnabled = false
+	// Really fast GC to attempt to trigger edge cases in tests.
+	config.GCIntervalSeconds = 0.01
+	return config
 }
 
 func (c *CacheConfig) MetricsScrapeInterval() time.Duration {

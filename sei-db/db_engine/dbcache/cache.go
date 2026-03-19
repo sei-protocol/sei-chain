@@ -1,10 +1,10 @@
 package dbcache
 
 import (
-	"context"
+	"errors"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -124,28 +124,16 @@ func (u *CacheUpdate) IsDelete() bool {
 	return u.Value == nil
 }
 
-// BuildCache creates a new Cache. If config.MaxSize is 0, a no-op cache is returned.
-func BuildCache(
-	ctx context.Context,
-	config *CacheConfig,
-	db types.KeyValueDB,
-	readPool threading.Pool,
-	miscPool threading.Pool,
-) (Cache, error) {
-
-	if config.MaxSize == 0 {
-		return NewNoOpCache(), nil
+// ReaderFromDB constructs a Reader that reads from the given KeyValueDB.
+func ReaderFromDB(db types.KeyValueDB) Reader {
+	return func(key []byte) ([]byte, bool, error) {
+		val, err := db.Get(key)
+		if err != nil {
+			if errors.Is(err, errorutils.ErrNotFound) {
+				return nil, false, nil
+			}
+			return nil, false, fmt.Errorf("failed to read value from database: %w", err)
+		}
+		return val, true, nil
 	}
-
-	cache, err := NewStandardCache(
-		ctx,
-		config,
-		db,
-		readPool,
-		miscPool,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache: %w", err)
-	}
-	return cache, nil
 }
