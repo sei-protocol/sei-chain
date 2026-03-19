@@ -9,7 +9,7 @@ Two independent layers, each with their own write/read mode configs:
 | **SC** (State Commit) | Consensus / app hash | memiavl | FlatKV |
 | **SS** (State Store) | Historical queries | Single MVCC DB (Pebble/Rocks) | 5 sharded MVCC DBs under `data/evm_ss/` |
 
-**SC modes affect consensus** (app hash computation). **SS modes are per-node** and query-only — no consensus impact.
+**SC modes affect consensus** (app hash computation). **SS modes are per-node** and query-only with no consensus impact.
 
 ## Config Reference
 
@@ -61,7 +61,7 @@ evm-ss-read-mode  = "evm_first"    # fallback safety
 ss-backend        = "rocksdb"      # if switching backend
 ```
 
-**Why this works:** The SS `Import` path routes based on write mode — with `split_write`, EVM snapshot nodes go only to EVM SS, non-EVM only to cosmos SS. Both stores are fully populated at the snapshot height. No gap, no fallback needed for imported data.
+**Why this works:** The SS `Import` path routes based on write mode with `split_write`, EVM snapshot nodes go only to EVM SS, non-EVM only to cosmos SS. Both stores are fully populated at the snapshot height. No gap, no fallback needed for imported data.
 
 **Why SC stays at `dual_write`:** SC `split_write` means memiavl stops receiving EVM data, which breaks app hash unless the network has upgraded to lattice hash. `dual_write` keeps memiavl authoritative for consensus while also populating FlatKV.
 
@@ -72,15 +72,15 @@ ss-backend        = "rocksdb"      # if switching backend
 1. Build binary with `-tags rocksdbBackend` (if switching to RocksDB).
 2. Set config as above.
 3. State sync.
-4. Done — node runs in split mode immediately.
+4. Node runs in split mode immediately.
 
 ---
 
 ### Path B: Live Full Node (no re-sync)
 
-For a running node switching config without state sync, the EVM SS store starts empty. WAL recovery cannot backfill because the changelog is pruned — it typically covers only `KeepRecent` blocks, not all history.
+For a running node switching config without state sync, the EVM SS store starts empty. WAL recovery cannot backfill because the changelog is pruned, it typically covers only `KeepRecent` blocks, not all history.
 
-#### Phase 1 — Dual write + fallback reads
+#### Phase 1: Dual write + fallback reads
 
 ```toml
 [state-commit]
@@ -94,9 +94,9 @@ evm-ss-read-mode  = "evm_first"
 
 - New EVM data goes to **both** cosmos SS and EVM SS.
 - Reads try EVM SS first, miss on old data, fall back to cosmos (which has it).
-- Zero risk — cosmos remains the full source of truth.
+- Zero risk since cosmos remains the full source of truth.
 
-#### Phase 2 — After `KeepRecent` blocks (~100k default)
+#### Phase 2: After `KeepRecent` blocks (~100k default)
 
 ```toml
 [state-store]
@@ -109,7 +109,7 @@ evm-ss-read-mode  = "evm_first"
 - Stop redundant cosmos EVM writes.
 - `evm_first` still provides fallback for edge cases.
 
-#### Phase 3 (optional) — Full separation
+#### Phase 3 (optional): Full separation
 
 ```toml
 [state-store]
@@ -126,16 +126,16 @@ SC layer stays at `dual_write` throughout.
 
 ### Path C: Archive Node
 
-Archive nodes keep all history (`KeepRecent = 0`), so the live-node transition (Path B) doesn't naturally converge — old EVM data never gets pruned from cosmos, and EVM SS never accumulates it.
+Archive nodes keep all history (`KeepRecent = 0`), so the live-node transition (Path B) doesn't naturally converge. Old EVM data never gets pruned from cosmos, and EVM SS never accumulates it.
 
-#### Option 1 — New archive from genesis
+#### Option 1: New archive from genesis
 
 - Configure with target modes from block 0.
 - Replay all blocks; `ApplyChangesetSync` routes correctly from the start.
 - EVM SS is fully populated by the time it catches up to head.
 - This is the cleanest path.
 
-#### Option 2 — Migrate existing archive (key-to-key)
+#### Option 2: Migrate existing archive (key-to-key)
 
 No migration tool exists today. One needs to be built. The tool would:
 
@@ -158,7 +158,7 @@ State sync into a node built with `-tags rocksdbBackend` and `ss-backend = "rock
 No built-in migration tool exists. Two options:
 
 1. **Replay from genesis** with RocksDB backend (cleanest, combines with Path C Option 1).
-2. **Build a key-to-key migration tool** that reads all versioned data from PebbleDB and writes to RocksDB. The `backend.ResolveBackend()` abstraction makes this straightforward — open a source DB with `openPebbleDB` and a destination with `openRocksDB`, iterate and copy.
+2. **Build a key-to-key migration tool** that reads all versioned data from PebbleDB and writes to RocksDB. The `backend.ResolveBackend()` abstraction makes this straightforward. Open a source DB with `openPebbleDB` and a destination with `openRocksDB`, iterate and copy.
 
 ---
 
@@ -178,4 +178,4 @@ No built-in migration tool exists. Two options:
 - **SC `split_write` requires network-wide lattice hash upgrade.** Without it, memiavl's `evm` tree diverges and breaks consensus. Keep SC at `dual_write` until then.
 - **SS modes are per-node safe.** Any node can independently change SS write/read modes without affecting consensus.
 - **WAL recovery cannot bootstrap a fresh EVM SS on a live node.** The changelog is pruned. Use `dual_write` intermediate phase (Path B) or state sync (Path A).
-- **Iterators always use cosmos SS.** `Iterator`, `ReverseIterator`, and `RawIterate` on the composite store always delegate to cosmos. This is by design — the EVM SS doesn't support cross-type iteration.
+- **Iterators always use cosmos SS.** `Iterator`, `ReverseIterator`, and `RawIterate` on the composite store always delegate to cosmos. This is by design since the EVM SS doesn't support cross-type iteration.
