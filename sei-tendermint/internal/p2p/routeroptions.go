@@ -113,25 +113,15 @@ type RouterOptions struct {
 	// consider private and never gossip.
 	PrivatePeers []types.NodeID
 
-	// MaxPeers is the maximum number of peers to track address information about.
-	// When exceeded, unreachable peers will be deleted.
-	// Defaults to 128.
-	MaxPeers utils.Option[int]
-
-	// MaxConnected is the maximum number of connected peers (inbound and outbound).
+	// MaxInbound is the maximum number of inbound connections.
 	// Persistent and unconditional connections are not counted towards this limit.
-	// Defaults to 64.
-	MaxConnected utils.Option[int]
+	// Defaults to 40.
+	MaxInbound utils.Option[int]
 
-	// MaxOutboundConnections is the maximum number of outbound connections.
-	// Note that MaxConnected is still respected and the actual number of outbound connections
-	// is bounded by min(MaxConnected,MaxOutboundConnections)
-	// Defaults to 10.
-	MaxOutboundConnections utils.Option[int]
-
-	// MaxConcurrentDials limits the number of concurrent outbound connection handshakes.
-	// Defaults to 10.
-	MaxConcurrentDials utils.Option[int]
+	// MaxOutbound is the maximum number of outbound connections.
+	// Persistent and unconditional connections are not counted towards this limit.
+	// Defaults to 20.
+	MaxOutbound utils.Option[int]
 
 	// MaxConncurrentAccepts limites the number of concurrent inbound connection handshakes.
 	// Defaults to 10.
@@ -145,16 +135,9 @@ type RouterOptions struct {
 	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int   { return o.MaxConcurrentDials.Or(10) }
-func (o *RouterOptions) maxAccepts() int { return o.MaxConcurrentAccepts.Or(10) }
-func (o *RouterOptions) maxConns() int   { return o.MaxConnected.Or(64) }
-func (o *RouterOptions) maxOutboundConns() int {
-	return min(o.maxConns(), o.MaxOutboundConnections.Or(10))
-}
-
-func (o *RouterOptions) maxPeers() int {
-	return o.MaxPeers.Or(128)
-}
+func (o *RouterOptions) maxAccepts() int  { return o.MaxConcurrentAccepts.Or(10) }
+func (o *RouterOptions) maxOutbound() int { return o.MaxOutbound.Or(20) }
+func (o *RouterOptions) maxInbound() int  { return o.MaxInbound.Or(40) }
 
 func (o *RouterOptions) peerStoreInterval() time.Duration {
 	return o.PeerStoreInterval.Or(10 * time.Second)
