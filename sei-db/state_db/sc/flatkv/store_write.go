@@ -141,7 +141,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						}
 						copy(paw.value.CodeHash[:], pair.Value)
 					}
-					paw.isDelete = false
+					paw.isDelete = paw.value.IsEmpty()
 				}
 
 			case evm.EVMKeyCode:

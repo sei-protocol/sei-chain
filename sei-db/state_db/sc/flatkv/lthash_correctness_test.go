@@ -1088,3 +1088,62 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	require.NotNil(t, paw)
 	require.True(t, paw.isDelete, "row should be marked for deletion (all fields zero)")
 }
+
+// TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a
+// Delete) triggers row GC and keeps LtHash correct. This prepares for future
+// balance support where SetBalance(0) is a write, not a delete.
+func TestLtHashAccountWriteZeroGC(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD6)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 7)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1)
+
+	// Write nonce=0 (not Delete) — should GC the row
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 0)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be GC'd after write-zero")
+}
+
+// TestLtHashAccountWriteZeroOrderIndependent verifies LtHash correctness
+// when delete and write-zero operations are interleaved in different orders.
+func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
+	for _, name := range []string{"delete-then-write-zero", "write-zero-then-delete"} {
+		t.Run(name, func(t *testing.T) {
+			s := setupTestStore(t)
+			defer s.Close()
+
+			addr := addrN(0xD7)
+			ch := codeHashN(0xFF)
+
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+				namedCS(noncePair(addr, 3), codeHashPair(addr, ch)),
+			}))
+			commitAndCheck(t, s)
+			verifyLtHashAtHeight(t, s, 1)
+
+			var pairs []*iavl.KVPair
+			if name == "delete-then-write-zero" {
+				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+			} else {
+				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+			}
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+			commitAndCheck(t, s)
+			verifyLtHashAtHeight(t, s, 2)
+
+			_, err := s.accountDB.Get(AccountKey(addr))
+			require.Error(t, err, "row should be GC'd regardless of order")
+		})
+	}
+}

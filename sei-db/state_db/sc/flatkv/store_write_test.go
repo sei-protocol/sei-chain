@@ -1364,6 +1364,74 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 }
 
 // =============================================================================
+// Write-Zero Triggers GC (EIP-161 alignment)
+// =============================================================================
+
+// TestAccountRowGCOnWriteZero verifies that writing a zero value (as opposed
+// to a Delete) still triggers row GC when the result is an all-zero account.
+// This is critical for future balance support where SetBalance(0) is a write,
+// not a delete.
+func TestAccountRowGCOnWriteZero(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xA4)
+
+	// Block 1: write nonce = 5
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 5)),
+	}))
+	commitAndCheck(t, s)
+
+	// Block 2: write nonce = 0 (write, not delete)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 0)),
+	}))
+	commitAndCheck(t, s)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be GC'd when write-zero makes account empty")
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	_, found := s.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after write-zero GC")
+}
+
+// TestAccountRowGCWriteZeroOrderIndependent verifies that the order of
+// delete + write-zero operations within a single changeset does not affect
+// whether GC occurs.
+func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
+	for _, name := range []string{"delete-then-write-zero", "write-zero-then-delete"} {
+		t.Run(name, func(t *testing.T) {
+			s := setupTestStore(t)
+			defer s.Close()
+
+			addr := addrN(0xA5)
+			ch := codeHashN(0xDD)
+
+			// Block 1: nonce=5 + codehash
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+				namedCS(noncePair(addr, 5), codeHashPair(addr, ch)),
+			}))
+			commitAndCheck(t, s)
+
+			// Block 2: one field deleted, one field written to zero
+			var pairs []*iavl.KVPair
+			if name == "delete-then-write-zero" {
+				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+			} else {
+				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+			}
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+			commitAndCheck(t, s)
+
+			_, err := s.accountDB.Get(AccountKey(addr))
+			require.Error(t, err, "accountDB row should be GC'd regardless of operation order")
+		})
+	}
+}
+
+// =============================================================================
 // Write Test Helpers
 // =============================================================================
 
