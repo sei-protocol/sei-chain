@@ -358,7 +358,7 @@ func (m *peerManager[C]) AllAddrs() []NodeAddress {
 		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
 			for e := range pool.pex.All() {
 				for _, pAddr := range e.addrs {
-					if _, ok := addrs[pAddr.NodeAddress.NodeID]; !ok {
+					if _, ok := addrs[pAddr.NodeID]; !ok {
 						addrs[pAddr.NodeID] = pAddr.NodeAddress
 					}
 				}
