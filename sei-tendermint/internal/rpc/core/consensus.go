@@ -55,7 +55,7 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 	// Get Peer consensus states.
 
 	peerStates := map[types.NodeID]coretypes.PeerStateInfo{}
-	for _, info := range env.PeerManager.ConnInfos() {
+	for _, info := range env.Router.ConnInfos() {
 		if _, ok := peerStates[info.ID]; ok {
 			continue
 		}

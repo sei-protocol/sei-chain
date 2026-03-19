@@ -15,14 +15,14 @@ import (
 // More: https://docs.tendermint.com/master/rpc/#/Info/net_info
 func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	peers := map[types.NodeID]coretypes.Peer{}
-	for _, addr := range env.PeerManager.AllAddrs() {
+	for _, addr := range env.Router.AllAddrs() {
 		if _, ok := peers[addr.NodeID]; ok {
 			continue
 		}
 		peers[addr.NodeID] = coretypes.Peer{ID: addr.NodeID, URL: addr.String()}
 	}
 	peerConnections := map[types.NodeID]coretypes.PeerConnection{}
-	for _, info := range env.PeerManager.ConnInfos() {
+	for _, info := range env.Router.ConnInfos() {
 		if _, ok := peerConnections[info.ID]; ok {
 			continue
 		}
