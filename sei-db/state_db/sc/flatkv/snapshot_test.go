@@ -345,7 +345,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = accountDBPath
 	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer)
+	db, err := pebbledb.Open(t.Context(), acctCfg, pebble.DefaultComparer)
 	require.NoError(t, err)
 	lagMeta := &LocalMeta{CommittedVersion: 1}
 	require.NoError(t, db.Set(DBLocalMetaKey, MarshalLocalMeta(lagMeta), types.WriteOptions{Sync: true}))
