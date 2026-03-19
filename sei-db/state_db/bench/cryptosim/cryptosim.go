@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -17,8 +18,9 @@ const (
 
 // EVM key sizes (matches sei-db/common/evm).
 const (
-	AddressLen = 20 // EVM address length
-	SlotLen    = 32 // EVM storage slot length
+	AddressLen    = 20 // EVM address length
+	SlotLen       = 32 // EVM storage slot length
+	StorageKeyLen = AddressLen + SlotLen
 )
 
 // The test runner for the cryptosim benchmark.
@@ -74,6 +76,12 @@ type CryptoSim struct {
 	// This is fixed after initial setup is complete, since we don't currently simulate
 	// the creation of new ERC20 contracts during the benchmark.
 	nextERC20ContractID int64
+
+	// The channel that holds blocks sent to the receipt store.
+	recieptsChan chan *block
+
+	// Enforces a maximum transaction rate (if enabled).
+	rateLimiter *rate.Limiter
 }
 
 // Creates a new cryptosim benchmark runner.
@@ -137,7 +145,7 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	database := NewDatabase(config, db, metrics)
+	database := NewDatabase(config, db, metrics, 0)
 
 	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {
@@ -147,6 +155,7 @@ func NewCryptoSim(
 		}
 		return nil, fmt.Errorf("failed to create data generator: %w", err)
 	}
+	database.nextBlockNumber = dataGenerator.InitialNextBlockNumber()
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1
@@ -156,7 +165,23 @@ func NewCryptoSim(
 	executors := make([]*TransactionExecutor, threadCount)
 	for i := 0; i < threadCount; i++ {
 		executors[i] = NewTransactionExecutor(
-			ctx, cancel, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
+			ctx, cancel, config, database, dataGenerator.FeeCollectionAddress(), config.ExecutorQueueSize, metrics)
+	}
+
+	var recieptsChan chan *block
+	if config.GenerateReceipts {
+		recieptsChan = make(chan *block, config.RecieptChannelCapacity)
+		_, err := NewRecieptStoreSimulator(ctx, config, recieptsChan, metrics)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create receipt store simulator: %w", err)
+		}
+		metrics.startReceiptChannelDepthSampling(recieptsChan, config.BackgroundMetricsScrapeInterval)
+	}
+
+	var rateLimiter *rate.Limiter
+	if config.MaxTPS > 0 {
+		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTPS), config.TransactionsPerBlock)
 	}
 
 	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator)
@@ -175,6 +200,8 @@ func NewCryptoSim(
 		executors:                         executors,
 		metrics:                           metrics,
 		suspendChan:                       make(chan bool, 1),
+		recieptsChan:                      recieptsChan,
+		rateLimiter:                       rateLimiter,
 	}
 
 	database.SetFlushFunc(c.flushExecutors)
@@ -233,7 +260,7 @@ func (c *CryptoSim) setupAccounts() error {
 		if err != nil {
 			return fmt.Errorf("failed to create new account: %w", err)
 		}
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 		finalized, err := c.database.MaybeFinalizeBlock(
 			c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
 		if err != nil {
@@ -255,7 +282,8 @@ func (c *CryptoSim) setupAccounts() error {
 	fmt.Printf("Created %s of %s accounts.      \n",
 		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
 
-	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
+	err := c.database.FinalizeBlock(
+		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
@@ -290,7 +318,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 			break
 		}
 
-		c.database.IncrementTransactionCount(1)
+		c.database.IncrementTransactionCount()
 
 		_, _, err := c.dataGenerator.CreateNewErc20Contract(c.config.Erc20ContractSize, true)
 		if err != nil {
@@ -320,7 +348,10 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	fmt.Printf("Created %s of %s simulated ERC20 contracts.      \n",
 		int64Commas(c.dataGenerator.NextErc20ContractID()), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 
-	err := c.database.FinalizeBlock(c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
+	err := c.database.FinalizeBlock(
+		c.dataGenerator.NextAccountID(),
+		c.dataGenerator.NextErc20ContractID(),
+		true)
 	if err != nil {
 		return fmt.Errorf("failed to finalize block: %w", err)
 	}
@@ -365,10 +396,27 @@ func (c *CryptoSim) run() {
 			c.cancel()
 			return
 		case blk := <-c.blockBuilder.blocksChan:
+			c.maybeThrottle()
 			c.handleNextBlock(blk)
 		}
 
 		c.generateConsoleReport(false)
+	}
+}
+
+// Potentially block for a while if we are throttling the transaction rate.
+func (c *CryptoSim) maybeThrottle() {
+	if c.config.MaxTPS == 0 {
+		// Throttling is disabled.
+		return
+	}
+
+	c.metrics.SetMainThreadPhase("throttling")
+
+	if err := c.rateLimiter.WaitN(c.ctx, c.config.TransactionsPerBlock); err != nil {
+		fmt.Printf("failed to wait for rate limit: %v\n", err)
+		c.cancel()
+		return
 	}
 }
 
@@ -377,7 +425,9 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 	c.mostRecentBlock = blk
 	c.metrics.SetMainThreadPhase("send_to_executors")
 
-	c.database.IncrementTransactionCount(blk.TransactionCount())
+	for i := int64(0); i < blk.TransactionCount(); i++ {
+		c.database.IncrementTransactionCount()
+	}
 
 	for txn := range blk.Iterator() {
 		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
@@ -389,6 +439,15 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 		c.cancel()
 		return
 	}
+
+	if c.config.GenerateReceipts {
+		select {
+		case <-c.ctx.Done():
+			return
+		case c.recieptsChan <- blk:
+		}
+	}
+
 	blk.ReportBlockMetrics()
 }
 

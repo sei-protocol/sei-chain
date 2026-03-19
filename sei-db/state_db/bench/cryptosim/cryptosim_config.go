@@ -140,6 +140,30 @@ type CryptoSimConfig struct {
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
 
+	// If true, the benchmark will generate receipts for each transaction in each block and
+	// feed those receipts into the receipt store.
+	GenerateReceipts bool
+
+	// The capacity of the channel that holds blocks sent to the receipt store.
+	RecieptChannelCapacity int
+
+	// If true, disables simulation of transaction execution, and writes very little to the database. This is
+	// potentially useful when benchmarking things other than state storage (e.g. the receipt store).
+	//
+	// Note that switching execution on after previously running with execution disabled may result in buggy behavior,
+	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
+	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
+	DisableTransactionExecution bool
+
+	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
+	MaxTPS float64
+
+	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
+	ReceiptKeepRecent int64
+
+	// Interval in seconds between prune checks. 0 disables pruning.
+	ReceiptPruneIntervalSeconds int64
+
 	// Directory for seilog output files. Independent of DataDir so logs and data
 	// live in separate trees. Supports ~ expansion and relative paths (resolved
 	// from cwd). Must be set, there is no default.
@@ -187,6 +211,12 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
 		BlockChannelCapacity:              8,
+		GenerateReceipts:                  false,
+		RecieptChannelCapacity:            32,
+		DisableTransactionExecution:       false,
+		MaxTPS:                            0,
+		ReceiptKeepRecent:                 100_000,
+		ReceiptPruneIntervalSeconds:       600,
 		LogLevel:                          "info",
 	}
 }
@@ -265,6 +295,12 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.BlockChannelCapacity < 1 {
 		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
+	}
+	if c.RecieptChannelCapacity < 1 {
+		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
+	}
+	if c.MaxTPS < 0 {
+		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":
