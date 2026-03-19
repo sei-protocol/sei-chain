@@ -41,12 +41,26 @@ type cache struct {
 	// The version of the oldest snapshot we are currently tracking.
 	oldestVersion uint64
 
-	// Protects modification to versionMap.
-	versionLock sync.Mutex
+	// Protects modification to versionMap, unGCdVersions, lastVersionEligibleForGC, and shuttingDown.
+	versionLock *sync.Mutex
 
 	// Reference counts for all snapshots we are currently tracking. The current (mutable) version
 	// does not have a reference count and so it does not appear in this map.
 	versionMap map[uint64]*snapshotReferenceCounter
+
+	// The number of snapshots that are currently eligible for garbage collection + flush,
+	// but which have not yet been flushed.
+	unGCdVersions uint64
+
+	// The latest version that is eligible for GC. There may or may not be earlier versions that are eligible for GC.
+	// This value is not updated if the version in question is actually GC'd.
+	lastVersionEligibleForGC uint64
+
+	// Used to enforce GC backpressure. We want to block Snapshot() if unGCdVersions grows too large.
+	gcBackpressueCond *sync.Cond
+
+	// Set to true when the cache is shutting down.
+	shuttingDown bool
 }
 
 // Tracks the reference count for a particular snapshot.
@@ -119,17 +133,21 @@ func NewStandardCache(
 		}
 	}
 
+	versionLock := &sync.Mutex{}
+	gcBackpressueCond := sync.NewCond(versionLock)
+
 	c := &cache{
-		ctx:            ctx,
-		shardManager:   shardManager,
-		shards:         shards,
-		readPool:       readPool,
-		miscPool:       miscPool,
-		db:             db,
-		versionMap:     make(map[uint64]*snapshotReferenceCounter),
-		currentVersion: 1, // important: versions start at 1, not 0, to allow version-1 without underflow
-		oldestVersion:  1,
-		versionLock:    sync.Mutex{},
+		ctx:               ctx,
+		shardManager:      shardManager,
+		shards:            shards,
+		readPool:          readPool,
+		miscPool:          miscPool,
+		db:                db,
+		versionMap:        make(map[uint64]*snapshotReferenceCounter),
+		currentVersion:    1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		oldestVersion:     1,
+		versionLock:       versionLock,
+		gcBackpressueCond: gcBackpressueCond,
 	}
 
 	if cacheName != "" {
@@ -255,6 +273,11 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
+	err := c.gcBackpressure()
+	if err != nil {
+		return nil, fmt.Errorf("failed wait for gc to catch up: %w", err)
+	}
+
 	currentVersionRefCounter := &snapshotReferenceCounter{
 		version:        c.currentVersion,
 		referenceCount: 1,
@@ -277,6 +300,21 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	}
 
 	return snapshot, nil
+}
+
+const maxUnGCdVersions = 4 // TODO this should be configurable
+
+// This method blocks if GC/flush is not keeping up. It is assumed that the caller already holds the versionLock.
+// When this method returns, it will still hold the versionLock, but it may release and then re-acquire versionLock
+// internally as it awaits for GC to catch up.
+func (c *cache) gcBackpressure() error {
+	for c.unGCdVersions > maxUnGCdVersions {
+		if c.shuttingDown {
+			return fmt.Errorf("context cancelled")
+		}
+		c.gcBackpressueCond.Wait()
+	}
+	return nil
 }
 
 // Increment the reference count for the given version.
@@ -328,6 +366,27 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 	}
 
 	counter.referenceCount--
+
+	// Iterate through versions and mark versions as eligible/ineligible for GC.
+	// If the eligible version count ever gets too high, then backpressue will kick in and Snapshot() will block.
+	versionToConsider := c.lastVersionEligibleForGC + 1
+	for {
+		counter, ok := c.versionMap[versionToConsider]
+		if !ok {
+			// we've reached the end of the version map, no more versions to consider
+			break
+		}
+
+		if counter.referenceCount > 0 {
+			// stop once we find the first version that is ineligible for GC
+			break
+		}
+
+		c.unGCdVersions++
+		c.lastVersionEligibleForGC = versionToConsider
+		versionToConsider++
+	}
+
 	return nil
 }
 
@@ -357,9 +416,15 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 func (c *cache) garbageCollectionRunner(gcInterval time.Duration) {
 	ticker := time.NewTicker(gcInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-c.ctx.Done():
+			// Send a signal to wake up Snapshot() if it is blocked by backpressure.
+			c.versionLock.Lock()
+			c.shuttingDown = true
+			c.versionLock.Unlock()
+			c.gcBackpressueCond.Signal()
 			return
 		case <-ticker.C:
 			err := c.garbageCollect()
@@ -429,7 +494,9 @@ func (c *cache) garbageCollect() error {
 
 	// Push the diffs down into the DB.
 	var batch types.Batch
+	versionsInBatch := uint64(0)
 	for version := firstVersionToGC; version <= lastVersionToGC; version++ {
+		versionsInBatch++
 		if batch == nil {
 			batch = c.db.NewBatch()
 		}
@@ -453,6 +520,11 @@ func (c *cache) garbageCollect() error {
 				return fmt.Errorf("gc failed to commit batch: %w", err)
 			}
 			batch = nil
+			c.versionLock.Lock()
+			c.unGCdVersions -= versionsInBatch
+			c.versionLock.Unlock()
+			c.gcBackpressueCond.Signal()
+			versionsInBatch = 0
 		}
 	}
 	if batch != nil {
@@ -460,6 +532,11 @@ func (c *cache) garbageCollect() error {
 		if err != nil {
 			return fmt.Errorf("gc failed to commit batch: %w", err)
 		}
+
+		c.versionLock.Lock()
+		c.unGCdVersions -= versionsInBatch
+		c.versionLock.Unlock()
+		c.gcBackpressueCond.Signal()
 	}
 
 	// Now that the data is reflected in the DB, clean up the shards.
