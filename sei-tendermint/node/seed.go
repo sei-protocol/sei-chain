@@ -111,7 +111,7 @@ func makeSeedNode(
 			StateStore: stateStore,
 			BlockStore: blockStore,
 
-			PeerManager: router,
+			Router: router,
 
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,

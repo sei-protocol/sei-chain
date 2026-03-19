@@ -183,7 +183,10 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// commit genesis changes
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
-	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{
+		ChainID: chainID,
+		Height:  app.LastBlockHeight() + 1,
+	}})
 	require.NoError(t, err)
 
 	return app

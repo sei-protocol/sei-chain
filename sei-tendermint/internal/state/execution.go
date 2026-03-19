@@ -171,24 +171,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 ) (bool, error) {
 	txs := block.Txs.ToSliceOfBytes()
 	resp, err := blockExec.app.ProcessProposal(ctx, &abci.RequestProcessProposal{
-		Hash:                  block.Header.Hash(),
-		Height:                block.Height,
-		Time:                  block.Time,
-		Txs:                   txs,
-		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-		ByzantineValidators:   block.Evidence.ToABCI(),
-		ProposerAddress:       block.ProposerAddress,
-		NextValidatorsHash:    block.NextValidatorsHash,
-		AppHash:               block.AppHash,
-		ValidatorsHash:        block.ValidatorsHash,
-		ConsensusHash:         block.ConsensusHash,
-		DataHash:              block.DataHash,
-		EvidenceHash:          block.EvidenceHash,
-		LastBlockHash:         block.LastBlockID.Hash,
-		LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-		LastBlockPartSetHash:  block.LastBlockID.Hash,
-		LastCommitHash:        block.LastCommitHash,
-		LastResultsHash:       block.LastResultsHash,
+		Txs:                 txs,
+		ProposedLastCommit:  buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+		ByzantineValidators: block.Evidence.ToABCI(),
+		Hash:                block.Header.Hash(),
+		Header:              block.Header.ToProto(),
 	})
 	if err != nil {
 		return false, ErrInvalidBlock(err)
@@ -269,24 +256,11 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	fBlockRes, err := blockExec.app.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   txs,
-			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			ProposerAddress:       block.ProposerAddress,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 txs,
+			DecidedLastCommit:   buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
@@ -815,22 +789,11 @@ func ExecCommitBlock(
 	finalizeBlockResponse, err := appConn.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   block.Txs.ToSliceOfBytes(),
-			DecidedLastCommit:     buildLastCommitInfo(block, store, initialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 block.Txs.ToSliceOfBytes(),
+			DecidedLastCommit:   buildLastCommitInfo(block, store, initialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 
