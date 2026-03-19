@@ -35,23 +35,13 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type ConnV2 struct {
-	nodeID types.NodeID
-	// Address at which this connection was dialed (None for inbound connections).
-	dialAddr utils.Option[NodeAddress]
-	// Address under which this node can be dialed (declared by peer during handshake).
-	selfAddr     utils.Option[NodeAddress]
-	peerChannels ChannelIDSet
-	sendQueue    *Queue[sendMsg]
-	mconn        *conn.MConnection
+	PeerConnInfo
+	sendQueue *Queue[sendMsg]
+	mconn     *conn.MConnection
 }
 
 func (c *ConnV2) Info() PeerConnInfo {
-	return PeerConnInfo{
-		ID:               c.nodeID,
-		Channels:         c.peerChannels,
-		DialedAddr:       c.dialAddr,
-		SelfDeclaredAddr: c.selfAddr,
-	}
+	return c.PeerConnInfo
 }
 
 func (r *Router) connSendRoutine(ctx context.Context, conn *ConnV2) error {
@@ -72,7 +62,7 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *ConnV2) error {
 		if err := conn.mconn.Send(ctx, m.ChannelID, bz); err != nil {
 			return err
 		}
-		logger.Debug("sent message", "peer", conn.nodeID, "message", m.Message)
+		logger.Debug("sent message", "peer", conn.ID, "message", m.Message)
 	}
 }
 
@@ -88,34 +78,37 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 			ch, ok := chs[chID]
 			if !ok {
 				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
-				logger.Debug("dropping message for unknown channel", "peer", conn.nodeID, "channel", chID)
+				logger.Debug("dropping message for unknown channel", "peer", conn.ID, "channel", chID)
 				continue
 			}
 
 			msg := gogoproto.Clone(ch.desc.MessageType)
 			if err := gogoproto.Unmarshal(bz, msg); err != nil {
-				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.nodeID, err)
+				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.ID, err)
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
-			if _, ok := ch.recvQueue.Send(RecvMsg[gogoproto.Message]{From: conn.nodeID, Message: msg}, gogoproto.Size(msg), 0).Get(); ok {
+			if _, ok := ch.recvQueue.Send(RecvMsg[gogoproto.Message]{From: conn.ID, Message: msg}, gogoproto.Size(msg), 0).Get(); ok {
 				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
 			r.metrics.PeerReceiveBytesTotal.With(
 				"chID", fmt.Sprint(chID),
-				"peer_id", string(conn.nodeID),
+				"peer_id", string(conn.ID),
 				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(gogoproto.Size(msg)))
-			logger.Debug("received message", "peer", conn.nodeID, "message", msg)
+			logger.Debug("received message", "peer", conn.ID, "message", msg)
 		}
 	}
 }
 
 func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo types.NodeInfo, dialAddr utils.Option[NodeAddress]) error {
 	conn := &ConnV2{
-		nodeID:       peerInfo.NodeID,
-		dialAddr:     dialAddr,
-		selfAddr:     hConn.msg.SelfAddr,
-		sendQueue:    NewQueue[sendMsg](queueBufferDefault),
-		peerChannels: toChannelIDs(peerInfo.Channels),
+		PeerConnInfo: PeerConnInfo{
+			ID:               peerInfo.NodeID,
+			Channels:         toChannelIDs(peerInfo.Channels),
+			RemoteAddr:       hConn.conn.RemoteAddr(),
+			DialedAddr:       dialAddr,
+			SelfDeclaredAddr: hConn.msg.SelfAddr,
+		},
+		sendQueue: NewQueue[sendMsg](queueBufferDefault),
 		mconn: conn.NewMConnection(
 			hConn.conn,
 			r.getChannelDescs(),
@@ -126,7 +119,7 @@ func (r *Router) runConn(ctx context.Context, hConn *handshakedConn, peerInfo ty
 		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
 	defer r.peerManager.Disconnected(conn)
-	logger.Info("peer connected", "peer", conn.nodeID, "endpoint", conn)
+	logger.Info("peer connected", "peer", conn.ID, "endpoint", conn)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
 		s.SpawnNamed("connSendRoutine", func() error { return r.connSendRoutine(ctx, conn) })

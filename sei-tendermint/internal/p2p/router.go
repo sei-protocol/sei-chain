@@ -136,6 +136,9 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 	return addrs[:min(len(addrs), maxAddrs)]
 }
 
+func (r *Router) ConnInfos() []PeerConnInfo { return r.peerManager.ConnInfos() }
+func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
+
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
 	for channels := range r.channels.Lock() {
@@ -336,7 +339,7 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 				ctrl.Updated()
 			}
 			for _, conn := range conns.All() {
-				if addr, ok := conn.dialAddr.Get(); ok {
+				if addr, ok := conn.DialedAddr.Get(); ok {
 					if err := db.Insert(addr, now); err != nil {
 						return fmt.Errorf("db.Insert(): %w", err)
 					}

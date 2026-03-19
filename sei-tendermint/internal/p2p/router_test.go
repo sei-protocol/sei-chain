@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -234,6 +235,12 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 	// Add a node with PexOnHandshake = false and connect it to nodes[0]
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
 	newNode.Connect(ctx, nodes[0])
+
+	// newNode should NOT learn about nodes[1] during handshake.
+	require.True(t, slices.Index(
+		newNode.Router.peerManager.AllAddrs(),
+		nodes[1].NodeAddress,
+	) == -1)
 }
 
 func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {

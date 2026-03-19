@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"net/netip"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
@@ -15,6 +16,7 @@ var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 type PeerConnInfo struct {
 	ID               types.NodeID
 	Channels         ChannelIDSet
+	RemoteAddr       netip.AddrPort
 	DialedAddr       utils.Option[NodeAddress]
 	SelfDeclaredAddr utils.Option[NodeAddress]
 }
@@ -343,13 +345,13 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 
 // All addresses in pools.
 // Used by net_info endpoint, which is used by integration tests and for debugging.
-func (m *peerManager[C]) AllAddresses(id types.NodeID) []NodeAddress {
+func (m *peerManager[C]) AllAddrs() []NodeAddress {
 	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
-		for _,pool := range utils.Slice(inner.persistent,inner.regular) {
+		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
 			for e := range pool.pex.All() {
-				for _,pAddr := range e.addrs {
-					addrs = append(addrs,pAddr.NodeAddress)
+				for _, pAddr := range e.addrs {
+					addrs = append(addrs, pAddr.NodeAddress)
 				}
 			}
 		}
@@ -360,8 +362,8 @@ func (m *peerManager[C]) AllAddresses(id types.NodeID) []NodeAddress {
 // Infos of connections in the pool.
 func (m *peerManager[C]) ConnInfos() []PeerConnInfo {
 	var infos []PeerConnInfo
-	for _,conn := range m.Conns().All() {
-		infos = append(infos,conn.Info())
+	for _, conn := range m.Conns().All() {
+		infos = append(infos, conn.Info())
 	}
 	return infos
 }

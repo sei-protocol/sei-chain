@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"maps"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -16,12 +16,16 @@ import (
 func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
 	peers := map[types.NodeID]coretypes.Peer{}
 	for _, addr := range env.PeerManager.AllAddrs() {
-		if _,ok := peers[addr.NodeID]; ok { continue }
-		peers[addr.NodeID] = coretypes.Peer{ID:  addr.NodeID, URL: addr.String()}	
+		if _, ok := peers[addr.NodeID]; ok {
+			continue
+		}
+		peers[addr.NodeID] = coretypes.Peer{ID: addr.NodeID, URL: addr.String()}
 	}
 	peerConnections := map[types.NodeID]coretypes.PeerConnection{}
 	for _, info := range env.PeerManager.ConnInfos() {
-		if _,ok := peerConnections[info.ID]; ok { continue }
+		if _, ok := peerConnections[info.ID]; ok {
+			continue
+		}
 		peerConnections[info.ID] = coretypes.PeerConnection{
 			ID:    info.ID,
 			State: "ready,connected",

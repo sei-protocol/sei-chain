@@ -84,7 +84,7 @@ func (ch *Channel[T]) Send(msg T, to types.NodeID) {
 		logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
 		return
 	}
-	if _, contains := c.peerChannels[ch.desc.ID]; !contains {
+	if _, contains := c.Channels[ch.desc.ID]; !contains {
 		// reactor tried to send a message across a channel that the
 		// peer doesn't have available. This is a known issue due to
 		// how peer subscriptions work:
@@ -98,7 +98,7 @@ func (ch *Channel[T]) Send(msg T, to types.NodeID) {
 func (ch *Channel[T]) Broadcast(msg T) {
 	var queues []*Queue[sendMsg]
 	for _, c := range ch.router.peerManager.Conns().All() {
-		if _, ok := c.peerChannels[ch.desc.ID]; ok {
+		if _, ok := c.Channels[ch.desc.ID]; ok {
 			queues = append(queues, c.sendQueue)
 		}
 	}
