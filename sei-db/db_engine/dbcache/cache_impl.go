@@ -58,6 +58,8 @@ type snapshotReferenceCounter struct {
 	referenceCount uint64
 }
 
+// TODO: consider pulling cache config into a struct, config length is growing long!
+
 // Creates a new Cache. If cacheName is non-empty, OTel metrics are enabled and the
 // background size scrape runs every metricsScrapeInterval.
 func NewStandardCache(
@@ -79,6 +81,8 @@ func NewStandardCache(
 	cacheName string,
 	// How often to scrape cache size for metrics. Ignored if cacheName is empty.
 	metricsScrapeInterval time.Duration,
+	// How often to garbage collect.
+	gcInterval time.Duration,
 ) (Cache, error) {
 	if shardCount == 0 || (shardCount&(shardCount-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
@@ -123,8 +127,8 @@ func NewStandardCache(
 		miscPool:       miscPool,
 		db:             db,
 		versionMap:     make(map[uint64]*snapshotReferenceCounter),
-		currentVersion: 0,
-		oldestVersion:  0,
+		currentVersion: 1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		oldestVersion:  1,
 		versionLock:    sync.Mutex{},
 	}
 
@@ -134,6 +138,8 @@ func NewStandardCache(
 			s.metrics = metrics
 		}
 	}
+
+	go c.garbageCollectionRunner(gcInterval)
 
 	return c, nil
 }
@@ -345,4 +351,124 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 	}
 
 	return diff, nil
+}
+
+// Perform periodic garbage collection.
+func (c *cache) garbageCollectionRunner(gcInterval time.Duration) {
+	ticker := time.NewTicker(gcInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			err := c.garbageCollect()
+			if err != nil {
+				// It's unfortuante to have to panic here, but GC failure is not recoverable.
+				// Continuing in the face of GC failure is likely to lead to GC corruption
+				// and a divergant app hash.
+				panic(fmt.Sprintf("failed to garbage collect: %v", err))
+			}
+		}
+	}
+}
+
+// TODO this should be configurable
+const targetKeysPerFlush = 1024 * 10
+
+// Garbage collect all eligible snapshots and push data down into the DB.
+func (c *cache) garbageCollect() error {
+
+	// Determine which versions need cleanup.
+	firstVersionToGC := c.oldestVersion
+	lastVersionToGC := c.oldestVersion - 1
+	c.versionLock.Lock()
+
+	oldestVersion := c.oldestVersion
+	for version := oldestVersion; version < c.currentVersion; version++ {
+		counter, ok := c.versionMap[version]
+		if !ok {
+			// should be impossible
+			c.versionLock.Unlock()
+			return fmt.Errorf("version (%d) not found in version map", version)
+		}
+		if counter.referenceCount > 0 {
+			break
+		}
+		lastVersionToGC++
+		c.oldestVersion++
+		delete(c.versionMap, version)
+	}
+
+	c.versionLock.Unlock()
+
+	numberOfVersionsToGC := lastVersionToGC + 1 - firstVersionToGC
+	if numberOfVersionsToGC == 0 {
+		// No versions to GC, so nothing to do.
+		return nil
+	}
+
+	// Get the diffs for the versions to GC. We need to push these down into the DB.
+	diffsByVersion := make(map[uint64]map[string][]byte)
+	for version := firstVersionToGC; version <= lastVersionToGC; version++ {
+		diffsByVersion[version] = make(map[string][]byte)
+	}
+	for _, shard := range c.shards {
+		shardDiffs, err := shard.GetDiffsForVersions(firstVersionToGC, lastVersionToGC)
+		if err != nil {
+			// should be impossible
+			return fmt.Errorf("failed to get diffs for shard: %w", err)
+		}
+		for diffIndex, diff := range shardDiffs {
+			version := firstVersionToGC + uint64(diffIndex)
+			for key, value := range diff {
+				diffsByVersion[version][key] = value
+			}
+		}
+	}
+
+	// Push the diffs down into the DB.
+	var batch types.Batch
+	for version := firstVersionToGC; version <= lastVersionToGC; version++ {
+		if batch == nil {
+			batch = c.db.NewBatch()
+		}
+		for key, value := range diffsByVersion[version] {
+			if value == nil {
+				err := batch.Delete([]byte(key))
+				if err != nil {
+					return fmt.Errorf("gc failed to delete key: %w", err)
+				}
+			} else {
+				err := batch.Set([]byte(key), value)
+				if err != nil {
+					return fmt.Errorf("gc failed to set key: %w", err)
+				}
+			}
+		}
+
+		if batch.Len() >= targetKeysPerFlush {
+			err := batch.Commit(types.WriteOptions{Sync: true}) // TODO: verify if Sync: true is necessary
+			if err != nil {
+				return fmt.Errorf("gc failed to commit batch: %w", err)
+			}
+			batch = nil
+		}
+	}
+	if batch != nil {
+		err := batch.Commit(types.WriteOptions{Sync: true})
+		if err != nil {
+			return fmt.Errorf("gc failed to commit batch: %w", err)
+		}
+	}
+
+	// Now that the data is reflected in the DB, clean up the shards.
+	for _, shard := range c.shards {
+		err := shard.DropVersions(firstVersionToGC, lastVersionToGC)
+		if err != nil {
+			panic(fmt.Sprintf("failed to drop versions from shard: %v", err))
+		}
+	}
+
+	return nil
 }

@@ -134,7 +134,7 @@ func NewShard(
 	}
 
 	versionDiffs := make(map[uint64]map[string][]byte)
-	versionDiffs[0] = make(map[string][]byte)
+	versionDiffs[1] = make(map[string][]byte) // versions start at 1
 
 	return &shard{
 		ctx:                       ctx,
@@ -147,8 +147,8 @@ func NewShard(
 		maxSize:                   maxSize,
 		versionedData:             make(map[string]*Deque[versionedValue]),
 		versionDiffs:              versionDiffs,
-		currentVersion:            0,
-		oldestVersion:             0,
+		currentVersion:            1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		oldestVersion:             1,
 	}, nil
 }
 
