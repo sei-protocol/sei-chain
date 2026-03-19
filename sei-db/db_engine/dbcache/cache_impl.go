@@ -2,10 +2,12 @@ package dbcache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -27,12 +29,41 @@ type cache struct {
 
 	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool
+
+	// The underlying key-value database.
+	db types.KeyValueDB
+
+	// The current version number. All modifications to the cache will happen at this version number.
+	// This variable is not protected by locks, since it is illegal to update it (i.e. call Snapshot()) concurrently
+	// with reads/writes to the most recent version.
+	currentVersion uint64
+
+	// The version of the oldest snapshot we are currently tracking.
+	oldestVersion uint64
+
+	// Protects modification to versionMap.
+	versionLock sync.Mutex
+
+	// Reference counts for all snapshots we are currently tracking. The current (mutable) version
+	// does not have a reference count and so it does not appear in this map.
+	versionMap map[uint64]*snapshotReferenceCounter
+}
+
+// Tracks the reference count for a particular snapshot.
+type snapshotReferenceCounter struct {
+	// the version of the snapshot
+	version uint64
+
+	// the number of references to the snapshot, snapshot is eligible for cleanup when the referenceCount reaches 0
+	referenceCount uint64
 }
 
 // Creates a new Cache. If cacheName is non-empty, OTel metrics are enabled and the
 // background size scrape runs every metricsScrapeInterval.
 func NewStandardCache(
 	ctx context.Context,
+	// The underlying key-value database.
+	db types.KeyValueDB,
 	// The number of shards in the cache. Must be a power of two and greater than 0.
 	shardCount uint64,
 	// The maximum size of the cache, in bytes.
@@ -65,20 +96,36 @@ func NewStandardCache(
 		return nil, fmt.Errorf("maxSize must be greater than shardCount")
 	}
 
+	reader := func(key []byte) ([]byte, bool, error) {
+		val, err := db.Get(key)
+		if err != nil {
+			if errors.Is(err, errorutils.ErrNotFound) {
+				return nil, false, nil
+			}
+			return nil, false, fmt.Errorf("failed to read value from database: %w", err)
+		}
+		return val, true, nil
+	}
+
 	shards := make([]*shard, shardCount)
 	for i := uint64(0); i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readPool, sizePerShard, estimatedOverheadPerEntry)
+		shards[i], err = NewShard(ctx, reader, readPool, sizePerShard, estimatedOverheadPerEntry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
 	}
 
 	c := &cache{
-		ctx:          ctx,
-		shardManager: shardManager,
-		shards:       shards,
-		readPool:     readPool,
-		miscPool:     miscPool,
+		ctx:            ctx,
+		shardManager:   shardManager,
+		shards:         shards,
+		readPool:       readPool,
+		miscPool:       miscPool,
+		db:             db,
+		versionMap:     make(map[uint64]*snapshotReferenceCounter),
+		currentVersion: 0,
+		oldestVersion:  0,
+		versionLock:    sync.Mutex{},
 	}
 
 	if cacheName != "" {
@@ -124,7 +171,12 @@ func (c *cache) BatchSet(updates []CacheUpdate) error {
 	return nil
 }
 
-func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) error {
+func (c *cache) BatchGet(keys map[string]types.BatchGetResult) error {
+	return c.BatchGetAtVersion(keys, c.currentVersion)
+}
+
+// Similar semantics to BatchGet, but reads from the given version of the cache.
+func (c *cache) BatchGetAtVersion(keys map[string]types.BatchGetResult, version uint64) error {
 	work := make(map[uint64]map[string]types.BatchGetResult)
 	for key := range keys {
 		idx := c.shardManager.Shard([]byte(key))
@@ -140,7 +192,7 @@ func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 
 		err := c.miscPool.Submit(c.ctx, func() {
 			defer wg.Done()
-			err := c.shards[shardIndex].BatchGet(read, subMap)
+			err := c.shards[shardIndex].BatchGet(subMap, version)
 			if err != nil {
 				for key := range subMap {
 					subMap[key] = types.BatchGetResult{Error: err}
@@ -168,11 +220,16 @@ func (c *cache) Delete(key []byte) {
 	shard.Delete(key)
 }
 
-func (c *cache) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
+// Similar semantics to Get, but reads from the given version of the cache.
+func (c *cache) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+	return c.GetAtVersion(key, c.currentVersion, updateLru)
+}
+
+func (c *cache) GetAtVersion(key []byte, version uint64, updateLru bool) ([]byte, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
-	value, ok, err := shard.Get(read, key, updateLru)
+	value, ok, err := shard.Get(key, version, updateLru)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get value from shard: %w", err)
 	}
@@ -185,10 +242,107 @@ func (c *cache) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, erro
 func (c *cache) Set(key []byte, value []byte) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
+	shard.Set(key, value)
+}
 
-	if value == nil {
-		shard.Delete(key)
-	} else {
-		shard.Set(key, value)
+func (c *cache) Snapshot() (CacheSnapshot, error) {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	currentVersionRefCounter := &snapshotReferenceCounter{
+		version:        c.currentVersion,
+		referenceCount: 1,
 	}
+	c.versionMap[c.currentVersion] = currentVersionRefCounter
+
+	snapshot := &cacheSnapshot{
+		version:     c.currentVersion,
+		parentCache: c,
+	}
+
+	c.currentVersion++
+
+	for _, shard := range c.shards {
+		shardVersion := shard.Snapshot()
+		if shardVersion != c.currentVersion {
+			return nil, fmt.Errorf("shard (%d) has a different version than the cache (%d)",
+				shardVersion, c.currentVersion)
+		}
+	}
+
+	return snapshot, nil
+}
+
+// Increment the reference count for the given version.
+func (c *cache) IncrementReferenceCount(version uint64) error {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	if version < c.oldestVersion {
+		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+	}
+	if version >= c.currentVersion {
+		return fmt.Errorf("version (%d) must be less than the current version (%d)", version, c.currentVersion)
+	}
+
+	counter, ok := c.versionMap[version]
+	if !ok {
+		// Should be impossible since the garbage collector won't ever leave gaps
+		return fmt.Errorf("version (%d) not found", version)
+	}
+
+	if counter.referenceCount == 0 {
+		return fmt.Errorf("version (%d) has already been dropped", version)
+	}
+
+	counter.referenceCount++
+	return nil
+}
+
+// Decrement the reference count for the given version.
+func (c *cache) DecrementReferenceCount(version uint64) error {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	if version < c.oldestVersion {
+		return fmt.Errorf("version (%d) is less than the oldest version (%d)", version, c.oldestVersion)
+	}
+	if version >= c.currentVersion {
+		return fmt.Errorf("version (%d) must be less than the current version (%d)", version, c.currentVersion)
+	}
+
+	counter, ok := c.versionMap[version]
+	if !ok {
+		// Should be impossible since the garbage collector won't ever leave gaps
+		return fmt.Errorf("version (%d) not found", version)
+	}
+
+	if counter.referenceCount == 0 {
+		return fmt.Errorf("version (%d) has already been dropped", version)
+	}
+
+	counter.referenceCount--
+	return nil
+}
+
+// Get the diff at a given version.
+func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
+	diff := make(map[string][]byte)
+
+	for _, shard := range c.shards {
+		shardDiff, err := shard.GetDiffsForVersions(version, version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get diff from shard: %w", err)
+		}
+
+		if len(shardDiff) != 1 {
+			return nil, fmt.Errorf("expected 1 diff, got %d", len(shardDiff))
+		}
+
+		for key, value := range shardDiff[0] {
+			diff[key] = value
+		}
+	}
+
+	return diff, nil
 }

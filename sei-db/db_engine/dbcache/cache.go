@@ -69,6 +69,10 @@ type Cache interface {
 
 	// Create a point-in-time snapshot of the data in the cache. This snapshot is thread safe to read, even
 	// if concurrent operations are performed on this cache instance.
+	//
+	// Warning: it is NOT thread safe to read/write from the mutable cache (i.e. this object) concurrently with
+	// the this method. It is, however, thread safe to interact with snapshots concurrently with
+	// this method.
 	Snapshot() (CacheSnapshot, error)
 }
 
