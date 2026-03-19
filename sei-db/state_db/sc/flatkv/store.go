@@ -568,14 +568,65 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
-	// rootmulti.Restore closes the store before creating an importer.
-	// Reopen the DBs so the importer can write data.
-	if s.isClosed() {
-		if err := s.open(); err != nil {
-			return nil, fmt.Errorf("reopen store for import: %w", err)
-		}
+	if err := s.resetForImport(); err != nil {
+		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
 	return NewKVImporter(s, version), nil
+}
+
+// resetForImport purges all existing data so that a subsequent import
+// produces a clean store containing only the snapshot being restored.
+// Without this, keys that exist locally but were deleted in the remote
+// snapshot would survive the import, producing a mixed stale state.
+func (s *CommitStore) resetForImport() error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before import reset: %w", err)
+	}
+
+	dir := s.flatkvDir()
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create flatkv dir: %w", err)
+	}
+
+	// rootmulti.Restore calls Close() (which releases the file lock)
+	// before calling Importer(). Re-acquire the lock before mutating
+	// the data directory so no other process can interfere.
+	if s.fileLock == nil {
+		if err := s.acquireFileLock(dir); err != nil {
+			return err
+		}
+	}
+
+	logRemoveErr := func(path string, err error) {
+		if err != nil {
+			logger.Error("resetForImport: failed to remove", "path", path, "err", err)
+		}
+	}
+
+	logRemoveErr(workingDirName, os.RemoveAll(filepath.Join(dir, workingDirName)))
+
+	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		p := filepath.Join(dir, snapshotName(v))
+		logRemoveErr(p, os.RemoveAll(p))
+		return false, nil
+	})
+
+	logRemoveErr(currentLink, os.Remove(currentPath(dir)))
+
+	logRemoveErr(changelogDir, os.RemoveAll(filepath.Join(dir, changelogDir)))
+
+	// Reopen from a pristine empty state. open() will load metadata
+	// from the empty DB (a no-op), then we reset in-memory state below.
+	if err := s.open(); err != nil {
+		return err
+	}
+
+	s.committedVersion = 0
+	s.committedLtHash = lthash.New()
+	s.workingLtHash = lthash.New()
+	s.perDBWorkingLtHash = newPerDBLtHashMap()
+
+	return nil
 }
 
 func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {
