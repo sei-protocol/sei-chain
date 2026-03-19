@@ -35,7 +35,7 @@ func WithTimeout(ctx context.Context, d time.Duration, f func(ctx context.Contex
 	return f(ctx)
 }
 
-// WithTimeout executes a function with a timeout.
+// WithOptTimeout executes a function with a timeout.
 func WithOptTimeout(ctx context.Context, d Option[time.Duration], f func(ctx context.Context) error) error {
 	if d, ok := d.Get(); ok {
 		return WithTimeout(ctx, d, f)
@@ -47,6 +47,14 @@ func WithOptTimeout(ctx context.Context, d Option[time.Duration], f func(ctx con
 func WithTimeout1[R any](ctx context.Context, d time.Duration, f func(ctx context.Context) (R, error)) (R, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
+	return f(ctx)
+}
+
+// WithOptTimeout1 executes a function with a timeout.
+func WithOptTimeout1[R any](ctx context.Context, d Option[time.Duration], f func(ctx context.Context) (R, error)) (R, error) {
+	if d, ok := d.Get(); ok {
+		return WithTimeout1(ctx, d, f)
+	}
 	return f(ctx)
 }
 
