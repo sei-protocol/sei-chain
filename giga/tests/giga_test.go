@@ -223,12 +223,13 @@ func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, 
 	// Set global OCC flag based on mode (both GethOCC and GigaOCC use OCC)
 	app.EnableOCC = tCtx.Mode == ModeV2withOCC || tCtx.Mode == ModeGigaOCC
 
+	header := tCtx.Ctx.BlockHeader()
 	req := &abci.RequestFinalizeBlock{
 		Txs:    txs,
-		Height: tCtx.Ctx.BlockHeader().Height,
+		Header: &header,
 	}
 
-	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false)
 	return events, results, err
 }
 

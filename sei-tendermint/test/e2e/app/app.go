@@ -188,7 +188,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 		txs[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 	}
 
-	valUpdates, err := app.validatorUpdates(uint64(req.Height)) //nolint:gosec // Height is a non-negative block height
+	valUpdates, err := app.validatorUpdates(uint64(req.Header.Height)) //nolint:gosec // Height is a non-negative block height
 	if err != nil {
 		panic(err)
 	}
@@ -211,7 +211,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 					},
 					{
 						Key:   []byte("height"),
-						Value: []byte(strconv.FormatInt(req.Height, 10)),
+						Value: []byte(strconv.FormatInt(req.Header.Height, 10)),
 					},
 				},
 			},

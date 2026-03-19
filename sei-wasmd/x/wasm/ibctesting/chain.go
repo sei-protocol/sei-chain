@@ -273,12 +273,15 @@ func (chain *TestChain) NextBlock() {
 
 	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
 	_, err := wasmApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Height:  chain.App.LastBlockHeight() + 1,
-		Time:    chain.CurrentHeader.Time,
-		AppHash: chain.CurrentHeader.AppHash,
+		Header: &tmproto.Header{
+			ChainID: chain.ChainID,
+			Height:  chain.App.LastBlockHeight() + 1,
+			Time:    chain.CurrentHeader.Time,
+			AppHash: chain.CurrentHeader.AppHash,
 
-		ValidatorsHash:     chain.Vals.Hash(),
-		NextValidatorsHash: chain.Vals.Hash(),
+			ValidatorsHash:     chain.Vals.Hash(),
+			NextValidatorsHash: chain.Vals.Hash(),
+		},
 	})
 	require.NoError(chain.t, err)
 	// wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
