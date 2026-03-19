@@ -155,10 +155,10 @@ State sync into a node built with `-tags rocksdbBackend` and `ss-backend = "rock
 
 ### Archive Nodes
 
-No built-in migration tool exists. Two options:
+Two options:
 
-1. **Replay from genesis** with RocksDB backend (cleanest, combines with Path C Option 1).
-2. **Build a key-to-key migration tool** that reads all versioned data from PebbleDB and writes to RocksDB. The `backend.ResolveBackend()` abstraction makes this straightforward. Open a source DB with `openPebbleDB` and a destination with `openRocksDB`, iterate and copy.
+1. **Replay from genesis**
+2. **Key-to-key migration tool**
 
 ---
 
