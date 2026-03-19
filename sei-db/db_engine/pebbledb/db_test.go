@@ -8,158 +8,131 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-// forEachCacheMode runs fn once with a warm cache and once with caching disabled,
-// so cache-sensitive tests exercise both the cache and the raw storage layer.
-func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
-	for _, mode := range []struct {
-		name      string
-		cacheSize uint64
-	}{
-		{"cached", 16 * unit.MB},
-		{"uncached", 0},
-	} {
-		t.Run(mode.name, func(t *testing.T) {
-			cfg := DefaultTestConfig(t)
-			cfg.CacheSize = mode.cacheSize
-			fn(t, cfg)
-		})
-	}
-}
-
 func openDB(t *testing.T, cfg *PebbleDBConfig) types.KeyValueDB {
 	t.Helper()
-	db, err := OpenWithCache(t.Context(), cfg, pebble.DefaultComparer,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := Open(t.Context(), cfg, pebble.DefaultComparer)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
 }
 
 // ---------------------------------------------------------------------------
-// Cache-sensitive tests — run in both cached and uncached modes
+// Basic CRUD
 // ---------------------------------------------------------------------------
 
 func TestDBGetSetDelete(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		key := []byte("k1")
-		val := []byte("v1")
+	key := []byte("k1")
+	val := []byte("v1")
 
-		_, err := db.Get(key)
-		require.ErrorIs(t, err, errorutils.ErrNotFound)
+	_, err := db.Get(key)
+	require.ErrorIs(t, err, errorutils.ErrNotFound)
 
-		require.NoError(t, db.Set(key, val, types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Set(key, val, types.WriteOptions{Sync: false}))
 
-		got, err := db.Get(key)
-		require.NoError(t, err)
-		require.Equal(t, val, got)
+	got, err := db.Get(key)
+	require.NoError(t, err)
+	require.Equal(t, val, got)
 
-		require.NoError(t, db.Delete(key, types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Delete(key, types.WriteOptions{Sync: false}))
 
-		_, err = db.Get(key)
-		require.ErrorIs(t, err, errorutils.ErrNotFound)
-	})
+	_, err = db.Get(key)
+	require.ErrorIs(t, err, errorutils.ErrNotFound)
 }
 
 func TestBatchAtomicWrite(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		b := db.NewBatch()
-		t.Cleanup(func() { require.NoError(t, b.Close()) })
+	b := db.NewBatch()
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
-		require.NoError(t, b.Set([]byte("a"), []byte("1")))
-		require.NoError(t, b.Set([]byte("b"), []byte("2")))
-		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
+	require.NoError(t, b.Set([]byte("a"), []byte("1")))
+	require.NoError(t, b.Set([]byte("b"), []byte("2")))
+	require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
 
-		for _, tc := range []struct{ k, v string }{{"a", "1"}, {"b", "2"}} {
-			got, err := db.Get([]byte(tc.k))
-			require.NoError(t, err, "key=%q", tc.k)
-			require.Equal(t, tc.v, string(got), "key=%q", tc.k)
-		}
-	})
+	for _, tc := range []struct{ k, v string }{{"a", "1"}, {"b", "2"}} {
+		got, err := db.Get([]byte(tc.k))
+		require.NoError(t, err, "key=%q", tc.k)
+		require.Equal(t, tc.v, string(got), "key=%q", tc.k)
+	}
 }
 
 func TestErrNotFoundConsistency(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		_, err := db.Get([]byte("missing-key"))
-		require.Error(t, err)
-		require.ErrorIs(t, err, errorutils.ErrNotFound)
-		require.True(t, errorutils.IsNotFound(err))
-	})
+	_, err := db.Get([]byte("missing-key"))
+	require.Error(t, err)
+	require.ErrorIs(t, err, errorutils.ErrNotFound)
+	require.True(t, errorutils.IsNotFound(err))
 }
 
 func TestGetReturnsCopy(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
 
-		got, err := db.Get([]byte("k"))
-		require.NoError(t, err)
-		got[0] = 'X'
+	got, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	got[0] = 'X'
 
-		got2, err := db.Get([]byte("k"))
-		require.NoError(t, err)
-		require.Equal(t, "v", string(got2), "stored value should remain unchanged")
-	})
+	got2, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, "v", string(got2), "stored value should remain unchanged")
 }
 
 func TestBatchLenResetDelete(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		require.NoError(t, db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}))
 
-		b := db.NewBatch()
-		t.Cleanup(func() { require.NoError(t, b.Close()) })
+	b := db.NewBatch()
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
-		initialLen := b.Len()
+	initialLen := b.Len()
 
-		require.NoError(t, b.Set([]byte("a"), []byte("1")))
-		require.NoError(t, b.Delete([]byte("to-delete")))
-		require.Greater(t, b.Len(), initialLen)
+	require.NoError(t, b.Set([]byte("a"), []byte("1")))
+	require.NoError(t, b.Delete([]byte("to-delete")))
+	require.Greater(t, b.Len(), initialLen)
 
-		b.Reset()
-		require.Equal(t, initialLen, b.Len())
+	b.Reset()
+	require.Equal(t, initialLen, b.Len())
 
-		require.NoError(t, b.Set([]byte("b"), []byte("2")))
-		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
+	require.NoError(t, b.Set([]byte("b"), []byte("2")))
+	require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
 
-		got, err := db.Get([]byte("b"))
-		require.NoError(t, err)
-		require.Equal(t, "2", string(got))
-	})
+	got, err := db.Get([]byte("b"))
+	require.NoError(t, err)
+	require.Equal(t, "2", string(got))
 }
 
 func TestFlush(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
-		require.NoError(t, db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}))
-		require.NoError(t, db.Flush())
+	require.NoError(t, db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Flush())
 
-		got, err := db.Get([]byte("flush-test"))
-		require.NoError(t, err)
-		require.Equal(t, "val", string(got))
-	})
+	got, err := db.Get([]byte("flush-test"))
+	require.NoError(t, err)
+	require.Equal(t, "val", string(got))
 }
 
 // ---------------------------------------------------------------------------
-// Cache-irrelevant tests — iterators and lifecycle, run once
+// Iterators
 // ---------------------------------------------------------------------------
 
 func TestIteratorBounds(t *testing.T) {
-	cfg := DefaultTestConfig(t)
-	db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
 	for _, k := range []string{"a", "b", "c"} {
 		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
@@ -178,8 +151,8 @@ func TestIteratorBounds(t *testing.T) {
 }
 
 func TestIteratorPrev(t *testing.T) {
-	cfg := DefaultTestConfig(t)
-	db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
 	for _, k := range []string{"a", "b", "c"} {
 		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
@@ -220,8 +193,8 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 		return append(dst, a...)
 	}
 
-	cfg := DefaultTestConfig(t)
-	db, err := OpenWithCache(t.Context(), &cfg, &cmp, threading.NewAdHocPool(), threading.NewAdHocPool())
+	cfg := DefaultTestPebbleDBConfig(t)
+	db, err := Open(t.Context(), cfg, &cmp)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -243,8 +216,8 @@ func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
 }
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
-	cfg := DefaultTestConfig(t)
-	db := openDB(t, &cfg)
+	cfg := DefaultTestPebbleDBConfig(t)
+	db := openDB(t, cfg)
 
 	for _, kv := range []struct{ k, v string }{
 		{"a", "val-a"},
@@ -264,10 +237,13 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 	require.Equal(t, "val-b", string(itr.Value()))
 }
 
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
 func TestCloseIsIdempotent(t *testing.T) {
-	cfg := DefaultTestConfig(t)
-	db, err := OpenWithCache(t.Context(), &cfg, pebble.DefaultComparer,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	cfg := DefaultTestPebbleDBConfig(t)
+	db, err := Open(t.Context(), cfg, pebble.DefaultComparer)
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())

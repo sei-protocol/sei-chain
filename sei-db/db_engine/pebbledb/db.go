@@ -12,8 +12,6 @@ import (
 	"github.com/cockroachdb/pebble/v2/sstable"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -36,11 +34,11 @@ func Open(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	pebbleCache := pebble.NewCache(int64(config.BlockCacheSize))
-	defer pebbleCache.Unref()
+	pebbleBlockCache := pebble.NewCache(int64(config.BlockCacheSize))
+	defer pebbleBlockCache.Unref()
 
 	popts := &pebble.Options{
-		Cache:    pebbleCache,
+		Cache:    pebbleBlockCache,
 		Comparer: comparer,
 		// FormatMajorVersion is pinned to a specific version to prevent accidental
 		// breaking changes when updating the pebble dependency. Using FormatNewest
@@ -93,44 +91,6 @@ func Open(
 		db:            db,
 		metricsCancel: cancel,
 	}, nil
-}
-
-// OpenCached opens a Pebble-backed DB and wraps it with a read-through cache.
-// Cache behaviour is controlled by config: when CacheSize is 0 a no-op cache
-// is used, otherwise a sharded LRU cache is created.
-func OpenWithCache(
-	ctx context.Context,
-	config *PebbleDBConfig,
-	comparer *pebble.Comparer,
-	readPool threading.Pool,
-	miscPool threading.Pool,
-) (types.KeyValueDB, error) {
-	db, err := Open(ctx, config, comparer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	var cacheName string
-	if config.EnableMetrics {
-		cacheName = filepath.Base(config.DataDir)
-	}
-
-	cache, err := dbcache.BuildCache(
-		ctx,
-		config.CacheShardCount,
-		config.CacheSize,
-		readPool,
-		miscPool,
-		config.EstimatedOverheadPerEntry,
-		cacheName,
-		config.MetricsScrapeInterval,
-	)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to create cache: %w", err)
-	}
-
-	return dbcache.NewCachedKeyValueDB(db, cache), nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {

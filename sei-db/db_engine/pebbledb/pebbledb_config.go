@@ -2,40 +2,48 @@ package pebbledb
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 )
 
 // Configuration for the PebbleDB database.
 type PebbleDBConfig struct {
 	// The directory to store the database files. This has no default value and must be provided.
 	DataDir string
-	// The size of key-value cache, in bytes.
-	CacheSize uint64
-	// The number of shards in the key-value cache. Must be a power of two and greater than 0.
-	CacheShardCount uint64
 	// The size of pebbleDB's internal block cache, in bytes.
 	BlockCacheSize int
 	// Whether to enable metrics.
 	EnableMetrics bool
 	// How often to scrape metrics (pebble internals + cache size).
 	MetricsScrapeInterval time.Duration
-	// The estimated overhead per entry in the cache, in bytes.
-	// This should be derived experimentally, and may differ between different builds and architectures.
-	EstimatedOverheadPerEntry uint64
+	// Configuration for the cache layer.
+	CacheConfig *dbcache.CacheConfig
 }
 
 // Default configuration for the PebbleDB database.
-func DefaultConfig() PebbleDBConfig {
-	return PebbleDBConfig{
-		CacheSize:                 512 * unit.MB,
-		CacheShardCount:           8,
-		BlockCacheSize:            512 * unit.MB,
-		EnableMetrics:             true,
-		MetricsScrapeInterval:     10 * time.Second,
-		EstimatedOverheadPerEntry: 256,
+func DefaultConfig() *PebbleDBConfig {
+	cacheConfig := dbcache.DefaultCacheConfig()
+
+	return &PebbleDBConfig{
+		BlockCacheSize: 512 * unit.MB,
+		EnableMetrics:  true,
+		CacheConfig:    cacheConfig,
 	}
+}
+
+// Default configuration suitable for testing. Allocates much smaller cache sizes and disables metrics.
+// DataDir defaults to t.TempDir(); callers that need a specific path can override it after calling.
+func DefaultTestPebbleDBConfig(t *testing.T) *PebbleDBConfig {
+	cfg := DefaultConfig()
+	cfg.EnableMetrics = false
+	cfg.BlockCacheSize = 16 * unit.MB
+	cfg.DataDir = t.TempDir()
+	cfg.CacheConfig = dbcache.DefaultTestCacheConfig()
+	cfg.CacheConfig.MetricsName = "test"
+	return cfg
 }
 
 // Validates the configuration (basic sanity checks).
@@ -43,14 +51,11 @@ func (c *PebbleDBConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
-	if c.CacheSize > 0 && (c.CacheShardCount&(c.CacheShardCount-1)) != 0 {
-		return fmt.Errorf("cache shard count must be a power of two or 0")
+	if err := c.CacheConfig.Validate(); err != nil {
+		return fmt.Errorf("cache config is invalid: %w", err)
 	}
 	if c.BlockCacheSize <= 0 {
 		return fmt.Errorf("block cache size must be greater than 0")
-	}
-	if c.EnableMetrics && c.MetricsScrapeInterval <= 0 {
-		return fmt.Errorf("metrics scrape interval must be positive when metrics are enabled")
 	}
 	return nil
 }
