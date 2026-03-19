@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"math"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // loadLocalMeta loads the local metadata from a DB, or returns default if not present.
-func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
-	val, err := db.Get(DBLocalMetaKey)
-	if err != nil && !errorutils.IsNotFound(err) {
-		return nil, fmt.Errorf("could not get DBLocalMetaKey: %w", err)
+func loadLocalMeta(db dbcache.Cache) (*LocalMeta, error) {
+	val, found, err := db.Get(DBLocalMetaKey, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read local meta: %w", err)
 	}
-	if errorutils.IsNotFound(err) || val == nil {
+	if !found {
 		return &LocalMeta{CommittedVersion: 0}, nil
 	}
 	return UnmarshalLocalMeta(val)
@@ -25,12 +24,12 @@ func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 // loadGlobalVersion reads the global committed version from metadata DB.
 // Returns 0 if not found (fresh start).
 func (s *CommitStore) loadGlobalVersion() (int64, error) {
-	data, err := s.metadataDB.Get([]byte(MetaGlobalVersion))
-	if errorutils.IsNotFound(err) {
+	data, found, err := s.metadataDB.Get([]byte(MetaGlobalVersion), false)
+	if err != nil {
 		return 0, nil
 	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to read global version: %w", err)
+	if !found {
+		return 0, nil
 	}
 	if len(data) != 8 {
 		return 0, fmt.Errorf("invalid global version length: got %d, want 8", len(data))
@@ -45,8 +44,11 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
 func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
-	data, err := s.metadataDB.Get([]byte(MetaGlobalLtHash))
-	if errorutils.IsNotFound(err) {
+	data, found, err := s.metadataDB.Get([]byte(MetaGlobalLtHash), false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read global lthash: %w", err)
+	}
+	if !found {
 		return nil, nil
 	}
 	if err != nil {
@@ -58,24 +60,27 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 // commitGlobalMetadata atomically commits global version and LtHash to metadata DB.
 // This is the global watermark written AFTER all per-DB commits succeed.
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-	batch := s.metadataDB.NewBatch()
-	defer func() { _ = batch.Close() }()
+	batch := make(map[string][]byte, 2)
 
 	// Encode version (version should always be non-negative in practice)
 	versionBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(versionBuf, uint64(version)) //nolint:gosec // version is always non-negative
-
-	// Write global metadata
-	if err := batch.Set([]byte(MetaGlobalVersion), versionBuf); err != nil {
-		return fmt.Errorf("failed to set global version: %w", err)
-	}
+	batch[MetaGlobalVersion] = versionBuf
 
 	lthashBytes := hash.Marshal()
-	if err := batch.Set([]byte(MetaGlobalLtHash), lthashBytes); err != nil {
-		return fmt.Errorf("failed to set global lthash: %w", err)
+	batch[MetaGlobalLtHash] = lthashBytes
+
+	// Force the metadata cache to flush down to the DB by taking a snapshot and releasing it.
+	// TODO before merge:
+	//   - The semantics of this are not obvious, we need to expand godocs to make it more clear what's going on.
+	//   - Double check with team on the crash recovery story here, since we're now making this asyncronous.
+	snapshot, err := s.metadataDB.Snapshot()
+	if err != nil {
+		return fmt.Errorf("failed to take snapshot: %w", err)
 	}
-
-	// Atomic commit with fsync
-	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
-
+	err = snapshot.Release()
+	if err != nil {
+		return fmt.Errorf("failed to release snapshot: %w", err)
+	}
+	return nil
 }

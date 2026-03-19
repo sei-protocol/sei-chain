@@ -18,39 +18,27 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	case evm.EVMKeyStorage:
 		// Storage: keyBytes = addr(20) || slot(32)
 		// Check pending writes first
-		if pw, ok := s.storageWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
 
-		// Read from storageDB
-		value, err := s.storageDB.Get(keyBytes)
+		value, found, err := s.storageDB.Get(keyBytes, false)
 		if err != nil {
+			return nil, false // TODO this is wrong! we should not hide errors here!
+		}
+		if !found {
 			return nil, false
 		}
 		return value, true
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-		// Account data: keyBytes = addr(20)
-		// accountDB stores AccountValue at key=addr(20)
 		addr, ok := AddressFromBytes(keyBytes)
 		if !ok {
 			return nil, false
 		}
 
-		// Check pending writes first
-		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if kind == evm.EVMKeyNonce {
-				return paw.value.NonceBytes()
-			}
-			return paw.value.CodeHashBytes()
-		}
-
-		// Read from accountDB
-		encoded, err := s.accountDB.Get(AccountKey(addr))
+		encoded, found, err := s.accountDB.Get(AccountKey(addr), false)
 		if err != nil {
+			return nil, false // TODO this is wrong! we should not hide errors here!
+		}
+		if !found {
 			return nil, false
 		}
 		av, err := DecodeAccountValue(encoded)
@@ -64,37 +52,27 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		return av.CodeHashBytes()
 
 	case evm.EVMKeyCode:
-		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
-		// Check pending writes first
-		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
-
-		// Read from codeDB
-		value, err := s.codeDB.Get(keyBytes)
+		value, found, err := s.codeDB.Get(keyBytes, false)
 		if err != nil {
+			return nil, false // TODO this is wrong! we should not hide errors here!
+		}
+		if !found {
 			return nil, false
 		}
 		return value, true
 
 	case evm.EVMKeyLegacy:
-		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
-
-		value, err := s.legacyDB.Get(keyBytes)
+		value, found, err := s.legacyDB.Get(keyBytes, false)
 		if err != nil {
+			return nil, false // TODO this is wrong! we should not hide errors here!
+		}
+		if !found {
 			return nil, false
 		}
 		return value, true
 
 	default:
+		// TODO this should return an error, not silently fail!
 		return nil, false
 	}
 }
