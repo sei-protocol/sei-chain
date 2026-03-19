@@ -158,13 +158,11 @@ func (bs *BaseService) Spawn(name string, task func(ctx context.Context) error) 
 		panic("service is not started yet")
 	}
 
-	inner.wg.Add(1)
-	go func() {
-		defer inner.wg.Done()
+	inner.wg.Go(func() {
 		if err := utils.IgnoreCancel(task(inner.ctx)); err != nil {
 			logger.Error("task failed", "name", name, "service", bs.name, "error", err)
 		}
-	}()
+	})
 }
 
 // Spawns a critical task which should run until success OR as long as the service is running.
@@ -177,15 +175,13 @@ func (bs *BaseService) SpawnCritical(name string, task func(ctx context.Context)
 		panic("service is not started yet")
 	}
 
-	inner.wg.Add(1)
-	go func() {
-		defer inner.wg.Done()
+	inner.wg.Go(func() {
 		if err := task(inner.ctx); err != nil {
-			if !errors.Is(err, context.Canceled) || inner.ctx.Err() == nil {
+			if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) || inner.ctx.Err() == nil {
 				panic(fmt.Sprintf("critical task failed: name=%v, service=%v: %v", name, bs.name, err))
 			}
 		}
-	}()
+	})
 }
 
 // IsRunning implements Service by returning true or false depending on the
