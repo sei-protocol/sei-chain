@@ -130,20 +130,8 @@ Archive nodes keep all history (`KeepRecent = 0`), so the live-node transition (
 
 #### Option 1: New archive from genesis
 
-- Configure with target modes from block 0.
-- Replay all blocks; `ApplyChangesetSync` routes correctly from the start.
-- EVM SS is fully populated by the time it catches up to head.
-- This is the cleanest path.
-
 #### Option 2: Migrate existing archive (key-to-key)
 
-No migration tool exists today. One needs to be built. The tool would:
-
-1. Open the cosmos SS MVCC DB.
-2. Iterate all keys with `storeKey == "evm"` via `RawIterate`.
-3. For each key, parse via `commonevm.ParseEVMKey` to determine sub-DB type (nonce, codehash, code, storage, legacy).
-4. Write to the corresponding EVM SS sub-DB at the same version.
-5. After completion, switch config to `split_write + evm_first`.
 
 ---
 
