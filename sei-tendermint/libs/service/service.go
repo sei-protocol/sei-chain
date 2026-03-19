@@ -177,6 +177,7 @@ func (bs *BaseService) SpawnCritical(name string, task func(ctx context.Context)
 
 	inner.wg.Go(func() {
 		if err := task(inner.ctx); err != nil {
+			//nolint:staticcheck // QF1001: linter wants to apply De Morgan's law, as if outer negation was objectively worse.
 			if !(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) || inner.ctx.Err() == nil {
 				panic(fmt.Sprintf("critical task failed: name=%v, service=%v: %v", name, bs.name, err))
 			}
