@@ -255,9 +255,7 @@ func (l *PeerList) Append(peer types.NodeID) {
 
 func (l *PeerList) Remove(peer types.NodeID) {
 	for inner := range l.inner.Lock() {
-		if i := slices.Index(inner.peers, peer); i != -1 {
-			inner.peers = slices.Delete(inner.peers, i, i+1)
-		}
+		inner.peers = slices.DeleteFunc(inner.peers, func(v types.NodeID) bool { return v == peer })
 	}
 }
 
