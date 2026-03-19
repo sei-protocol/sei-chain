@@ -10,6 +10,7 @@ import (
 type TransactionExecutor struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+	config *CryptoSimConfig
 
 	// The database for the benchmark.
 	database *Database
@@ -33,6 +34,7 @@ type flushRequest struct {
 func NewTransactionExecutor(
 	ctx context.Context,
 	cancel context.CancelFunc,
+	config *CryptoSimConfig,
 	database *Database,
 	feeCollectionAddress []byte,
 	queueSize int,
@@ -41,6 +43,7 @@ func NewTransactionExecutor(
 	e := &TransactionExecutor{
 		ctx:                  ctx,
 		cancel:               cancel,
+		config:               config,
 		database:             database,
 		feeCollectionAddress: feeCollectionAddress,
 		workChan:             make(chan any, queueSize),
@@ -85,6 +88,10 @@ func (e *TransactionExecutor) mainLoop() {
 		case request := <-e.workChan:
 			switch request := request.(type) {
 			case *transaction:
+
+				if e.config.DisableTransactionExecution {
+					continue
+				}
 
 				var phaseTimer *metrics.PhaseTimer
 				if request.ShouldCaptureMetrics() {

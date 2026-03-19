@@ -71,29 +71,29 @@ func TestStakingMsgs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
 	txGen := seiapp.MakeEncodingConfig().TxConfig
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, "", []uint64{0}, []uint64{0}, true, true, priv1)
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{createValidatorMsg}, []uint64{0}, []uint64{0}, true, true, priv1)
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
+	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}})
 
 	validator := checkValidator(t, app, sdk.ValAddress(addr1), true)
 	require.Equal(t, sdk.ValAddress(addr1).String(), validator.OperatorAddress)
 	require.Equal(t, types.Bonded, validator.Status)
 	require.True(sdk.IntEq(t, bondTokens, validator.BondedTokens()))
 
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
+	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}})
 
 	// edit the validator
 	description = types.NewDescription("bar_moniker", "", "", "", "")
 	editValidatorMsg := types.NewMsgEditValidator(sdk.ValAddress(addr1), description, nil, nil)
 
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{editValidatorMsg}, "", []uint64{0}, []uint64{1}, true, true, priv1)
+	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{editValidatorMsg}, []uint64{0}, []uint64{1}, true, true, priv1)
 	require.NoError(t, err)
 
 	validator = checkValidator(t, app, sdk.ValAddress(addr1), true)
@@ -103,8 +103,8 @@ func TestStakingMsgs(t *testing.T) {
 	seiapp.CheckBalance(t, app, addr2, sdk.Coins{genCoin})
 	delegateMsg := types.NewMsgDelegate(addr2, sdk.ValAddress(addr1), bondCoin)
 
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{delegateMsg}, "", []uint64{1}, []uint64{0}, true, true, priv2)
+	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{delegateMsg}, []uint64{1}, []uint64{0}, true, true, priv2)
 	require.NoError(t, err)
 
 	seiapp.CheckBalance(t, app, addr2, sdk.Coins{genCoin.Sub(bondCoin)})
@@ -112,8 +112,8 @@ func TestStakingMsgs(t *testing.T) {
 
 	// begin unbonding
 	beginUnbondingMsg := types.NewMsgUndelegate(addr2, sdk.ValAddress(addr1), bondCoin)
-	header = tmproto.Header{Height: app.LastBlockHeight() + 1}
-	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{beginUnbondingMsg}, "", []uint64{1}, []uint64{1}, true, true, priv2)
+	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
+	_, _, err = seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{beginUnbondingMsg}, []uint64{1}, []uint64{1}, true, true, priv2)
 	require.NoError(t, err)
 
 	// delegation should exist anymore

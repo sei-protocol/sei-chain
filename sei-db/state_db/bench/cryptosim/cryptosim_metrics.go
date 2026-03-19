@@ -19,6 +19,12 @@ import (
 
 const cryptosimMeterName = "cryptosim"
 
+var receiptWriteLatencyBuckets = []float64{
+	0.001, 0.0025, 0.005, 0.0075, 0.01,
+	0.015, 0.02, 0.03, 0.05, 0.075,
+	0.1, 0.25, 0.5, 0.75, 1, 2.5, 5,
+}
+
 // CryptosimMetrics holds OpenTelemetry metrics for the cryptosim benchmark.
 // Metrics are exported via whatever exporter is configured on the global OTel
 // MeterProvider (e.g., Prometheus, OTLP). This package does not import Prometheus.
@@ -35,11 +41,18 @@ type CryptosimMetrics struct {
 	dbCommitsTotal             metric.Int64Counter
 	dataDirSizeBytes           metric.Int64Gauge
 	dataDirAvailableBytes      metric.Int64Gauge
+	logDirSizeBytes            metric.Int64Gauge
 	processReadBytesTotal      metric.Int64Counter
 	processWriteBytesTotal     metric.Int64Counter
 	processReadCountTotal      metric.Int64Counter
 	processWriteCountTotal     metric.Int64Counter
 	uptimeSeconds              metric.Float64Gauge
+
+	// Receipt metrics
+	receiptBlockWriteDuration metric.Float64Histogram
+	receiptChannelDepth       metric.Int64Gauge
+	receiptsWrittenTotal      metric.Int64Counter
+	receiptErrorsTotal        metric.Int64Counter
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -114,6 +127,11 @@ func NewCryptosimMetrics(
 		metric.WithDescription("Available disk space in bytes on the filesystem containing the data directory"),
 		metric.WithUnit("By"),
 	)
+	logDirSizeBytes, _ := meter.Int64Gauge(
+		"cryptosim_log_dir_size_bytes",
+		metric.WithDescription("Approximate size in bytes of the log directory"),
+		metric.WithUnit("By"),
+	)
 	processReadBytesTotal, _ := meter.Int64Counter(
 		"cryptosim_process_read_bytes_total",
 		metric.WithDescription("Bytes read from storage by benchmark. Use rate() for throughput. Linux only."),
@@ -140,6 +158,28 @@ func NewCryptosimMetrics(
 		metric.WithUnit("s"),
 	)
 
+	receiptBlockWriteDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_block_write_duration_seconds",
+		metric.WithDescription("Time to write a block of receipts to the parquet store"),
+		metric.WithExplicitBucketBoundaries(receiptWriteLatencyBuckets...),
+		metric.WithUnit("s"),
+	)
+	receiptChannelDepth, _ := meter.Int64Gauge(
+		"cryptosim_receipt_channel_depth",
+		metric.WithDescription("Current number of blocks queued for receipt writing"),
+		metric.WithUnit("{count}"),
+	)
+	receiptsWrittenTotal, _ := meter.Int64Counter(
+		"cryptosim_receipts_written_total",
+		metric.WithDescription("Total number of receipts written to the parquet store"),
+		metric.WithUnit("{count}"),
+	)
+	receiptErrorsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_errors_total",
+		metric.WithDescription("Total receipt processing errors (marshal or write failures)"),
+		metric.WithUnit("{count}"),
+	)
+
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
 		mainThreadPhase = metrics.NewPhaseTimer(meter, "seidb_main_thread")
@@ -159,19 +199,27 @@ func NewCryptosimMetrics(
 		dbCommitsTotal:               dbCommitsTotal,
 		dataDirSizeBytes:             dataDirSizeBytes,
 		dataDirAvailableBytes:        dataDirAvailableBytes,
+		logDirSizeBytes:              logDirSizeBytes,
 		processReadBytesTotal:        processReadBytesTotal,
 		processWriteBytesTotal:       processWriteBytesTotal,
 		processReadCountTotal:        processReadCountTotal,
 		processWriteCountTotal:       processWriteCountTotal,
 		uptimeSeconds:                uptimeSeconds,
+		receiptBlockWriteDuration:    receiptBlockWriteDuration,
+		receiptChannelDepth:          receiptChannelDepth,
+		receiptsWrittenTotal:         receiptsWrittenTotal,
+		receiptErrorsTotal:           receiptErrorsTotal,
 		mainThreadPhase:              mainThreadPhase,
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
-	if config != nil && config.BackgroundMetricsScrapeInterval > 0 && config.DataDir != "" {
-		if dataDir, err := resolveAndCreateDataDir(config.DataDir); err == nil {
-			m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
-		}
-		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)
+
+	if config.BackgroundMetricsScrapeInterval > 0 {
+		interval := config.BackgroundMetricsScrapeInterval
+
+		m.startDirSizeSampling(config.DataDir, m.dataDirSizeBytes, interval)
+		m.startDirSizeSampling(config.LogDir, m.logDirSizeBytes, interval)
+		m.startAvailableDiskSpaceSampling(config.DataDir, interval)
+		m.startProcessIOSampling(interval)
 		m.startUptimeSampling(time.Now())
 	}
 	return m
@@ -265,33 +313,46 @@ func (m *CryptosimMetrics) startProcessIOSampling(intervalSeconds int) {
 	}()
 }
 
-func (m *CryptosimMetrics) startDataDirSizeSampling(dataDir string, intervalSeconds int) {
-	if m == nil || intervalSeconds <= 0 || dataDir == "" {
+// startPeriodicSampling runs sampleFn immediately and then every interval
+// seconds in a background goroutine until m.ctx is cancelled.
+func (m *CryptosimMetrics) startPeriodicSampling(intervalSeconds int, sampleFn func()) {
+	if m == nil || intervalSeconds <= 0 || sampleFn == nil {
 		return
 	}
 	interval := time.Duration(intervalSeconds) * time.Second
-	ctx := context.Background()
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		sample := func() {
-			if m.dataDirSizeBytes != nil {
-				m.dataDirSizeBytes.Record(ctx, measureDataDirSize(dataDir))
-			}
-			if m.dataDirAvailableBytes != nil {
-				m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dataDir))
-			}
-		}
-		sample()
+		sampleFn()
 		for {
 			select {
 			case <-m.ctx.Done():
 				return
 			case <-ticker.C:
-				sample()
+				sampleFn()
 			}
 		}
 	}()
+}
+
+func (m *CryptosimMetrics) startDirSizeSampling(dir string, gauge metric.Int64Gauge, intervalSeconds int) {
+	if dir == "" || gauge == nil {
+		return
+	}
+	ctx := context.Background()
+	m.startPeriodicSampling(intervalSeconds, func() {
+		gauge.Record(ctx, measureDataDirSize(dir))
+	})
+}
+
+func (m *CryptosimMetrics) startAvailableDiskSpaceSampling(dir string, intervalSeconds int) {
+	if dir == "" || m.dataDirAvailableBytes == nil {
+		return
+	}
+	ctx := context.Background()
+	m.startPeriodicSampling(intervalSeconds, func() {
+		m.dataDirAvailableBytes.Record(ctx, measureDataDirAvailableBytes(dir))
+	})
 }
 
 // uint64ToInt64Clamped converts a uint64 to int64, clamping to math.MaxInt64 to avoid overflow.
@@ -400,4 +461,46 @@ func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
 		return
 	}
 	m.mainThreadPhase.SetPhase(phase)
+}
+
+func (m *CryptosimMetrics) RecordReceiptBlockWriteDuration(latency time.Duration) {
+	if m == nil || m.receiptBlockWriteDuration == nil {
+		return
+	}
+	m.receiptBlockWriteDuration.Record(context.Background(), latency.Seconds())
+}
+
+func (m *CryptosimMetrics) ReportReceiptsWritten(count int64) {
+	if m == nil || m.receiptsWrittenTotal == nil {
+		return
+	}
+	m.receiptsWrittenTotal.Add(context.Background(), count)
+}
+
+func (m *CryptosimMetrics) ReportReceiptError() {
+	if m == nil || m.receiptErrorsTotal == nil {
+		return
+	}
+	m.receiptErrorsTotal.Add(context.Background(), 1)
+}
+
+// startReceiptChannelDepthSampling periodically records the depth of the receipt channel.
+func (m *CryptosimMetrics) startReceiptChannelDepthSampling(ch <-chan *block, intervalSeconds int) {
+	if m == nil || m.receiptChannelDepth == nil || intervalSeconds <= 0 || ch == nil {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	ctx := context.Background()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.ctx.Done():
+				return
+			case <-ticker.C:
+				m.receiptChannelDepth.Record(ctx, int64(len(ch)))
+			}
+		}
+	}()
 }
