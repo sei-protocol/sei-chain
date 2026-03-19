@@ -10,6 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
 //go:embed tags
@@ -96,9 +97,10 @@ func (app *App) RegisterUpgradeHandlers() {
 					return newVM, err
 				}
 
-				// Enable IBC inbound and outbound by default
-				app.IBCKeeper.SetInboundEnabled(ctx, true)
-				app.IBCKeeper.SetOutboundEnabled(ctx, true)
+				// Enable IBC inbound and outbound by default.
+				// SetParams writes directly without reading first, avoiding a panic
+				// on the uninitialized InboundEnabled/OutboundEnabled keys.
+				app.IBCKeeper.SetParams(ctx, ibctypes.NewParams(true, true))
 				return newVM, err
 			}
 
