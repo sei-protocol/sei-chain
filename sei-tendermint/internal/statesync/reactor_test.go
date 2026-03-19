@@ -122,7 +122,7 @@ func orPanic[T any](v T, err error) T {
 	return v
 }
 
-func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+func (rts *reactorTestSuite) AddPeerWithoutWaiting(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxConnected: utils.Some(1),
 	})
@@ -134,9 +134,14 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
 	testNode.Connect(t.Context(), rts.node)
+	return n
+}
+
+func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+	n := rts.AddPeerWithoutWaiting(t)
 	// Peer registration in the reactor is asynchronous, so block until this peer
 	// is visible before returning to callers that may assert on peer counts.
-	utils.OrPanic(rts.reactor.peers.WaitUntilContains(t.Context(), testNode.NodeID))
+	utils.OrPanic(rts.reactor.peers.WaitUntilContains(t.Context(), n.TestNode.NodeID))
 	return n
 }
 
@@ -171,7 +176,7 @@ func TestReactor_Sync(t *testing.T) {
 			if _, err := utils.Recv(ctx, ticker.C); err != nil {
 				return
 			}
-			n := rts.AddPeer(t)
+			n := rts.AddPeerWithoutWaiting(t)
 			go n.handleLightBlockRequests(t, chain, false)
 			go n.handleChunkRequests(t, []byte("abc"))
 			go n.handleConsensusParamsRequest(t)

@@ -899,13 +899,18 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mes
 		cp := types.ConsensusParamsFromProto(resp.GetConsensusParams())
 
 		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
-			select {
-			case sp.ParamsRecvCh() <- cp:
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Second):
-				return errors.New("failed to send consensus params, stateprovider not ready for response")
-			}
+			err := func() error {
+				select {
+				case sp.ParamsRecvCh() <- cp:
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Second):
+					return errors.New("failed to send consensus params, stateprovider not ready for response")
+				}
+				return nil
+			}()
+			// It is not peers fault that we cannot send it consensus params. Just log the received error.
+			logger.Info("r.stateProvider.ParamsRecvCh()", "err", err)
 		} else {
 			logger.Debug("received unexpected params response; using RPC state provider", "peer", m.From)
 		}
