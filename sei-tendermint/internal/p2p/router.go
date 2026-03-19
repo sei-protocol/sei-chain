@@ -131,18 +131,6 @@ func (r *Router) Connected(id types.NodeID) bool {
 	return ok
 }
 
-func (r *Router) State(id types.NodeID) string {
-	return r.peerManager.State(id)
-}
-
-func (r *Router) Peers() []types.NodeID {
-	return r.peerManager.Peers()
-}
-
-func (r *Router) Addresses(id types.NodeID) []NodeAddress {
-	return r.peerManager.Addresses(id)
-}
-
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 	addrs := r.peerManager.Advertise()
 	return addrs[:min(len(addrs), maxAddrs)]

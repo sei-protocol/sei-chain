@@ -61,9 +61,8 @@ type consensusState interface {
 }
 
 type peerManager interface {
-	Peers() []types.NodeID
-	State(types.NodeID) string
-	Addresses(types.NodeID) []p2p.NodeAddress
+	AllAddrs() []p2p.NodeAddress
+	ConnInfos() []p2p.PeerConnInfo
 }
 
 // ----------------------------------------------

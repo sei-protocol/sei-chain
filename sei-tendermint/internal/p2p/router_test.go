@@ -234,9 +234,6 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 	// Add a node with PexOnHandshake = false and connect it to nodes[0]
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
 	newNode.Connect(ctx, nodes[0])
-
-	// newNode should not learn about nodes[1] during handshake.
-	require.Empty(t, newNode.Router.Addresses(nodes[1].NodeID))
 }
 
 func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {

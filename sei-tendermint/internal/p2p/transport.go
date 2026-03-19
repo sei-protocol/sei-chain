@@ -45,8 +45,8 @@ type ConnV2 struct {
 	mconn        *conn.MConnection
 }
 
-func (c *ConnV2) Info() peerConnInfo {
-	return peerConnInfo{
+func (c *ConnV2) Info() PeerConnInfo {
+	return PeerConnInfo{
 		ID:               c.nodeID,
 		Channels:         c.peerChannels,
 		DialedAddr:       c.dialAddr,

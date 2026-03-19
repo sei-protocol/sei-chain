@@ -4,40 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"maps"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // NetInfo returns network info.
 // More: https://docs.tendermint.com/master/rpc/#/Info/net_info
 func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
-	peerList := env.PeerManager.Peers()
-
-	peers := make([]coretypes.Peer, 0, len(peerList))
-	peerConnections := make([]coretypes.PeerConnection, 0, len(peerList))
-	for _, peer := range peerList {
-		addrs := env.PeerManager.Addresses(peer)
-		if len(addrs) == 0 {
-			continue
-		}
-
-		peers = append(peers, coretypes.Peer{
-			ID:  peer,
-			URL: addrs[0].String(),
-		})
-		peerConnections = append(peerConnections, coretypes.PeerConnection{
-			ID:    peer,
-			State: env.PeerManager.State(peer),
+	peers := map[types.NodeID]coretypes.Peer{}
+	for _, addr := range env.PeerManager.AllAddrs() {
+		if _,ok := peers[addr.NodeID]; ok { continue }
+		peers[addr.NodeID] = coretypes.Peer{ID:  addr.NodeID, URL: addr.String()}	
+	}
+	peerConnections := map[types.NodeID]coretypes.PeerConnection{}
+	for _, info := range env.PeerManager.ConnInfos() {
+		if _,ok := peerConnections[info.ID]; ok { continue }
+		peerConnections[info.ID] = coretypes.PeerConnection{
+			ID:    info.ID,
+			State: "ready,connected",
 			Score: 100,
-		})
+		}
 	}
 
 	return &coretypes.ResultNetInfo{
 		Listening:       env.IsListening,
 		Listeners:       env.Listeners,
 		NPeers:          len(peers),
-		Peers:           peers,
-		PeerConnections: peerConnections,
+		Peers:           slices.Collect(maps.Values(peers)),
+		PeerConnections: slices.Collect(maps.Values(peerConnections)),
 	}, nil
 }
 

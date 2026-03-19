@@ -12,20 +12,20 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "p2p")
 
-type peerConnInfo struct {
+type PeerConnInfo struct {
 	ID               types.NodeID
 	Channels         ChannelIDSet
 	DialedAddr       utils.Option[NodeAddress]
 	SelfDeclaredAddr utils.Option[NodeAddress]
 }
 
-func (i peerConnInfo) connID() connID {
+func (i PeerConnInfo) connID() connID {
 	return connID{NodeID: i.ID, outbound: i.DialedAddr.IsPresent()}
 }
 
 type peerConn interface {
 	comparable
-	Info() peerConnInfo
+	Info() PeerConnInfo
 	Close()
 }
 
@@ -138,8 +138,6 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		}
 	}
 
-	logger.Error("PERSISTENT ADDRS", "addrs", persistentAddrs)
-	logger.Error("BOOTSTRAP ADDRS", "addrs", bootstrapAddrs)
 	inner := &peerManagerInner[C]{
 		isPersistent: isPersistent,
 		conns:        utils.NewAtomicSend(im.NewMap[connID, C]()),
@@ -226,7 +224,6 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 			for _, pool := range pools {
 				if addrs, ok := pool.TryStartDial(); ok {
 					inner.lastDialPool = pool
-					logger.Error("DIALING", "addrs", addrs)
 					ctrl.Updated()
 					return addrs, nil
 				}
@@ -321,18 +318,6 @@ func (m *peerManager[C]) IsBlockSyncPeer(id types.NodeID) bool {
 	return len(m.isBlockSyncPeer) == 0 || m.isBlockSyncPeer[id]
 }
 
-func (m *peerManager[C]) State(id types.NodeID) string {
-	if _, ok := GetAny(m.Conns(), id); ok {
-		return "ready,connected"
-	}
-	for inner := range m.inner.Lock() {
-		if _, ok := inner.poolByID(id).dialing[id]; ok {
-			return "dialing"
-		}
-	}
-	return ""
-}
-
 func (m *peerManager[C]) Advertise() []NodeAddress {
 	var addrs []NodeAddress
 	// Advertise your own address.
@@ -356,30 +341,27 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 	return append(addrs, selfAddrs...)
 }
 
-// DEPRECATED, currently returns id of peers that we are connected to.
-func (m *peerManager[C]) Peers() []types.NodeID {
-	idSet := map[types.NodeID]struct{}{}
-	for id := range m.Conns().All() {
-		idSet[id.NodeID] = struct{}{}
-	}
-	ids := make([]types.NodeID, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-// DEPRECATED, currently returns an address iff we are connected to id.
-func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
-	if conn, ok := GetAny(m.Conns(), id); ok {
-		info := conn.Info()
-		if addr, ok := info.DialedAddr.Get(); ok {
-			// Prioritize dialed addresses of outbound connections.
-			return utils.Slice(addr)
-		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
-			// Fallback to self-declared addresses of inbound connections.
-			return utils.Slice(addr)
+// All addresses in pools.
+// Used by net_info endpoint, which is used by integration tests and for debugging.
+func (m *peerManager[C]) AllAddresses(id types.NodeID) []NodeAddress {
+	var addrs []NodeAddress
+	for inner := range m.inner.Lock() {
+		for _,pool := range utils.Slice(inner.persistent,inner.regular) {
+			for e := range pool.pex.All() {
+				for _,pAddr := range e.addrs {
+					addrs = append(addrs,pAddr.NodeAddress)
+				}
+			}
 		}
 	}
-	return nil
+	return addrs
+}
+
+// Infos of connections in the pool.
+func (m *peerManager[C]) ConnInfos() []PeerConnInfo {
+	var infos []PeerConnInfo
+	for _,conn := range m.Conns().All() {
+		infos = append(infos,conn.Info())
+	}
+	return infos
 }
