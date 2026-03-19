@@ -138,6 +138,8 @@ func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *pe
 		}
 	}
 
+	logger.Error("PERSISTENT ADDRS", "addrs", persistentAddrs)
+	logger.Error("BOOTSTRAP ADDRS", "addrs", bootstrapAddrs)
 	inner := &peerManagerInner[C]{
 		isPersistent: isPersistent,
 		conns:        utils.NewAtomicSend(im.NewMap[connID, C]()),
@@ -224,6 +226,7 @@ func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
 			for _, pool := range pools {
 				if addrs, ok := pool.TryStartDial(); ok {
 					inner.lastDialPool = pool
+					logger.Error("DIALING", "addrs", addrs)
 					ctrl.Updated()
 					return addrs, nil
 				}
