@@ -30,7 +30,6 @@ type Reader func(key []byte) (value []byte, found bool, err error)
 // Cache errors are are generally not recoverable, and it should be assumed that a cache that has returned an error
 // is in a corrupted state, and should be discarded.
 type Cache interface {
-
 	// Get returns the value for the given key, or (nil, false, nil) if not found.
 	//
 	// It is not safe to mutate the key slice after calling this method, nor is it safe to mutate the value slice
@@ -73,6 +72,14 @@ type Cache interface {
 	// the this method. It is, however, thread safe to interact with snapshots concurrently with
 	// this method.
 	Snapshot() (CacheSnapshot, error)
+
+	// Close closes the cache and the underlying database. If this method returns a nil error, then all data
+	// stored in snapshots will have been flushed persistantly to disk.
+	//
+	// It is not safe to call Close() concurrently with any other method on this interface, nor is it safe to call
+	// Close() while any snapshots are still in use. It is legal to call Close() even if all snapshot reference
+	// counts have not yet reached 0, but those snapshots are no longer safe to read when this method is called.
+	Close() error
 }
 
 // A read-only snapshot of the data in the cache.

@@ -15,6 +15,7 @@ var _ Cache = (*cache)(nil)
 // A standard implementation of a flatcache.
 type cache struct {
 	ctx    context.Context
+	cancel context.CancelFunc
 	config *CacheConfig
 
 	// A utility for assigning keys to shard indices.
@@ -60,6 +61,9 @@ type cache struct {
 
 	// Set to true when the cache is shutting down.
 	shuttingDown bool
+
+	// Closed by the GC runner when it exits, so Close() can wait for it.
+	gcDone chan struct{}
 }
 
 // Tracks the reference count for a particular snapshot.
@@ -105,8 +109,11 @@ func NewStandardCache(
 	versionLock := &sync.Mutex{}
 	gcBackpressueCond := sync.NewCond(versionLock)
 
+	childCtx, cancel := context.WithCancel(ctx)
+
 	c := &cache{
-		ctx:               ctx,
+		ctx:               childCtx,
+		cancel:            cancel,
 		config:            config,
 		shardManager:      shardManager,
 		shards:            shards,
@@ -118,6 +125,7 @@ func NewStandardCache(
 		oldestVersion:     1,
 		versionLock:       versionLock,
 		gcBackpressueCond: gcBackpressueCond,
+		gcDone:            make(chan struct{}),
 	}
 
 	if config.MetricsEnabled {
@@ -382,6 +390,8 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 
 // Perform periodic garbage collection.
 func (c *cache) garbageCollectionRunner() {
+	defer close(c.gcDone)
+
 	ticker := time.NewTicker(c.config.GCInterval())
 	defer ticker.Stop()
 
@@ -432,57 +442,58 @@ func (c *cache) garbageCollect() error {
 
 	c.versionLock.Unlock()
 
-	numberOfVersionsToGC := lastVersionToGC + 1 - firstVersionToGC
-	if numberOfVersionsToGC == 0 {
-		// No versions to GC, so nothing to do.
+	if lastVersionToGC < firstVersionToGC {
 		return nil
 	}
 
-	// Get the diffs for the versions to GC. We need to push these down into the DB.
+	return c.flushVersions(firstVersionToGC, lastVersionToGC)
+}
+
+// flushVersions collects diffs for [firstVersion, lastVersion] from all shards,
+// writes them to the underlying DB in batches, then drops the versions from the shards.
+func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
+
+	// Collect diffs from all shards.
 	diffsByVersion := make(map[uint64]map[string][]byte)
-	for version := firstVersionToGC; version <= lastVersionToGC; version++ {
+	for version := firstVersion; version <= lastVersion; version++ {
 		diffsByVersion[version] = make(map[string][]byte)
 	}
 	for _, shard := range c.shards {
-		shardDiffs, err := shard.GetDiffsForVersions(firstVersionToGC, lastVersionToGC)
+		shardDiffs, err := shard.GetDiffsForVersions(firstVersion, lastVersion)
 		if err != nil {
-			// should be impossible
 			return fmt.Errorf("failed to get diffs for shard: %w", err)
 		}
 		for diffIndex, diff := range shardDiffs {
-			version := firstVersionToGC + uint64(diffIndex)
+			version := firstVersion + uint64(diffIndex)
 			for key, value := range diff {
 				diffsByVersion[version][key] = value
 			}
 		}
 	}
 
-	// Push the diffs down into the DB.
+	// Write diffs to the DB in batches, oldest version first.
 	var batch types.Batch
 	versionsInBatch := uint64(0)
-	for version := firstVersionToGC; version <= lastVersionToGC; version++ {
+	for version := firstVersion; version <= lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
 			batch = c.db.NewBatch()
 		}
 		for key, value := range diffsByVersion[version] {
 			if value == nil {
-				err := batch.Delete([]byte(key))
-				if err != nil {
-					return fmt.Errorf("gc failed to delete key: %w", err)
+				if err := batch.Delete([]byte(key)); err != nil {
+					return fmt.Errorf("flush failed to delete key: %w", err)
 				}
 			} else {
-				err := batch.Set([]byte(key), value)
-				if err != nil {
-					return fmt.Errorf("gc failed to set key: %w", err)
+				if err := batch.Set([]byte(key), value); err != nil {
+					return fmt.Errorf("flush failed to set key: %w", err)
 				}
 			}
 		}
 
 		if batch.Len() >= c.config.TargetKeysPerFlush {
-			err := batch.Commit(types.WriteOptions{Sync: true}) // TODO: verify if Sync: true is necessary
-			if err != nil {
-				return fmt.Errorf("gc failed to commit batch: %w", err)
+			if err := batch.Commit(types.WriteOptions{Sync: true}); err != nil {
+				return fmt.Errorf("flush failed to commit batch: %w", err)
 			}
 			batch = nil
 			c.versionLock.Lock()
@@ -493,11 +504,9 @@ func (c *cache) garbageCollect() error {
 		}
 	}
 	if batch != nil {
-		err := batch.Commit(types.WriteOptions{Sync: true})
-		if err != nil {
-			return fmt.Errorf("gc failed to commit batch: %w", err)
+		if err := batch.Commit(types.WriteOptions{Sync: true}); err != nil {
+			return fmt.Errorf("flush failed to commit batch: %w", err)
 		}
-
 		c.versionLock.Lock()
 		c.unGCdVersions -= versionsInBatch
 		c.versionLock.Unlock()
@@ -506,11 +515,27 @@ func (c *cache) garbageCollect() error {
 
 	// Now that the data is reflected in the DB, clean up the shards.
 	for _, shard := range c.shards {
-		err := shard.DropVersions(firstVersionToGC, lastVersionToGC)
-		if err != nil {
+		if err := shard.DropVersions(firstVersion, lastVersion); err != nil {
 			panic(fmt.Sprintf("failed to drop versions from shard: %v", err))
 		}
 	}
 
 	return nil
+}
+
+func (c *cache) Close() error {
+	// Stop the GC runner and wait for it to exit.
+	c.cancel()
+	<-c.gcDone
+
+	// Flush all remaining snapshotted versions to disk. The current mutable version
+	// is intentionally not flushed — if the caller wants it persisted, they should
+	// finalize it via Snapshot() before calling Close().
+	if c.oldestVersion < c.currentVersion {
+		if err := c.flushVersions(c.oldestVersion, c.currentVersion-1); err != nil {
+			return fmt.Errorf("close: failed to flush remaining versions: %w", err)
+		}
+	}
+
+	return c.db.Close()
 }
