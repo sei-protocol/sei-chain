@@ -26,11 +26,13 @@ type PebbleDBConfig struct {
 // Default configuration for the PebbleDB database.
 func DefaultConfig() *PebbleDBConfig {
 	cacheConfig := dbcache.DefaultCacheConfig()
+	cacheConfig.MetricsName = "pebble"
 
 	return &PebbleDBConfig{
-		BlockCacheSize: 512 * unit.MB,
-		EnableMetrics:  true,
-		CacheConfig:    cacheConfig,
+		BlockCacheSize:        512 * unit.MB,
+		EnableMetrics:         true,
+		MetricsScrapeInterval: 10 * time.Second,
+		CacheConfig:           cacheConfig,
 	}
 }
 

@@ -110,6 +110,10 @@ func (mc *mockCache) Snapshot() (CacheSnapshot, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (mc *mockCache) Close() error {
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------

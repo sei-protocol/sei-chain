@@ -104,6 +104,12 @@ func DefaultConfig() *Config {
 	cfg.AccountDBConfig.CacheConfig.MaxSize = unit.GB
 	cfg.StorageDBConfig.CacheConfig.MaxSize = unit.GB * 4
 
+	cfg.AccountDBConfig.CacheConfig.MetricsName = "flatkv_account"
+	cfg.CodeDBConfig.CacheConfig.MetricsName = "flatkv_code"
+	cfg.StorageDBConfig.CacheConfig.MetricsName = "flatkv_storage"
+	cfg.LegacyDBConfig.CacheConfig.MetricsName = "flatkv_legacy"
+	cfg.MetadataDBConfig.CacheConfig.MetricsName = "flatkv_metadata"
+
 	return cfg
 }
 

@@ -215,11 +215,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(accountChanges))
 
 	for _, afc := range accountChanges {
-		addrKey := string(AccountKey(afc.addr))
-
 		var oldEncoded []byte
 		var av AccountValue
-		if result := accountOldKeys[addrKey]; result.IsFound() {
+		if result := accountOldKeys[string(AccountKey(afc.addr))]; result.IsFound() {
 			oldEncoded = result.Value
 			decoded, err := DecodeAccountValue(result.Value)
 			if err != nil {

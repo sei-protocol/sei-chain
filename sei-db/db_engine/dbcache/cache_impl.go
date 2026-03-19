@@ -407,7 +407,7 @@ func (c *cache) garbageCollectionRunner() {
 		case <-ticker.C:
 			err := c.garbageCollect()
 			if err != nil {
-				// It's unfortuante to have to panic here, but GC failure is not recoverable.
+				// It's unfortunate to have to panic here, but GC failure is not recoverable.
 				// Continuing in the face of GC failure is likely to lead to GC corruption
 				// and a divergant app hash.
 				panic(fmt.Sprintf("failed to garbage collect: %v", err))
@@ -464,7 +464,7 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 			return fmt.Errorf("failed to get diffs for shard: %w", err)
 		}
 		for diffIndex, diff := range shardDiffs {
-			version := firstVersion + uint64(diffIndex)
+			version := firstVersion + uint64(diffIndex) //nolint:gosec // diffIndex is bounded by version count
 			for key, value := range diff {
 				diffsByVersion[version][key] = value
 			}
@@ -521,6 +521,13 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 	}
 
 	return nil
+}
+
+// UnderlyingDB returns the raw backing database. Intended for test-only use
+// (e.g. iteration for ground-truth verification). Production code should use
+// the Cache interface methods.
+func (c *cache) UnderlyingDB() types.KeyValueDB {
+	return c.db
 }
 
 func (c *cache) Close() error {

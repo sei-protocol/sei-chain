@@ -60,20 +60,15 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 // commitGlobalMetadata atomically commits global version and LtHash to metadata DB.
 // This is the global watermark written AFTER all per-DB commits succeed.
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-	batch := make(map[string][]byte, 2)
-
-	// Encode version (version should always be non-negative in practice)
 	versionBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(versionBuf, uint64(version)) //nolint:gosec // version is always non-negative
-	batch[MetaGlobalVersion] = versionBuf
-
-	lthashBytes := hash.Marshal()
-	batch[MetaGlobalLtHash] = lthashBytes
+	s.metadataDB.Set([]byte(MetaGlobalVersion), versionBuf)
+	s.metadataDB.Set([]byte(MetaGlobalLtHash), hash.Marshal())
 
 	// Force the metadata cache to flush down to the DB by taking a snapshot and releasing it.
 	// TODO before merge:
 	//   - The semantics of this are not obvious, we need to expand godocs to make it more clear what's going on.
-	//   - Double check with team on the crash recovery story here, since we're now making this asyncronous.
+	//   - Double check with team on the crash recovery story here, since we're now making this asynchronous.
 	snapshot, err := s.metadataDB.Snapshot()
 	if err != nil {
 		return fmt.Errorf("failed to take snapshot: %w", err)
