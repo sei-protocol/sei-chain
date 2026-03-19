@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,8 @@ const (
 	// Suffixes for atomic directory operations
 	tmpSuffix      = "-tmp"
 	removingSuffix = "-removing"
+
+	readOnlyDirPrefix = "readonly-"
 
 	// Metadata DB keys
 	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
@@ -101,8 +104,10 @@ type CommitStore struct {
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
 
-	// Used to track time spent in various phases of execution.
 	phaseTimer *metrics.PhaseTimer
+
+	readOnly        bool   // Set by readonly LoadVersion; guards all write methods.
+	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -141,13 +146,20 @@ func (s *CommitStore) flatkvDir() string {
 	return s.dbDir
 }
 
-// LoadVersion loads the specified version of the database.
-//
-//   - targetVersion == 0: open latest (follow current symlink + catchup to end of WAL).
-//   - targetVersion > 0: seek the best snapshot <= targetVersion, open it, then
-//     catchup via WAL to reach targetVersion exactly.
-func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
+var errReadOnly = errors.New("flatkv: store is read-only")
+
+// LoadVersion opens the database at the given version (0 = latest).
+// When readOnly is true an isolated, read-only CommitStore is returned;
+// the caller must Close it when done.
+func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
+	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+
+	if readOnly {
+		if s.readOnly {
+			return nil, errReadOnly
+		}
+		return s.loadVersionReadOnly(targetVersion)
+	}
 
 	_ = s.closeDBsOnly()
 
@@ -197,6 +209,91 @@ func (s *CommitStore) LoadVersion(targetVersion int64) (_ Store, retErr error) {
 	}
 
 	return s, nil
+}
+
+// loadVersionReadOnly creates an isolated, read-only CommitStore at the
+// requested version.
+func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
+	ro := NewCommitStore(s.ctx, s.dbDir, s.log, s.config)
+
+	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("create readonly temp dir: %w", err)
+	}
+	ro.readOnlyWorkDir = workDir
+
+	defer func() {
+		if retErr != nil {
+			if closeErr := ro.Close(); closeErr != nil {
+				s.log.Error("failed to close readonly store during error cleanup", "err", closeErr)
+			}
+		}
+	}()
+
+	if err := ro.openReadOnly(targetVersion); err != nil {
+		return nil, fmt.Errorf("readonly open: %w", err)
+	}
+
+	return ro, nil
+}
+
+// openReadOnly opens PebbleDBs in readOnlyWorkDir, replays the WAL to
+// targetVersion, then closes the WAL and marks the store as read-only.
+// It never modifies the global "current" symlink.
+func (s *CommitStore) openReadOnly(targetVersion int64) error {
+	s.clearPendingWrites()
+
+	dir := s.flatkvDir()
+
+	var snapDir string
+	if targetVersion > 0 {
+		baseVer, err := seekSnapshot(dir, targetVersion)
+		if err != nil {
+			return fmt.Errorf("seek snapshot for readonly: %w", err)
+		}
+		snapDir = filepath.Join(dir, snapshotName(baseVer))
+	} else {
+		var err error
+		snapDir, _, err = currentSnapshotDir(dir)
+		if err != nil {
+			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
+		}
+	}
+
+	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
+		return fmt.Errorf("create readonly working dir: %w", err)
+	}
+
+	if err := s.openDBs(s.readOnlyWorkDir, dir); err != nil {
+		return err
+	}
+
+	if err := s.loadGlobalMetadata(); err != nil {
+		return err
+	}
+
+	if err := s.catchup(targetVersion); err != nil {
+		return fmt.Errorf("readonly catchup: %w", err)
+	}
+
+	if targetVersion > 0 && s.committedVersion != targetVersion {
+		return fmt.Errorf("readonly version mismatch: requested %d, reached %d",
+			targetVersion, s.committedVersion)
+	}
+
+	if s.changelog != nil {
+		closeErr := s.changelog.Close()
+		s.changelog = nil
+		if closeErr != nil {
+			return fmt.Errorf("close readonly changelog: %w", closeErr)
+		}
+	}
+
+	s.readOnly = true
+
+	s.log.Info("FlatKV readonly store opened", "version", s.committedVersion,
+		"dir", s.readOnlyWorkDir)
+	return nil
 }
 
 // openTo opens all DBs and catches up via WAL to the given version.
@@ -261,7 +358,7 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("create working dir: %w", err)
 	}
 
-	if err := s.openAllDBs(workDir, dir); err != nil {
+	if err := s.openDBs(workDir, dir); err != nil {
 		return err
 	}
 
@@ -293,20 +390,19 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	return nil
 }
 
-// openAllDBs opens the 5 PebbleDBs from the snapshot directory, the changelog
-// WAL from the flatkv root, and loads per-DB local metadata. On failure all
-// already-opened handles are closed.
-func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
+// openDBs opens all PebbleDBs from dbDir and optionally the changelog WAL
+// from changelogRoot. On failure all already-opened handles are closed.
+func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 	type namedPath struct {
 		name string
 		path string
 	}
 	dbPaths := []namedPath{
-		{accountDBDir, filepath.Join(snapDir, accountDBDir)},
-		{codeDBDir, filepath.Join(snapDir, codeDBDir)},
-		{storageDBDir, filepath.Join(snapDir, storageDBDir)},
-		{legacyDBDir, filepath.Join(snapDir, legacyDBDir)},
-		{metadataDir, filepath.Join(snapDir, metadataDir)},
+		{accountDBDir, filepath.Join(dbDir, accountDBDir)},
+		{codeDBDir, filepath.Join(dbDir, codeDBDir)},
+		{storageDBDir, filepath.Join(dbDir, storageDBDir)},
+		{legacyDBDir, filepath.Join(dbDir, legacyDBDir)},
+		{metadataDir, filepath.Join(dbDir, metadataDir)},
 	}
 
 	for _, np := range dbPaths {
@@ -357,18 +453,19 @@ func (s *CommitStore) openAllDBs(snapDir, flatkvRoot string) (retErr error) {
 		return err
 	}
 
-	changelogPath := filepath.Join(flatkvRoot, changelogDir)
-	s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
-		WriteBufferSize: 0,
-		KeepRecent:      0,
-		PruneInterval:   0,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to open changelog: %w", err)
+	if changelogRoot != "" {
+		changelogPath := filepath.Join(changelogRoot, changelogDir)
+		s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
+			WriteBufferSize: 0,
+			KeepRecent:      0,
+			PruneInterval:   0,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to open changelog: %w", err)
+		}
+		toClose = append(toClose, s.changelog)
 	}
-	toClose = append(toClose, s.changelog)
 
-	// Load per-DB local metadata (or initialize if not present)
 	dataDBs := map[string]seidbtypes.KeyValueDB{
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
@@ -447,6 +544,9 @@ func (s *CommitStore) CommittedRootHash() []byte {
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
+	if s.readOnly {
+		return nil, errReadOnly
+	}
 	// rootmulti.Restore closes the store before creating an importer.
 	// Reopen the DBs so the importer can write data.
 	if s.isClosed() {
