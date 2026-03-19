@@ -45,7 +45,7 @@ type GenTxTestSuite struct {
 func (suite *GenTxTestSuite) SetupTest() {
 	checkTx := false
 	app := seiapp.Setup(suite.T(), checkTx, false, false)
-	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{})
+	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{ChainID: app.ChainID})
 	suite.app = app
 	suite.encodingConfig = seiapp.MakeEncodingConfig()
 
