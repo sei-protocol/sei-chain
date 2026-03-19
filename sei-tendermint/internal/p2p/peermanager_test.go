@@ -37,12 +37,12 @@ func makeAddr(rng utils.Rng) NodeAddress {
 }
 
 type fakeConn struct {
-	info   peerConnInfo
+	info   PeerConnInfo
 	closed atomic.Bool
 }
 
 func makeConnFor(rng utils.Rng, id types.NodeID, dialing bool) *fakeConn {
-	info := peerConnInfo{ID: id}
+	info := PeerConnInfo{ID: id}
 	if dialing {
 		info.DialedAddr = utils.Some(makeAddrFor(rng, id))
 	}
@@ -51,7 +51,7 @@ func makeConnFor(rng utils.Rng, id types.NodeID, dialing bool) *fakeConn {
 
 func makeConnTo(addr NodeAddress) *fakeConn {
 	return &fakeConn{
-		info: peerConnInfo{
+		info: PeerConnInfo{
 			ID:         addr.NodeID,
 			DialedAddr: utils.Some(addr),
 		},
@@ -66,7 +66,7 @@ func (c *fakeConn) Closed() bool {
 	return c.closed.Load()
 }
 
-func (c *fakeConn) Info() peerConnInfo { return c.info }
+func (c *fakeConn) Info() PeerConnInfo { return c.info }
 
 func (c *fakeConn) Close() {
 	c.closed.Store(true)
