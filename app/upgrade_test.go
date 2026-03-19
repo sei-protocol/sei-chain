@@ -50,7 +50,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		require.True(t, plan.ShouldExecute(testCtx))
 
 		res, _ := testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{
-			Height: 1,
+			Header: &tmproto.Header{Height: 1, ChainID: "sei-test"},
 		})
 		require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 		require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
@@ -71,7 +71,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		require.False(t, plan.ShouldExecute(testCtx))
 
 		go func() {
-			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Height: 1})
+			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Header: &tmproto.Header{Height: 1, ChainID: "sei-test"}})
 		}()
 
 		require.Eventually(t, func() bool {

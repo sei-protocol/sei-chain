@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -211,10 +212,11 @@ func TestGetProof(t *testing.T) {
 	key, val := []byte("test"), []byte("abc")
 	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))
 	for i := 0; i < MockHeight8; i++ {
-		testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(i + 1)})
+		_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: testApp.ChainID, Height: int64(i + 1)}})
+		require.NoError(t, err)
 		testApp.SetDeliverStateToCommit()
-		_, err := testApp.Commit(context.Background())
-		require.Nil(t, err)
+		_, err = testApp.Commit(context.Background())
+		require.NoError(t, err)
 	}
 	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
 		require.NoError(t, store.SetLatestVersion(MockHeight8))
