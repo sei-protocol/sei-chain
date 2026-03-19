@@ -16,7 +16,8 @@ var _ Cache = (*cache)(nil)
 
 // A standard implementation of a flatcache.
 type cache struct {
-	ctx context.Context
+	ctx    context.Context
+	config *CacheConfig
 
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
@@ -72,47 +73,26 @@ type snapshotReferenceCounter struct {
 	referenceCount uint64
 }
 
-// TODO: consider pulling cache config into a struct, config length is growing long!
-
-// Creates a new Cache. If cacheName is non-empty, OTel metrics are enabled and the
-// background size scrape runs every metricsScrapeInterval.
+// Creates a new Cache.
 func NewStandardCache(
 	ctx context.Context,
+	config *CacheConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
-	// The number of shards in the cache. Must be a power of two and greater than 0.
-	shardCount uint64,
-	// The maximum size of the cache, in bytes.
-	maxSize uint64,
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
-	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
-	// This value should be derived experimentally, and may differ between different builds and architectures.
-	estimatedOverheadPerEntry uint64,
-	// Name used as the "cache" attribute on metrics. Empty string disables metrics.
-	cacheName string,
-	// How often to scrape cache size for metrics. Ignored if cacheName is empty.
-	metricsScrapeInterval time.Duration,
-	// How often to garbage collect.
-	gcInterval time.Duration,
 ) (Cache, error) {
-	if shardCount == 0 || (shardCount&(shardCount-1)) != 0 {
-		return nil, ErrNumShardsNotPowerOfTwo
-	}
-	if maxSize == 0 {
-		return nil, fmt.Errorf("maxSize must be greater than 0")
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid cache config: %w", err)
 	}
 
-	shardManager, err := newShardManager(shardCount)
+	shardManager, err := newShardManager(config.ShardCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create shard manager: %w", err)
 	}
-	sizePerShard := maxSize / shardCount
-	if sizePerShard == 0 {
-		return nil, fmt.Errorf("maxSize must be greater than shardCount")
-	}
+	sizePerShard := config.MaxSize / config.ShardCount
 
 	reader := func(key []byte) ([]byte, bool, error) {
 		val, err := db.Get(key)
@@ -125,9 +105,9 @@ func NewStandardCache(
 		return val, true, nil
 	}
 
-	shards := make([]*shard, shardCount)
-	for i := uint64(0); i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, reader, readPool, sizePerShard, estimatedOverheadPerEntry)
+	shards := make([]*shard, config.ShardCount)
+	for i := uint64(0); i < config.ShardCount; i++ {
+		shards[i], err = NewShard(ctx, config, reader, readPool, sizePerShard)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -138,6 +118,7 @@ func NewStandardCache(
 
 	c := &cache{
 		ctx:               ctx,
+		config:            config,
 		shardManager:      shardManager,
 		shards:            shards,
 		readPool:          readPool,
@@ -150,14 +131,14 @@ func NewStandardCache(
 		gcBackpressueCond: gcBackpressueCond,
 	}
 
-	if cacheName != "" {
-		metrics := newCacheMetrics(ctx, cacheName, metricsScrapeInterval, c.getCacheSizeInfo)
+	if config.MetricsEnabled {
+		metrics := newCacheMetrics(ctx, config.MetricsName, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
 		}
 	}
 
-	go c.garbageCollectionRunner(gcInterval)
+	go c.garbageCollectionRunner()
 
 	return c, nil
 }
@@ -302,13 +283,11 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	return snapshot, nil
 }
 
-const maxUnGCdVersions = 4 // TODO this should be configurable
-
 // This method blocks if GC/flush is not keeping up. It is assumed that the caller already holds the versionLock.
 // When this method returns, it will still hold the versionLock, but it may release and then re-acquire versionLock
 // internally as it awaits for GC to catch up.
 func (c *cache) gcBackpressure() error {
-	for c.unGCdVersions > maxUnGCdVersions {
+	for c.unGCdVersions > c.config.MaxUnGCdVersions {
 		if c.shuttingDown {
 			return fmt.Errorf("context cancelled")
 		}
@@ -413,8 +392,8 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 }
 
 // Perform periodic garbage collection.
-func (c *cache) garbageCollectionRunner(gcInterval time.Duration) {
-	ticker := time.NewTicker(gcInterval)
+func (c *cache) garbageCollectionRunner() {
+	ticker := time.NewTicker(c.config.GCInterval())
 	defer ticker.Stop()
 
 	for {
@@ -437,9 +416,6 @@ func (c *cache) garbageCollectionRunner(gcInterval time.Duration) {
 		}
 	}
 }
-
-// TODO this should be configurable
-const targetKeysPerFlush = 1024 * 10
 
 // Garbage collect all eligible snapshots and push data down into the DB.
 func (c *cache) garbageCollect() error {
@@ -514,7 +490,7 @@ func (c *cache) garbageCollect() error {
 			}
 		}
 
-		if batch.Len() >= targetKeysPerFlush {
+		if batch.Len() >= c.config.TargetKeysPerFlush {
 			err := batch.Commit(types.WriteOptions{Sync: true}) // TODO: verify if Sync: true is necessary
 			if err != nil {
 				return fmt.Errorf("gc failed to commit batch: %w", err)

@@ -12,7 +12,8 @@ import (
 
 // A single shard of a Cache.
 type shard struct {
-	ctx context.Context
+	ctx    context.Context
+	config *CacheConfig
 
 	// A method that can read data from the DB.
 	reader Reader
@@ -39,10 +40,6 @@ type shard struct {
 
 	// The maximum size of the db cache, in bytes.
 	maxSize uint64
-
-	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the db cache.
-	// This value should be derived experimentally, and may differ between different builds and architectures.
-	estimatedOverheadPerEntry uint64
 
 	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *CacheMetrics
@@ -118,15 +115,13 @@ for converting to a RW lock:
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
+	config *CacheConfig,
 	// A method that can read data from the DB.
 	reader Reader,
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
 	// The maximum size of this shard, in bytes.
 	maxSize uint64,
-	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
-	// This value should be derived experimentally, and may differ between different builds and architectures.
-	estimatedOverheadPerEntry uint64,
 ) (*shard, error) {
 
 	if maxSize == 0 {
@@ -137,18 +132,18 @@ func NewShard(
 	versionDiffs[1] = make(map[string][]byte) // versions start at 1
 
 	return &shard{
-		ctx:                       ctx,
-		reader:                    reader,
-		readPool:                  readPool,
-		lock:                      sync.Mutex{},
-		dbCache:                   make(map[string]*dbCacheEntry),
-		dbCacheGCQueue:            newLRUQueue(),
-		estimatedOverheadPerEntry: estimatedOverheadPerEntry,
-		maxSize:                   maxSize,
-		versionedData:             make(map[string]*Deque[versionedValue]),
-		versionDiffs:              versionDiffs,
-		currentVersion:            1, // important: versions start at 1, not 0, to allow version-1 without underflow
-		oldestVersion:             1,
+		ctx:            ctx,
+		config:         config,
+		reader:         reader,
+		readPool:       readPool,
+		lock:           sync.Mutex{},
+		dbCache:        make(map[string]*dbCacheEntry),
+		dbCacheGCQueue: newLRUQueue(),
+		maxSize:        maxSize,
+		versionedData:  make(map[string]*Deque[versionedValue]),
+		versionDiffs:   versionDiffs,
+		currentVersion: 1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		oldestVersion:  1,
 	}, nil
 }
 
@@ -273,13 +268,13 @@ func (se *dbCacheEntry) injectValue(key []byte, result readResult) {
 		} else if result.value == nil {
 			se.status = statusDeleted
 			se.value = nil
-			size := uint64(len(key)) + se.shard.estimatedOverheadPerEntry
+			size := uint64(len(key)) + se.shard.config.EstimatedOverheadPerEntry
 			se.shard.dbCacheGCQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		} else {
 			se.status = statusAvailable
 			se.value = result.value
-			size := uint64(len(key)) + uint64(len(result.value)) + se.shard.estimatedOverheadPerEntry
+			size := uint64(len(key)) + uint64(len(result.value)) + se.shard.config.EstimatedOverheadPerEntry
 			se.shard.dbCacheGCQueue.Push(key, size)
 			se.shard.evictUnlocked()
 		}
@@ -466,12 +461,12 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
-			size := uint64(len(reads[i].key)) + s.estimatedOverheadPerEntry
+			size := uint64(len(reads[i].key)) + s.config.EstimatedOverheadPerEntry
 			s.dbCacheGCQueue.Push([]byte(reads[i].key), size)
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.estimatedOverheadPerEntry
+			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.config.EstimatedOverheadPerEntry
 			s.dbCacheGCQueue.Push([]byte(reads[i].key), size)
 		}
 	}
@@ -527,7 +522,7 @@ func (s *shard) setInDBCacheUnlocked(key []byte, value []byte) {
 	entry.status = statusAvailable
 	entry.value = value
 
-	size := uint64(len(key)) + uint64(len(value)) + s.estimatedOverheadPerEntry
+	size := uint64(len(key)) + uint64(len(value)) + s.config.EstimatedOverheadPerEntry
 	s.dbCacheGCQueue.Push(key, size)
 }
 
@@ -555,7 +550,7 @@ func (s *shard) deleteInDBCacheUnlocked(key []byte) {
 	entry.status = statusDeleted
 	entry.value = nil
 
-	size := uint64(len(key)) + s.estimatedOverheadPerEntry
+	size := uint64(len(key)) + s.config.EstimatedOverheadPerEntry
 	s.dbCacheGCQueue.Push(key, size)
 }
 
@@ -644,7 +639,7 @@ func (s *shard) DropVersions(firstVersion uint64, lastVersion uint64) error {
 	}
 
 	// Clean up the versioned data map.
-	for k, _ := range combinedData {
+	for k := range combinedData {
 		deque := s.versionedData[k]
 		for !deque.IsEmpty() {
 			next := deque.PeekFront()

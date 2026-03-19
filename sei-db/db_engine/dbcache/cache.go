@@ -3,7 +3,6 @@ package dbcache
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -112,14 +111,6 @@ type CacheSnapshot interface {
 	Release() error
 }
 
-// DefaultEstimatedOverheadPerEntry is a rough estimate of the fixed heap overhead per cache entry
-// on a 64-bit architecture (amd64/arm64). It accounts for the shardEntry struct (48 B),
-// list.Element (48 B), lruQueueEntry (32 B), two map-entry costs (~64 B), string allocation
-// rounding (~16 B), and a margin for the duplicate key copy stored in the LRU. Derived from
-// static analysis of Go size classes and map bucket layout; validate experimentally for your
-// target platform.
-const DefaultEstimatedOverheadPerEntry uint64 = 250
-
 // CacheUpdate describes a single key-value mutation to apply to the cache.
 type CacheUpdate struct {
 	// The key to update.
@@ -133,31 +124,25 @@ func (u *CacheUpdate) IsDelete() bool {
 	return u.Value == nil
 }
 
-// BuildCache creates a new Cache.
+// BuildCache creates a new Cache. If config.MaxSize is 0, a no-op cache is returned.
 func BuildCache(
 	ctx context.Context,
-	shardCount uint64,
-	maxSize uint64,
+	config *CacheConfig,
+	db types.KeyValueDB,
 	readPool threading.Pool,
 	miscPool threading.Pool,
-	estimatedOverheadPerEntry uint64,
-	cacheName string,
-	metricsScrapeInterval time.Duration,
 ) (Cache, error) {
 
-	if maxSize == 0 {
+	if config.MaxSize == 0 {
 		return NewNoOpCache(), nil
 	}
 
 	cache, err := NewStandardCache(
 		ctx,
-		shardCount,
-		maxSize,
+		config,
+		db,
 		readPool,
 		miscPool,
-		estimatedOverheadPerEntry,
-		cacheName,
-		metricsScrapeInterval,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cache: %w", err)
