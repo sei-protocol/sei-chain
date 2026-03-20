@@ -15,19 +15,65 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 }
 
 func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	if err := ValidateNoCosmosTxFields(tx); err != nil {
+		return ctx, err
+	}
+	return next(ctx, tx, simulate)
+}
+
+type protoTxProvider interface {
+	GetProtoTx() *txtypes.Tx
+}
+
+// ValidateNoCosmosTxFields rejects Cosmos wrapper fields that EVM txs must not use.
+func ValidateNoCosmosTxFields(tx sdk.Tx) error {
+	if txProto, ok := tx.(protoTxProvider); ok {
+		pt := txProto.GetProtoTx()
+		if pt != nil {
+			if pt.Body != nil {
+				if pt.Body.Memo != "" {
+					return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
+				}
+				if pt.Body.TimeoutHeight != 0 {
+					return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
+				}
+				if len(pt.Body.ExtensionOptions) > 0 || len(pt.Body.NonCriticalExtensionOptions) > 0 {
+					return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
+				}
+			}
+			if pt.AuthInfo != nil {
+				if len(pt.AuthInfo.SignerInfos) > 0 {
+					return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
+				}
+				if pt.AuthInfo.Fee != nil {
+					if len(pt.AuthInfo.Fee.Amount) > 0 {
+						return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
+					}
+					if pt.AuthInfo.Fee.Payer != "" || pt.AuthInfo.Fee.Granter != "" {
+						return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
+					}
+				}
+			}
+			if len(pt.Signatures) > 0 {
+				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
+			}
+		}
+		return nil
+	}
+
 	txBody, ok := tx.(interface {
 		GetBody() *txtypes.TxBody
 	})
 	if ok {
 		body := txBody.GetBody()
 		if body.Memo != "" {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
 		}
 		if body.TimeoutHeight != 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
 		}
 		if len(body.ExtensionOptions) > 0 || len(body.NonCriticalExtensionOptions) > 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
 		}
 	}
 
@@ -37,14 +83,14 @@ func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 	if ok {
 		authInfo := txAuth.GetAuthInfo()
 		if len(authInfo.SignerInfos) > 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
 		}
 		if authInfo.Fee != nil {
 			if len(authInfo.Fee.Amount) > 0 {
-				return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
+				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
 			}
 			if authInfo.Fee.Payer != "" || authInfo.Fee.Granter != "" {
-				return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
+				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
 			}
 		}
 	}
@@ -55,12 +101,12 @@ func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 	if ok {
 		sigs, err := txSig.GetSignaturesV2()
 		if err != nil {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
 		}
 		if len(sigs) > 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
 		}
 	}
 
-	return next(ctx, tx, simulate)
+	return nil
 }
