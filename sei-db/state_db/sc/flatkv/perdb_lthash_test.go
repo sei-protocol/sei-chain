@@ -93,9 +93,8 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 }
 
 // Test: Crash recovery where metadataDB is behind data DBs.
-// Simulates a crash after commitBatches (step 2) but before
-// commitGlobalMetadata (step 4) by rolling back metadataDB's
-// global version. Data DBs and their LocalMeta remain at v2.
+// Simulates a partial commit where the metadataDB's version is
+// rolled back to v1. Data DBs and their LocalMeta remain at v2.
 func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -113,8 +112,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	verifyPerDBLtHash(t, s1)
 	require.NoError(t, s1.Close())
 
-	// Roll back metadataDB global version to 1 to simulate crash
-	// after commitBatches completed but before commitGlobalMetadata.
+	// Roll back metadataDB global version to 1 to simulate partial commit.
 	snapDir, _, err := currentSnapshotDir(dbDir)
 	require.NoError(t, err)
 

@@ -1687,8 +1687,8 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
-	// rewind global version to v1 so catchup needs to replay v2 from WAL.
+	// Simulate partial commit: rewind metadataDB global version to v1
+	// so catchup needs to replay v2 from WAL.
 	workingMeta := filepath.Join(dbDir, "working", metadataDir)
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = workingMeta

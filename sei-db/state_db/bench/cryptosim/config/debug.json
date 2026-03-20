@@ -3,6 +3,8 @@
     "DataDir": "data",
     "LogDir": "logs",
     "DeleteDataDirOnStartup": true,
-    "DeleteDataDirOnShutdown": true
+    "DeleteDataDirOnShutdown": true,
+    "MinimumNumberOfColdAccounts": 100000,
+    "MinimumNumberOfDormantAccounts": 100000
 }
 

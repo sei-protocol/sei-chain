@@ -49,21 +49,17 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 		return errReadOnly
 	}
 
-	// Phase 1: Snapshot data DBs.
+	// Phase 1: Snapshot all DBs.
 	s.phaseTimer.SetPhase("apply_snapshot")
-	snapshots, err := s.snapshotDataDBs()
+	snapshots, err := s.snapshotDBs()
 	if err != nil {
-		return fmt.Errorf("snapshot data DBs: %w", err)
+		return fmt.Errorf("snapshot DBs: %w", err)
 	}
 	defer func() {
 		if retErr != nil {
 			s.releaseSnapshots(snapshots)
 		}
 	}()
-
-	if err := s.snapshotAndReleaseMetadataDB(); err != nil {
-		return fmt.Errorf("metadata snapshot: %w", err)
-	}
 
 	// Phase 2: Parse and group changesets by DB.
 	s.phaseTimer.SetPhase("apply_parse")
@@ -96,8 +92,12 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 	s.computePerDBLtHash(&parsed, accounts)
 
 	// Phase 7: SetHash on each data DB snapshot, then release.
+	// Metadata DB is excluded from LtHash tracking.
 	s.phaseTimer.SetPhase("apply_set_hash")
 	for dir, snap := range snapshots {
+		if dir == metadataDir {
+			continue
+		}
 		if err := snap.SetHash(s.perDBWorkingLtHash[dir].Marshal()); err != nil {
 			return fmt.Errorf("set hash for %s: %w", dir, err)
 		}
@@ -112,19 +112,20 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 	return nil
 }
 
-// snapshotDataDBs takes a snapshot of each data DB cache.
-func (s *CommitStore) snapshotDataDBs() (map[string]dbcache.CacheSnapshot, error) {
-	snapshots := make(map[string]dbcache.CacheSnapshot, 4)
+// snapshotDBs takes a snapshot of every DB cache (data DBs + metadata).
+func (s *CommitStore) snapshotDBs() (map[string]dbcache.CacheSnapshot, error) {
+	snapshots := make(map[string]dbcache.CacheSnapshot, 5)
 
 	type dbEntry struct {
 		dir   string
 		cache dbcache.Cache
 	}
-	dbs := [4]dbEntry{
+	dbs := [5]dbEntry{
 		{accountDBDir, s.accountDB},
 		{codeDBDir, s.codeDB},
 		{storageDBDir, s.storageDB},
 		{legacyDBDir, s.legacyDB},
+		{metadataDir, s.metadataDB},
 	}
 
 	for _, db := range dbs {
@@ -139,16 +140,6 @@ func (s *CommitStore) snapshotDataDBs() (map[string]dbcache.CacheSnapshot, error
 	}
 
 	return snapshots, nil
-}
-
-// snapshotAndReleaseMetadataDB snapshots the metadata DB to ensure prior writes
-// are flushed to disk, then immediately releases the snapshot.
-func (s *CommitStore) snapshotAndReleaseMetadataDB() error {
-	snap, err := s.metadataDB.Snapshot()
-	if err != nil {
-		return fmt.Errorf("metadata snapshot: %w", err)
-	}
-	return snap.Release()
 }
 
 // releaseSnapshots releases all snapshots in the map. Errors are logged but not returned.
@@ -482,7 +473,7 @@ func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
 }
 
 // Commit persists buffered writes and advances the version.
-// Protocol: WAL -> per-DB LocalMeta -> flush -> update metaDB.
+// Protocol: WAL -> per-DB LocalMeta (all DBs including metadata) -> done.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
 	if s.readOnly {
@@ -500,7 +491,7 @@ func (s *CommitStore) Commit() (int64, error) {
 		return 0, fmt.Errorf("changelog write: %w", err)
 	}
 
-	// Step 2: Commit LocalMeta to each DB
+	// Step 2: Commit LocalMeta to each DB (data DBs + metadata DB)
 	if err := s.commitBatches(version); err != nil {
 		return 0, fmt.Errorf("db commit: %w", err)
 	}
@@ -510,13 +501,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
 
-	// Step 4: Persist global metadata to metadata DB (always every block)
-	s.phaseTimer.SetPhase("commit_write_metadata")
-	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
-		return 0, fmt.Errorf("metadata DB commit: %w", err)
-	}
-
-	// Step 5: Clear pending buffers
+	// Step 4: Clear pending buffers
 	s.phaseTimer.SetPhase("commit_clear_pending_writes")
 	s.clearPendingWrites()
 
@@ -538,7 +523,8 @@ func (s *CommitStore) Commit() (int64, error) {
 	return version, nil
 }
 
-// commitBatches writes LocalMeta (version + LtHash) to each data DB.
+// commitBatches writes LocalMeta (version + LtHash) to every DB.
+// Data DBs get their per-DB LtHash; the metadata DB gets the global LtHash.
 // Data writes are handled by the cache; this only persists crash-recovery metadata.
 func (s *CommitStore) commitBatches(version int64) error {
 	type dbMeta struct {
@@ -546,33 +532,41 @@ func (s *CommitStore) commitBatches(version int64) error {
 		cache dbcache.Cache
 	}
 
-	dbs := [4]dbMeta{
+	dbs := [5]dbMeta{
 		{accountDBDir, s.accountDB},
 		{codeDBDir, s.codeDB},
 		{storageDBDir, s.storageDB},
 		{legacyDBDir, s.legacyDB},
+		{metadataDir, s.metadataDB},
 	}
 
 	s.phaseTimer.SetPhase("commit_local_meta")
 
 	for _, db := range dbs {
 		db.cache.Set(metaVersionKey, versionToBytes(version))
-		if h := s.perDBWorkingLtHash[db.dir]; h != nil {
+
+		var h *lthash.LtHash
+		if db.dir == metadataDir {
+			h = s.workingLtHash
+		} else {
+			h = s.perDBWorkingLtHash[db.dir]
+		}
+		if h != nil {
 			db.cache.Set(metaLtHashKey, h.Marshal())
 		}
 		s.localMeta[db.dir] = &LocalMeta{
 			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[db.dir].Clone(),
+			LtHash:           h.Clone(),
 		}
 	}
 
 	return nil
 }
 
-// flushAllDBs ensures all data DB caches have their pending data eligible for
+// flushAllDBs ensures all DB caches have their pending data eligible for
 // GC flush by taking and immediately releasing a snapshot on each.
 func (s *CommitStore) flushAllDBs() error {
-	for _, cache := range []dbcache.Cache{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
+	for _, cache := range []dbcache.Cache{s.accountDB, s.codeDB, s.storageDB, s.legacyDB, s.metadataDB} {
 		snap, err := cache.Snapshot()
 		if err != nil {
 			return fmt.Errorf("flush snapshot: %w", err)

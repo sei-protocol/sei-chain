@@ -161,14 +161,10 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 	if replayed > 0 {
 		if !s.config.Fsync {
 			// During catchup with Sync=false, per-entry batch commits can leave
-			// data only in OS/page cache. Flush once before advancing global
-			// metadata so global watermark won't get ahead of data durability.
+			// data only in OS/page cache. Flush once to ensure durability.
 			if err := s.flushAllDBs(); err != nil {
 				return fmt.Errorf("catchup flush: %w", err)
 			}
-		}
-		if err := s.commitGlobalMetadata(s.committedVersion, s.committedLtHash); err != nil {
-			return fmt.Errorf("catchup global meta: %w", err)
 		}
 		logger.Info("FlatKV catchup complete", "replayed", replayed, "version", s.committedVersion)
 	}

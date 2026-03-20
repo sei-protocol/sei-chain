@@ -76,9 +76,6 @@ func (imp *KVImporter) Close() error {
 
 	imp.store.committedVersion = imp.version
 	imp.store.committedLtHash = imp.store.workingLtHash.Clone()
-	if err := imp.store.commitGlobalMetadata(imp.version, imp.store.committedLtHash); err != nil {
-		return fmt.Errorf("import global metadata: %w", err)
-	}
 
 	// Write a snapshot so the imported data survives store reopen / restart.
 	// Import bypasses the WAL, so without a snapshot the next LoadVersion

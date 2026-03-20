@@ -3,7 +3,6 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -66,60 +65,6 @@ func writeLocalMetaToBatch(batch types.Batch, version int64, ltHash *lthash.LtHa
 			return fmt.Errorf("set meta hash: %w", err)
 		}
 	}
-	return nil
-}
-
-// loadGlobalVersion reads the global committed version from metadata DB.
-// Returns 0 if not found (fresh start).
-func (s *CommitStore) loadGlobalVersion() (int64, error) {
-	data, found, err := s.metadataDB.Get(metaVersionKey, true)
-	if !found {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to read global version: %w", err)
-	}
-	if len(data) != 8 {
-		return 0, fmt.Errorf("invalid global version length: got %d, want 8", len(data))
-	}
-	v := binary.BigEndian.Uint64(data)
-	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("global version overflow: %d exceeds max int64", v)
-	}
-	return int64(v), nil //nolint:gosec // overflow checked above
-}
-
-// loadGlobalLtHash reads the global committed LtHash from metadata DB.
-// Returns nil if not found (fresh start).
-func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
-	data, found, err := s.metadataDB.Get(metaLtHashKey, true)
-	if !found {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read global lthash: %w", err)
-	}
-	return lthash.Unmarshal(data)
-}
-
-// commitGlobalMetadata atomically commits global version and global LtHash
-// to metadata DB. Per-DB LtHashes are stored in each DB's LocalMeta
-// (committed atomically with data in commitBatches).
-func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-
-	s.metadataDB.Set(metaVersionKey, versionToBytes(version))
-	s.metadataDB.Set(metaLtHashKey, hash.Marshal())
-
-	// Snapshot and release, thus permitting prior writes to be flushed to disk.
-	// TODO before merge: document this better
-	snapshot, err := s.metadataDB.Snapshot()
-	if err != nil {
-		return fmt.Errorf("failed to create snapshot: %w", err)
-	}
-	if err := snapshot.Release(); err != nil {
-		return fmt.Errorf("failed to release metadata snapshot: %w", err)
-	}
-
 	return nil
 }
 

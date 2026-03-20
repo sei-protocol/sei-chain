@@ -49,8 +49,11 @@ const (
 	flatkvMeterName = "seidb_flatkv"
 )
 
-// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
+// dataDBDirs lists data DB directory names that participate in per-DB LtHash.
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
+
+// allDBDirs lists all DB directory names (data DBs + metadata).
+var allDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir, metadataDir}
 
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
@@ -513,13 +516,14 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 		toClose = append(toClose, s.changelog)
 	}
 
-	dataDBs := map[string]dbcache.Cache{
+	allDBs := map[string]dbcache.Cache{
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
 		storageDBDir: s.storageDB,
 		legacyDBDir:  s.legacyDB,
+		metadataDir:  s.metadataDB,
 	}
-	for name, db := range dataDBs {
+	for name, db := range allDBs {
 		meta, err := loadLocalMeta(db)
 		if err != nil {
 			return fmt.Errorf("failed to load %s local meta: %w", name, err)
@@ -531,25 +535,24 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 }
 
 func (s *CommitStore) loadGlobalMetadata() error {
-	globalVersion, err := s.loadGlobalVersion()
-	if err != nil {
-		return fmt.Errorf("failed to load global version: %w", err)
-	}
-	s.committedVersion = globalVersion
-
-	globalLtHash, err := s.loadGlobalLtHash()
-	if err != nil {
-		return fmt.Errorf("failed to load global LtHash: %w", err)
-	}
-	if globalLtHash != nil {
-		s.committedLtHash = globalLtHash
-		s.workingLtHash = globalLtHash.Clone()
+	// Global version and LtHash live in the metadata DB's LocalMeta.
+	metaMeta := s.localMeta[metadataDir]
+	if metaMeta != nil {
+		s.committedVersion = metaMeta.CommittedVersion
+		if metaMeta.LtHash != nil {
+			s.committedLtHash = metaMeta.LtHash.Clone()
+			s.workingLtHash = metaMeta.LtHash.Clone()
+		} else {
+			s.committedLtHash = lthash.New()
+			s.workingLtHash = lthash.New()
+		}
 	} else {
+		s.committedVersion = 0
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
 
-	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// Load per-DB LtHashes from each data DB's LocalMeta (already loaded in openDBs).
 	// If any DB's version is behind the global version (partial commit or
 	// corruption), lower committedVersion so catchup replays from there.
 	for _, dbDir := range dataDBDirs {

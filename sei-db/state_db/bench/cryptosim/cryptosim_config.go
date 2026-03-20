@@ -211,7 +211,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Backend:                           wrappers.FlatKV,
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
-		SetupUpdateIntervalCount:          100_000,
+		SetupUpdateIntervalCount:          1_000, // TODO
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 1024,

@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // =============================================================================
@@ -76,74 +75,61 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 }
 
 func TestStoreMetadataOperations(t *testing.T) {
-	t.Run("LoadGlobalVersion_NewDB", func(t *testing.T) {
+	t.Run("LoadLocalMeta_NewMetadataDB", func(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		version, err := s.loadGlobalVersion()
+		meta, err := loadLocalMeta(s.metadataDB)
 		require.NoError(t, err)
-		require.Equal(t, int64(0), version)
+		require.Equal(t, int64(0), meta.CommittedVersion)
+		require.Nil(t, meta.LtHash)
 	})
 
-	t.Run("LoadGlobalLtHash_NewDB", func(t *testing.T) {
+	t.Run("MetadataDB_RoundTrip_ViaCommitBatches", func(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		hash, err := s.loadGlobalLtHash()
+		addr := Address{0x12}
+		slot := Slot{0x34}
+		key := memiavlStorageKey(addr, slot)
+		cs := makeChangeSet(key, []byte{0x56}, false)
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		v := commitAndCheck(t, s)
+		require.Equal(t, int64(1), v)
+
+		meta, err := loadLocalMeta(s.metadataDB)
 		require.NoError(t, err)
-		require.Nil(t, hash)
+		require.Equal(t, int64(1), meta.CommittedVersion)
+		require.NotNil(t, meta.LtHash)
+		require.Equal(t, s.committedLtHash.Marshal(), meta.LtHash.Marshal())
 	})
 
-	t.Run("CommitGlobalMetadata_RoundTrip", func(t *testing.T) {
+	t.Run("MetadataDB_MultipleCommits", func(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		// Commit metadata
-		expectedVersion := int64(100)
-		expectedHash := lthash.New()
-
-		err := s.commitGlobalMetadata(expectedVersion, expectedHash)
-		require.NoError(t, err)
-
-		// Load it back
-		version, err := s.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, expectedVersion, version)
-
-		hash, err := s.loadGlobalLtHash()
-		require.NoError(t, err)
-		require.NotNil(t, hash)
-		require.Equal(t, expectedHash.Marshal(), hash.Marshal())
-	})
-
-	t.Run("CommitGlobalMetadata_Atomicity", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		// Commit multiple times
 		for v := int64(1); v <= 10; v++ {
-			hash := lthash.New()
-			err := s.commitGlobalMetadata(v, hash)
-			require.NoError(t, err)
+			cs := makeChangeSet(
+				memiavlStorageKey(Address{byte(v)}, Slot{byte(v)}),
+				[]byte{byte(v)}, false)
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+			commitAndCheck(t, s)
 
-			// Verify immediately
-			version, err := s.loadGlobalVersion()
+			meta, err := loadLocalMeta(s.metadataDB)
 			require.NoError(t, err)
-			require.Equal(t, v, version)
+			require.Equal(t, v, meta.CommittedVersion)
 		}
 	})
 
-	t.Run("LoadGlobalVersion_InvalidData", func(t *testing.T) {
+	t.Run("LoadLocalMeta_InvalidData", func(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		// Write invalid data (wrong size)
 		s.metadataDB.Set(metaVersionKey, []byte{0x01})
 
-		// Should return error
-		_, err := s.loadGlobalVersion()
+		_, err := loadLocalMeta(s.metadataDB)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid global version length")
+		require.Contains(t, err.Error(), "invalid meta version length")
 	})
 }
 
@@ -165,13 +151,11 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
 
-	globalVer, err := s.loadGlobalVersion()
+	meta, err := loadLocalMeta(s.metadataDB)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), globalVer)
-
-	globalHash, err := s.loadGlobalLtHash()
-	require.NoError(t, err)
-	require.Equal(t, s.committedLtHash.Checksum(), globalHash.Checksum())
+	require.Equal(t, int64(2), meta.CommittedVersion)
+	require.NotNil(t, meta.LtHash)
+	require.Equal(t, s.committedLtHash.Checksum(), meta.LtHash.Checksum())
 
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
