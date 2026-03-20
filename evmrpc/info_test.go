@@ -180,6 +180,41 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	assert.Equal(t, "0x3b9aca00", resObj["result"])
 }
 
+func TestBlobBaseFee(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "blobBaseFee")
+	require.Contains(t, resObj, "error", "blobBaseFee should return error (blobs not supported)")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeBlobsNotSupported), errObj["code"], "error code should be ErrCodeServerError")
+	require.Equal(t, "blobs not supported on this chain", errObj["message"])
+}
+
+func TestBlobBaseFee_Direct(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx.WithBlockHeight(MockHeight8)
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
+	fee, err := api.BlobBaseFee(context.Background())
+	require.Error(t, err)
+	require.Nil(t, fee)
+	var errWithCode *evmrpc.ErrEVMNotSupported
+	require.True(t, errors.As(err, &errWithCode))
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, errWithCode.ErrorCode())
+	require.Contains(t, err.Error(), "blobs not supported")
+}
+
+func TestSyncingNotSupported(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "syncing")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_syncing")
+}
+
 func TestGasPriceLogic(t *testing.T) {
 	oneGwei := big.NewInt(1000000000)
 	onePointOneGwei := big.NewInt(1100000000)

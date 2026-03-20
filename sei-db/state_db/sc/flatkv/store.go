@@ -14,8 +14,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -46,12 +46,11 @@ const (
 
 	readOnlyDirPrefix = "readonly-"
 
-	// Metadata DB keys
-	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
-	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
-
 	flatkvMeterName = "seidb_flatkv"
 )
+
+// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
+var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
 type pendingKVWrite struct {
@@ -79,12 +78,12 @@ type CommitStore struct {
 	config Config
 	dbDir  string
 
-	// Five separate PebbleDB instances, each wrapped by a snapshot capable cache.
-	metadataDB dbcache.Cache // Global version + LtHash watermark
-	accountDB  dbcache.Cache // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     dbcache.Cache // addr(20) → bytecode
-	storageDB  dbcache.Cache // addr(20)||slot(32) → value(32)
-	legacyDB   dbcache.Cache // Legacy data for backward compatibility
+	// Five separate PebbleDB instances
+	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
+	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
+	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
+	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
+	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
@@ -93,6 +92,19 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
+
+	// Per-DB working LTHash tracking. Authoritative copies live in each
+	// DB's LocalMeta (atomically committed with data). On startup the
+	// working hashes are loaded from LocalMeta.
+	perDBWorkingLtHash map[string]*lthash.LtHash
+
+	// Pending writes buffer
+	// accountWrites: key = address string (20 bytes), value = AccountValue
+	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
+	accountWrites map[string]*pendingAccountWrite
+	codeWrites    map[string]*pendingKVWrite
+	storageWrites map[string]*pendingKVWrite
+	legacyWrites  map[string]*pendingKVWrite
 
 	changelog         wal.ChangelogWAL
 	pendingChangeSets []*proto.NamedChangeSet
@@ -149,17 +161,35 @@ func NewCommitStore(
 	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", miscPoolSize)
 
 	return &CommitStore{
-		ctx:               ctx,
-		cancel:            cancel,
-		config:            *cfg,
-		localMeta:         make(map[string]*LocalMeta),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
-		readPool:          readPool,
-		miscPool:          miscPool,
+		ctx:                ctx,
+		cancel:             cancel,
+		config:             *cfg,
+		localMeta:          make(map[string]*LocalMeta),
+		accountWrites:      make(map[string]*pendingAccountWrite),
+		codeWrites:         make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*pendingKVWrite),
+		legacyWrites:       make(map[string]*pendingKVWrite),
+		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
+		committedLtHash:    lthash.New(),
+		workingLtHash:      lthash.New(),
+		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
+		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		readPool:           readPool,
+		miscPool:           miscPool,
 	}, nil
+}
+
+// resetPools recreates the context and thread pools after a full Close().
+func (s *CommitStore) resetPools() {
+	coreCount := runtime.NumCPU()
+
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	readPoolSize := int(s.config.ReaderThreadsPerCore*float64(coreCount) + float64(s.config.ReaderConstantThreadCount))
+	s.readPool = threading.NewFixedPool(s.ctx, "flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
+
+	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
+	s.miscPool = threading.NewElasticPool(s.ctx, "flatkv-misc", miscPoolSize)
 }
 
 func (s *CommitStore) flatkvDir() string {
@@ -421,26 +451,15 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 }
 
 // openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
-func (s *CommitStore) openCachedPebbleDB(cfg *pebbledb.PebbleDBConfig) (dbcache.Cache, error) {
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.KeyValueDB, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-
-	db, err := pebbledb.Open(s.ctx, cfg, pebble.DefaultComparer)
+	db, err := pebbledb.OpenWithCache(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
-
-	cache, err := dbcache.NewStandardCache(s.ctx, cfg.CacheConfig, db, s.readPool, s.miscPool)
-	if err != nil {
-		return nil, fmt.Errorf("create cache: %w", err)
-	}
-
-	// TODO before merge:
-	// - Ensure clean shutdown flushes everything down to disk.
-	// - Revisit WAL semantics and ensure WAL GC doesn't frontrun cache flushes.
-
-	return cache, nil
+	return db, nil
 }
 
 // openDBs opens all PebbleDBs from dbDir and optionally the changelog WAL
@@ -464,31 +483,31 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 	}()
 
 	var err error
-	s.accountDB, err = s.openCachedPebbleDB(s.config.AccountDBConfig)
+	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open account DB: %w", err)
 	}
 	toClose = append(toClose, s.accountDB)
 
-	s.codeDB, err = s.openCachedPebbleDB(s.config.CodeDBConfig)
+	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open code DB: %w", err)
 	}
 	toClose = append(toClose, s.codeDB)
 
-	s.storageDB, err = s.openCachedPebbleDB(s.config.StorageDBConfig)
+	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open storage DB: %w", err)
 	}
 	toClose = append(toClose, s.storageDB)
 
-	s.legacyDB, err = s.openCachedPebbleDB(s.config.LegacyDBConfig)
+	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open legacy DB: %w", err)
 	}
 	toClose = append(toClose, s.legacyDB)
 
-	s.metadataDB, err = s.openCachedPebbleDB(s.config.MetadataDBConfig)
+	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}
@@ -507,7 +526,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 		toClose = append(toClose, s.changelog)
 	}
 
-	dataDBs := map[string]dbcache.Cache{
+	dataDBs := map[string]seidbtypes.KeyValueDB{
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
 		storageDBDir: s.storageDB,
@@ -542,6 +561,26 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
+
+	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// If any DB's version is behind the global version (partial commit or
+	// corruption), lower committedVersion so catchup replays from there.
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta != nil && meta.LtHash != nil {
+			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+		} else {
+			s.perDBWorkingLtHash[dbDir] = lthash.New()
+		}
+		if meta != nil && meta.CommittedVersion < s.committedVersion {
+			logger.Warn("DB LocalMeta version behind global version, will catchup",
+				"db", dbDir,
+				"localVersion", meta.CommittedVersion,
+				"globalVersion", s.committedVersion)
+			s.committedVersion = meta.CommittedVersion
+		}
+	}
+
 	return nil
 }
 
@@ -589,8 +628,12 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 		return nil, errReadOnly
 	}
 	// rootmulti.Restore closes the store before creating an importer.
-	// Reopen the DBs so the importer can write data.
+	// Close() cancels the context (killing pools), so recreate them
+	// before reopening the DBs.
 	if s.isClosed() {
+		if s.ctx.Err() != nil {
+			s.resetPools()
+		}
 		if err := s.open(); err != nil {
 			return nil, fmt.Errorf("reopen store for import: %w", err)
 		}

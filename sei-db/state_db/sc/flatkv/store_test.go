@@ -4,14 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -58,46 +56,14 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 	}
 }
 
-// setupTestDB creates a temporary PebbleDB for testing (raw DB, no cache layer).
+// setupTestDB creates a temporary PebbleDB for testing
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
-	cfg := pebbledb.DefaultTestPebbleDBConfig(t)
-	db, err := pebbledb.Open(t.Context(), cfg, pebble.DefaultComparer)
+	cfg := pebbledb.DefaultTestConfig(t)
+	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, pebble.DefaultComparer,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
-}
-
-// setupTestCachedDB creates a temporary PebbleDB wrapped in a dbcache.Cache for testing.
-func setupTestCachedDB(t *testing.T) dbcache.Cache {
-	t.Helper()
-	cfg := pebbledb.DefaultTestPebbleDBConfig(t)
-	db, err := pebbledb.Open(t.Context(), cfg, pebble.DefaultComparer)
-	require.NoError(t, err)
-	readPool := threading.NewAdHocPool()
-	miscPool := threading.NewAdHocPool()
-	cache, err := dbcache.NewStandardCache(t.Context(), cfg.CacheConfig, db, readPool, miscPool)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, cache.Close()) })
-	return cache
-}
-
-// flushCacheToDisk forces cached data to disk by taking a snapshot, releasing
-// it, and waiting for GC to flush. Use this in tests that need to read raw DB
-// entries or iterate via the underlying DB.
-func flushCacheToDisk(t *testing.T, caches ...dbcache.Cache) {
-	t.Helper()
-	for _, c := range caches {
-		snap, err := c.Snapshot()
-		require.NoError(t, err)
-		require.NoError(t, snap.Release())
-	}
-	waitForGC()
-}
-
-func waitForGC() {
-	// GC runs every 10ms in test config; 50ms should be plenty.
-	<-time.After(50 * time.Millisecond)
 }
 
 // setupTestStore creates a minimal test store
@@ -290,10 +256,14 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, []byte{0xCC}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
+	// Should have pending writes
+	require.Len(t, s.storageWrites, 1)
 	require.Len(t, s.pendingChangeSets, 1)
 
 	commitAndCheck(t, s)
 
+	// Should be cleared after commit
+	require.Len(t, s.storageWrites, 0)
 	require.Len(t, s.pendingChangeSets, 0)
 }
 
@@ -446,7 +416,6 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 // =============================================================================
 
 func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
-	t.Skip("WriteSnapshot is currently a no-op stub; re-enable when snapshot support is implemented")
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -864,7 +833,6 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 }
 
 func TestReadOnlyWriteGuards(t *testing.T) {
-	t.Skip("WriteSnapshot is currently a no-op stub; re-enable when snapshot support is implemented")
 	cfg := DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)

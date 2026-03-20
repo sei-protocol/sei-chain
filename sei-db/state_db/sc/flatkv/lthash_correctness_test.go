@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -15,40 +14,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// underlyingDB extracts the raw types.KeyValueDB from a dbcache.Cache.
-// This uses a type assertion on the concrete cache implementation; intended
-// for test-only ground-truth verification that requires iteration.
-type underlyingDBAccessor interface {
-	UnderlyingDB() types.KeyValueDB
-}
-
 // fullScanLtHash computes an LtHash from scratch by iterating every KV pair
-// in accountDB, codeDB, storageDB, and legacyDB. This is the "ground truth"
-// that an incremental LtHash must match after any sequence of apply+commit
-// cycles.
-//
-// Because data may be in the cache's mutable version (not yet on disk), this
-// function forces a snapshot+release cycle and waits for GC to flush before
-// scanning the underlying PebbleDB.
+// in accountDB, codeDB, and storageDB. This is the "ground truth" that an
+// incremental LtHash must match after any sequence of apply+commit cycles.
 func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	t.Helper()
-
-	// Force all cached data to disk so the underlying DB iterator sees it.
-	flushCacheToDisk(t, s.accountDB, s.codeDB, s.storageDB, s.legacyDB)
-
 	var pairs []lthash.KVPairWithLastValue
 
-	scanCache := func(cache dbcache.Cache) {
-		accessor, ok := cache.(underlyingDBAccessor)
-		require.True(t, ok, "cache must expose UnderlyingDB for test iteration")
-		db := accessor.UnderlyingDB()
-
-		iter, err := db.NewIter(&types.IterOptions{
-			LowerBound: metaKeyLowerBound(),
-		})
+	scanDB := func(db types.KeyValueDB) {
+		iter, err := db.NewIter(&types.IterOptions{})
 		require.NoError(t, err)
 		defer iter.Close()
 		for iter.First(); iter.Valid(); iter.Next() {
+			if isMetaKey(iter.Key()) {
+				continue
+			}
 			key := bytes.Clone(iter.Key())
 			value := bytes.Clone(iter.Value())
 			pairs = append(pairs, lthash.KVPairWithLastValue{
@@ -59,10 +39,10 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		require.NoError(t, iter.Error())
 	}
 
-	scanCache(s.accountDB)
-	scanCache(s.codeDB)
-	scanCache(s.storageDB)
-	scanCache(s.legacyDB)
+	scanDB(s.accountDB)
+	scanDB(s.codeDB)
+	scanDB(s.storageDB)
+	scanDB(s.legacyDB)
 
 	result, _ := lthash.ComputeLtHash(nil, pairs)
 	return result

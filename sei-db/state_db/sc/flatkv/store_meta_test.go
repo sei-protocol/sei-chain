@@ -2,11 +2,13 @@ package flatkv
 
 import (
 	"context"
+	"encoding/binary"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -17,37 +19,37 @@ import (
 
 func TestLoadLocalMeta(t *testing.T) {
 	t.Run("NewDB_ReturnsDefault", func(t *testing.T) {
-		cache := setupTestCachedDB(t)
+		db := setupTestDB(t)
+		defer db.Close()
 
-		meta, err := loadLocalMeta(cache)
+		meta, err := loadLocalMeta(db)
 		require.NoError(t, err)
 		require.NotNil(t, meta)
 		require.Equal(t, int64(0), meta.CommittedVersion)
 	})
 
 	t.Run("ExistingMeta_LoadsCorrectly", func(t *testing.T) {
-		cache := setupTestCachedDB(t)
+		db := setupTestDB(t)
+		defer db.Close()
 
-		// Write metadata via cache
-		original := &LocalMeta{CommittedVersion: 42}
-		cache.Set(DBLocalMetaKey, MarshalLocalMeta(original))
+		require.NoError(t, db.Set(metaVersionKey, versionToBytes(42), types.WriteOptions{}))
 
 		// Load it back
-		loaded, err := loadLocalMeta(cache)
+		loaded, err := loadLocalMeta(db)
 		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, loaded.CommittedVersion)
+		require.Equal(t, int64(42), loaded.CommittedVersion)
+		require.Nil(t, loaded.LtHash)
 	})
 
-	t.Run("CorruptedMeta_ReturnsError", func(t *testing.T) {
-		cache := setupTestCachedDB(t)
+	t.Run("CorruptedVersion_ReturnsError", func(t *testing.T) {
+		db := setupTestDB(t)
+		defer db.Close()
 
-		// Write invalid data (wrong size) via cache
-		cache.Set(DBLocalMetaKey, []byte{0x01, 0x02})
+		require.NoError(t, db.Set(metaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
 
-		// Should fail to load
-		_, err := loadLocalMeta(cache)
+		_, err := loadLocalMeta(db)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LocalMeta size")
+		require.Contains(t, err.Error(), "invalid meta version length")
 	})
 }
 
@@ -67,13 +69,10 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	// LocalMeta should be updated
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
-	// Verify it's in the cache
-	data, found, err := s.storageDB.Get(DBLocalMetaKey, false)
+	// Verify it's persisted in DB
+	data, err := s.storageDB.Get(metaVersionKey)
 	require.NoError(t, err)
-	require.True(t, found)
-	meta, err := UnmarshalLocalMeta(data)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), meta.CommittedVersion)
+	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
 
 func TestStoreMetadataOperations(t *testing.T) {
@@ -139,10 +138,11 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		s.metadataDB.Set([]byte(MetaGlobalVersion), []byte{0x01})
+		err := s.metadataDB.Set(metaVersionKey, []byte{0x01}, types.WriteOptions{})
+		require.NoError(t, err)
 
 		// Should return error
-		_, err := s.loadGlobalVersion()
+		_, err = s.loadGlobalVersion()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid global version length")
 	})

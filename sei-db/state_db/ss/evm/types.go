@@ -4,8 +4,8 @@ import (
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 )
 
-// EVMStoreKey is the cosmos store key for EVM module
-const EVMStoreKey = "evm"
+// EVMStoreKey is the cosmos store key for EVM module.
+const EVMStoreKey = commonevm.EVMStoreKey
 
 // EVMStoreType identifies the type of EVM sub-database.
 // Alias to EVMKeyKind from common/evm - use commonevm.ParseEVMKey for routing.

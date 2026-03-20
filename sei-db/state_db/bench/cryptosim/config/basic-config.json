@@ -24,7 +24,7 @@
   "NewAccountDormancyProbability": 1.0,
   "NewAccountProbability": 0.001,
   "NumberOfHotAccounts": 100,
-  "PaddedAccountSize": 69,
+  "PaddedAccountSize": 32,
   "Seed": 1337,
   "SetupUpdateIntervalCount": 100000,
   "ThreadsPerCore": 2.0,
@@ -32,5 +32,7 @@
   "MaxRuntimeSeconds": 0,
   "TransactionMetricsSampleRate": 0.001,
   "BackgroundMetricsScrapeInterval": 60,
-  "BlockChannelCapacity": 8
+  "BlockChannelCapacity": 8,
+  "LogDir": "logs",
+  "LogLevel": "info"
 }

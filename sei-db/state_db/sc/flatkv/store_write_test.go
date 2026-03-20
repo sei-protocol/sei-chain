@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
@@ -93,25 +93,21 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// Verify all 4 DBs have their LocalMeta updated to version 1 (in cache)
-	for name, cache := range map[string]dbcache.Cache{
+	// Verify all 4 DBs have their LocalMeta updated to version 1 (persisted)
+	for name, db := range map[string]types.KeyValueDB{
 		"storageDB": s.storageDB,
 		"accountDB": s.accountDB,
 		"codeDB":    s.codeDB,
 		"legacyDB":  s.legacyDB,
 	} {
-		raw, found, err := cache.Get(DBLocalMetaKey, false)
-		require.NoError(t, err, "%s LocalMeta read", name)
-		require.True(t, found, "%s LocalMeta should be found", name)
-		meta, err := UnmarshalLocalMeta(raw)
-		require.NoError(t, err)
-		require.Equal(t, int64(1), meta.CommittedVersion, "%s persisted LocalMeta", name)
+		raw, err := db.Get(metaVersionKey)
+		require.NoError(t, err, "%s meta version read", name)
+		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", name)
 	}
 
-	// Verify storage data was written (via cache)
-	storageData, found, err := s.storageDB.Get(StorageKey(addr, slot), false)
+	// Verify storage data was written
+	storageData, err := s.storageDB.Get(StorageKey(addr, slot))
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, []byte{0x11, 0x22}, storageData)
 
 	// Verify account and code data was written
@@ -126,16 +122,14 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
 
-	// Verify bytecode stored directly in codeDB (raw key = addr, via cache)
-	codeRaw, found, err := s.codeDB.Get(addr[:], false)
+	// Verify bytecode stored directly in codeDB (raw key = addr)
+	codeRaw, err := s.codeDB.Get(addr[:])
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeRaw)
 
-	// Verify legacy data in legacyDB (full key preserved, via cache)
-	legacyVal, found, err := s.legacyDB.Get(legacyKey, false)
+	// Verify legacy data persisted in legacyDB (full key preserved)
+	legacyVal, err := s.legacyDB.Get(legacyKey)
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
 
@@ -287,10 +281,9 @@ func TestStoreWriteDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	// Verify storage is deleted (via cache)
-	_, found, err := s.storageDB.Get(StorageKey(addr, slot), false)
-	require.NoError(t, err)
-	require.False(t, found, "storage should be deleted")
+	// Verify storage is deleted
+	_, err := s.storageDB.Get(StorageKey(addr, slot))
+	require.Error(t, err, "storage should be deleted")
 
 	// Verify nonce is set to 0 (delete in AccountValue context)
 	nonceKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
@@ -333,13 +326,15 @@ func TestAccountValueStorage(t *testing.T) {
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
+	// AccountValue structure: one entry per address containing both nonce and codehash
+	require.Equal(t, 1, len(s.accountWrites), "should have 1 account write (AccountValue)")
+
 	// Commit
 	commitAndCheck(t, s)
 
-	// Verify AccountValue is stored in accountDB with addr as key (via cache)
-	stored, found, err := s.accountDB.Get(addr[:], false)
+	// Verify AccountValue is stored in accountDB with addr as key
+	stored, err := s.accountDB.Get(addr[:])
 	require.NoError(t, err)
-	require.True(t, found)
 	require.NotNil(t, stored)
 
 	// Decode and verify
@@ -378,15 +373,17 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
+	// Should be in legacyWrites pending buffer
+	require.Len(t, s.legacyWrites, 1)
+
 	commitAndCheck(t, s)
 
 	// Verify legacyDB LocalMeta is updated
 	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 
-	// Verify data in legacyDB (full key preserved, via cache)
-	stored, found, err := s.legacyDB.Get(codeSizeKey, false)
+	// Verify data persisted in legacyDB (full key preserved)
+	stored, err := s.legacyDB.Get(codeSizeKey)
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, codeSizeValue, stored)
 }
 
@@ -430,11 +427,10 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	requireAllLocalMetaAt(t, s, 1)
 
-	// Verify legacy data (via cache)
+	// Verify legacy data persisted
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
-	stored, found, err := s.legacyDB.Get(codeSizeKey, false)
+	stored, err := s.legacyDB.Get(codeSizeKey)
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, stored)
 }
 
@@ -555,7 +551,6 @@ func TestStoreFsyncConfig(t *testing.T) {
 // =============================================================================
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
-	t.Skip("WriteSnapshot is currently a no-op stub; re-enable when snapshot support is implemented")
 	cfg := DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 2
@@ -765,16 +760,13 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
 
-	// Verify both nonce and codehash merged into one AccountValue via cache read
-	raw, found, err := s.accountDB.Get(addr[:], false)
-	require.NoError(t, err)
-	require.True(t, found, "account should exist")
-	av, err := DecodeAccountValue(raw)
-	require.NoError(t, err)
-	require.Equal(t, uint64(10), av.Nonce)
-	require.Equal(t, codeHash, av.CodeHash)
+	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
+
+	paw := s.accountWrites[string(addr[:])]
+	require.NotNil(t, paw)
+	require.Equal(t, uint64(10), paw.value.Nonce)
+	require.Equal(t, codeHash, paw.value.CodeHash)
 }
 
 // =============================================================================
@@ -852,7 +844,6 @@ func TestStoreFsyncEnabled(t *testing.T) {
 // =============================================================================
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
-	t.Skip("WriteSnapshot is currently a no-op stub; re-enable when snapshot support is implemented")
 	cfg := DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -943,9 +934,8 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 	_, found = s.Get(codeKey)
 	require.False(t, found, "code should be physically deleted")
 
-	raw, found, err := s.accountDB.Get(AccountKey(addr), false)
+	raw, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err, "accountDB entry should persist after account delete")
-	require.True(t, found, "accountDB entry should persist after account delete")
 	require.NotNil(t, raw)
 }
 
@@ -1068,36 +1058,24 @@ func TestSubDBEntryCount(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	// Verify entries exist in cache by querying specific keys
-	assertCacheHas(t, s.storageDB, StorageKey(addr1, slot1), true, "storage addr1/slot1")
-	assertCacheHas(t, s.storageDB, StorageKey(addr2, slot2), true, "storage addr2/slot2")
-	assertCacheHas(t, s.accountDB, addr1[:], true, "account addr1")
-	assertCacheHas(t, s.accountDB, addr2[:], true, "account addr2")
-	assertCacheHas(t, s.codeDB, addr1[:], true, "code addr1")
-	assertCacheHas(t, s.codeDB, addr2[:], true, "code addr2")
+	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "storageDB should have 2 entries")
+	require.Equal(t, 2, countLiveEntries(t, s.accountDB), "accountDB should have 2 entries")
+	require.Equal(t, 2, countLiveEntries(t, s.codeDB), "codeDB should have 2 entries")
 
-	// Overwrite should preserve the entry
 	cs2 := namedCS(storagePair(addr1, slot1, []byte{0xCC}))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
-	v, found, err := s.storageDB.Get(StorageKey(addr1, slot1), false)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte{0xCC}, v, "overwrite should update value")
+	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "overwrite should not increase count")
 
-	// Delete should remove the entry
 	cs3 := namedCS(storageDeletePair(addr1, slot1))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
-	assertCacheHas(t, s.storageDB, StorageKey(addr1, slot1), false, "storage addr1/slot1 after delete")
-	assertCacheHas(t, s.storageDB, StorageKey(addr2, slot2), true, "storage addr2/slot2 should survive")
+	require.Equal(t, 1, countLiveEntries(t, s.storageDB), "delete should decrease count")
 
-	// Account delete (nonce) zeroes the field but keeps the row
 	cs4 := namedCS(nonceDeletePair(addr1))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs4}))
 	commitAndCheck(t, s)
-	assertCacheHas(t, s.accountDB, addr1[:], true, "account row should persist after nonce delete")
-	assertCacheHas(t, s.accountDB, addr2[:], true, "account addr2 should survive")
+	require.Equal(t, 2, countLiveEntries(t, s.accountDB), "account delete should not decrease count")
 }
 
 // =============================================================================
@@ -1258,9 +1236,8 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	raw1, found, err := s.accountDB.Get(AccountKey(addr), false)
+	raw1, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, accountValueEOALen, len(raw1), "nonce-only should produce EOA encoding (40 bytes)")
 
 	// Step 2: Add codehash → contract encoding (72 bytes)
@@ -1268,9 +1245,8 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	raw2, found, err := s.accountDB.Get(AccountKey(addr), false)
+	raw2, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, accountValueContractLen, len(raw2), "nonce+codehash should produce contract encoding (72 bytes)")
 
 	av2, err := DecodeAccountValue(raw2)
@@ -1283,9 +1259,8 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
-	raw3, found, err := s.accountDB.Get(AccountKey(addr), false)
+	raw3, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.True(t, found)
 	require.Equal(t, accountValueEOALen, len(raw3), "codehash delete should shrink back to EOA encoding (40 bytes)")
 
 	av3, err := DecodeAccountValue(raw3)
@@ -1298,11 +1273,21 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 // Write Test Helpers
 // =============================================================================
 
-func assertCacheHas(t *testing.T, cache dbcache.Cache, key []byte, expected bool, msg string) {
+func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	t.Helper()
-	_, found, err := cache.Get(key, false)
-	require.NoError(t, err, msg)
-	require.Equal(t, expected, found, msg)
+	iter, err := db.NewIter(&types.IterOptions{})
+	require.NoError(t, err)
+	defer iter.Close()
+
+	count := 0
+	for iter.First(); iter.Valid(); iter.Next() {
+		if isMetaKey(iter.Key()) {
+			continue
+		}
+		count++
+	}
+	require.NoError(t, iter.Error())
+	return count
 }
 
 func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {

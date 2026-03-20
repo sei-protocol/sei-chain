@@ -18,7 +18,6 @@ import (
 	"github.com/spf13/cobra"
 
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	clientkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -153,8 +152,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	channeltypes.RegisterMsgServer(cfg.MsgServer(), am.keeper)
 	types.RegisterQueryService(cfg.QueryServer(), am.keeper)
 
-	m := clientkeeper.NewMigrator(am.keeper.ClientKeeper)
+	m := keeper.NewMigrator(*am.keeper)
 	if err := cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2); err != nil {
+		panic(err)
+	}
+	if err := cfg.RegisterMigration(host.ModuleName, 2, m.Migrate2to3); err != nil {
 		panic(err)
 	}
 }
@@ -189,7 +191,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 2 }
+func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 // BeginBlock returns the begin blocker for the ibc module.
 func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {

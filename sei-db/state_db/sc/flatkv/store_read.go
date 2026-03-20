@@ -18,27 +18,39 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	case evm.EVMKeyStorage:
 		// Storage: keyBytes = addr(20) || slot(32)
 		// Check pending writes first
-
-		value, found, err := s.storageDB.Get(keyBytes, false)
-		if err != nil {
-			return nil, false // TODO this is wrong! we should not hide errors here!
+		if pw, ok := s.storageWrites[string(keyBytes)]; ok {
+			if pw.isDelete {
+				return nil, false
+			}
+			return pw.value, true
 		}
-		if !found {
+
+		// Read from storageDB
+		value, err := s.storageDB.Get(keyBytes)
+		if err != nil {
 			return nil, false
 		}
 		return value, true
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+		// Account data: keyBytes = addr(20)
+		// accountDB stores AccountValue at key=addr(20)
 		addr, ok := AddressFromBytes(keyBytes)
 		if !ok {
 			return nil, false
 		}
 
-		encoded, found, err := s.accountDB.Get(AccountKey(addr), false)
-		if err != nil {
-			return nil, false // TODO this is wrong! we should not hide errors here!
+		// Check pending writes first
+		if paw, found := s.accountWrites[string(addr[:])]; found {
+			if kind == evm.EVMKeyNonce {
+				return paw.value.NonceBytes()
+			}
+			return paw.value.CodeHashBytes()
 		}
-		if !found {
+
+		// Read from accountDB
+		encoded, err := s.accountDB.Get(AccountKey(addr))
+		if err != nil {
 			return nil, false
 		}
 		av, err := DecodeAccountValue(encoded)
@@ -52,27 +64,37 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		return av.CodeHashBytes()
 
 	case evm.EVMKeyCode:
-		value, found, err := s.codeDB.Get(keyBytes, false)
-		if err != nil {
-			return nil, false // TODO this is wrong! we should not hide errors here!
+		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
+		// Check pending writes first
+		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
+			if pw.isDelete {
+				return nil, false
+			}
+			return pw.value, true
 		}
-		if !found {
+
+		// Read from codeDB
+		value, err := s.codeDB.Get(keyBytes)
+		if err != nil {
 			return nil, false
 		}
 		return value, true
 
 	case evm.EVMKeyLegacy:
-		value, found, err := s.legacyDB.Get(keyBytes, false)
-		if err != nil {
-			return nil, false // TODO this is wrong! we should not hide errors here!
+		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
+			if pw.isDelete {
+				return nil, false
+			}
+			return pw.value, true
 		}
-		if !found {
+
+		value, err := s.legacyDB.Get(keyBytes)
+		if err != nil {
 			return nil, false
 		}
 		return value, true
 
 	default:
-		// TODO this should return an error, not silently fail!
 		return nil, false
 	}
 }

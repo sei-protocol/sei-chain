@@ -224,7 +224,6 @@ func TestStoreIteratorEmpty(t *testing.T) {
 }
 
 func TestStoreIteratorSingleKey(t *testing.T) {
-	t.Skip("iterators return emptyIterator until dbcache.Cache supports iteration")
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -253,7 +252,6 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 }
 
 func TestStoreIteratorMultipleKeys(t *testing.T) {
-	t.Skip("iterators return emptyIterator until dbcache.Cache supports iteration")
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -317,7 +315,6 @@ func TestStoreIteratorNonStorageKeys(t *testing.T) {
 // =============================================================================
 
 func TestStoreStoragePrefixIteration(t *testing.T) {
-	t.Skip("iterators return emptyIterator until dbcache.Cache supports iteration")
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -347,7 +344,6 @@ func TestStoreStoragePrefixIteration(t *testing.T) {
 }
 
 func TestStoreIteratorByPrefixAddress(t *testing.T) {
-	t.Skip("iterators return emptyIterator until dbcache.Cache supports iteration")
 	s := setupTestStore(t)
 	defer s.Close()
 

@@ -48,9 +48,9 @@ type TestNetworkOptions struct {
 }
 
 type TestNodeOptions struct {
-	MaxPeers       utils.Option[int]
 	MaxConnected   utils.Option[int]
 	PexOnHandshake bool
+	SelfAddress    bool
 }
 
 func TestAddress(r *Router) NodeAddress {
@@ -93,7 +93,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		err := nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		err := nodes[i].Router.peerManager.PushPex(utils.Some(nodes[i].NodeID), utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
@@ -108,7 +108,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			err := source.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+			err := source.Router.peerManager.PushPex(utils.Some(source.NodeID), utils.Slice(target.NodeAddress))
 			require.NoError(t, err)
 		}
 	}
@@ -119,8 +119,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 				if target.NodeID == source.NodeID {
 					continue
 				}
-				_, ok := conns.Get(target.NodeID)
-				if !ok {
+				if _, ok := GetAny(conns, target.NodeID); !ok {
 					return false
 				}
 			}
@@ -229,9 +228,9 @@ type TestNode struct {
 
 // Waits for the specific connection to get disconnected.
 func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *ConnV2) {
+	id := conn.Info().connID()
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		got, ok := conns.Get(conn.Info().ID)
-		return !ok || got != conn
+		return conns.GetOpt(id) != utils.Some(conn)
 	}); err != nil {
 		panic(err)
 	}
@@ -247,7 +246,7 @@ func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
 
 func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		_, ok := conns.Get(target)
+		_, ok := GetAny(conns, target)
 		return ok == status
 	}); err != nil {
 		panic(err)
@@ -255,17 +254,15 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	_ = n.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
 	n.WaitForConn(ctx, target.NodeID, true)
 	target.WaitForConn(ctx, n.NodeID, true)
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
-	conn, ok := n.Router.peerManager.Conns().Get(target)
-	if !ok {
-		panic("not connected")
+	for _, conn := range GetAll(n.Router.peerManager.Conns(), target) {
+		conn.Close()
 	}
-	conn.Close()
 	n.WaitForConn(ctx, target, false)
 }
 
@@ -277,15 +274,17 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	nodeID := privKey.Public().NodeID()
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
 	routerOpts := &RouterOptions{
-		SelfAddress:              utils.Some(endpoint.NodeAddress(nodeID)),
 		PexOnHandshake:           opts.PexOnHandshake,
 		Endpoint:                 endpoint,
 		Connection:               conn.DefaultMConnConfig(),
 		IncomingConnectionWindow: utils.Some[time.Duration](0),
 		MaxAcceptRate:            utils.Some(rate.Inf),
 		MaxDialRate:              utils.Some(rate.Limit(30.)),
-		MaxPeers:                 opts.MaxPeers,
-		MaxConnected:             opts.MaxConnected,
+		MaxInbound:               opts.MaxConnected,
+		MaxOutbound:              opts.MaxConnected,
+	}
+	if opts.SelfAddress {
+		routerOpts.SelfAddress = utils.Some(endpoint.NodeAddress(nodeID))
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{

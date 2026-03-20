@@ -203,7 +203,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg[*pb.PexMessage]) error {
 			}
 			addrs = append(addrs, addr)
 		}
-		if err := r.router.AddAddrs(addrs); err != nil {
+		if err := r.router.AddAddrs(m.From, addrs); err != nil {
 			return fmt.Errorf("failed adding addresses from PEX response: %w", err)
 		}
 		return nil
