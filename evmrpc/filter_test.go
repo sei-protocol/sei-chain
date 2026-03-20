@@ -7,7 +7,18 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/evmrpc"
 )
+
+func TestNewPendingTransactionFilterNotSupported(t *testing.T) {
+	t.Parallel()
+	resObj := sendRequestGood(t, "newPendingTransactionFilter")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_newPendingTransactionFilter")
+}
 
 func TestFilterNew(t *testing.T) {
 	t.Parallel()

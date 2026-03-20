@@ -113,7 +113,7 @@ func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], mode
 	case config.ModeFull:
 		logger.Info("This node is a fullnode")
 	case config.ModeValidator:
-		k := pubKey.OrPanic()
+		k := pubKey.OrPanic("validator node is missing key")
 		addr := k.Address()
 		// Log whether this node is a validator or an observer
 		if state.Validators.HasAddress(addr) {
@@ -212,7 +212,6 @@ func createRouter(
 	}
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
-	options.MaxOutboundConnections = utils.Some(utils.Clamp[int](cfg.P2P.MaxOutboundConnections))
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
 	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
@@ -235,17 +234,25 @@ func createRouter(
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
 	}
 
-	var maxConns int
-
-	switch {
-	case cfg.P2P.MaxConnections > 0:
+	// MaxConnections defaults to 64
+	maxConns := 64
+	if cfg.P2P.MaxConnections > 0 {
 		maxConns = utils.Clamp[int](cfg.P2P.MaxConnections)
-	default:
-		maxConns = 64
 	}
-	options.MaxConcurrentAccepts = utils.Some(maxConns)
-	options.MaxConnected = utils.Some(maxConns)
-	options.MaxPeers = utils.Some(2 * maxConns)
+	// MaxOutbound defaults to 20, unless MaxConnections<40,
+	// then it defaults to half of the maxConnections.
+	maxOutbound := min(20, (maxConns+1)/2)
+	if m := cfg.P2P.MaxOutboundConnections; m != nil {
+		maxOutbound = min(maxConns, utils.Clamp[int](*m))
+	}
+	// MaxInbound is simply MaxConnections - MaxOutbound,
+	// because now we have totally separate inbound and outbound connection pools.
+	// TODO(gprusak): eventually we should migrate configs to specify
+	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
+	maxInbound := maxConns - maxOutbound
+	options.MaxOutbound = utils.Some(maxOutbound)
+	options.MaxConcurrentAccepts = utils.Some(maxInbound)
+	options.MaxInbound = utils.Some(maxInbound)
 	options.PrivatePeers = privatePeerIDs
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {

@@ -439,6 +439,13 @@ func (a *FilterAPI) NewBlockFilter(
 	return curFilterID, nil
 }
 
+func (a *FilterAPI) NewPendingTransactionFilter(
+	_ *bool,
+) (id ethrpc.ID, err error) {
+	defer recordMetricsWithError(fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
+	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
+}
+
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
