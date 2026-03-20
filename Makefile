@@ -1,6 +1,20 @@
 #!/usr/bin/make -f
 
-VERSION := $(shell echo $(shell git describe --tags))
+# Resolve VERSION from branch or tag:
+# - Extract vX.Y.Z (+ any suffix) from the branch name when present.
+# - Compare only the base vX.Y.Z (strip any suffix) between branch/tag.
+# - Prefer tag if bases are equal; otherwise use whichever base is newer.
+BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
+BRANCH_VERSION := $(shell echo "$(BRANCH_NAME)" | sed -E -n 's|.*(v[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9._]*).*|\1|p')
+TAG_VERSION := $(shell echo $(shell git describe --tags))
+VERSION := $(shell \
+	bv="$(BRANCH_VERSION)"; tv="$(TAG_VERSION)"; \
+	bb=$$(echo "$$bv" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
+	tb=$$(echo "$$tv" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
+	if [ -z "$$bv" ]; then echo "$$tv"; \
+	elif [ -z "$$tv" ] || [ "$$bb" = "$$tb" ]; then echo "$$tv"; \
+	elif [ "$$(printf '%s\n%s\n' "$$tb" "$$bb" | sort -V | tail -n 1)" = "$$bb" ]; then echo "$$bv"; \
+	else echo "$$tv"; fi)
 COMMIT := $(shell git log -1 --format='%H')
 
 BUILDDIR ?= $(CURDIR)/build
