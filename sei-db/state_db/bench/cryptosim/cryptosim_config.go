@@ -138,10 +138,10 @@ type CryptoSimConfig struct {
 	// If false, Enter has no effect.
 	EnableSuspension bool
 
-	// If true, the data directory will be deleted on startup if it exists.
+	// If true, the data directory and log directory will be deleted on startup if they exist.
 	DeleteDataDirOnStartup bool
 
-	// If true, the data directory will be deleted on a clean shutdown.
+	// If true, the data directory and log directory will be deleted on a clean shutdown.
 	DeleteDataDirOnShutdown bool
 
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".

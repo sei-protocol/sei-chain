@@ -142,6 +142,8 @@ func NewCommitStore(
 	cfg *Config,
 ) (*CommitStore, error) {
 
+	logger.Info("Creating new FlatKV commit store", "config", cfg)
+
 	cfg.InitializeDataDirectories()
 
 	if err := cfg.Validate(); err != nil {

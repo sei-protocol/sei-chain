@@ -91,6 +91,9 @@ func run() error {
 	fmt.Printf("%s\n", configString)
 
 	if config.DeleteDataDirOnStartup {
+		if config.DataDir == "" {
+			return fmt.Errorf("DataDir is empty, refusing to delete")
+		}
 		resolved, err := filepath.Abs(config.DataDir)
 		if err != nil {
 			return fmt.Errorf("failed to resolve data directory: %w", err)
@@ -148,14 +151,19 @@ func run() error {
 	cs.BlockUntilHalted()
 
 	if config.DeleteDataDirOnShutdown {
-		resolved, err := filepath.Abs(config.DataDir)
-		if err != nil {
-			return fmt.Errorf("failed to resolve data directory: %w", err)
-		}
-		fmt.Printf("Deleting data directory: %s\n", resolved)
-		err = os.RemoveAll(resolved)
-		if err != nil {
-			return fmt.Errorf("failed to delete data directory: %w", err)
+		for _, dir := range []string{config.DataDir, config.LogDir} {
+			if dir == "" {
+				return fmt.Errorf("directory path is empty, refusing to delete")
+			}
+			resolved, err := filepath.Abs(dir)
+			if err != nil {
+				return fmt.Errorf("failed to resolve directory: %w", err)
+			}
+			fmt.Printf("Deleting directory: %s\n", resolved)
+			err = os.RemoveAll(resolved)
+			if err != nil {
+				return fmt.Errorf("failed to delete directory %s: %w", resolved, err)
+			}
 		}
 	}
 
