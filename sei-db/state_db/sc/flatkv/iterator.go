@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
@@ -54,11 +53,6 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 		return &emptyIterator{}
 	}
 
-	// Exclude metadata key (0x00)
-	if internalStart == nil {
-		internalStart = metaKeyLowerBound()
-	}
-
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalStart,
 		UpperBound: internalEnd,
@@ -78,11 +72,6 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 // newDBPrefixIterator creates a new dbIterator for prefix scanning.
 func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
 	internalEnd := PrefixEnd(internalPrefix)
-
-	// Exclude metadata key (0x00)
-	if internalPrefix == nil || bytes.Compare(internalPrefix, metaKeyLowerBound()) < 0 {
-		internalPrefix = metaKeyLowerBound()
-	}
 
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: internalPrefix,
@@ -132,14 +121,22 @@ func (it *dbIterator) First() bool {
 	if it.closed {
 		return false
 	}
-	return it.iter.First()
+	if !it.iter.First() {
+		return false
+	}
+	it.skipMetaForward()
+	return it.iter.Valid()
 }
 
 func (it *dbIterator) Last() bool {
 	if it.closed {
 		return false
 	}
-	return it.iter.Last()
+	if !it.iter.Last() {
+		return false
+	}
+	it.skipMetaBackward()
+	return it.iter.Valid()
 }
 
 func (it *dbIterator) SeekGE(key []byte) bool {
@@ -153,7 +150,11 @@ func (it *dbIterator) SeekGE(key []byte) bool {
 		return false
 	}
 
-	return it.iter.SeekGE(internalKey)
+	if !it.iter.SeekGE(internalKey) {
+		return false
+	}
+	it.skipMetaForward()
+	return it.iter.Valid()
 }
 
 func (it *dbIterator) SeekLT(key []byte) bool {
@@ -167,21 +168,50 @@ func (it *dbIterator) SeekLT(key []byte) bool {
 		return false
 	}
 
-	return it.iter.SeekLT(internalKey)
+	if !it.iter.SeekLT(internalKey) {
+		return false
+	}
+	it.skipMetaBackward()
+	return it.iter.Valid()
 }
 
 func (it *dbIterator) Next() bool {
 	if it.closed {
 		return false
 	}
-	return it.iter.Next()
+	if !it.iter.Next() {
+		return false
+	}
+	it.skipMetaForward()
+	return it.iter.Valid()
 }
 
 func (it *dbIterator) Prev() bool {
 	if it.closed {
 		return false
 	}
-	return it.iter.Prev()
+	if !it.iter.Prev() {
+		return false
+	}
+	it.skipMetaBackward()
+	return it.iter.Valid()
+}
+
+// skipMetaForward advances past any _meta/ keys.
+// On I/O error Valid() becomes false and the loop exits;
+// the caller surfaces the error via Error().
+func (it *dbIterator) skipMetaForward() {
+	for it.iter.Valid() && isMetaKey(it.iter.Key()) {
+		it.iter.Next()
+	}
+}
+
+// skipMetaBackward retreats past any _meta/ keys.
+// Error handling mirrors skipMetaForward.
+func (it *dbIterator) skipMetaBackward() {
+	for it.iter.Valid() && isMetaKey(it.iter.Key()) {
+		it.iter.Prev()
+	}
 }
 
 func (it *dbIterator) Key() []byte {

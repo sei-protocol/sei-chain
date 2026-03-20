@@ -1,229 +1,343 @@
 package p2p
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
-	"fmt"
-	"time"
+	"iter"
+	"maps"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// None = -inf (i.e. beginning of time)
-func before(a, b utils.Option[time.Time]) bool {
-	bt, ok := b.Get()
-	if !ok {
-		return false
-	}
-	at, ok := a.Get()
-	if !ok {
-		return true
-	}
-	return at.Before(bt)
+// ID of a directed connection.
+type connID struct {
+	types.NodeID
+	outbound bool
 }
 
-func getOpt[K comparable, V any](m map[K]V, k K) utils.Option[V] {
-	if v, ok := m[k]; ok {
-		return utils.Some(v)
-	}
-	return utils.None[V]()
+// NodeID with priority.
+type pNodeID struct {
+	priority uint64
+	types.NodeID
 }
 
-type poolConfig struct {
-	selfID   types.NodeID
-	maxConns utils.Option[int]
-	maxAddrs utils.Option[int]
+// NodeAddress with priority.
+type pAddr struct {
+	priority uint64
+	NodeAddress
 }
 
-type pool[C peerConn] struct {
-	poolConfig
+func (a pAddr) pNodeID() pNodeID { return pNodeID{a.priority, a.NodeID} }
 
-	outbound int
-	conns    map[types.NodeID]C
-	addrs    map[types.NodeID]*peerAddr
-	dialing  map[types.NodeID]NodeAddress
+type pexEntry struct {
+	searched bool
+	addrs    []pAddr
 }
 
-func newPool[C peerConn](cfg poolConfig) *pool[C] {
-	return &pool[C]{
-		poolConfig: cfg,
-		conns:      map[types.NodeID]C{},
-		addrs:      map[types.NodeID]*peerAddr{},
-		dialing:    map[types.NodeID]NodeAddress{},
-	}
-}
-
-type peerAddr struct {
-	lastFail utils.Option[time.Time]
-	addr     NodeAddress
-	isPublic bool
-}
-
-type peerConnInfo struct {
-	ID       types.NodeID
-	Channels ChannelIDSet
-	DialAddr utils.Option[NodeAddress]
-	SelfAddr utils.Option[NodeAddress]
-}
-
-type peerConn interface {
-	comparable
-	Info() peerConnInfo
-	Close()
-}
-
-var errSelfAddr = errors.New("self address is ignored")
-var errDuplicate = errors.New("duplicate address for the same peer")
-var errTooMany = errors.New("too many addresses in the peer manager")
-
-// AddAddr adds an address to the pool.
-// Returns an error iff the address could not be added.
-func (p *pool[C]) AddAddr(addr NodeAddress) error {
-	pa := &peerAddr{addr: addr, isPublic: addr.IsPublic()}
-	// Ignore address to self.
-	if addr.NodeID == p.selfID {
-		return errSelfAddr
-	}
-	if old, ok := p.addrs[addr.NodeID]; ok {
-		// Ignore duplicates.
-		if old.addr == addr {
-			return errDuplicate
-		}
-		// If the old address failed, prune it.
-		if old.lastFail.IsPresent() {
-			p.addrs[pa.addr.NodeID] = pa
-			return nil
-		}
-		// Prune private address, if we insert a public address
-		if !old.isPublic && addr.IsPublic() {
-			p.addrs[pa.addr.NodeID] = pa
-			return nil
-		}
-		// Otherwise, do not replace
-		return errDuplicate
-	}
-	// If there limit on addresses has not been reached, allow the new address.
-	if maxAddrs, ok := p.maxAddrs.Get(); !ok || len(p.addrs) < maxAddrs {
-		p.addrs[pa.addr.NodeID] = pa
-		return nil
-	}
-	// Find any failed address to prune.
-	// It doesn't matter what was the time of the failure,
-	// since lastFail time is used just for round robin ordering.
-	for id, old := range p.addrs {
-		if old.lastFail.IsPresent() {
-			delete(p.addrs, id)
-			p.addrs[pa.addr.NodeID] = pa
-			return nil
+func (p *poolManager) newPexEntry(addrs iter.Seq[NodeAddress]) *pexEntry {
+	e := &pexEntry{}
+	for addr := range addrs {
+		if p.cfg.InPool(addr.NodeID) {
+			e.addrs = append(e.addrs, pAddr{priority: p.priority(addr.NodeID), NodeAddress: addr})
 		}
 	}
-	// If the new address is public, find a private address to prune.
-	if addr.IsPublic() {
-		for id, old := range p.addrs {
-			if !old.isPublic {
-				delete(p.addrs, id)
-				p.addrs[pa.addr.NodeID] = pa
-				return nil
+	return e
+}
+
+type pexTable struct {
+	fixed    *pexEntry
+	bySender map[types.NodeID]*pexEntry
+	extra    utils.RingBuf[*pexEntry]
+}
+
+func (t *pexTable) ClearSearched() {
+	for e := range t.All() {
+		e.searched = false
+	}
+}
+
+func (t *pexTable) All() iter.Seq[*pexEntry] {
+	return func(yield func(*pexEntry) bool) {
+		if !yield(t.fixed) {
+			return
+		}
+		for _, e := range t.bySender {
+			if !yield(e) {
+				return
+			}
+		}
+		for e := range t.extra.All() {
+			if !yield(e) {
+				return
 			}
 		}
 	}
-	// Nothing can be pruned.
-	return errTooMany
 }
 
-func (p *pool[C]) DialFailed(addr NodeAddress) {
-	// Clear dialing status.
-	if p.dialing[addr.NodeID] == addr {
-		delete(p.dialing, addr.NodeID)
+type poolConfig struct {
+	MaxIn      int                     // Maximal number of inbound connections.
+	MaxOut     int                     // Maximal number of outbound connections.
+	FixedAddrs []NodeAddress           // Addresses which are always available for dialing.
+	InPool     func(types.NodeID) bool // InPool(id) <=> id belongs to this pool.
+}
+
+type poolManager struct {
+	cfg      *poolConfig
+	priority func(types.NodeID) uint64
+
+	in            map[types.NodeID]struct{}
+	out           map[types.NodeID]uint64
+	dialing       map[types.NodeID]struct{}
+	dialHistory   map[types.NodeID]struct{}
+	upgradePermit bool
+	pex           pexTable
+}
+
+func newPoolManager(cfg *poolConfig) *poolManager {
+	var seed [32]byte
+	utils.OrPanic1(rand.Read(seed[:]))
+	// PRF defining peer priority.
+	// It makes the global topology converge to an uniformly random graph
+	// of a bounded degree.
+	priority := func(id types.NodeID) uint64 {
+		// NOTE: theoretically it would be more efficient to create a hasher once
+		// (sha256.New), then push seed to it (via hash.Write), then copy the hasher
+		// at every call to priority and push the id afterwards. However the difference
+		// is marginal AND the way that hash.Cloner is supposed to be used is disgusting.
+		// NOTE: converting string to []byte allocates a new slice.
+		hash := sha256.Sum256(append([]byte(id), seed[:]...))
+		return binary.LittleEndian.Uint64(hash[:])
 	}
-	// Record the failure time.
-	if peerAddr, ok := p.addrs[addr.NodeID]; ok && peerAddr.addr == addr {
-		peerAddr.lastFail = utils.Some(time.Now())
+	p := &poolManager{
+		cfg:           cfg,
+		priority:      priority,
+		in:            map[types.NodeID]struct{}{},
+		out:           map[types.NodeID]uint64{},
+		dialing:       map[types.NodeID]struct{}{},
+		dialHistory:   map[types.NodeID]struct{}{},
+		upgradePermit: false,
+		pex: pexTable{
+			bySender: map[types.NodeID]*pexEntry{},
+			extra:    utils.NewRingBuf[*pexEntry](10),
+		},
+	}
+	p.pex.fixed = p.newPexEntry(slices.Values(cfg.FixedAddrs))
+	return p
+}
+
+func (p *poolManager) setDialing(id types.NodeID) {
+	// We should keep around enough history to cover the whole pex.
+	// We cannot keep it unbounded to avoid OOM.
+	const maxHistory = 10000
+	if len(p.dialHistory) >= maxHistory {
+		p.dialHistory = map[types.NodeID]struct{}{}
+	}
+	p.dialing[id] = struct{}{}
+	p.dialHistory[id] = struct{}{}
+}
+
+func (p *poolManager) toUpgrade() utils.Option[pNodeID] {
+	low := utils.None[pNodeID]()
+	if len(p.out) < p.cfg.MaxOut {
+		return low
+	}
+	for old, priority := range p.out {
+		if id, ok := low.Get(); !ok || priority < id.priority {
+			low = utils.Some(pNodeID{priority, old})
+		}
+	}
+	return low
+}
+
+// TryStartDial looks for a peer available for dialing.
+// Marks peer as "dialing" on success.
+// Returns a nonempty list of addresses of that peer.
+// The complexity of a successful TryStartDial() is O(total pex size):
+// - we assume the dialing to be infrequent
+// - we assume the bound on the total number of pexEntries to be ~100 and the number of addresses per entry to be ~100.
+// The complexity of failed TryStartDial() calls is amortized over the number of successful dial calls (+ number of inbound connections):
+// TheTryStartDial marks entries of pex as "searched" and avoids processing them again
+// until any event that can make any peer eligible for dialing again (dial failure/disconnect).
+func (p *poolManager) TryStartDial() ([]NodeAddress, bool) {
+	switch {
+	// Dialing is not allowed if outbound connections are disabled.
+	case p.cfg.MaxOut == 0:
+		return nil, false
+	// Regular dialing is allowed iff the current outbound connections (including ongoing dials)
+	// do not saturate outbound capacity.
+	case len(p.out)+len(p.dialing) < p.cfg.MaxOut: // Try to find address to dial.
+	// Upgrades are allowed iff:
+	// * we have upgrade permit
+	// * outbound connections capacity is full
+	// * there are no ongoing dials
+	case p.upgradePermit && len(p.dialing) == 0 && len(p.out) == p.cfg.MaxOut:
+	// Otherwise dialing is not feasible atm.
+	default:
+		return nil, false
+	}
+	// In case of upgrade, we need to find a peer better than the lowest current outbound connection.
+	best := p.toUpgrade()
+	bestAddrs := map[NodeAddress]struct{}{}
+	for {
+		clearRecent := false
+		// Iterate over pex entries worth searching.
+		for e := range p.pex.All() {
+			if e.searched {
+				continue
+			}
+			e.searched = true
+			for _, addr := range e.addrs {
+				if id, ok := best.Get(); ok {
+					// Collect all addresses of the best node.
+					// We check if bestAddr==0, because best is initialized to toUpgrade,
+					// which is not a valid candidate.
+					if len(bestAddrs) != 0 && id.NodeID == addr.NodeID {
+						bestAddrs[addr.NodeAddress] = struct{}{}
+						continue
+					}
+					if addr.priority <= id.priority {
+						continue
+					}
+				}
+				// Skip candidates which are not eligible for dialing.
+				if _, ok := p.in[addr.NodeID]; ok {
+					continue
+				}
+				if _, ok := p.out[addr.NodeID]; ok {
+					continue
+				}
+				if _, ok := p.dialing[addr.NodeID]; ok {
+					continue
+				}
+				if _, ok := p.dialHistory[addr.NodeID]; ok {
+					clearRecent = true
+					continue
+				}
+				// We have found a new best candidate.
+				best = utils.Some(addr.pNodeID())
+				clear(bestAddrs)
+				bestAddrs[addr.NodeAddress] = struct{}{}
+			}
+		}
+		if len(bestAddrs) > 0 {
+			addrs := slices.Collect(maps.Keys(bestAddrs))
+			p.setDialing(addrs[0].NodeID)
+			p.pex.ClearSearched()
+			return addrs, true
+		}
+		// clearRecent indicates that we have finished round robin over all available peers,
+		// but if we clear dialHistory we will find a dialing candidate.
+		if !clearRecent {
+			return nil, false
+		}
+		p.dialHistory = map[types.NodeID]struct{}{}
+		p.pex.ClearSearched()
 	}
 }
 
-func (p *pool[C]) Evict(id types.NodeID) {
-	delete(p.addrs, id)
-	if conn, ok := p.conns[id]; ok {
-		conn.Close()
+func (p *poolManager) PushUpgradePermit() {
+	p.upgradePermit = true
+}
+
+func (p *poolManager) PushPex(sender utils.Option[types.NodeID], addrs []NodeAddress) {
+	// Accept at most 1 address per NodeID from each pex sender.
+	dedup := map[types.NodeID]NodeAddress{}
+	for _, addr := range addrs {
+		dedup[addr.NodeID] = addr
+	}
+	e := p.newPexEntry(maps.Values(dedup))
+	if sender, ok := sender.Get(); ok {
+		p.pex.bySender[sender] = e
+	} else {
+		if p.pex.extra.Full() {
+			p.pex.extra.PopFront()
+		}
+		p.pex.extra.PushBack(e)
 	}
 }
 
-func (p *pool[C]) TryStartDial() (NodeAddress, bool) {
-	// Check the connections limit.
-	if m, ok := p.maxConns.Get(); ok && len(p.dialing)+len(p.conns) >= m {
-		return NodeAddress{}, false
-	}
-
-	// Choose peer with the oldest lastFail.
-	var best utils.Option[*peerAddr]
-	for id, peerAddrs := range p.addrs {
-		if _, ok := p.dialing[id]; ok {
-			continue
-		}
-		if _, ok := p.conns[id]; ok {
-			continue
-		}
-		if x, ok := best.Get(); !ok || before(peerAddrs.lastFail, x.lastFail) {
-			best = utils.Some(peerAddrs)
-		}
-	}
-	x, ok := best.Get()
-	if !ok {
-		return NodeAddress{}, false
-	}
-	// clear the failed status for the chosen address and mark it as dialing.
-	p.addrs[x.addr.NodeID].lastFail = utils.None[time.Time]()
-	p.dialing[x.addr.NodeID] = x.addr
-	return x.addr, true
+func (p *poolManager) ClearPex(sender types.NodeID) {
+	delete(p.pex.bySender, sender)
 }
 
-func (p *pool[C]) Connected(conn C) (err error) {
-	defer func() {
-		if err != nil {
-			conn.Close()
-		}
-	}()
-	info := conn.Info()
-	if info.ID == p.selfID {
-		return errors.New("connection to self")
+func (p *poolManager) DialFailed(id types.NodeID) error {
+	if _, ok := p.dialing[id]; !ok {
+		return errUnexpectedPeer
 	}
-	if addr, ok := info.DialAddr.Get(); ok && p.dialing[addr.NodeID] == addr {
-		delete(p.dialing, addr.NodeID)
-	}
-	newIsOutbound := info.DialAddr.IsPresent()
-	if old, ok := p.conns[info.ID]; ok {
-		// * allow to override connections in the same direction.
-		// * inbound priority > outbound priority <=> peerID > selfID.
-		//   This resolves the situation when peers try to connect to each other
-		//   at the same time.
-		oldIsOutbound := old.Info().DialAddr.IsPresent()
-		if oldIsOutbound != newIsOutbound && (info.ID < p.selfID) != newIsOutbound {
-			return fmt.Errorf("duplicate connection from peer %q", info.ID)
-		}
-		old.Close()
-		delete(p.conns, info.ID)
-		if oldIsOutbound {
-			p.outbound -= 1
-		}
-	}
-	if m, ok := p.maxConns.Get(); ok && len(p.conns) >= m {
-		return errors.New("too many connections")
-	}
-	if newIsOutbound {
-		p.outbound += 1
-	}
-	p.conns[info.ID] = conn
+	delete(p.dialing, id)
+	// Failed dial -> id is available for redialing.
+	p.pex.ClearSearched()
 	return nil
 }
 
-func (p *pool[C]) Disconnected(conn C) {
-	info := conn.Info()
-	if old, ok := p.conns[info.ID]; ok && old == conn {
-		old.Close()
-		delete(p.conns, info.ID)
-		if info.DialAddr.IsPresent() {
-			p.outbound -= 1
+var errUnexpectedPeer = errors.New("unexpected peer")
+var errTooManyPeers = errors.New("too many peers")
+var errNotInPool = errors.New("peer does not belong to the pool")
+
+// Connect registers a new connection.
+// Returns an error if the connection was rejected.
+// May disconnect another peer (returned in result) a fit the new one.
+// In particular result may be equal to id, in which case the old connection
+// under the same id needs to be disconnected.
+func (p *poolManager) Connect(id connID) (utils.Option[connID], error) {
+	none := utils.None[connID]()
+	if id.outbound {
+		// Make sure that the peer was expected.
+		if _, ok := p.dialing[id.NodeID]; !ok {
+			return none, errUnexpectedPeer
 		}
+		delete(p.dialing, id.NodeID)
+		// Insert the peer.
+		priority := p.priority(id.NodeID)
+		if toUpgrade, ok := p.toUpgrade().Get(); ok {
+			// This should never happen, because of how the algorithm works:
+			// we only dial peers that we know that will be accepted.
+			if id.NodeID == toUpgrade.NodeID {
+				panic("BUG: dialed a peer with too low priority")
+			}
+			// Consume the upgrade permit.
+			p.upgradePermit = false
+			delete(p.out, toUpgrade.NodeID)
+			p.out[id.NodeID] = priority
+			return utils.Some(connID{NodeID: toUpgrade.NodeID, outbound: true}), nil
+		}
+		p.out[id.NodeID] = priority
+		return none, nil
+	} else {
+		// It is fine if new inbound connection overrides the old one.
+		if _, ok := p.in[id.NodeID]; ok {
+			return utils.Some(id), nil
+		}
+		// Check the inbound limit.
+		if len(p.in) >= p.cfg.MaxIn {
+			return none, errTooManyPeers
+		}
+		// Check if this is peer from our pool.
+		if !p.cfg.InPool(id.NodeID) {
+			return none, errNotInPool
+		}
+		p.in[id.NodeID] = struct{}{}
+		return none, nil
 	}
+}
+
+func (p *poolManager) Disconnect(id connID) error {
+	if id.outbound {
+		if _, ok := p.out[id.NodeID]; !ok {
+			return errUnexpectedPeer
+		}
+		delete(p.out, id.NodeID)
+	} else {
+		if _, ok := p.in[id.NodeID]; !ok {
+			return errUnexpectedPeer
+		}
+		delete(p.in, id.NodeID)
+	}
+	// Peer disconnected -> available for dialing.
+	p.pex.ClearSearched()
+	return nil
 }

@@ -59,7 +59,6 @@ func TestWorkerPoolExecution(t *testing.T) {
 func TestWorkerPoolConcurrency(t *testing.T) {
 	wp := NewWorkerPool(5, 50)
 	defer wp.Close()
-
 	wp.Start()
 
 	var completedTasks int64
@@ -69,18 +68,17 @@ func TestWorkerPoolConcurrency(t *testing.T) {
 	for range 50 {
 		wg.Add(1)
 		go func() {
-			defer wg.Done()
-			err := wp.Submit(func() {
+			if err := wp.Submit(func() {
+				defer wg.Done()
 				atomic.AddInt64(&completedTasks, 1)
 				time.Sleep(5 * time.Millisecond)
-			})
-			require.NoError(t, err)
+			}); err != nil {
+				panic(err)
+			}
 		}()
 	}
 
 	wg.Wait()
-	time.Sleep(100 * time.Millisecond) // Wait for task completion
-
 	require.Equal(t, int64(50), atomic.LoadInt64(&completedTasks))
 }
 

@@ -313,25 +313,12 @@ func TestProcessProposal(t *testing.T) {
 	expectedRpp := &abci.RequestProcessProposal{
 		Txs:                 block1.Txs.ToSliceOfBytes(),
 		Hash:                block1.Hash(),
-		Height:              block1.Header.Height,
-		Time:                block1.Header.Time,
 		ByzantineValidators: block1.Evidence.ToABCI(),
 		ProposedLastCommit: abci.CommitInfo{
 			Round: 0,
 			Votes: voteInfos,
 		},
-		NextValidatorsHash:    block1.NextValidatorsHash,
-		ProposerAddress:       block1.ProposerAddress,
-		AppHash:               block1.AppHash,
-		ValidatorsHash:        block1.ValidatorsHash,
-		ConsensusHash:         block1.ConsensusHash,
-		DataHash:              block1.DataHash,
-		EvidenceHash:          block1.EvidenceHash,
-		LastBlockHash:         block1.LastBlockID.Hash,
-		LastBlockPartSetTotal: int64(block1.LastBlockID.PartSetHeader.Total),
-		LastBlockPartSetHash:  block1.LastBlockID.Hash,
-		LastCommitHash:        block1.LastCommitHash,
-		LastResultsHash:       block1.LastResultsHash,
+		Header: block1.Header.ToProto(),
 	}
 
 	app.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil)

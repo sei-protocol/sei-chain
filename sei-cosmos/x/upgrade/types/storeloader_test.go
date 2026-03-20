@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
@@ -120,7 +121,7 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			for i := int64(2); i <= upgradeHeight-1; i++ {
-				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: origapp.ChainID, Height: i}})
 				origapp.SetDeliverStateToCommit()
 				origapp.Commit(context.Background())
 			}
@@ -136,7 +137,7 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			// "execute" one block
-			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: upgradeHeight})
+			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: upgradeHeight}})
 			app.SetDeliverStateToCommit()
 			app.Commit(context.Background())
 
