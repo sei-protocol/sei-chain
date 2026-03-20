@@ -108,7 +108,6 @@ type BaseApp struct {
 	// deliverState is set on InitChain and BeginBlock and set to nil on Commit
 	checkState           *state // for CheckTx
 	deliverState         *state // for DeliverTx
-	prepareProposalState *state
 	processProposalState *state
 	stateToCommit        *state
 
@@ -569,21 +568,6 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	app.deliverState.SetContext(ctx)
 }
 
-func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false)
-	if app.prepareProposalState == nil {
-		app.prepareProposalState = &state{
-			ms:  ms,
-			ctx: ctx,
-			mtx: &sync.RWMutex{},
-		}
-		return
-	}
-	app.prepareProposalState.SetMultiStore(ms)
-	app.prepareProposalState.SetContext(ctx)
-}
-
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false)
@@ -600,14 +584,9 @@ func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 }
 
 func (app *BaseApp) resetStatesExceptCheckState() {
-	app.prepareProposalState = nil
 	app.processProposalState = nil
 	app.deliverState = nil
 	app.stateToCommit = nil
-}
-
-func (app *BaseApp) setPrepareProposalHeader(header tmproto.Header) {
-	app.prepareProposalState.SetContext(app.prepareProposalState.Context().WithBlockHeader(header))
 }
 
 func (app *BaseApp) setProcessProposalHeader(header tmproto.Header) {
@@ -616,12 +595,6 @@ func (app *BaseApp) setProcessProposalHeader(header tmproto.Header) {
 
 func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
-}
-
-func (app *BaseApp) preparePrepareProposalState() {
-	if app.prepareProposalState.MultiStore().TracingEnabled() {
-		app.prepareProposalState.SetMultiStore(app.prepareProposalState.MultiStore().SetTracingContext(nil).(sdk.CacheMultiStore))
-	}
 }
 
 func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {

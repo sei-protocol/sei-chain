@@ -51,7 +51,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
-	app.setPrepareProposalState(initHeader)
 	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
@@ -59,7 +58,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
-		app.StoreConsensusParams(app.prepareProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.checkState.ctx, req.ConsensusParams)
 	}
@@ -71,7 +69,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
-	app.initChainer(app.prepareProposalState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
 	res = &resp
 
@@ -951,15 +948,6 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
-	if app.prepareProposalState == nil {
-		app.setPrepareProposalState(*req.Header)
-	} else {
-		// In the first block, app.prepareProposalState.ctx will already be initialized
-		// by InitChain. Context is now updated with Header information.
-		app.setPrepareProposalHeader(*req.Header)
-	}
-
-	app.preparePrepareProposalState()
 
 	defer func() {
 		if err := recover(); err != nil {
