@@ -1687,6 +1687,53 @@ func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 	}
 }
 
+func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
+	expectedErr := errors.New("evm import failed")
+	store := &CompositeStateStore{
+		cosmosStore: &mockImportStateStore{
+			importFn: func(version int64, ch <-chan types.SnapshotNode) error {
+				for range ch {
+				}
+				return nil
+			},
+		},
+		evmStore: &mockImportStateStore{
+			importFn: func(version int64, ch <-chan types.SnapshotNode) error {
+				for range ch {
+					return expectedErr
+				}
+				return nil
+			},
+		},
+		config: config.StateStoreConfig{
+			WriteMode: config.DualWrite,
+		},
+	}
+
+	const nodeCount = 256
+	ch := make(chan types.SnapshotNode, nodeCount)
+	for i := 0; i < nodeCount; i++ {
+		ch <- types.SnapshotNode{
+			StoreKey: commonevm.EVMStoreKey,
+			Key:      []byte{byte(i)},
+			Value:    []byte("value"),
+		}
+	}
+	close(ch)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- store.Import(1, ch)
+	}()
+
+	select {
+	case err := <-resultCh:
+		require.ErrorIs(t, err, expectedErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("CompositeStateStore.Import blocked after EVM import error")
+	}
+}
+
 func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 	dir, err := os.MkdirTemp("", "e2e_large_changeset_test")
 	require.NoError(t, err)

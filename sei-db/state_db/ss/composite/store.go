@@ -258,22 +258,25 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
-func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	// Normalize evm_flatkv → evm so downstream routing and storage work
-	// correctly regardless of whether the snapshot was exported with the
-	// FlatKV module or only the legacy evm module.
-	normalized := make(chan types.SnapshotNode, cap(ch))
-	go func() {
-		defer close(normalized)
-		for node := range ch {
-			if node.StoreKey == commonevm.EVMFlatKVStoreKey {
-				node.StoreKey = evm.EVMStoreKey
-			}
-			normalized <- node
-		}
-	}()
+func normalizeSnapshotNode(node types.SnapshotNode) types.SnapshotNode {
+	if node.StoreKey == commonevm.EVMFlatKVStoreKey {
+		node.StoreKey = evm.EVMStoreKey
+	}
+	return node
+}
 
+func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
+		// Normalize evm_flatkv → evm so downstream routing and storage work
+		// correctly regardless of whether the snapshot was exported with the
+		// FlatKV module or only the legacy evm module.
+		normalized := make(chan types.SnapshotNode, cap(ch))
+		go func() {
+			defer close(normalized)
+			for node := range ch {
+				normalized <- normalizeSnapshotNode(node)
+			}
+		}()
 		return s.cosmosStore.Import(version, normalized)
 	}
 
@@ -309,7 +312,45 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		}
 	}()
 
-	for node := range normalized {
+	var importErr error
+	drainImportErr := func() {
+		for {
+			select {
+			case err := <-importErrCh:
+				if err != nil && importErr == nil {
+					importErr = err
+					closeImportChans()
+				}
+			default:
+				return
+			}
+		}
+	}
+	sendNode := func(dst chan types.SnapshotNode, node types.SnapshotNode) error {
+		for {
+			drainImportErr()
+			if importErr != nil {
+				return importErr
+			}
+			select {
+			case dst <- node:
+				return nil
+			case err := <-importErrCh:
+				if err != nil && importErr == nil {
+					importErr = err
+					closeImportChans()
+				}
+			}
+		}
+	}
+
+	for node := range ch {
+		node = normalizeSnapshotNode(node)
+		drainImportErr()
+		if importErr != nil {
+			continue
+		}
+
 		isEVM := node.StoreKey == evm.EVMStoreKey
 		if !isEVM || !splitWrite {
 			if err := sendNode(cosmosCh, node); err != nil {
