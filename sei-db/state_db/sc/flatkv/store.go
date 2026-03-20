@@ -179,6 +179,19 @@ func NewCommitStore(
 	}, nil
 }
 
+// resetPools recreates the context and thread pools after a full Close().
+func (s *CommitStore) resetPools() {
+	coreCount := runtime.NumCPU()
+
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	readPoolSize := int(s.config.ReaderThreadsPerCore*float64(coreCount) + float64(s.config.ReaderConstantThreadCount))
+	s.readPool = threading.NewFixedPool(s.ctx, "flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
+
+	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
+	s.miscPool = threading.NewElasticPool(s.ctx, "flatkv-misc", miscPoolSize)
+}
+
 func (s *CommitStore) flatkvDir() string {
 	return s.config.DataDir
 }
@@ -615,8 +628,12 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 		return nil, errReadOnly
 	}
 	// rootmulti.Restore closes the store before creating an importer.
-	// Reopen the DBs so the importer can write data.
+	// Close() cancels the context (killing pools), so recreate them
+	// before reopening the DBs.
 	if s.isClosed() {
+		if s.ctx.Err() != nil {
+			s.resetPools()
+		}
 		if err := s.open(); err != nil {
 			return nil, fmt.Errorf("reopen store for import: %w", err)
 		}
