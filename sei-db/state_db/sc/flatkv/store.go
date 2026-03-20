@@ -597,23 +597,27 @@ func (s *CommitStore) resetForImport() error {
 		}
 	}
 
-	logRemoveErr := func(path string, err error) {
-		if err != nil {
-			logger.Error("resetForImport: failed to remove", "path", path, "err", err)
-		}
+	if err := os.RemoveAll(filepath.Join(dir, workingDirName)); err != nil {
+		return fmt.Errorf("resetForImport: remove %s: %w", workingDirName, err)
 	}
 
-	logRemoveErr(workingDirName, os.RemoveAll(filepath.Join(dir, workingDirName)))
-
-	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		p := filepath.Join(dir, snapshotName(v))
-		logRemoveErr(p, os.RemoveAll(p))
+		if err := os.RemoveAll(p); err != nil {
+			return false, fmt.Errorf("remove snapshot %s: %w", p, err)
+		}
 		return false, nil
-	})
+	}); err != nil {
+		return fmt.Errorf("resetForImport: %w", err)
+	}
 
-	logRemoveErr(currentLink, os.Remove(currentPath(dir)))
+	if err := os.Remove(currentPath(dir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
+	}
 
-	logRemoveErr(changelogDir, os.RemoveAll(filepath.Join(dir, changelogDir)))
+	if err := os.RemoveAll(filepath.Join(dir, changelogDir)); err != nil {
+		return fmt.Errorf("resetForImport: remove %s: %w", changelogDir, err)
+	}
 
 	// Reopen from a pristine empty state. open() will load metadata
 	// from the empty DB (a no-op), then we reset in-memory state below.

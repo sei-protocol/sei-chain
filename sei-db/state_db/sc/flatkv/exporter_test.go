@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -461,4 +462,32 @@ func TestImportPurgesStaleData(t *testing.T) {
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
 	require.Equal(t, srcHash, s.RootHash())
+}
+
+func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, flatkvRootDir)
+
+	s := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	_, err := s.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s.Close()
+
+	current := currentPath(s.flatkvDir())
+	err = os.Remove(current)
+	if err != nil && !os.IsNotExist(err) {
+		require.NoError(t, err)
+	}
+	require.NoError(t, os.Mkdir(current, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(current, "sentinel"), []byte("blocked"), 0o600))
+
+	imp, err := s.Importer(1)
+	require.Nil(t, imp)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reset store for import")
+	require.Contains(t, err.Error(), "remove "+currentLink)
+
+	info, statErr := os.Stat(current)
+	require.NoError(t, statErr)
+	require.True(t, info.IsDir(), "failed reset must not proceed past the invalid current path")
 }
