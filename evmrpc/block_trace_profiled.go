@@ -136,7 +136,7 @@ func (api *DebugAPI) profiledTraceBlockSequential(
 			TxIndex:     i,
 			TxHash:      tx.Hash(),
 		}
-		res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil)
+		res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil, false)
 		if err != nil {
 			results[i] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 		} else {
@@ -202,7 +202,7 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 					continue
 				}
-				res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, task.statedb, config, nil)
+				res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, task.statedb, config, nil, true)
 				if err != nil {
 					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 				} else {
@@ -224,7 +224,7 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 	advanceState := func(i int, tx *gethtypes.Transaction) error {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		statedb.SetTxContext(tx.Hash(), i)
-		if err := api.backend.PrepareTx(statedb, tx); err != nil {
+		if err := api.backend.PrepareTxNoFlush(statedb, tx); err != nil {
 			return err
 		}
 		if _, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(msg.GasLimit)); err != nil {
@@ -314,6 +314,7 @@ func (api *DebugAPI) profiledTraceTx(
 	statedb vm.StateDB,
 	config *tracers.TraceConfig,
 	precompiles vm.PrecompiledContracts,
+	noFlush bool,
 ) (value interface{}, returnErr error) {
 	var (
 		tracer    *tracers.Tracer
@@ -377,8 +378,14 @@ func (api *DebugAPI) profiledTraceTx(
 	defer cancel()
 
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
-	if err := api.backend.PrepareTx(statedb, tx); err != nil {
-		return profiledErrorTrace(err, tx, message, txctx, vmctx, config)
+	var prepareTxErr error
+	if noFlush {
+		prepareTxErr = api.backend.PrepareTxNoFlush(statedb, tx)
+	} else {
+		prepareTxErr = api.backend.PrepareTx(statedb, tx)
+	}
+	if prepareTxErr != nil {
+		return profiledErrorTrace(prepareTxErr, tx, message, txctx, vmctx, config)
 	}
 	_, err = core.ApplyTransactionWithEVM(message, new(core.GasPool).AddGas(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, evm)
 	if err != nil {
