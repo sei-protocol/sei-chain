@@ -79,6 +79,12 @@ type Config struct {
 	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
+
+	// HashPipelineSize controls the capacity of the buffered channel used to
+	// pipeline LtHash computation off the main thread. A larger value allows
+	// more blocks to proceed before backpressure stalls ApplyChangeSets.
+	// Must be >= 1. Default: 16.
+	HashPipelineSize int
 }
 
 // DefaultConfig returns Config with safe default values.
@@ -99,6 +105,7 @@ func DefaultConfig() *Config {
 		ReaderPoolQueueSize:       1024,
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
+		HashPipelineSize:          16,
 	}
 
 	cfg.AccountDBConfig.CacheConfig.MaxSize = unit.GB
@@ -177,6 +184,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MiscConstantThreadCount < 0 {
 		return fmt.Errorf("misc constant thread count must be greater than 0")
+	}
+	if c.HashPipelineSize < 1 {
+		return fmt.Errorf("HashPipelineSize must be at least 1 (got %d)", c.HashPipelineSize)
 	}
 
 	return nil

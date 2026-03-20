@@ -73,6 +73,14 @@ func (s *CommitStore) closeDBsOnly() error {
 // stop background goroutines (pools, caches, metrics), and releases the
 // file lock.
 func (s *CommitStore) Close() error {
+	// Drain the hash pipeline before closing DBs. The worker may hold
+	// snapshots that reference open PebbleDB instances.
+	if s.hashWorkChan != nil {
+		close(s.hashWorkChan)
+		<-s.hashDone
+		s.hashWorkChan = nil
+	}
+
 	err := s.closeDBsOnly()
 	s.cancel()
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -108,6 +109,12 @@ type CommitStore struct {
 	//
 	// Uses an elasticly-sized pool, so it is safe to submit tasks that have dependencies on other tasks in the pool.
 	miscPool threading.Pool
+
+	// Hash pipeline: LtHash computation runs on a background goroutine so
+	// ApplyChangeSets can return without blocking on hash work.
+	hashWorkChan chan hashWorkItem // buffered work channel; capacity = Config.HashPipelineSize
+	hashDone     chan struct{}     // closed when hashWorkerLoop exits
+	hashWG       sync.WaitGroup    // tracks in-flight hash work items
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -137,7 +144,7 @@ func NewCommitStore(
 	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
 	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", miscPoolSize)
 
-	return &CommitStore{
+	s := &CommitStore{
 		ctx:                ctx,
 		cancel:             cancel,
 		config:             *cfg,
@@ -149,7 +156,17 @@ func NewCommitStore(
 		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 		readPool:           readPool,
 		miscPool:           miscPool,
-	}, nil
+	}
+	s.startHashPipeline()
+	return s, nil
+}
+
+// startHashPipeline creates the hash work channel and starts the background
+// goroutine that processes LtHash work items.
+func (s *CommitStore) startHashPipeline() {
+	s.hashWorkChan = make(chan hashWorkItem, s.config.HashPipelineSize)
+	s.hashDone = make(chan struct{})
+	go s.hashWorkerLoop()
 }
 
 // resetPools recreates the context and thread pools after a full Close().
@@ -163,6 +180,8 @@ func (s *CommitStore) resetPools() {
 
 	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
 	s.miscPool = threading.NewElasticPool(s.ctx, "flatkv-misc", miscPoolSize)
+
+	s.startHashPipeline()
 }
 
 func (s *CommitStore) flatkvDir() string {

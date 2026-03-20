@@ -12,6 +12,29 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
+// hashWorkItem is sent from the main thread to the hash worker goroutine via
+// hashWorkChan. It carries everything needed to complete the second half of
+// ApplyChangeSets asynchronously: reading old values for non-account DBs from
+// snapshots, computing the LtHash delta, persisting per-DB hashes, and
+// releasing the snapshots.
+type hashWorkItem struct {
+	// Changeset grouped by DB. Account read keys are already filled (read on
+	// main thread); storage/code/legacy read keys have keys populated but
+	// values not yet read -- the worker performs those BatchGet calls.
+	parsed changesetByDB
+
+	// Merged account values (nonce + codehash applied to old value), used for
+	// LtHash account pairs.
+	accounts map[string]mergedAccount
+
+	// Point-in-time DB snapshots for batch reads and SetHash. Ownership is
+	// exclusive to the worker; it must Release all snapshots when done.
+	snapshots map[string]dbcache.CacheSnapshot
+
+	// Receives the 32-byte Blake3 root hash or an error.
+	resultCh chan HashResult
+}
+
 // accountFieldOp represents a single nonce or codehash change for an address.
 type accountFieldOp struct {
 	kind     evm.EVMKeyKind // EVMKeyNonce or EVMKeyCodeHash
@@ -43,11 +66,16 @@ type mergedAccount struct {
 	oldRaw []byte // raw encoded bytes from snapshot (nil if account didn't exist)
 }
 
-// ApplyChangeSets writes EVM changesets through the cache interface and updates LtHash.
+// ApplyChangeSets writes EVM changesets through the cache interface and
+// asynchronously computes the LtHash.
+//
+// The main thread performs: snapshot, parse, account-only batch read, merge
+// accounts, and cache writes. It then enqueues the remaining work (non-account
+// batch reads, LtHash computation, snapshot SetHash/Release) onto a background
+// goroutine.
 //
 // Returns a channel that will receive exactly one HashResult containing the
-// 32-byte Blake3 root hash. In the current (non-pipelined) implementation the
-// hash is computed synchronously and the channel is pre-loaded before return.
+// 32-byte Blake3 root hash (or an error from the hash worker).
 func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (_ <-chan HashResult, retErr error) {
 	if s.readOnly {
 		return nil, errReadOnly
@@ -72,10 +100,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (_ <-chan Hash
 		return nil, fmt.Errorf("parse changesets: %w", err)
 	}
 
-	// Phase 3: Batch read old values from snapshots.
+	// Phase 3: Batch read old account values only (needed for merge).
+	// Storage/code/legacy reads are deferred to the hash worker.
 	s.phaseTimer.SetPhase("apply_snapshot_read")
-	if err := s.snapshotBatchRead(snapshots, &parsed); err != nil {
-		return nil, fmt.Errorf("snapshot batch read: %w", err)
+	if len(parsed.accountReadKeys) > 0 {
+		if err := snapshots[accountDBDir].BatchGet(parsed.accountReadKeys); err != nil {
+			return nil, fmt.Errorf("account batch read: %w", err)
+		}
 	}
 
 	// Phase 4: Merge account field changes with old account values.
@@ -91,33 +122,25 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (_ <-chan Hash
 		return nil, fmt.Errorf("cache write: %w", err)
 	}
 
-	// Phase 6: Compute per-DB and global LtHash.
-	s.phaseTimer.SetPhase("apply_lthash")
-	s.computePerDBLtHash(&parsed, accounts)
-
-	// Phase 7: SetHash on each data DB snapshot, then release.
-	// Metadata DB is excluded from LtHash tracking.
-	s.phaseTimer.SetPhase("apply_set_hash")
-	for dir, snap := range snapshots {
-		if dir == metadataDir {
-			continue
-		}
-		if err := snap.SetHash(s.perDBWorkingLtHash[dir].Marshal()); err != nil {
-			return nil, fmt.Errorf("set hash for %s: %w", dir, err)
-		}
+	// Phase 6: Enqueue hash work to background goroutine.
+	// The worker will: batch-read storage/code/legacy, compute LtHash,
+	// SetHash on snapshots, and release them.
+	s.phaseTimer.SetPhase("apply_enqueue_hash")
+	resultCh := make(chan HashResult, 1)
+	s.hashWG.Add(1)
+	s.hashWorkChan <- hashWorkItem{
+		parsed:    parsed,
+		accounts:  accounts,
+		snapshots: snapshots,
+		resultCh:  resultCh,
 	}
-
-	s.releaseSnapshots(snapshots)
-	snapshots = nil // prevent double-release in defer
+	snapshots = nil // ownership transferred to worker; prevent double-release in defer
 
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	s.phaseTimer.SetPhase("apply_done")
 
-	ch := make(chan HashResult, 1)
-	checksum := s.workingLtHash.Checksum()
-	ch <- HashResult{Hash: checksum[:]}
-	return ch, nil
+	return resultCh, nil
 }
 
 // snapshotDBs takes a snapshot of every DB cache (data DBs + metadata).
@@ -295,6 +318,85 @@ func (s *CommitStore) snapshotBatchRead(
 		}
 	}
 	return nil
+}
+
+// snapshotBatchReadNonAccounts issues parallel BatchGet calls against the
+// storage, code, and legacy DB snapshots. Called by the hash worker goroutine.
+func (s *CommitStore) snapshotBatchReadNonAccounts(
+	snapshots map[string]dbcache.CacheSnapshot,
+	p *changesetByDB,
+) error {
+	type readJob struct {
+		dir  string
+		keys map[string]types.BatchGetResult
+	}
+
+	jobs := [3]readJob{
+		{storageDBDir, p.storageReadKeys},
+		{codeDBDir, p.codeReadKeys},
+		{legacyDBDir, p.legacyReadKeys},
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	for i, job := range jobs {
+		if len(job.keys) == 0 {
+			continue
+		}
+		wg.Add(1)
+		err := s.miscPool.Submit(s.ctx, func() {
+			defer wg.Done()
+			errs[i] = snapshots[job.dir].BatchGet(job.keys)
+		})
+		if err != nil {
+			return fmt.Errorf("submit %s batch read: %w", job.dir, err)
+		}
+	}
+	wg.Wait()
+
+	for i, job := range jobs {
+		if errs[i] != nil {
+			return fmt.Errorf("%s batch read: %w", job.dir, errs[i])
+		}
+	}
+	return nil
+}
+
+// hashWorkerLoop processes hash work items from hashWorkChan sequentially.
+// It is the sole writer of perDBWorkingLtHash and workingLtHash.
+func (s *CommitStore) hashWorkerLoop() {
+	defer close(s.hashDone)
+	for item := range s.hashWorkChan {
+		result := s.processHashWorkItem(item)
+		item.resultCh <- result
+		s.hashWG.Done()
+	}
+}
+
+// processHashWorkItem reads old values for non-account DBs, computes LtHash,
+// sets per-DB hashes on snapshots, and releases all snapshots.
+func (s *CommitStore) processHashWorkItem(item hashWorkItem) HashResult {
+	if err := s.snapshotBatchReadNonAccounts(item.snapshots, &item.parsed); err != nil {
+		s.releaseSnapshots(item.snapshots)
+		return HashResult{Err: fmt.Errorf("hash worker batch read: %w", err)}
+	}
+
+	s.computePerDBLtHash(&item.parsed, item.accounts)
+
+	for dir, snap := range item.snapshots {
+		if dir == metadataDir {
+			continue
+		}
+		if err := snap.SetHash(s.perDBWorkingLtHash[dir].Marshal()); err != nil {
+			s.releaseSnapshots(item.snapshots)
+			return HashResult{Err: fmt.Errorf("hash worker set hash for %s: %w", dir, err)}
+		}
+	}
+
+	s.releaseSnapshots(item.snapshots)
+
+	checksum := s.workingLtHash.Checksum()
+	return HashResult{Hash: checksum[:]}
 }
 
 // mergeAccountChanges applies field-level nonce/codehash operations to old account values.
@@ -484,7 +586,9 @@ func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
 // Protocol: WAL -> per-DB LocalMeta (all DBs including metadata) -> done.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
-	// TODO before merge: commit is busted, as we now flush to DBs asynchronously
+	// Drain all in-flight hash work so that workingLtHash / perDBWorkingLtHash
+	// are up to date before commitBatches reads them.
+	s.hashWG.Wait()
 	s.phaseTimer.SetPhase("commit_preamble")
 	if s.readOnly {
 		return 0, errReadOnly

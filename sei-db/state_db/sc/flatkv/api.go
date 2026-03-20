@@ -34,11 +34,12 @@ type Store interface {
 	// the caller must Close it when done.
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
-	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
+	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates caches.
 	// Non-EVM modules are ignored. Call Commit to persist.
 	//
-	// Returns a channel that will receive exactly one HashResult containing the
-	// 32-byte Blake3 root hash (or an error).
+	// LtHash computation is pipelined on a background goroutine. Returns a
+	// channel that will receive exactly one HashResult containing the 32-byte
+	// Blake3 root hash (or an error from the hash worker).
 	ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan HashResult, error)
 
 	// Commit persists buffered writes and advances the version.
