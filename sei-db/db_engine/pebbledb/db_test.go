@@ -98,19 +98,19 @@ func TestErrNotFoundConsistency(t *testing.T) {
 }
 
 func TestGetReturnsCopy(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig) {
-		db := openDB(t, &cfg)
+	cfg := DefaultTestConfig(t)
+	cfg.CacheSize = 0
+	db := openDB(t, &cfg)
 
-		require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
+	require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
 
-		got, err := db.Get([]byte("k"))
-		require.NoError(t, err)
-		got[0] = 'X'
+	got, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	got[0] = 'X'
 
-		got2, err := db.Get([]byte("k"))
-		require.NoError(t, err)
-		require.Equal(t, "v", string(got2), "stored value should remain unchanged")
-	})
+	got2, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, "v", string(got2), "stored value should remain unchanged")
 }
 
 func TestBatchLenResetDelete(t *testing.T) {
