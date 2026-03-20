@@ -509,8 +509,6 @@ func (c *CryptoSim) teardown() {
 	}
 
 	c.cancel()
-	c.dataGenerator.Close()
-
 	c.closeChan <- struct{}{}
 }
 
