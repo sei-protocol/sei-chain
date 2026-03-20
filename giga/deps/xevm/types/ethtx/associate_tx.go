@@ -37,7 +37,18 @@ func (tx *AssociateTx) GetRawSignatureValues() (v, r, s *big.Int) {
 func (tx *AssociateTx) SetSignatureValues(_, _, _, _ *big.Int) { panic("not implemented") }
 
 func (tx *AssociateTx) AsEthereumData() ethtypes.TxData { panic("not implemented") }
-func (tx *AssociateTx) Validate() error                 { panic("not implemented") }
+func (tx *AssociateTx) Validate() error {
+	if err := validateSignatureValue("v", tx.V, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("r", tx.R, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("s", tx.S, 32); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (tx *AssociateTx) Fee() *big.Int  { panic("not implemented") }
 func (tx *AssociateTx) Cost() *big.Int { panic("not implemented") }
