@@ -638,6 +638,19 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	res := store.Query(req)
 
+	// When serving from a historical read-only memiavl instance, the response
+	// byte slices (Key, Value) may point directly into mmap'd memory that will
+	// be unmapped when the deferred scStore.Close() runs. Copy them so the
+	// caller doesn't hit a use-after-free segfault during JSON marshaling.
+	if !latest {
+		if len(res.Key) > 0 {
+			res.Key = append([]byte{}, res.Key...)
+		}
+		if len(res.Value) > 0 {
+			res.Value = append([]byte{}, res.Value...)
+		}
+	}
+
 	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
 	if res.Code != 0 || !needProof {
 		return res
