@@ -232,11 +232,13 @@ func (it *dbIterator) Value() []byte {
 // CommitStore factory methods for creating iterators
 
 func (s *CommitStore) newStorageIterator(start, end []byte) Iterator {
-	return newDBIterator(s.storageDB, evm.EVMKeyStorage, start, end)
+	panic("not implemented") // TODO fix before merge
+	// return newDBIterator(s.storageDB, evm.EVMKeyStorage, start, end)
 }
 
 func (s *CommitStore) newStoragePrefixIterator(internalPrefix []byte, memiavlPrefix []byte) Iterator {
-	return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
+	panic("not implemented") // TODO fix before merge
+	// return newDBPrefixIterator(s.storageDB, evm.EVMKeyStorage, internalPrefix, memiavlPrefix)
 }
 
 // emptyIterator is used when no data matches the query.

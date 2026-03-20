@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -23,26 +23,29 @@ func versionToBytes(v int64) []byte {
 }
 
 // loadLocalMeta loads per-DB metadata by reading separate keys.
-func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
+func loadLocalMeta(db dbcache.Cache) (*LocalMeta, error) {
 	meta := &LocalMeta{}
 
-	versionData, err := db.Get(metaVersionKey)
+	versionData, found, err := db.Get(metaVersionKey, true)
 	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return &LocalMeta{CommittedVersion: 0}, nil
-		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
+	}
+	if !found {
+		return &LocalMeta{CommittedVersion: 0}, nil
 	}
 	if len(versionData) != 8 {
 		return nil, fmt.Errorf("invalid meta version length: got %d, want 8", len(versionData))
 	}
 	meta.CommittedVersion = int64(binary.BigEndian.Uint64(versionData)) //nolint:gosec // version won't exceed int64 max
 
-	hashData, err := db.Get(metaLtHashKey)
-	if err != nil && !errorutils.IsNotFound(err) {
+	hashData, found, err := db.Get(metaLtHashKey, true)
+	if err != nil {
 		return nil, fmt.Errorf("could not read meta hash: %w", err)
 	}
-	if err == nil && hashData != nil {
+	if !found {
+		return &LocalMeta{LtHash: nil}, nil
+	}
+	if hashData != nil {
 		h, err := lthash.Unmarshal(hashData)
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal meta hash: %w", err)
@@ -69,8 +72,8 @@ func writeLocalMetaToBatch(batch types.Batch, version int64, ltHash *lthash.LtHa
 // loadGlobalVersion reads the global committed version from metadata DB.
 // Returns 0 if not found (fresh start).
 func (s *CommitStore) loadGlobalVersion() (int64, error) {
-	data, err := s.metadataDB.Get(metaVersionKey)
-	if errorutils.IsNotFound(err) {
+	data, found, err := s.metadataDB.Get(metaVersionKey, true)
+	if !found {
 		return 0, nil
 	}
 	if err != nil {
@@ -89,8 +92,8 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
 func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
-	data, err := s.metadataDB.Get(metaLtHashKey)
-	if errorutils.IsNotFound(err) {
+	data, found, err := s.metadataDB.Get(metaLtHashKey, true)
+	if !found {
 		return nil, nil
 	}
 	if err != nil {
@@ -103,17 +106,19 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 // to metadata DB. Per-DB LtHashes are stored in each DB's LocalMeta
 // (committed atomically with data in commitBatches).
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-	batch := s.metadataDB.NewBatch()
-	defer func() { _ = batch.Close() }()
 
-	if err := batch.Set(metaVersionKey, versionToBytes(version)); err != nil {
-		return fmt.Errorf("failed to set global version: %w", err)
-	}
-	if err := batch.Set(metaLtHashKey, hash.Marshal()); err != nil {
-		return fmt.Errorf("failed to set global lthash: %w", err)
-	}
+	s.metadataDB.Set(metaVersionKey, versionToBytes(version))
+	s.metadataDB.Set(metaLtHashKey, hash.Marshal())
 
-	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
+	// Snapshot and release, thus permitting prior writes to be flushed to disk.
+	// TODO before merge: document this better
+	snapshot, err := s.metadataDB.Snapshot()
+	if err != nil {
+		return fmt.Errorf("failed to create snapshot: %w", err)
+	}
+	snapshot.Release()
+
+	return nil
 }
 
 // newPerDBLtHashMap returns a map with a fresh zero LtHash for each data DB.

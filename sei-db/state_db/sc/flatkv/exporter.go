@@ -130,23 +130,24 @@ func (e *KVExporter) Close() error {
 // openIterForDB returns an iterator over all user data in the given DB.
 // Metadata keys are filtered out by isMetaKey() in the iteration loop.
 func (e *KVExporter) openIterForDB(db exportDBKind) (dbtypes.KeyValueDBIterator, error) {
-	var kvDB dbtypes.KeyValueDB
-	switch db {
-	case exportDBAccount:
-		kvDB = e.store.accountDB
-	case exportDBCode:
-		kvDB = e.store.codeDB
-	case exportDBStorage:
-		kvDB = e.store.storageDB
-	case exportDBLegacy:
-		kvDB = e.store.legacyDB
-	default:
-		return nil, nil
-	}
-	if kvDB == nil {
-		return nil, nil
-	}
-	return kvDB.NewIter(&dbtypes.IterOptions{})
+	panic("not implemented") // TODO fix before merge
+	// var kvDB dbtypes.KeyValueDB
+	// switch db {
+	// case exportDBAccount:
+	// 	kvDB = e.store.accountDB
+	// case exportDBCode:
+	// 	kvDB = e.store.codeDB
+	// case exportDBStorage:
+	// 	kvDB = e.store.storageDB
+	// case exportDBLegacy:
+	// 	kvDB = e.store.legacyDB
+	// default:
+	// 	return nil, nil
+	// }
+	// if kvDB == nil {
+	// 	return nil, nil
+	// }
+	// return kvDB.NewIter(&dbtypes.IterOptions{})
 }
 
 func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*types.SnapshotNode, error) {

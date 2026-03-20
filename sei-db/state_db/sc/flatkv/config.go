@@ -47,19 +47,19 @@ type Config struct {
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
 	// AccountDBConfig defines the configuration for the account database.
-	AccountDBConfig pebbledb.PebbleDBConfig
+	AccountDBConfig *pebbledb.PebbleDBConfig
 
 	// CodeDBConfig defines the configuration for the code database.
-	CodeDBConfig pebbledb.PebbleDBConfig
+	CodeDBConfig *pebbledb.PebbleDBConfig
 
 	// StorageDBConfig defines the configuration for the storage database.
-	StorageDBConfig pebbledb.PebbleDBConfig
+	StorageDBConfig *pebbledb.PebbleDBConfig
 
 	// LegacyDBConfig defines the configuration for the legacy database.
-	LegacyDBConfig pebbledb.PebbleDBConfig
+	LegacyDBConfig *pebbledb.PebbleDBConfig
 
 	// MetadataDBConfig defines the configuration for the metadata database.
-	MetadataDBConfig pebbledb.PebbleDBConfig
+	MetadataDBConfig *pebbledb.PebbleDBConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -101,8 +101,8 @@ func DefaultConfig() *Config {
 		MiscConstantThreadCount:   0,
 	}
 
-	cfg.AccountDBConfig.CacheSize = unit.GB
-	cfg.StorageDBConfig.CacheSize = unit.GB * 4
+	cfg.AccountDBConfig.CacheConfig.MaxSize = unit.GB
+	cfg.StorageDBConfig.CacheConfig.MaxSize = unit.GB * 4
 
 	return cfg
 }

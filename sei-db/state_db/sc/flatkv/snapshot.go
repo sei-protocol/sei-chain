@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -382,7 +383,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	metaCfg := s.config.MetadataDBConfig
 	metaCfg.DataDir = filepath.Join(flatkvDir, metadataDir)
 	tmpMeta, err := pebbledb.Open(
-		s.ctx, &metaCfg, pebble.DefaultComparer)
+		s.ctx, metaCfg, pebble.DefaultComparer)
 	if err == nil {
 		verData, verErr := tmpMeta.Get(metaVersionKey)
 		_ = tmpMeta.Close()
@@ -430,6 +431,9 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 	if s.readOnly {
 		return errReadOnly
 	}
+
+	return nil // TODO snapshotting is currently broken and needs fixing
+
 	version := s.committedVersion
 	if version <= 0 {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
@@ -456,7 +460,7 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 	// Deterministic order (slice, not map) for reproducibility.
 	type namedDB struct {
 		name string
-		db   types.KeyValueDB
+		db   dbcache.Cache
 	}
 	dbs := []namedDB{
 		{accountDBDir, s.accountDB},
