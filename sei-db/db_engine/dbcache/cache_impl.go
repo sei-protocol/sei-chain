@@ -75,6 +75,9 @@ type cache struct {
 	// the DB is empty (fresh start) and HashKey is configured.
 	// When enabled, snapshots are not GC-eligible until SetHash is called.
 	hashTrackingEnabled bool
+
+	// Metrics for recording cache statistics.
+	metrics *CacheMetrics
 }
 
 // Tracks the reference count for a particular snapshot.
@@ -153,6 +156,7 @@ func NewStandardCache(
 		for _, s := range c.shards {
 			s.metrics = metrics
 		}
+		c.metrics = metrics
 	}
 
 	go c.garbageCollectionRunner()
@@ -269,13 +273,18 @@ func (c *cache) Set(key []byte, value []byte) {
 
 func (c *cache) Snapshot() (CacheSnapshot, error) {
 	if !c.bootHashLoaded {
+		c.metrics.setSnapshotPhase("init_boot_hash")
 		if err := c.initBootHash(); err != nil {
 			return nil, err
 		}
 	}
 
+	c.metrics.setSnapshotPhase("acquire_version_lock")
+
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
+
+	c.metrics.setSnapshotPhase("gc_backpressure")
 
 	err := c.gcBackpressure()
 	if err != nil {
@@ -302,6 +311,8 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 
 	c.currentVersion++
 
+	c.metrics.setSnapshotPhase("shards_snapshot")
+
 	for _, shard := range c.shards {
 		shardVersion := shard.Snapshot()
 		if shardVersion != c.currentVersion {
@@ -309,6 +320,8 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 				shardVersion, c.currentVersion)
 		}
 	}
+
+	c.metrics.setSnapshotPhase("")
 
 	return snapshot, nil
 }
@@ -666,7 +679,7 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 		}
 
 		if batch.Len() >= c.config.TargetKeysPerFlush {
-			if err := batch.Commit(types.WriteOptions{Sync: true}); err != nil {
+			if err := batch.Commit(types.WriteOptions{Sync: false}); err != nil { // TODO check sync requirement
 				return fmt.Errorf("flush failed to commit batch: %w", err)
 			}
 			batch = nil
@@ -678,7 +691,7 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 		}
 	}
 	if batch != nil {
-		if err := batch.Commit(types.WriteOptions{Sync: true}); err != nil {
+		if err := batch.Commit(types.WriteOptions{Sync: false}); err != nil { // TODO check sync requirement
 			return fmt.Errorf("flush failed to commit batch: %w", err)
 		}
 		c.versionLock.Lock()

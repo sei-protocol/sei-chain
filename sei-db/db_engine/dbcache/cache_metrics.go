@@ -2,6 +2,7 @@ package dbcache
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -25,11 +26,12 @@ type CacheMetrics struct {
 	// per-call allocations on the hot path.
 	attrs metric.MeasurementOption
 
-	sizeBytes   metric.Int64Gauge
-	sizeEntries metric.Int64Gauge
-	hits        metric.Int64Counter
-	misses      metric.Int64Counter
-	missLatency metric.Float64Histogram
+	sizeBytes          metric.Int64Gauge
+	sizeEntries        metric.Int64Gauge
+	hits               metric.Int64Counter
+	misses             metric.Int64Counter
+	missLatency        metric.Float64Histogram
+	snapshotPhaseTimer *metrics.PhaseTimer
 }
 
 // newCacheMetrics creates a CacheMetrics that records cache statistics via OTel.
@@ -74,14 +76,16 @@ func newCacheMetrics(
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(metrics.LatencyBuckets...),
 	)
+	snapshotPhaseTimer := metrics.NewPhaseTimer(meter, fmt.Sprintf("pebblecache_snapshot_%s", cacheName))
 
 	cm := &CacheMetrics{
-		attrs:       metric.WithAttributes(attribute.String("cache", cacheName)),
-		sizeBytes:   sizeBytes,
-		sizeEntries: sizeEntries,
-		hits:        hits,
-		misses:      misses,
-		missLatency: missLatency,
+		attrs:              metric.WithAttributes(attribute.String("cache", cacheName)),
+		sizeBytes:          sizeBytes,
+		sizeEntries:        sizeEntries,
+		hits:               hits,
+		misses:             misses,
+		missLatency:        missLatency,
+		snapshotPhaseTimer: snapshotPhaseTimer,
 	}
 
 	go cm.collectLoop(ctx, scrapeInterval, getSize)
@@ -132,5 +136,18 @@ func (cm *CacheMetrics) collectLoop(
 			cm.sizeBytes.Record(ctx, int64(bytes), cm.attrs)     //nolint:gosec // G115: safe, cache size fits int64
 			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec // G115: safe, entry count fits int64
 		}
+	}
+}
+
+// setSnapshotPhase sets the phase for the snapshot phase timer.
+func (cm *CacheMetrics) setSnapshotPhase(phase string) {
+	if cm == nil {
+		return
+	}
+	if phase == "" {
+		cm.snapshotPhaseTimer.Reset()
+
+	} else {
+		cm.snapshotPhaseTimer.SetPhase(phase)
 	}
 }
