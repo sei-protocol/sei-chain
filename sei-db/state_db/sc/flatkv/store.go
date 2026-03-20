@@ -161,20 +161,21 @@ func NewCommitStore(
 	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", miscPoolSize)
 
 	return &CommitStore{
-		ctx:               ctx,
-		cancel:            cancel,
-		config:            *cfg,
-		localMeta:         make(map[string]*LocalMeta),
-		accountWrites:     make(map[string]*pendingAccountWrite),
-		codeWrites:        make(map[string]*pendingKVWrite),
-		storageWrites:     make(map[string]*pendingKVWrite),
-		legacyWrites:      make(map[string]*pendingKVWrite),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
-		readPool:          readPool,
-		miscPool:          miscPool,
+		ctx:                ctx,
+		cancel:             cancel,
+		config:             *cfg,
+		localMeta:          make(map[string]*LocalMeta),
+		accountWrites:      make(map[string]*pendingAccountWrite),
+		codeWrites:         make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*pendingKVWrite),
+		legacyWrites:       make(map[string]*pendingKVWrite),
+		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
+		committedLtHash:    lthash.New(),
+		workingLtHash:      lthash.New(),
+		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
+		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		readPool:           readPool,
+		miscPool:           miscPool,
 	}, nil
 }
 
