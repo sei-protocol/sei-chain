@@ -1391,12 +1391,9 @@ func TestReopenAfterDeletes(t *testing.T) {
 // =============================================================================
 
 func TestWALTruncationThenRollback(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &Config{
-		DataDir:            filepath.Join(dir, flatkvRootDir),
-		SnapshotInterval:   5,
-		SnapshotKeepRecent: 1,
-	}
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 5
+	cfg.SnapshotKeepRecent = 1
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -1432,13 +1429,9 @@ func TestWALTruncationThenRollback(t *testing.T) {
 // =============================================================================
 
 func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
-	dir := t.TempDir()
-	dbDir := filepath.Join(dir, flatkvRootDir)
-	cfg := &Config{
-		DataDir:            dbDir,
-		SnapshotInterval:   5,
-		SnapshotKeepRecent: 1,
-	}
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 5
+	cfg.SnapshotKeepRecent = 1
 
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
