@@ -1497,14 +1497,14 @@ func TestSnapshotShutdownUnblocksBackpressure(t *testing.T) {
 	config.MetricsName = "test"
 	config.ShardCount = 1
 	config.MaxSize = 4096
-	config.MaxUnGCdVersions = 2
-	// Very slow GC so versions pile up.
-	config.GCIntervalSeconds = 100
+	config.MaxUnretiredVersions = 2
+	// Very slow lifecycle loop so versions pile up.
+	config.LifecycleIntervalSeconds = 100
 	c, err := NewStandardCache(ctx, config, newTestDB(nil), pool, pool)
 	require.NoError(t, err)
 
-	// Create and release enough snapshots to exceed MaxUnGCdVersions.
-	for i := uint64(0); i <= config.MaxUnGCdVersions; i++ {
+	// Create and release enough snapshots to exceed MaxUnretiredVersions.
+	for i := uint64(0); i <= config.MaxUnretiredVersions; i++ {
 		c.Set([]byte(fmt.Sprintf("k-%d", i)), []byte("v"))
 		snap, err := c.Snapshot()
 		require.NoError(t, err)

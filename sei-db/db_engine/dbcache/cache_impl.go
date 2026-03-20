@@ -43,29 +43,28 @@ type cache struct {
 	// The version of the oldest snapshot we are currently tracking.
 	oldestVersion uint64
 
-	// Protects modification to versionMap, unGCdVersions, lastVersionEligibleForGC, and shuttingDown.
+	// Protects modification to versionMap, unretiredVersions, lastRetirementEligibleVersion, and shuttingDown.
 	versionLock *sync.Mutex
 
 	// Reference counts for all snapshots we are currently tracking. The current (mutable) version
 	// does not have a reference count and so it does not appear in this map.
 	versionMap map[uint64]*snapshotReferenceCounter
 
-	// The number of snapshots that are currently eligible for garbage collection + flush,
-	// but which have not yet been flushed.
-	unGCdVersions uint64
+	// The number of snapshots that are eligible for retirement (flush + eviction) but have not yet been retired.
+	unretiredVersions uint64
 
-	// The latest version that is eligible for GC. There may or may not be earlier versions that are eligible for GC.
-	// This value is not updated if the version in question is actually GC'd.
-	lastVersionEligibleForGC uint64
+	// The latest version that is eligible for retirement. There may or may not be earlier eligible versions.
+	// This value is not updated when the version is actually retired.
+	lastRetirementEligibleVersion uint64
 
-	// Used to enforce GC backpressure. We want to block Snapshot() if unGCdVersions grows too large.
-	gcBackpressueCond *sync.Cond
+	// Used to enforce lifecycle backpressure. We want to block Snapshot() if unretiredVersions grows too large.
+	lifecycleBackpressureCond *sync.Cond
 
 	// Set to true when the cache is shutting down.
 	shuttingDown bool
 
-	// Closed by the GC runner when it exits, so Close() can wait for it.
-	gcDone chan struct{}
+	// Closed by the lifecycle runner when it exits, so Close() can wait for it.
+	lifecycleDone chan struct{}
 
 	// Whether the first Snapshot() has already attempted to load the boot hash from the DB.
 	bootHashLoaded bool
@@ -73,7 +72,7 @@ type cache struct {
 	// True when HashKey is configured and hash tracking should be enforced.
 	// Enabled either when the hash key is found in the DB at boot, or when
 	// the DB is empty (fresh start) and HashKey is configured.
-	// When enabled, snapshots are not GC-eligible until SetHash is called.
+	// When enabled, snapshots are not retirement-eligible until SetHash is called.
 	hashTrackingEnabled bool
 
 	// Metrics for recording cache statistics.
@@ -130,25 +129,25 @@ func NewStandardCache(
 	}
 
 	versionLock := &sync.Mutex{}
-	gcBackpressueCond := sync.NewCond(versionLock)
+	lifecycleBackpressureCond := sync.NewCond(versionLock)
 
 	childCtx, cancel := context.WithCancel(ctx)
 
 	c := &cache{
-		ctx:               childCtx,
-		cancel:            cancel,
-		config:            config,
-		shardManager:      shardManager,
-		shards:            shards,
-		readPool:          readPool,
-		miscPool:          miscPool,
-		db:                db,
-		versionMap:        make(map[uint64]*snapshotReferenceCounter),
-		currentVersion:    1, // important: versions start at 1, not 0, to allow version-1 without underflow
-		oldestVersion:     1,
-		versionLock:       versionLock,
-		gcBackpressueCond: gcBackpressueCond,
-		gcDone:            make(chan struct{}),
+		ctx:                       childCtx,
+		cancel:                    cancel,
+		config:                    config,
+		shardManager:              shardManager,
+		shards:                    shards,
+		readPool:                  readPool,
+		miscPool:                  miscPool,
+		db:                        db,
+		versionMap:                make(map[uint64]*snapshotReferenceCounter),
+		currentVersion:            1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		oldestVersion:             1,
+		versionLock:               versionLock,
+		lifecycleBackpressureCond: lifecycleBackpressureCond,
+		lifecycleDone:             make(chan struct{}),
 	}
 
 	if config.MetricsEnabled {
@@ -159,7 +158,7 @@ func NewStandardCache(
 		c.metrics = metrics
 	}
 
-	go c.garbageCollectionRunner()
+	go c.lifecycleRunner()
 
 	return c, nil
 }
@@ -284,11 +283,11 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	c.metrics.setSnapshotPhase("gc_backpressure")
+	c.metrics.setSnapshotPhase("lifecycle_backpressure")
 
-	err := c.gcBackpressure()
+	err := c.lifecycleBackpressure()
 	if err != nil {
-		return nil, fmt.Errorf("failed wait for gc to catch up: %w", err)
+		return nil, fmt.Errorf("lifecycle runner not keeping up: %w", err)
 	}
 
 	var hashReady chan struct{}
@@ -372,15 +371,15 @@ func (c *cache) isDBEmpty() (bool, error) {
 	return !hasData, nil
 }
 
-// This method blocks if GC/flush is not keeping up. It is assumed that the caller already holds the versionLock.
-// When this method returns, it will still hold the versionLock, but it may release and then re-acquire versionLock
-// internally as it awaits for GC to catch up.
-func (c *cache) gcBackpressure() error {
-	for c.unGCdVersions > c.config.MaxUnGCdVersions {
+// This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
+// versionLock. When this method returns, it will still hold the versionLock, but it may release and then
+// re-acquire versionLock internally as it awaits for the lifecycle runner to catch up.
+func (c *cache) lifecycleBackpressure() error {
+	for c.unretiredVersions > c.config.MaxUnretiredVersions {
 		if c.shuttingDown {
 			return fmt.Errorf("context cancelled")
 		}
-		c.gcBackpressueCond.Wait()
+		c.lifecycleBackpressureCond.Wait()
 	}
 	return nil
 }
@@ -399,7 +398,7 @@ func (c *cache) IncrementReferenceCount(version uint64) error {
 
 	counter, ok := c.versionMap[version]
 	if !ok {
-		// Should be impossible since the garbage collector won't ever leave gaps
+		// Should be impossible since version retirement never leaves gaps
 		return fmt.Errorf("version (%d) not found", version)
 	}
 
@@ -425,7 +424,7 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 
 	counter, ok := c.versionMap[version]
 	if !ok {
-		// Should be impossible since the garbage collector won't ever leave gaps
+		// Should be impossible since version retirement never leaves gaps
 		return fmt.Errorf("version (%d) not found", version)
 	}
 
@@ -435,34 +434,34 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 
 	counter.referenceCount--
 
-	c.scanGCEligibility()
+	c.scanRetirementEligibility()
 
 	return nil
 }
 
-// scanGCEligibility iterates from lastVersionEligibleForGC+1 forward and marks
+// scanRetirementEligibility iterates from lastRetirementEligibleVersion+1 forward and marks
 // contiguous eligible versions. A version is eligible when its reference count
 // is 0 and (if hash tracking is enabled) its hash has been set.
 // Caller must hold versionLock.
-func (c *cache) scanGCEligibility() {
-	versionToConsider := c.lastVersionEligibleForGC + 1
+func (c *cache) scanRetirementEligibility() {
+	versionToConsider := c.lastRetirementEligibleVersion + 1
 	for {
 		counter, ok := c.versionMap[versionToConsider]
 		if !ok {
 			break
 		}
 
-		if !c.isVersionGCEligible(counter) {
+		if !c.isVersionRetirementEligible(counter) {
 			break
 		}
 
-		c.unGCdVersions++
-		c.lastVersionEligibleForGC = versionToConsider
+		c.unretiredVersions++
+		c.lastRetirementEligibleVersion = versionToConsider
 		versionToConsider++
 	}
 }
 
-func (c *cache) isVersionGCEligible(counter *snapshotReferenceCounter) bool {
+func (c *cache) isVersionRetirementEligible(counter *snapshotReferenceCounter) bool {
 	if counter.referenceCount > 0 {
 		return false
 	}
@@ -499,7 +498,7 @@ func (c *cache) SetSnapshotHash(version uint64, hash []byte) error {
 		close(counter.hashReady)
 	}
 
-	c.scanGCEligibility()
+	c.scanRetirementEligibility()
 
 	return nil
 }
@@ -575,11 +574,11 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 	return diff, nil
 }
 
-// Perform periodic garbage collection.
-func (c *cache) garbageCollectionRunner() {
-	defer close(c.gcDone)
+// Periodically retire old versions: flush their data to the underlying DB, then free the in-memory snapshots.
+func (c *cache) lifecycleRunner() {
+	defer close(c.lifecycleDone)
 
-	ticker := time.NewTicker(c.config.GCInterval())
+	ticker := time.NewTicker(c.config.LifecycleInterval())
 	defer ticker.Stop()
 
 	for {
@@ -589,26 +588,25 @@ func (c *cache) garbageCollectionRunner() {
 			c.versionLock.Lock()
 			c.shuttingDown = true
 			c.versionLock.Unlock()
-			c.gcBackpressueCond.Signal()
+			c.lifecycleBackpressureCond.Signal()
 			return
 		case <-ticker.C:
-			err := c.garbageCollect()
+			err := c.retireVersions()
 			if err != nil {
-				// It's unfortunate to have to panic here, but GC failure is not recoverable.
-				// Continuing in the face of GC failure is likely to lead to GC corruption
-				// and a divergant app hash.
-				panic(fmt.Sprintf("failed to garbage collect: %v", err))
+				// Retirement failure is not recoverable. Continuing would risk
+				// data corruption and a divergent app hash.
+				panic(fmt.Sprintf("lifecycle: failed to retire versions: %v", err))
 			}
 		}
 	}
 }
 
-// Garbage collect all eligible snapshots and push data down into the DB.
-func (c *cache) garbageCollect() error {
+// Retire all eligible snapshots: flush their data down into the DB and free the in-memory state.
+func (c *cache) retireVersions() error {
 
-	// Determine which versions need cleanup.
-	firstVersionToGC := c.oldestVersion
-	lastVersionToGC := c.oldestVersion - 1
+	// Determine which versions are ready for retirement.
+	firstVersionToRetire := c.oldestVersion
+	lastVersionToRetire := c.oldestVersion - 1
 	c.versionLock.Lock()
 
 	oldestVersion := c.oldestVersion
@@ -619,21 +617,21 @@ func (c *cache) garbageCollect() error {
 			c.versionLock.Unlock()
 			return fmt.Errorf("version (%d) not found in version map", version)
 		}
-		if !c.isVersionGCEligible(counter) {
+		if !c.isVersionRetirementEligible(counter) {
 			break
 		}
-		lastVersionToGC++
+		lastVersionToRetire++
 		c.oldestVersion++
 		delete(c.versionMap, version)
 	}
 
 	c.versionLock.Unlock()
 
-	if lastVersionToGC < firstVersionToGC {
+	if lastVersionToRetire < firstVersionToRetire {
 		return nil
 	}
 
-	return c.flushVersions(firstVersionToGC, lastVersionToGC)
+	return c.flushVersions(firstVersionToRetire, lastVersionToRetire)
 }
 
 // flushVersions collects diffs for [firstVersion, lastVersion] from all shards,
@@ -684,9 +682,9 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 			}
 			batch = nil
 			c.versionLock.Lock()
-			c.unGCdVersions -= versionsInBatch
+			c.unretiredVersions -= versionsInBatch
 			c.versionLock.Unlock()
-			c.gcBackpressueCond.Signal()
+			c.lifecycleBackpressureCond.Signal()
 			versionsInBatch = 0
 		}
 	}
@@ -695,9 +693,9 @@ func (c *cache) flushVersions(firstVersion, lastVersion uint64) error {
 			return fmt.Errorf("flush failed to commit batch: %w", err)
 		}
 		c.versionLock.Lock()
-		c.unGCdVersions -= versionsInBatch
+		c.unretiredVersions -= versionsInBatch
 		c.versionLock.Unlock()
-		c.gcBackpressueCond.Signal()
+		c.lifecycleBackpressureCond.Signal()
 	}
 
 	// Now that the data is reflected in the DB, clean up the shards.
@@ -718,9 +716,9 @@ func (c *cache) UnderlyingDB() types.KeyValueDB {
 }
 
 func (c *cache) Close() error {
-	// Stop the GC runner and wait for it to exit.
+	// Stop the lifecycle runner and wait for it to exit.
 	c.cancel()
-	<-c.gcDone
+	<-c.lifecycleDone
 
 	// Flush all remaining snapshotted versions to disk. The current mutable version
 	// is intentionally not flushed — if the caller wants it persisted, they should

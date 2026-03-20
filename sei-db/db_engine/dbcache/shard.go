@@ -32,7 +32,7 @@ type shard struct {
 	// A cache containing data as it is in the DB.
 	dbCache map[string]*dbCacheEntry
 
-	// Organizes data in dbCache for garbage collection.
+	// Organizes data in dbCache for LRU eviction.
 	dbCacheGCQueue *lruQueue
 
 	// A pool for asynchronous reads.
@@ -103,10 +103,10 @@ using a RW lock, but it comes at higher risk of contention under certain workloa
 becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
 for converting to a RW lock:
 
-- Create a background goroutine that is responsible for garbage collection and updating the LRU.
-- The GC goroutine should periodically wake up, grab the lock, and do garbage collection.
+- Create a background goroutine that is responsible for LRU eviction and updating the LRU.
+- The eviction goroutine should periodically wake up, grab the lock, and do eviction.
 - When Get() is called, the calling goroutine should grab a read lock and attempt to read the value.
-    - If the value is present, send a message to the GC goroutine over a channel (so it can update the LRU)
+    - If the value is present, send a message to the eviction goroutine over a channel (so it can update the LRU)
 	  and return the value. In this way, many readers can read from this shard concurrently.
 	- If the value is missing, drop the read lock and acquire a write lock. Then, handle the read
 	  like we currently handle in the current implementation.

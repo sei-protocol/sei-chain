@@ -28,17 +28,17 @@ type CacheConfig struct {
 	// How often to scrape cache size for metrics, in seconds.
 	MetricsScrapeIntervalSeconds float64
 
-	// How often to run garbage collection, in seconds.
-	GCIntervalSeconds float64
+	// How often to run the lifecycle loop (flush + retire old versions), in seconds.
+	LifecycleIntervalSeconds float64
 
-	// The maximum number of unreleased snapshots that can be pending GC before Snapshot() blocks.
-	MaxUnGCdVersions uint64
+	// The maximum number of unreleased snapshots that can be pending retirement before Snapshot() blocks.
+	MaxUnretiredVersions uint64
 
-	// Target number of keys per batch when flushing GC'd data to the underlying DB.
+	// Target number of keys per batch when flushing retired version data to the underlying DB.
 	TargetKeysPerFlush int
 
 	// If set, the cache tracks a hash for each snapshot and requires
-	// snapshots to have their hash set before they become eligible for GC.
+	// snapshots to have their hash set before they become eligible for retirement.
 	// If nil, snapshot hashing is disabled and SetHash returns an error.
 	HashKey []byte
 }
@@ -51,8 +51,8 @@ func DefaultCacheConfig() *CacheConfig {
 		EstimatedOverheadPerEntry:    256,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
-		GCIntervalSeconds:            1.0,
-		MaxUnGCdVersions:             4,
+		LifecycleIntervalSeconds:     1.0,
+		MaxUnretiredVersions:         4,
 		TargetKeysPerFlush:           1024 * 10,
 	}
 }
@@ -62,8 +62,8 @@ func DefaultTestCacheConfig() *CacheConfig {
 	config := DefaultCacheConfig()
 	config.MaxSize = unit.MB * 16
 	config.MetricsEnabled = false
-	// Really fast GC to attempt to trigger edge cases in tests.
-	config.GCIntervalSeconds = 0.01
+	// Really fast lifecycle loop to attempt to trigger edge cases in tests.
+	config.LifecycleIntervalSeconds = 0.01
 	return config
 }
 
@@ -71,8 +71,8 @@ func (c *CacheConfig) MetricsScrapeInterval() time.Duration {
 	return time.Duration(c.MetricsScrapeIntervalSeconds * float64(time.Second))
 }
 
-func (c *CacheConfig) GCInterval() time.Duration {
-	return time.Duration(c.GCIntervalSeconds * float64(time.Second))
+func (c *CacheConfig) LifecycleInterval() time.Duration {
+	return time.Duration(c.LifecycleIntervalSeconds * float64(time.Second))
 }
 
 func (c *CacheConfig) Validate() error {
@@ -94,11 +94,11 @@ func (c *CacheConfig) Validate() error {
 	if c.MetricsEnabled && c.MetricsScrapeIntervalSeconds <= 0 {
 		return fmt.Errorf("MetricsScrapeIntervalSeconds must be positive when MetricsEnabled is true")
 	}
-	if c.GCIntervalSeconds <= 0 {
-		return fmt.Errorf("GCIntervalSeconds must be positive")
+	if c.LifecycleIntervalSeconds <= 0 {
+		return fmt.Errorf("LifecycleIntervalSeconds must be positive")
 	}
-	if c.MaxUnGCdVersions == 0 {
-		return fmt.Errorf("MaxUnGCdVersions must be greater than 0")
+	if c.MaxUnretiredVersions == 0 {
+		return fmt.Errorf("MaxUnretiredVersions must be greater than 0")
 	}
 	if c.TargetKeysPerFlush <= 0 {
 		return fmt.Errorf("TargetKeysPerFlush must be positive")
