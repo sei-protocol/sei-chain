@@ -113,10 +113,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	_, err = blockExec.app.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
-			MaxTxBytes:          maxDataBytes,
-			LocalLastCommitInfo: buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
-			ByzantineValidators: block.Evidence.ToABCI(),
-			Header:              block.Header.ToProto(),
+			Header: block.Header.ToProto(),
 		},
 	)
 	if err != nil {

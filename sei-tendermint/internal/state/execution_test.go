@@ -655,6 +655,7 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 	mp.AssertExpectations(t)
 
 }
+
 // TestPrepareProposalErrorOnPrepareProposalError tests when the client returns an error
 // upon calling PrepareProposal on it.
 func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {

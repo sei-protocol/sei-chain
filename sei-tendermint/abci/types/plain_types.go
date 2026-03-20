@@ -40,10 +40,6 @@ type RequestQuery struct {
 type RequestCommit struct{}
 
 type RequestPrepareProposal struct {
-	MaxTxBytes          int64
-	ByzantineValidators []Misbehavior
-	LocalLastCommitInfo CommitInfo
-
 	Header *tmproto.Header
 }
 
@@ -76,12 +72,7 @@ type ResponseInitChain struct {
 	AppHash         []byte
 }
 
-type ResponsePrepareProposal struct {
-	AppHash               []byte
-	TxResults             []*ExecTxResult
-	ValidatorUpdates      []ValidatorUpdate
-	ConsensusParamUpdates *tmproto.ConsensusParams
-}
+type ResponsePrepareProposal struct{}
 
 type ResponseGetTxPriorityHint struct {
 	Priority int64
@@ -393,13 +384,6 @@ func (m *RequestQuery) GetHeight() int64 {
 	return 0
 }
 
-func (m *RequestPrepareProposal) GetByzantineValidators() []Misbehavior {
-	if m != nil {
-		return m.ByzantineValidators
-	}
-	return nil
-}
-
 func (m *RequestBeginBlock) GetHash() []byte {
 	if m != nil {
 		return m.Hash
@@ -452,34 +436,6 @@ func (m *ResponseInitChain) GetValidators() []ValidatorUpdate {
 func (m *ResponseInitChain) GetAppHash() []byte {
 	if m != nil {
 		return m.AppHash
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetAppHash() []byte {
-	if m != nil {
-		return m.AppHash
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetTxResults() []*ExecTxResult {
-	if m != nil {
-		return m.TxResults
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetValidatorUpdates() []ValidatorUpdate {
-	if m != nil {
-		return m.ValidatorUpdates
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetConsensusParamUpdates() *tmproto.ConsensusParams {
-	if m != nil {
-		return m.ConsensusParamUpdates
 	}
 	return nil
 }

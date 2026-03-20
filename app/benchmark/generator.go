@@ -520,10 +520,10 @@ func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-
 				continue
 			}
 
-				proposal := txRecordsToTxs(txRecords)
+			proposal := txRecordsToTxs(txRecords)
 
-				select {
-				case ch <- proposal:
+			select {
+			case ch <- proposal:
 			case <-ctx.Done():
 				return
 			}

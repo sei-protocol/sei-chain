@@ -37,7 +37,6 @@ func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	resp, err := app.PrepareProposalBenchmarkHandler(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Nil(t, resp.TxResults)
 
 	app.benchmarkManager = &benchmark.Manager{
 		Logger: benchmark.NewLogger(),
@@ -45,7 +44,6 @@ func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	resp2, err := app.PrepareProposalBenchmarkHandler(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp2)
-	require.Nil(t, resp2.TxResults)
 }
 
 func TestBenchmarkHelperMethods(t *testing.T) {

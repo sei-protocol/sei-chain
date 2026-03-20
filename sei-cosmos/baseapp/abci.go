@@ -970,18 +970,11 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 				"panic", err,
 			)
 
-			resp = &abci.ResponsePrepareProposal{
-			}
+			resp = &abci.ResponsePrepareProposal{}
 		}
 	}()
 
-	resp = &abci.ResponsePrepareProposal{}
-
-	if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
-		resp.ConsensusParamUpdates = cp
-	}
-
-	return resp, nil
+	return &abci.ResponsePrepareProposal{}, nil
 }
 
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
