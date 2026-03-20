@@ -43,7 +43,7 @@ func loadLocalMeta(db dbcache.Cache) (*LocalMeta, error) {
 		return nil, fmt.Errorf("could not read meta hash: %w", err)
 	}
 	if !found {
-		return &LocalMeta{LtHash: nil}, nil
+		return meta, nil
 	}
 	if hashData != nil {
 		h, err := lthash.Unmarshal(hashData)
@@ -116,7 +116,9 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	if err != nil {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
-	snapshot.Release()
+	if err := snapshot.Release(); err != nil {
+		return fmt.Errorf("failed to release metadata snapshot: %w", err)
+	}
 
 	return nil
 }

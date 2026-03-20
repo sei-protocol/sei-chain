@@ -9,12 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cockroachdb/pebble/v2"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -434,74 +431,74 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 
 	return nil // TODO snapshotting is currently broken and needs fixing
 
-	version := s.committedVersion
-	if version <= 0 {
-		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
-	}
+	// version := s.committedVersion
+	// if version <= 0 {
+	// 	return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
+	// }
 
-	dir := s.flatkvDir()
-	snapDir := snapshotName(version)
-	finalPath := filepath.Join(dir, snapDir)
-	tmpPath := finalPath + tmpSuffix
+	// dir := s.flatkvDir()
+	// snapDir := snapshotName(version)
+	// finalPath := filepath.Join(dir, snapDir)
+	// tmpPath := finalPath + tmpSuffix
 
-	_ = os.RemoveAll(tmpPath)
+	// _ = os.RemoveAll(tmpPath)
 
-	if err := os.MkdirAll(tmpPath, 0750); err != nil {
-		return fmt.Errorf("create snapshot tmp dir: %w", err)
-	}
+	// if err := os.MkdirAll(tmpPath, 0750); err != nil {
+	// 	return fmt.Errorf("create snapshot tmp dir: %w", err)
+	// }
 
-	success := false
-	defer func() {
-		if !success {
-			_ = os.RemoveAll(tmpPath)
-		}
-	}()
+	// success := false
+	// defer func() {
+	// 	if !success {
+	// 		_ = os.RemoveAll(tmpPath)
+	// 	}
+	// }()
 
-	// Deterministic order (slice, not map) for reproducibility.
-	type namedDB struct {
-		name string
-		db   dbcache.Cache
-	}
-	dbs := []namedDB{
-		{accountDBDir, s.accountDB},
-		{codeDBDir, s.codeDB},
-		{storageDBDir, s.storageDB},
-		{legacyDBDir, s.legacyDB},
-		{metadataDir, s.metadataDB},
-	}
-	for _, ndb := range dbs {
-		cp, ok := ndb.db.(types.Checkpointable)
-		if !ok {
-			return fmt.Errorf("db %s does not support Checkpoint", ndb.name)
-		}
-		dest := filepath.Join(tmpPath, ndb.name)
-		if err := cp.Checkpoint(dest); err != nil {
-			return fmt.Errorf("checkpoint %s: %w", ndb.name, err)
-		}
-	}
+	// // Deterministic order (slice, not map) for reproducibility.
+	// type namedDB struct {
+	// 	name string
+	// 	db   dbcache.Cache
+	// }
+	// dbs := []namedDB{
+	// 	{accountDBDir, s.accountDB},
+	// 	{codeDBDir, s.codeDB},
+	// 	{storageDBDir, s.storageDB},
+	// 	{legacyDBDir, s.legacyDB},
+	// 	{metadataDir, s.metadataDB},
+	// }
+	// for _, ndb := range dbs {
+	// 	cp, ok := ndb.db.(types.Checkpointable)
+	// 	if !ok {
+	// 		return fmt.Errorf("db %s does not support Checkpoint", ndb.name)
+	// 	}
+	// 	dest := filepath.Join(tmpPath, ndb.name)
+	// 	if err := cp.Checkpoint(dest); err != nil {
+	// 		return fmt.Errorf("checkpoint %s: %w", ndb.name, err)
+	// 	}
+	// }
 
-	_ = atomicRemoveDir(finalPath) // idempotent: stale final may exist
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return fmt.Errorf("rename snapshot dir: %w", err)
-	}
+	// _ = atomicRemoveDir(finalPath) // idempotent: stale final may exist
+	// if err := os.Rename(tmpPath, finalPath); err != nil {
+	// 	return fmt.Errorf("rename snapshot dir: %w", err)
+	// }
 
-	if err := updateCurrentSymlink(dir, snapDir); err != nil {
-		return fmt.Errorf("update current symlink: %w", err)
-	}
+	// if err := updateCurrentSymlink(dir, snapDir); err != nil {
+	// 	return fmt.Errorf("update current symlink: %w", err)
+	// }
 
-	// Keep SNAPSHOT_BASE in sync so the next restart reuses the working dir
-	// instead of re-cloning from the snapshot and replaying the full WAL gap.
-	workDir := filepath.Join(dir, workingDirName)
-	if err := writeSnapshotBase(workDir, snapDir); err != nil {
-		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
-	}
+	// // Keep SNAPSHOT_BASE in sync so the next restart reuses the working dir
+	// // instead of re-cloning from the snapshot and replaying the full WAL gap.
+	// workDir := filepath.Join(dir, workingDirName)
+	// if err := writeSnapshotBase(workDir, snapDir); err != nil {
+	// 	logger.Error("failed to update SNAPSHOT_BASE", "err", err)
+	// }
 
-	s.pruneSnapshots(dir, version)
+	// s.pruneSnapshots(dir, version)
 
-	success = true
-	s.lastSnapshotTime = time.Now()
-	logger.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
-	return nil
+	// success = true
+	// s.lastSnapshotTime = time.Now()
+	// logger.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
+	// return nil
 }
 
 // pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping

@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -32,7 +31,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, versionToBytes(42), types.WriteOptions{}))
+		db.Set(metaVersionKey, versionToBytes(42))
 
 		// Load it back
 		loaded, err := loadLocalMeta(db)
@@ -45,7 +44,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
+		db.Set(metaVersionKey, []byte{0x01, 0x02})
 
 		_, err := loadLocalMeta(db)
 		require.Error(t, err)
@@ -70,8 +69,9 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(metaVersionKey)
+	data, found, err := s.storageDB.Get(metaVersionKey, true)
 	require.NoError(t, err)
+	require.True(t, found)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
 
@@ -138,11 +138,10 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set(metaVersionKey, []byte{0x01}, types.WriteOptions{})
-		require.NoError(t, err)
+		s.metadataDB.Set(metaVersionKey, []byte{0x01})
 
 		// Should return error
-		_, err = s.loadGlobalVersion()
+		_, err := s.loadGlobalVersion()
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid global version length")
 	})

@@ -402,7 +402,7 @@ func (s *CommitStore) writeToCaches(p *changesetByDB, accounts map[string]merged
 // computePerDBLtHash updates per-DB working LtHash and recomputes the global hash.
 func (s *CommitStore) computePerDBLtHash(p *changesetByDB, accounts map[string]mergedAccount) {
 	// Storage pairs
-	var storagePairs []lthash.KVPairWithLastValue
+	storagePairs := make([]lthash.KVPairWithLastValue, 0, len(p.storageUpdates))
 	for keyStr, update := range p.storageUpdates {
 		storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
 			Key:       update.Key,
@@ -413,7 +413,7 @@ func (s *CommitStore) computePerDBLtHash(p *changesetByDB, accounts map[string]m
 	}
 
 	// Code pairs
-	var codePairs []lthash.KVPairWithLastValue
+	codePairs := make([]lthash.KVPairWithLastValue, 0, len(p.codeUpdates))
 	for keyStr, update := range p.codeUpdates {
 		codePairs = append(codePairs, lthash.KVPairWithLastValue{
 			Key:       update.Key,
@@ -424,7 +424,7 @@ func (s *CommitStore) computePerDBLtHash(p *changesetByDB, accounts map[string]m
 	}
 
 	// Legacy pairs
-	var legacyPairs []lthash.KVPairWithLastValue
+	legacyPairs := make([]lthash.KVPairWithLastValue, 0, len(p.legacyUpdates))
 	for keyStr, update := range p.legacyUpdates {
 		legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
 			Key:       update.Key,
@@ -576,6 +576,12 @@ func (s *CommitStore) flushAllDBs() error {
 		snap, err := cache.Snapshot()
 		if err != nil {
 			return fmt.Errorf("flush snapshot: %w", err)
+		}
+		// Set a nil hash (zero/identity) so the snapshot is GC-eligible
+		// when hash tracking is enabled. The actual hash value is irrelevant
+		// for flush-only snapshots.
+		if err := snap.SetHash(nil); err != nil {
+			return fmt.Errorf("flush set hash: %w", err)
 		}
 		if err := snap.Release(); err != nil {
 			return fmt.Errorf("flush release: %w", err)

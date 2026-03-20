@@ -70,26 +70,26 @@ type cache struct {
 	// Whether the first Snapshot() has already attempted to load the boot hash from the DB.
 	bootHashLoaded bool
 
-	// True only if the boot hash was successfully found in the DB; controls whether
-	// GC gates on hash being set.
+	// True when HashKey is configured and hash tracking should be enforced.
+	// Enabled either when the hash key is found in the DB at boot, or when
+	// the DB is empty (fresh start) and HashKey is configured.
+	// When enabled, snapshots are not GC-eligible until SetHash is called.
 	hashTrackingEnabled bool
-
-	// The hash loaded from the DB at boot time. Used once to populate the first snapshot,
-	// then cleared.
-	bootHash []byte
 }
 
 // Tracks the reference count for a particular snapshot.
 type snapshotReferenceCounter struct {
-	// the version of the snapshot
-	version uint64
-
-	// the number of references to the snapshot, snapshot is eligible for cleanup when the referenceCount reaches 0
+	version        uint64
 	referenceCount uint64
 
-	// The hash associated with this snapshot (nil = not yet set).
-	// Set via SetHash after the snapshot is created (or auto-loaded from DB for the boot snapshot).
+	// Opaque hash bytes for this snapshot. A nil value is valid and represents
+	// the zero/identity hash (i.e. no data has been hashed yet, as on a fresh DB).
+	// Check hashSet to distinguish "not yet assigned" from "assigned nil".
 	hash []byte
+
+	// True once the hash has been assigned (via SetHash or boot-hash transfer).
+	// Required because nil is a valid hash value (the zero/identity hash).
+	hashSet bool
 
 	// Closed by SetHash to wake AwaitHash waiters. Only allocated when hash tracking is enabled.
 	hashReady chan struct{}
@@ -293,14 +293,6 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 		hashReady:      hashReady,
 	}
 
-	if c.bootHash != nil {
-		currentVersionRefCounter.hash = c.bootHash
-		if hashReady != nil {
-			close(hashReady)
-		}
-		c.bootHash = nil
-	}
-
 	c.versionMap[c.currentVersion] = currentVersionRefCounter
 
 	snapshot := &cacheSnapshot{
@@ -321,9 +313,14 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	return snapshot, nil
 }
 
-// initBootHash loads the hash from the underlying DB on the first Snapshot() call.
-// If HashKey is not configured, hash tracking is disabled. If the hash key is
-// configured but missing from a non-empty DB, an error is returned.
+// initBootHash validates the hash state on the first Snapshot() call and
+// enables hash tracking if HashKey is configured.
+//
+// If HashKey is not configured, hash tracking is disabled.
+// If HashKey is configured and present in the DB, tracking is enabled.
+// If HashKey is configured but missing from an empty DB, tracking is enabled
+// (the initial hash is implicitly the zero/identity hash -- no data hashed yet).
+// If HashKey is configured but missing from a non-empty DB, an error is returned.
 func (c *cache) initBootHash() error {
 	c.bootHashLoaded = true
 
@@ -331,7 +328,7 @@ func (c *cache) initBootHash() error {
 		return nil
 	}
 
-	val, err := c.db.Get(c.config.HashKey)
+	_, err := c.db.Get(c.config.HashKey)
 	if err != nil {
 		if !errors.Is(err, errorutils.ErrNotFound) {
 			return fmt.Errorf("failed to read boot hash from DB: %w", err)
@@ -344,11 +341,9 @@ func (c *cache) initBootHash() error {
 		if !empty {
 			return fmt.Errorf("hash key %q missing from non-empty DB", string(c.config.HashKey))
 		}
-		return nil
 	}
 
 	c.hashTrackingEnabled = true
-	c.bootHash = val
 	return nil
 }
 
@@ -458,19 +453,19 @@ func (c *cache) isVersionGCEligible(counter *snapshotReferenceCounter) bool {
 	if counter.referenceCount > 0 {
 		return false
 	}
-	if c.hashTrackingEnabled && counter.hash == nil {
+	if c.hashTrackingEnabled && !counter.hashSet {
 		return false
 	}
 	return true
 }
 
 // SetSnapshotHash attaches a hash to the snapshot at the given version.
+// The hash may be nil, which represents the zero/identity hash.
+// Must be called exactly once per snapshot (never on the boot snapshot,
+// whose hash is set automatically).
 func (c *cache) SetSnapshotHash(version uint64, hash []byte) error {
 	if !c.hashTrackingEnabled {
 		return fmt.Errorf("snapshot hashing is disabled")
-	}
-	if hash == nil {
-		return fmt.Errorf("hash must not be nil")
 	}
 
 	c.versionLock.Lock()
@@ -481,11 +476,12 @@ func (c *cache) SetSnapshotHash(version uint64, hash []byte) error {
 		return fmt.Errorf("version (%d) not found", version)
 	}
 
-	if counter.hash != nil {
+	if counter.hashSet {
 		return fmt.Errorf("hash already set for version %d", version)
 	}
 
 	counter.hash = hash
+	counter.hashSet = true
 	if counter.hashReady != nil {
 		close(counter.hashReady)
 	}
@@ -496,6 +492,7 @@ func (c *cache) SetSnapshotHash(version uint64, hash []byte) error {
 }
 
 // GetSnapshotHash returns the hash for the snapshot at the given version.
+// A nil return value is valid and represents the zero/identity hash.
 func (c *cache) GetSnapshotHash(version uint64) ([]byte, error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
@@ -505,7 +502,7 @@ func (c *cache) GetSnapshotHash(version uint64) ([]byte, error) {
 		return nil, fmt.Errorf("version (%d) not found", version)
 	}
 
-	if counter.hash == nil {
+	if !counter.hashSet {
 		return nil, fmt.Errorf("hash not yet set for version %d", version)
 	}
 
@@ -513,6 +510,7 @@ func (c *cache) GetSnapshotHash(version uint64) ([]byte, error) {
 }
 
 // AwaitSnapshotHash blocks until the hash for the given version is available.
+// A nil return value is valid and represents the zero/identity hash.
 func (c *cache) AwaitSnapshotHash(ctx context.Context, version uint64) ([]byte, error) {
 	if !c.hashTrackingEnabled {
 		return nil, fmt.Errorf("snapshot hashing is disabled")
@@ -525,7 +523,7 @@ func (c *cache) AwaitSnapshotHash(ctx context.Context, version uint64) ([]byte, 
 		return nil, fmt.Errorf("version (%d) not found", version)
 	}
 
-	if counter.hash != nil {
+	if counter.hashSet {
 		hash := counter.hash
 		c.versionLock.Unlock()
 		return hash, nil

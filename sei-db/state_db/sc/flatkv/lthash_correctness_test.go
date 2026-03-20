@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -19,9 +20,12 @@ import (
 // incremental LtHash must match after any sequence of apply+commit cycles.
 func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	t.Helper()
+	flushCacheForTest(t, s)
+
 	var pairs []lthash.KVPairWithLastValue
 
-	scanDB := func(db types.KeyValueDB) {
+	scanCache := func(c dbcache.Cache) {
+		db := underlyingDB(c)
 		iter, err := db.NewIter(&types.IterOptions{})
 		require.NoError(t, err)
 		defer iter.Close()
@@ -39,10 +43,10 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		require.NoError(t, iter.Error())
 	}
 
-	scanDB(s.accountDB)
-	scanDB(s.codeDB)
-	scanDB(s.storageDB)
-	scanDB(s.legacyDB)
+	scanCache(s.accountDB)
+	scanCache(s.codeDB)
+	scanCache(s.storageDB)
+	scanCache(s.legacyDB)
 
 	result, _ := lthash.ComputeLtHash(nil, pairs)
 	return result

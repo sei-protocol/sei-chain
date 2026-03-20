@@ -118,17 +118,19 @@ type CacheSnapshot interface {
 	// be called a number of times equal to the number of times Reserve() was called plus one.
 	Release() error
 
-	// SetHash attaches a hash to this snapshot. Must be called exactly once per snapshot
-	// (except the boot snapshot, whose hash is auto-loaded from the DB). Returns an error
-	// if hashing is disabled, hash is nil, or the hash has already been set.
+	// SetHash attaches a hash to this snapshot. Must be called exactly once.
+	// A nil hash is valid and represents the zero/identity hash. Returns an
+	// error if hashing is disabled or the hash has already been set.
 	SetHash(hash []byte) error
 
-	// GetHash returns the hash previously set via SetHash (or auto-loaded at boot).
-	// Returns an error if the hash has not been set yet.
+	// GetHash returns the hash previously set via SetHash. A nil return value
+	// is valid (zero/identity hash). Returns an error if the hash has not
+	// been set yet.
 	GetHash() ([]byte, error)
 
 	// AwaitHash blocks until the snapshot's hash becomes available, then returns it.
-	// Returns an error immediately if hashing is disabled on this cache.
+	// A nil return value is valid (zero/identity hash). Returns an error
+	// immediately if hashing is disabled on this cache.
 	AwaitHash(ctx context.Context) ([]byte, error)
 }
 
