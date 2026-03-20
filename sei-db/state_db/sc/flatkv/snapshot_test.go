@@ -25,7 +25,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, v
 			Pairs: []*iavl.KVPair{{Key: key, Value: value}},
 		},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	v, err := s.Commit()
 	require.NoError(t, err)
 	return v
@@ -1261,7 +1261,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
 	cs := &proto.NamedChangeSet{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	_, err = s.Commit()
 	require.NoError(t, err)
 
@@ -1312,7 +1312,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 3; i++ {
-		require.NoError(t, s.ApplyChangeSets(nil))
+		applyChangeSets(t, s, nil)
 		_, err := s.Commit()
 		require.NoError(t, err)
 	}
@@ -1361,7 +1361,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	_, err = s.Commit()
 	require.NoError(t, err)
 
@@ -1374,7 +1374,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{delCS})
 	_, err = s.Commit()
 	require.NoError(t, err)
 

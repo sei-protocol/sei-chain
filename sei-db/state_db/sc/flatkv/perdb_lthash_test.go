@@ -87,7 +87,7 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 		storagePair(addr, slot, []byte{round, 0xAA}),
 	)
 	cs2 := makeChangeSet(legacyKey, []byte{round, 0xBB}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1, cs2})
 	_, err := s.Commit()
 	require.NoError(t, err)
 }
@@ -198,7 +198,7 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 			storagePair(addr, slot, []byte{byte(i), 0xAA}),
 		)
 		cs2 := makeChangeSet(legacyKey, []byte{byte(i)}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs1, cs2})
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -211,7 +211,7 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 			codeHashPair(addr, ch),
 			codePair(addr, []byte{0x60, 0x80, byte(i)}),
 		)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -220,14 +220,14 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 		addr := addrN(byte(i - 15))
 		slot := slotN(byte(i - 15))
 		cs := namedCS(storagePair(addr, slot, []byte{byte(i), 0xBB}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	for i := 19; i <= 20; i++ {
 		addr := addrN(byte(i - 15))
 		slot := slotN(byte(i - 15))
 		cs := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -311,7 +311,7 @@ func TestPerDBLtHashEmptyBlocks(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS()}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS()})
 		commitAndCheck(t, s)
 	}
 
@@ -454,7 +454,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	verifyPerDBLtHash(t, s)

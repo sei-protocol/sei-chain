@@ -41,6 +41,10 @@ type CompositeCommitStore struct {
 	// evmCommitter is the FlatKV backend - may be nil if not enabled
 	evmCommitter flatkv.Store
 
+	// cachedEvmHash holds the most recent root hash returned by the EVM
+	// committer's ApplyChangeSets channel, for use in WorkingCommitInfo.
+	cachedEvmHash []byte
+
 	// homeDir is the base directory for the store
 	homeDir string
 
@@ -185,9 +189,15 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 	}
 
 	if cs.evmCommitter != nil && len(evmChangeset) > 0 {
-		if err := cs.evmCommitter.ApplyChangeSets(evmChangeset); err != nil {
+		hashCh, err := cs.evmCommitter.ApplyChangeSets(evmChangeset)
+		if err != nil {
 			return fmt.Errorf("failed to apply EVM changesets: %w", err)
 		}
+		result := <-hashCh
+		if result.Err != nil {
+			return fmt.Errorf("EVM hash computation failed: %w", result.Err)
+		}
+		cs.cachedEvmHash = result.Hash
 	}
 
 	return nil
@@ -268,7 +278,7 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
 	ci := cs.cosmosCommitter.WorkingCommitInfo()
 	if cs.evmCommitter != nil {
-		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.RootHash())
+		return cs.appendEvmLatticeHash(ci, cs.cachedEvmHash)
 	}
 	return ci
 }

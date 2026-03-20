@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -29,9 +30,12 @@ func NewStateStoreWrapper(store dbTypes.StateStore) DBWrapper {
 	return w
 }
 
-func (s *stateStoreWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+func (s *stateStoreWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan flatkv.HashResult, error) {
 	nextVersion := s.version.Add(1)
-	return s.base.ApplyChangesetSync(nextVersion, cs)
+	if err := s.base.ApplyChangesetSync(nextVersion, cs); err != nil {
+		return nil, err
+	}
+	return preloadedHashChannel(nil), nil
 }
 
 func (s *stateStoreWrapper) Read(key []byte) (data []byte, found bool, err error) {

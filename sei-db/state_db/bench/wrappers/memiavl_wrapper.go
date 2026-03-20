@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -34,8 +35,11 @@ func (m *memIAVLWrapper) Version() int64 {
 	return m.base.Version()
 }
 
-func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	return m.base.ApplyChangeSets(cs)
+func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan flatkv.HashResult, error) {
+	if err := m.base.ApplyChangeSets(cs); err != nil {
+		return nil, err
+	}
+	return preloadedHashChannel(nil), nil
 }
 
 func (m *memIAVLWrapper) Importer(version int64) (types.Importer, error) {

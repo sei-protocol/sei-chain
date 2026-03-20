@@ -4,6 +4,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -21,8 +22,11 @@ func NewCompositeWrapper(store *composite.CompositeCommitStore) DBWrapper {
 	}
 }
 
-func (c *compositeWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	return c.base.ApplyChangeSets(cs)
+func (c *compositeWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan flatkv.HashResult, error) {
+	if err := c.base.ApplyChangeSets(cs); err != nil {
+		return nil, err
+	}
+	return preloadedHashChannel(nil), nil
 }
 
 func (c *compositeWrapper) Commit() (int64, error) {

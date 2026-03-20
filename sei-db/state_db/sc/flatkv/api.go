@@ -14,6 +14,14 @@ type Options struct {
 	Dir string
 }
 
+// HashResult carries the root hash (or an error) produced by ApplyChangeSets.
+// Delivered asynchronously via a channel so that hashing can eventually be
+// pipelined with subsequent block processing.
+type HashResult struct {
+	Hash []byte
+	Err  error
+}
+
 // Store provides EVM state storage with LtHash integrity.
 //
 // Lifecycle: NewCommitStore (create) → LoadVersion (open) → ApplyChangeSets/Commit → Close.
@@ -28,7 +36,10 @@ type Store interface {
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
-	ApplyChangeSets(cs []*proto.NamedChangeSet) error
+	//
+	// Returns a channel that will receive exactly one HashResult containing the
+	// 32-byte Blake3 root hash (or an error).
+	ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan HashResult, error)
 
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
@@ -52,11 +63,6 @@ type Store interface {
 	// EXPERIMENTAL: not used in production; only storage keys supported.
 	// Interface may change when Exporter/state-sync is implemented.
 	IteratorByPrefix(prefix []byte) Iterator
-
-	// RootHash returns the 32-byte checksum of the working LtHash.
-	// Note: This is the Blake3-256 digest of the underlying 2048-byte
-	// raw LtHash vector.
-	RootHash() []byte
 
 	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
 	CommittedRootHash() []byte

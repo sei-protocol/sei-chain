@@ -44,16 +44,20 @@ type mergedAccount struct {
 }
 
 // ApplyChangeSets writes EVM changesets through the cache interface and updates LtHash.
-func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error) {
+//
+// Returns a channel that will receive exactly one HashResult containing the
+// 32-byte Blake3 root hash. In the current (non-pipelined) implementation the
+// hash is computed synchronously and the channel is pre-loaded before return.
+func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (_ <-chan HashResult, retErr error) {
 	if s.readOnly {
-		return errReadOnly
+		return nil, errReadOnly
 	}
 
 	// Phase 1: Snapshot all DBs.
 	s.phaseTimer.SetPhase("apply_snapshot")
 	snapshots, err := s.snapshotDBs()
 	if err != nil {
-		return fmt.Errorf("snapshot DBs: %w", err)
+		return nil, fmt.Errorf("snapshot DBs: %w", err)
 	}
 	defer func() {
 		if retErr != nil {
@@ -65,26 +69,26 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 	s.phaseTimer.SetPhase("apply_parse")
 	parsed, err := s.parseChangeSets(cs)
 	if err != nil {
-		return fmt.Errorf("parse changesets: %w", err)
+		return nil, fmt.Errorf("parse changesets: %w", err)
 	}
 
 	// Phase 3: Batch read old values from snapshots.
 	s.phaseTimer.SetPhase("apply_snapshot_read")
 	if err := s.snapshotBatchRead(snapshots, &parsed); err != nil {
-		return fmt.Errorf("snapshot batch read: %w", err)
+		return nil, fmt.Errorf("snapshot batch read: %w", err)
 	}
 
 	// Phase 4: Merge account field changes with old account values.
 	s.phaseTimer.SetPhase("apply_account_merge")
 	accounts, err := s.mergeAccountChanges(&parsed)
 	if err != nil {
-		return fmt.Errorf("merge accounts: %w", err)
+		return nil, fmt.Errorf("merge accounts: %w", err)
 	}
 
 	// Phase 5: Write all changes to caches.
 	s.phaseTimer.SetPhase("apply_cache_write")
 	if err := s.writeToCaches(&parsed, accounts); err != nil {
-		return fmt.Errorf("cache write: %w", err)
+		return nil, fmt.Errorf("cache write: %w", err)
 	}
 
 	// Phase 6: Compute per-DB and global LtHash.
@@ -99,7 +103,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 			continue
 		}
 		if err := snap.SetHash(s.perDBWorkingLtHash[dir].Marshal()); err != nil {
-			return fmt.Errorf("set hash for %s: %w", dir, err)
+			return nil, fmt.Errorf("set hash for %s: %w", dir, err)
 		}
 	}
 
@@ -109,7 +113,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error)
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	s.phaseTimer.SetPhase("apply_done")
-	return nil
+
+	ch := make(chan HashResult, 1)
+	checksum := s.workingLtHash.Checksum()
+	ch <- HashResult{Hash: checksum[:]}
+	return ch, nil
 }
 
 // snapshotDBs takes a snapshot of every DB cache (data DBs + metadata).
@@ -476,6 +484,8 @@ func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
 // Protocol: WAL -> per-DB LocalMeta (all DBs including metadata) -> done.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
+	// TODO before merge: commit is busted, as we now flush to DBs asynchronously
+	s.phaseTimer.SetPhase("commit_preamble")
 	if s.readOnly {
 		return 0, errReadOnly
 	}

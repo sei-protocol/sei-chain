@@ -25,21 +25,24 @@ var _ flatkv.Store = (*failingEVMStore)(nil)
 func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
-func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) Get([]byte) ([]byte, bool)                     { return nil, false }
-func (f *failingEVMStore) Has([]byte) bool                               { return false }
-func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator          { return nil }
-func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator       { return nil }
-func (f *failingEVMStore) RootHash() []byte                              { return nil }
-func (f *failingEVMStore) Version() int64                                { return 0 }
-func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
-func (f *failingEVMStore) Rollback(int64) error                          { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
-func (f *failingEVMStore) Close() error                                  { return nil }
+func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) (<-chan flatkv.HashResult, error) {
+	ch := make(chan flatkv.HashResult, 1)
+	ch <- flatkv.HashResult{}
+	return ch, nil
+}
+func (f *failingEVMStore) Commit() (int64, error)                  { return 0, nil }
+func (f *failingEVMStore) Get([]byte) ([]byte, bool)               { return nil, false }
+func (f *failingEVMStore) Has([]byte) bool                         { return false }
+func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator    { return nil }
+func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator { return nil }
+func (f *failingEVMStore) Version() int64                          { return 0 }
+func (f *failingEVMStore) WriteSnapshot(string) error              { return nil }
+func (f *failingEVMStore) Rollback(int64) error                    { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)  { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error)  { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer      { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte               { return nil }
+func (f *failingEVMStore) Close() error                            { return nil }
 
 func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
@@ -250,7 +253,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmos := cs.cosmosCommitter.WorkingCommitInfo()
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash = cs.evmCommitter.RootHash()
+					expectedEvmHash = cs.cachedEvmHash
 				}
 
 				workingInfo := cs.WorkingCommitInfo()

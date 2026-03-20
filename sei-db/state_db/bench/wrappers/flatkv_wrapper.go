@@ -24,12 +24,12 @@ func NewFlatKVWrapper(store flatkv.Store) DBWrapper {
 	}
 }
 
-func (f *flatKVWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	err := f.base.ApplyChangeSets(cs)
+func (f *flatKVWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan flatkv.HashResult, error) {
+	hashCh, err := f.base.ApplyChangeSets(cs)
 	if err == nil {
 		f.hasPending = true
 	}
-	return err
+	return hashCh, err
 }
 
 func (f *flatKVWrapper) Commit() (int64, error) {

@@ -119,6 +119,14 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	return v
 }
 
+// applyChangeSets is a test helper that calls ApplyChangeSets and drains the hash channel.
+func applyChangeSets(t *testing.T, s *CommitStore, cs []*proto.NamedChangeSet) {
+	t.Helper()
+	hashCh, err := s.ApplyChangeSets(cs)
+	require.NoError(t, err)
+	<-hashCh
+}
+
 // =============================================================================
 // Basic Store Operations
 // =============================================================================
@@ -165,21 +173,21 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 	require.Equal(t, int64(0), s.Version())
 
 	// First commit should return version 1
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	v1, err := s.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 	require.Equal(t, int64(1), s.Version())
 
 	// Second commit should return version 2
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	v2, err := s.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.Equal(t, int64(2), s.Version())
 
 	// Third commit should return version 3
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	v3, err := s.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(3), v3)
@@ -198,7 +206,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	cs := makeChangeSet(key, value, false)
 
 	// Apply but not commit - should be readable from pending writes
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	got, found := s.Get(key)
 	require.True(t, found, "should be readable from pending writes")
 	require.Equal(t, value, got)
@@ -240,7 +248,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	// Verify all entries
@@ -262,7 +270,7 @@ func TestStoreEmptyChangesets(t *testing.T) {
 		Changeset: iavl.ChangeSet{Pairs: nil},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{emptyCS})
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(1), s.Version())
@@ -277,7 +285,7 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0xCC}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Should have pending changeset
 	require.Len(t, s.pendingChangeSets, 1)
@@ -302,14 +310,14 @@ func TestStoreVersioning(t *testing.T) {
 
 	// Version 1
 	cs1 := makeChangeSet(key, []byte{0x01}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(1), s.Version())
 
 	// Version 2 with updated value
 	cs2 := makeChangeSet(key, []byte{0x02}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(2), s.Version())
@@ -337,7 +345,7 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(key, value, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s1, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s1)
 	require.NoError(t, s1.Close())
 
@@ -376,7 +384,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0xEF}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Working hash should change
 	hash2 := s.RootHash()
@@ -404,7 +412,7 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x11}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Working hash should change
 	hash2 := s.RootHash()
@@ -420,7 +428,7 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x56}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Get working hash
 	workingHash := s.RootHash()
@@ -735,11 +743,11 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 
 	cs := makeChangeSet(storageKey, []byte{0x11}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s1, []*proto.NamedChangeSet{cs})
 	cs2 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 5}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s1, []*proto.NamedChangeSet{cs2})
 	cs3 := makeChangeSet(codeKey, []byte{0x60, 0x80}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	applyChangeSets(t, s1, []*proto.NamedChangeSet{cs3})
 	commitAndCheck(t, s1)
 
 	hash := s1.RootHash()
@@ -784,7 +792,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 	value := []byte{0xCC}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, value, false)})
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -795,8 +803,8 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	got, found := ro.Get(key)
 	require.True(t, found)
 	require.Equal(t, value, got)
-	require.NotNil(t, ro.RootHash())
-	require.Len(t, ro.RootHash(), 32)
+	require.NotNil(t, ro.CommittedRootHash())
+	require.Len(t, ro.CommittedRootHash(), 32)
 }
 
 func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
@@ -811,7 +819,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 	value := []byte{0xEE}
 
-	require.NoError(t, writer.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	applyChangeSets(t, writer, []*proto.NamedChangeSet{makeChangeSet(key, value, false)})
 	commitAndCheck(t, writer)
 	require.NoError(t, writer.Close())
 
@@ -839,9 +847,9 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	for i := byte(1); i <= 5; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		applyChangeSets(t, s, []*proto.NamedChangeSet{
 			makeChangeSet(key, []byte{i}, false),
-		}))
+		})
 		commitAndCheck(t, s)
 	}
 
@@ -865,14 +873,15 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)})
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.ErrorIs(t, ro.ApplyChangeSets(nil), errReadOnly)
+	_, err = ro.ApplyChangeSets(nil)
+	require.ErrorIs(t, err, errReadOnly)
 	_, err = ro.Commit()
 	require.ErrorIs(t, err, errReadOnly)
 	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
@@ -894,16 +903,16 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)})
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)})
 	commitAndCheck(t, s)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{3}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{3}, false)})
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(3), s.Version())
@@ -928,9 +937,9 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	for i := byte(1); i <= 4; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		applyChangeSets(t, s, []*proto.NamedChangeSet{
 			makeChangeSet(key, []byte{i}, false),
-		}))
+		})
 		commitAndCheck(t, s)
 	}
 
@@ -963,13 +972,13 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)})
 	commitAndCheck(t, s)
 
 	_, err = s.LoadVersion(999, true)
 	require.Error(t, err)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)})
 	v, err := s.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
@@ -989,7 +998,7 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	addr := Address{0xAA}
 	slot := Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)})
 	commitAndCheck(t, s)
 
 	roStore, err := s.LoadVersion(0, true)

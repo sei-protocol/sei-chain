@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
@@ -35,6 +36,10 @@ type Database struct {
 
 	// A method that flushes the executors.
 	flushFunc func()
+
+	// Hash result channels from prior blocks, waiting to be drained per
+	// the BlockHashOffset policy.
+	pendingHashes []<-chan flatkv.HashResult
 
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
@@ -180,10 +185,17 @@ func (d *Database) FinalizeBlock(
 	})
 	d.nextBlockNumber++
 
-	err := d.db.ApplyChangeSets(changeSets)
+	d.metrics.SetMainThreadPhase("wait_for_async_hash")
+	if err := d.drainStaleHashes(); err != nil {
+		return fmt.Errorf("failed to drain pending hash: %w", err)
+	}
+
+	d.metrics.SetMainThreadPhase("apply_change_sets")
+	hashCh, err := d.db.ApplyChangeSets(changeSets)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
+	d.pendingHashes = append(d.pendingHashes, hashCh)
 
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
@@ -213,6 +225,10 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 
+	if err := d.drainAllHashes(); err != nil {
+		return fmt.Errorf("failed to drain remaining hashes: %w", err)
+	}
+
 	fmt.Printf("Closing database.\n")
 	err := d.db.Close()
 	if err != nil {
@@ -230,6 +246,31 @@ func (d *Database) CloseWithoutFinalizing() error {
 		return fmt.Errorf("failed to close database: %w", err)
 	}
 
+	return nil
+}
+
+// drainStaleHashes blocks until enough prior hash results have been consumed
+// to satisfy the BlockHashOffset policy.
+func (d *Database) drainStaleHashes() error {
+	for len(d.pendingHashes) >= d.config.BlockHashOffset {
+		result := <-d.pendingHashes[0]
+		d.pendingHashes = d.pendingHashes[1:]
+		if result.Err != nil {
+			return fmt.Errorf("hash computation failed: %w", result.Err)
+		}
+	}
+	return nil
+}
+
+// drainAllHashes blocks until every pending hash result has been consumed.
+func (d *Database) drainAllHashes() error {
+	for len(d.pendingHashes) > 0 {
+		result := <-d.pendingHashes[0]
+		d.pendingHashes = d.pendingHashes[1:]
+		if result.Err != nil {
+			return fmt.Errorf("hash computation failed: %w", result.Err)
+		}
+	}
 	return nil
 }
 

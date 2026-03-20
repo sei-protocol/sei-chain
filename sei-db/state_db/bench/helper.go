@@ -427,8 +427,9 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				if !ok {
 					break
 				}
-				err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
+				hashCh, err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
 				require.NoError(b, err)
+				<-hashCh
 				version, err := cs.Commit()
 				require.NoError(b, err)
 				require.Equal(b, baseVersion+block, version)

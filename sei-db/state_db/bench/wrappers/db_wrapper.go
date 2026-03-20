@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -10,7 +11,11 @@ import (
 type DBWrapper interface {
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
-	ApplyChangeSets(cs []*proto.NamedChangeSet) error
+	//
+	// Returns a channel delivering a single HashResult with the root hash
+	// (or an error). For backends that don't compute hashes, the channel
+	// carries a zero-length hash.
+	ApplyChangeSets(cs []*proto.NamedChangeSet) (<-chan flatkv.HashResult, error)
 
 	// Read reads the value for the given key.
 	Read(key []byte) (data []byte, found bool, err error)
@@ -34,4 +39,12 @@ type DBWrapper interface {
 	//
 	// If the underlying DB does not support phase timers, return nil.
 	GetPhaseTimer() *metrics.PhaseTimer
+}
+
+// preloadedHashChannel returns a buffered channel pre-loaded with a single
+// HashResult. Used by wrappers whose backends don't produce real hashes.
+func preloadedHashChannel(hash []byte) <-chan flatkv.HashResult {
+	ch := make(chan flatkv.HashResult, 1)
+	ch <- flatkv.HashResult{Hash: hash}
+	return ch
 }

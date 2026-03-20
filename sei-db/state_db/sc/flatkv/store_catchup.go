@@ -137,9 +137,11 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 			return nil
 		}
 
-		if err := s.ApplyChangeSets(entry.Changesets); err != nil {
+		hashCh, err := s.ApplyChangeSets(entry.Changesets)
+		if err != nil {
 			return fmt.Errorf("catchup apply v%d: %w", entry.Version, err)
 		}
+		<-hashCh
 		if err := s.commitBatches(entry.Version); err != nil {
 			return fmt.Errorf("catchup commit v%d: %w", entry.Version, err)
 		}

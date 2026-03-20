@@ -28,7 +28,7 @@ func TestStoreGetPendingWrites(t *testing.T) {
 
 	// Apply changeset (adds to pending writes)
 	cs := makeChangeSet(key, value, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Should be readable from pending writes
 	got, found := s.Get(key)
@@ -54,7 +54,7 @@ func TestStoreGetPendingDelete(t *testing.T) {
 
 	// Write and commit
 	cs1 := makeChangeSet(key, []byte{0x66}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 	commitAndCheck(t, s)
 
 	// Verify exists
@@ -63,7 +63,7 @@ func TestStoreGetPendingDelete(t *testing.T) {
 
 	// Apply delete (pending)
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	// Should not be found (pending delete)
 	_, found = s.Get(key)
@@ -109,7 +109,7 @@ func TestStoreHas(t *testing.T) {
 
 	// Write and commit
 	cs := makeChangeSet(key, []byte{0xAA}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	// Now should exist
@@ -133,7 +133,7 @@ func TestStoreGetLegacyPendingWrites(t *testing.T) {
 
 	// Apply changeset
 	cs := makeChangeSet(legacyKey, []byte{0x00, 0x40}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 
 	// Should be readable from pending writes
 	got, found := s.Get(legacyKey)
@@ -156,7 +156,7 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 
 	// Write and commit
 	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x80}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 	commitAndCheck(t, s)
 
 	_, found := s.Get(legacyKey)
@@ -164,7 +164,7 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 
 	// Apply delete (pending)
 	cs2 := makeChangeSet(legacyKey, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	// Should not be found (pending delete)
 	_, found = s.Get(legacyKey)
@@ -190,7 +190,7 @@ func TestStoreDelete(t *testing.T) {
 
 	// Write
 	cs1 := makeChangeSet(key, []byte{0x77}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 	commitAndCheck(t, s)
 
 	// Verify exists
@@ -200,7 +200,7 @@ func TestStoreDelete(t *testing.T) {
 
 	// Delete
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 	commitAndCheck(t, s)
 
 	// Should not exist
@@ -238,7 +238,7 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 	internalKey := StorageKey(addr, slot) // addr(20) || slot(32)
 
 	cs := makeChangeSet(memiavlKey, value, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	// Iterate all
@@ -286,7 +286,7 @@ func TestStoreIteratorMultipleKeys(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	// Iterate all
@@ -335,7 +335,7 @@ func TestStoreStoragePrefixIteration(t *testing.T) {
 		slot := Slot{i}
 		key := memiavlStorageKey(addr, slot)
 		cs := makeChangeSet(key, []byte{i * 10}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	}
 	commitAndCheck(t, s)
 
@@ -367,7 +367,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 		slot := Slot{i}
 		key := memiavlStorageKey(addr1, slot)
 		cs := makeChangeSet(key, []byte{i * 10}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	}
 
 	// Write slots for addr2
@@ -375,7 +375,7 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 		slot := Slot{i}
 		key := memiavlStorageKey(addr2, slot)
 		cs := makeChangeSet(key, []byte{i * 20}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	}
 
 	commitAndCheck(t, s)

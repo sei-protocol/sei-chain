@@ -165,6 +165,14 @@ type CryptoSimConfig struct {
 	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
 	DisableTransactionExecution bool
 
+	// Controls how far ahead block processing may run before draining a
+	// previous block's hash result. A value of 1 means the hash for block N
+	// must be available before block N+1 is processed. A value of 2 allows
+	// block N+1 to proceed without the hash from block N, but block N+2
+	// cannot start until block N's hash is consumed. Values less than 1 are
+	// illegal.
+	BlockHashOffset int
+
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
 
@@ -227,6 +235,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
+		BlockHashOffset:                   16,
 		MaxTPS:                            0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
@@ -313,6 +322,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.RecieptChannelCapacity < 1 {
 		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
+	}
+	if c.BlockHashOffset < 1 {
+		return fmt.Errorf("BlockHashOffset must be at least 1 (got %d)", c.BlockHashOffset)
 	}
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)

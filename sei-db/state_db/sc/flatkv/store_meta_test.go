@@ -60,7 +60,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, []byte{0x56}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
 
@@ -93,7 +93,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		slot := Slot{0x34}
 		key := memiavlStorageKey(addr, slot)
 		cs := makeChangeSet(key, []byte{0x56}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		v := commitAndCheck(t, s)
 		require.Equal(t, int64(1), v)
 
@@ -112,7 +112,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 			cs := makeChangeSet(
 				memiavlStorageKey(Address{byte(v)}, Slot{byte(v)}),
 				[]byte{byte(v)}, false)
-			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+			applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 			commitAndCheck(t, s)
 
 			meta, err := loadLocalMeta(s.metadataDB)

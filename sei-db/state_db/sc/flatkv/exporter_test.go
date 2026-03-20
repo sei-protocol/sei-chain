@@ -60,12 +60,12 @@ func TestExporterStorageKeys(t *testing.T) {
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot1))
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: key1, Value: val1},
 			{Key: key2, Value: val2},
 		}}},
-	}))
+	})
 	commitAndCheck(t, s)
 
 	exp, err := s.Exporter(1)
@@ -96,12 +96,12 @@ func TestExporterAccountKeys(t *testing.T) {
 	codeHashVal := make([]byte, CodeHashLen)
 	codeHashVal[0] = 0xDE
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeHashKey, Value: codeHashVal},
 		}}},
-	}))
+	})
 	commitAndCheck(t, s)
 
 	exp, err := s.Exporter(1)
@@ -135,11 +135,11 @@ func TestExporterCodeKeys(t *testing.T) {
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: codeKey, Value: codeVal},
 		}}},
-	}))
+	})
 	commitAndCheck(t, s)
 
 	exp, err := s.Exporter(1)
@@ -177,14 +177,14 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeHashVal := make([]byte, CodeHashLen)
 	codeHashVal[31] = 0xAB
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeKey, Value: codeVal},
 			{Key: codeHashKey, Value: codeHashVal},
 		}}},
-	}))
+	})
 	commitAndCheck(t, s)
 
 	srcHash := s.RootHash()
@@ -259,11 +259,11 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
 
 	// EOA: only nonce, no codehash
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 		}}},
-	}))
+	})
 	commitAndCheck(t, s)
 
 	exp, err := s.Exporter(1)
@@ -292,12 +292,12 @@ func TestImportSurvivesReopen(t *testing.T) {
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, src, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 		}}},
-	}))
+	})
 	commitAndCheck(t, src)
 	srcHash := src.RootHash()
 

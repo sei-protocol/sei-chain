@@ -51,11 +51,13 @@ func (imp *KVImporter) flush() {
 		Name:      "evm",
 		Changeset: iavl.ChangeSet{Pairs: imp.batch},
 	}}
-	if err := imp.store.ApplyChangeSets(cs); err != nil {
+	hashCh, err := imp.store.ApplyChangeSets(cs)
+	if err != nil {
 		imp.err = fmt.Errorf("import apply changesets: %w", err)
 		logger.Error("import flush failed when apply changesets", "err", err)
 		return
 	}
+	<-hashCh
 	if err := imp.store.commitBatches(imp.version); err != nil {
 		imp.err = fmt.Errorf("import commit batches: %w", err)
 		logger.Error("import flush failed when commit batches", "err", err)

@@ -163,7 +163,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		addr := addrN(byte(i))
 		cs := namedCS(noncePair(addr, uint64(i)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 10)
@@ -174,7 +174,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		slot := slotN(byte(i))
 		val := []byte{byte(i), 0xAA}
 		cs := namedCS(storagePair(addr, slot, val))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 20)
@@ -189,7 +189,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 			codeHashPair(addr, ch),
 			codePair(addr, bytecode),
 		)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 30)
@@ -198,7 +198,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	for i := 31; i <= 40; i++ {
 		addr := addrN(byte(i - 30)) // accounts 1-10
 		cs := namedCS(noncePair(addr, uint64(i*100)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 40)
@@ -209,7 +209,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		slot := slotN(byte(i - 30)) // same slots created in blocks 11-20
 		val := []byte{byte(i), 0xBB, 0xCC}
 		cs := namedCS(storagePair(addr, slot, val))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 50)
@@ -219,7 +219,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		addr := addrN(byte(i - 50))
 		slot := slotN(byte(i - 40))
 		cs := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	// Blocks 56-60: add new storage to different slots
@@ -228,7 +228,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		slot := slotN(byte(i + 100)) // new slot IDs
 		val := []byte{byte(i), 0xDD}
 		cs := namedCS(storagePair(addr, slot, val))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 60)
@@ -241,12 +241,12 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 
 		// First call: update nonce
 		cs1 := namedCS(noncePair(addr, uint64(i*1000)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 		// Second call: update codehash (same account, same block)
 		ch := codeHashN(byte(i + 100))
 		cs2 := namedCS(codeHashPair(addr, ch))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 		commitAndCheck(t, s)
 	}
@@ -259,14 +259,14 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 			codeDeletePair(addr),
 			codeHashDeletePair(addr),
 		)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	// ── Blocks 76-80: Create brand new accounts (11-15) ─────────────
 	for i := 76; i <= 80; i++ {
 		addr := addrN(byte(i - 65)) // addresses 11-15
 		cs := namedCS(noncePair(addr, uint64(i)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 80)
@@ -277,7 +277,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		slot := slotN(byte(i - 70)) // same slots deleted in blocks 51-55
 		val := []byte{byte(i), 0xEE, 0xFF}
 		cs := namedCS(storagePair(addr, slot, val))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	// ── Blocks 86-90: Multiple types in single changeset ────────────
@@ -290,7 +290,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 			codePair(addr, []byte{0x60, 0x40, byte(i), byte(i)}),
 			codeHashPair(addr, codeHashN(byte(i+50))),
 		)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 90)
@@ -301,13 +301,13 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		addr := addrN(byte(i - 90))
 
 		cs1 := namedCS(noncePair(addr, uint64(i*77777)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 		cs2 := namedCS(codeHashPair(addr, codeHashN(byte(i+200))))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 		cs3 := namedCS(storagePair(addr, slotN(byte(i+200)), []byte{byte(i)}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{cs3})
 
 		commitAndCheck(t, s)
 	}
@@ -315,30 +315,30 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	// ── Blocks 96-100: Empty blocks and mixed deletes/creates ───────
 	// Block 96: empty block
 	emptyCS := namedCS()
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{emptyCS})
 	commitAndCheck(t, s)
 
 	// Block 97: delete nonce for addr 15 (sets nonce to 0 but account stays)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addrN(15))),
-	}))
+	})
 	commitAndCheck(t, s)
 
 	// Block 98: create new account 20 + storage in same changeset
 	addr20 := addrN(20)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr20, 1),
 			storagePair(addr20, slotN(1), []byte{0x42}),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 
 	// Block 99: update addr 20 nonce + delete its storage in separate calls
 	cs99a := namedCS(noncePair(addr20, 2))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs99a}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs99a})
 	cs99b := namedCS(storageDeletePair(addr20, slotN(1)))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs99b}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs99b})
 	commitAndCheck(t, s)
 
 	// Block 100: big mixed batch
@@ -347,7 +347,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 		pairs = append(pairs, storagePair(addrN(j), slotN(j+250), []byte{j, 0xFF}))
 	}
 	pairs = append(pairs, noncePair(addrN(20), 999))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 
 	// ── Final verification ──────────────────────────────────────────
@@ -374,7 +374,7 @@ func TestLtHashNewAccountNoPhantomMixOut(t *testing.T) {
 
 	addr := addrN(0x42)
 	cs := namedCS(noncePair(addr, 1))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	verifyLtHashAtHeight(t, s, 1)
@@ -391,17 +391,17 @@ func TestLtHashMultiApplyPerBlock(t *testing.T) {
 
 	// Block 1: create account
 	cs := namedCS(noncePair(addr, 1))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: two separate ApplyChangeSets for same account
 	cs1 := namedCS(noncePair(addr, 10))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 	ch := codeHashN(0xAB)
 	cs2 := namedCS(codeHashPair(addr, ch))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
@@ -417,30 +417,30 @@ func TestLtHashStorageAddUpdateDelete(t *testing.T) {
 	slot := slotN(1)
 
 	// Block 1: add storage
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x11})),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: update storage
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x22})),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Block 3: delete storage
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(storageDeletePair(addr, slot)),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 3)
 
 	// Block 4: re-add storage at same slot
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x33})),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 4)
 }
@@ -455,23 +455,23 @@ func TestLtHashCodeAddDelete(t *testing.T) {
 
 	// Block 1: deploy code + set codehash
 	ch := codeHashN(0xAA)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 1),
 			codeHashPair(addr, ch),
 			codePair(addr, []byte{0x60, 0x80}),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: delete code + clear codehash
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			codeDeletePair(addr),
 			codeHashDeletePair(addr),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 }
@@ -485,18 +485,18 @@ func TestLtHashEmptyBlocksNoEffect(t *testing.T) {
 	addr := addrN(1)
 
 	// Block 1: create some state
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 5),
 			storagePair(addr, slotN(1), []byte{0x42}),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 	hashAfterBlock1 := s.RootHash()
 
 	// Blocks 2-10: all empty
 	for i := 2; i <= 10; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS()}))
+		applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS()})
 		commitAndCheck(t, s)
 	}
 
@@ -516,12 +516,12 @@ func TestLtHashSameStorageKeyMultipleTimesInOneChangeset(t *testing.T) {
 	slot := slotN(1)
 
 	// Block 1: write, then overwrite same key in same changeset
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			storagePair(addr, slot, []byte{0x11}),
 			storagePair(addr, slot, []byte{0x22}),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 }
@@ -539,7 +539,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	for i := 1; i <= numAccounts; i++ {
 		pairs = append(pairs, noncePair(addrN(byte(i)), uint64(i)))
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
@@ -548,7 +548,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	for i := 1; i <= numAccounts; i++ {
 		pairs = append(pairs, noncePair(addrN(byte(i)), uint64(i+1000)))
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
@@ -557,7 +557,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	for i := 1; i <= 25; i++ {
 		pairs = append(pairs, codeHashPair(addrN(byte(i)), codeHashN(byte(i))))
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 3)
 
@@ -566,7 +566,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	for i := 1; i <= numAccounts; i++ {
 		pairs = append(pairs, storagePair(addrN(byte(i)), slotN(1), []byte{byte(i)}))
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 4)
 
@@ -579,7 +579,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 			pairs = append(pairs, storagePair(addrN(byte(i)), slotN(1), []byte{byte(i), 0xFF}))
 		}
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{namedCS(pairs...)})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 5)
 }
@@ -594,24 +594,24 @@ func TestLtHashContractAccountEncodingChange(t *testing.T) {
 	addr := addrN(1)
 
 	// Block 1: create EOA (nonce only → 40 byte encoding)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 1)),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: add codehash → becomes contract (72 byte encoding)
 	ch := codeHashN(0xAB)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(codeHashPair(addr, ch)),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Block 3: clear codehash → back to EOA (40 byte encoding)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(codeHashDeletePair(addr)),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 3)
 }
@@ -627,7 +627,7 @@ func TestLtHashMultipleNamedChangeSetsInOneCall(t *testing.T) {
 	// Block 1: two NamedChangeSets in one call, modifying same account
 	cs1 := namedCS(noncePair(addr, 5))
 	cs2 := namedCS(codeHashPair(addr, codeHashN(0xCC)))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1, cs2})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
@@ -635,7 +635,7 @@ func TestLtHashMultipleNamedChangeSetsInOneCall(t *testing.T) {
 	cs3 := namedCS(noncePair(addr, 10))
 	cs4 := namedCS(storagePair(addr, slotN(1), []byte{0x42}))
 	cs5 := namedCS(codePair(addr, []byte{0x60, 0x80}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3, cs4, cs5}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs3, cs4, cs5})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 }
@@ -659,7 +659,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 			noncePair(addr, uint64(i)),
 			storagePair(addr, slotN(byte(i)), []byte{byte(i)}),
 		)
-		require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		applyChangeSets(t, s1, []*proto.NamedChangeSet{cs})
 		_, err := s1.Commit()
 		require.NoError(t, err)
 	}
@@ -694,7 +694,7 @@ func TestFullScanLtHashIncludesLegacy(t *testing.T) {
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	cs := makeChangeSet(legacyKey, []byte{0x42}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs})
 	commitAndCheck(t, s)
 
 	groundTruth := fullScanLtHash(t, s)
@@ -717,18 +717,18 @@ func TestLtHashCrossApplyAccountSameFieldOverwrite(t *testing.T) {
 	addr := addrN(0x50)
 
 	// Block 1: create account with nonce=1
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 1)),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: two ApplyChangeSets overwriting the same nonce field
 	cs1 := namedCS(noncePair(addr, 10))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 	cs2 := namedCS(noncePair(addr, 20))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
@@ -751,18 +751,18 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 	slot := slotN(0x01)
 
 	// Block 1: create storage entry
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x11})),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: overwrite same key in two separate ApplyChangeSets calls
 	cs1 := namedCS(storagePair(addr, slot, []byte{0x22}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 	cs2 := namedCS(storagePair(addr, slot, []byte{0x33}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
@@ -784,22 +784,22 @@ func TestLtHashCrossApplyCodeOverwrite(t *testing.T) {
 	addr := addrN(0x52)
 
 	// Block 1: deploy code
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 1),
 			codePair(addr, []byte{0x60, 0x80}),
 			codeHashPair(addr, codeHashN(0xAA)),
 		),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: overwrite code in two separate ApplyChangeSets calls
 	cs1 := namedCS(codePair(addr, []byte{0x60, 0x40, 0x01}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 	cs2 := namedCS(codePair(addr, []byte{0x60, 0x40, 0x02, 0x03}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
@@ -823,16 +823,16 @@ func TestLtHashCrossApplyLegacyOverwrite(t *testing.T) {
 
 	// Block 1: create legacy entry
 	cs0 := makeChangeSet(legacyKey, []byte{0x00, 0x10}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs0})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
 	// Block 2: overwrite same legacy key in two separate ApplyChangeSets calls
 	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1})
 
 	cs2 := makeChangeSet(legacyKey, []byte{0x00, 0x30}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
@@ -855,17 +855,17 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Block 1: create initial state for all key types
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 1),
 			codeHashPair(addr, codeHashN(0x10)),
 			codePair(addr, []byte{0x60, 0x80}),
 			storagePair(addr, slot, []byte{0x11}),
 		),
-	}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	})
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		makeChangeSet(legacyKey, []byte{0x00, 0x01}, false),
-	}))
+	})
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
@@ -876,10 +876,10 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 		codePair(addr, []byte{0x60, 0x40}),
 		storagePair(addr, slot, []byte{0x22}),
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1a}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs1a})
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		makeChangeSet(legacyKey, []byte{0x00, 0x02}, false),
-	}))
+	})
 
 	// Block 2: second Apply — overwrite all key types again
 	cs2a := namedCS(
@@ -888,10 +888,10 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 		codePair(addr, []byte{0x60, 0x60, 0x01}),
 		storagePair(addr, slot, []byte{0x33}),
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2a}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	applyChangeSets(t, s, []*proto.NamedChangeSet{cs2a})
+	applyChangeSets(t, s, []*proto.NamedChangeSet{
 		makeChangeSet(legacyKey, []byte{0x00, 0x03}, false),
-	}))
+	})
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
