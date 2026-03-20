@@ -6,8 +6,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -29,12 +27,6 @@ func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID in
 
 	app.benchmarkManager = manager
 	logger.Info("Benchmark system initialized")
-}
-
-// PrepareProposalBenchmarkHandler is a no-op under the current PrepareProposal contract.
-func (app *App) PrepareProposalBenchmarkHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	_ = req
-	return &abci.ResponsePrepareProposal{}, nil
 }
 
 // ProcessBenchmarkReceipts extracts receipts from the block and forwards them to

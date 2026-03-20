@@ -1905,7 +1905,6 @@ func TestProcessProposalAccept(t *testing.T) {
 				status = abci.ResponseProcessProposal_ACCEPT
 			}
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: status}, nil)
-			m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil).Maybe()
 			cs1, _ := makeState(ctx, t, makeStateArgs{config: config, application: m})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1953,7 +1952,6 @@ func TestFinalizeBlockCalled(t *testing.T) {
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{
 				Status: abci.ResponseProcessProposal_ACCEPT,
 			}, nil)
-			m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
 			r := &abci.ResponseFinalizeBlock{AppHash: []byte("the_hash")}
 			m.On("FinalizeBlock", mock.Anything, mock.Anything).Return(r, nil).Maybe()
 			m.On("Commit", mock.Anything).Return(&abci.ResponseCommit{}, nil).Maybe()

@@ -6,45 +6,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/benchmark"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
-
-func createTestContext() sdk.Context {
-	db := dbm.NewMemDB()
-
-	ms := rootmulti.NewStore(db)
-	return sdk.NewContext(ms, tmtypes.Header{}, false)
-}
-
-func TestPrepareProposalBenchmarkHandler(t *testing.T) {
-	// Create a mock app with benchmark mode enabled
-
-	app := &App{}
-
-	// Test handler with nil manager (should return empty proposal)
-	ctx := createTestContext()
-	req := &abci.RequestPrepareProposal{
-		Header: &tmtypes.Header{
-			Height: 1,
-			Time:   time.Now(),
-		},
-	}
-	resp, err := app.PrepareProposalBenchmarkHandler(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	app.benchmarkManager = &benchmark.Manager{
-		Logger: benchmark.NewLogger(),
-	}
-	resp2, err := app.PrepareProposalBenchmarkHandler(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp2)
-}
 
 func TestBenchmarkHelperMethods(t *testing.T) {
 	app := &App{}

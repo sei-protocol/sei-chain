@@ -39,10 +39,6 @@ type RequestQuery struct {
 
 type RequestCommit struct{}
 
-type RequestPrepareProposal struct {
-	Header *tmproto.Header
-}
-
 type RequestBeginBlock struct {
 	Hash                []byte
 	Header              tmproto.Header
@@ -71,8 +67,6 @@ type ResponseInitChain struct {
 	Validators      []ValidatorUpdate
 	AppHash         []byte
 }
-
-type ResponsePrepareProposal struct{}
 
 type ResponseGetTxPriorityHint struct {
 	Priority int64

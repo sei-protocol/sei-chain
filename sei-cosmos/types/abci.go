@@ -20,8 +20,6 @@ type EndBlocker func(ctx Context, req abci.RequestEndBlock) abci.ResponseEndBloc
 // PeerFilter responds to p2p filtering queries from Tendermint
 type PeerFilter func(info string) abci.ResponseQuery
 
-type PrepareProposalHandler func(ctx Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error)
-
 type ProcessProposalHandler func(ctx Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
 
 type FinalizeBlocker func(ctx Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
