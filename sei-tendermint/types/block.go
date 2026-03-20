@@ -95,13 +95,17 @@ func (b *Block) ValidateBasic() error {
 		return fmt.Errorf("wrong LastCommit: %w", err)
 	}
 
-	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+	if !SkipAppHashValidation.Load() {
+		if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
+			return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+		}
 	}
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
-	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+	if !SkipAppHashValidation.Load() {
+		if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
+			return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+		}
 	}
 
 	// NOTE: b.Evidence may be nil, but we're just looping.
@@ -111,8 +115,10 @@ func (b *Block) ValidateBasic() error {
 		}
 	}
 
-	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)
+	if !SkipAppHashValidation.Load() {
+		if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
+			return fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)
+		}
 	}
 
 	return nil
