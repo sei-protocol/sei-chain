@@ -89,7 +89,10 @@ func (b *Block) ValidateBasic() error {
 	}
 
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+		// Fall back to legacy hash calculation pre-6.4.
+		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
+			return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+		}
 	}
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
@@ -1038,6 +1041,25 @@ func (ec *Commit) GetByIndex(valIdx int32) *Vote {
 // Implements VoteSetReader.
 func (ec *Commit) IsCommit() bool {
 	return len(ec.Signatures) != 0
+}
+
+// legacyHash computes the commit hash using the pre-v6.4 algorithm, which
+// only includes signatures (not Height, Round, or BlockID). This is needed
+// to validate blocks that were created before the CommitHash change.
+func (commit *Commit) legacyHash() tmbytes.HexBytes {
+	if commit == nil {
+		return nil
+	}
+	bs := make([][]byte, len(commit.Signatures))
+	for i, commitSig := range commit.Signatures {
+		pbcs := commitSig.ToProto()
+		bz, err := pbcs.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		bs[i] = bz
+	}
+	return merkle.HashFromByteSlices(bs)
 }
 
 //-------------------------------------
