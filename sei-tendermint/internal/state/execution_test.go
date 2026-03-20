@@ -2,7 +2,6 @@ package state_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -570,140 +569,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	assert.NotEmpty(t, state.NextValidators.Validators)
 }
 
-func TestEmptyPrepareProposal(t *testing.T) {
-	const height = 2
-	ctx := t.Context()
-	var err error
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	app := abcimocks.NewApplication(t)
-	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
-
-	state, stateDB, privVals := makeState(t, 1, height)
-	stateStore := sm.NewStore(stateDB)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
-	mp.On("TxStore").Return(nil)
-
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		app,
-		mp,
-		sm.EmptyEvidencePool{},
-		nil,
-		eventBus,
-		sm.NopMetrics(),
-	)
-	pa, _ := state.Validators.GetByIndex(0)
-	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
-	_, err = blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
-	require.NoError(t, err)
-}
-
-// TestPrepareProposalReorderTxs tests that CreateBlock preserves the mempool
-// order regardless of the PrepareProposal response contents.
-func TestPrepareProposalReorderTxs(t *testing.T) {
-	const height = 2
-	ctx := t.Context()
-	var err error
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, privVals := makeState(t, 1, height)
-	stateStore := sm.NewStore(stateDB)
-
-	evpool := &mocks.EvidencePool{}
-	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, int64(0))
-
-	txs := factory.MakeNTxs(height, 10)
-	mp := &mpmocks.Mempool{}
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs(txs))
-
-	app := abcimocks.NewApplication(t)
-	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
-
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		app,
-		mp,
-		evpool,
-		nil,
-		eventBus,
-		sm.NopMetrics(),
-	)
-	pa, _ := state.Validators.GetByIndex(0)
-	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
-	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
-	require.NoError(t, err)
-	for i, tx := range block.Data.Txs {
-		require.Equal(t, types.Tx(txs[i]), tx)
-	}
-
-	mp.AssertExpectations(t)
-
-}
-
-// TestPrepareProposalErrorOnPrepareProposalError tests when the client returns an error
-// upon calling PrepareProposal on it.
-func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
-	const height = 2
-	ctx := t.Context()
-	var err error
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, privVals := makeState(t, 1, height)
-	stateStore := sm.NewStore(stateDB)
-
-	evpool := &mocks.EvidencePool{}
-	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, int64(0))
-
-	txs := factory.MakeNTxs(height, 10)
-	mp := &mpmocks.Mempool{}
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs(txs))
-
-	app := &failingPrepareProposalApp{}
-
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		app,
-		mp,
-		evpool,
-		nil,
-		eventBus,
-		sm.NopMetrics(),
-	)
-	pa, _ := state.Validators.GetByIndex(0)
-	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
-	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
-	require.Nil(t, block)
-	require.ErrorContains(t, err, "an injected error")
-
-	mp.AssertExpectations(t)
-}
-
-type failingPrepareProposalApp struct {
-	abci.BaseApplication
-}
-
-func (f failingPrepareProposalApp) PrepareProposal(context.Context, *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	return nil, errors.New("an injected error")
-}
-
 func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) types.BlockID {
 	var (
 		h   = make([]byte, crypto.HashSize)
@@ -720,14 +585,9 @@ func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) types.Bloc
 	}
 }
 
-// panicApp is a test app that panics during PrepareProposal to test panic recovery
+// panicApp is a test app that panics during block processing to test panic recovery
 type panicApp struct {
 	abci.BaseApplication
-}
-
-func (app *panicApp) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	// This will trigger the panic recovery mechanism in CreateProposalBlock
-	panic("test panic for coverage")
 }
 
 func (app *panicApp) Info(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {

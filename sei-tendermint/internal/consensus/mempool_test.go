@@ -363,11 +363,6 @@ func (app *CounterApplication) Commit(context.Context) (*abci.ResponseCommit, er
 	return &abci.ResponseCommit{}, nil
 }
 
-func (app *CounterApplication) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	_ = req
-	return &abci.ResponsePrepareProposal{}, nil
-}
-
 func (app *CounterApplication) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 }

@@ -2909,10 +2909,6 @@ type panicConsensusApp struct {
 	abci.BaseApplication
 }
 
-func (app *panicConsensusApp) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	panic("consensus panic test")
-}
-
 func (app *panicConsensusApp) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 }

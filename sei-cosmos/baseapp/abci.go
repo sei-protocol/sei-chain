@@ -943,28 +943,6 @@ func splitPath(requestPath string) (path []string) {
 }
 
 // ABCI++
-func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
-	if app.ChainID != req.Header.ChainID {
-		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
-	}
-
-	defer func() {
-		if err := recover(); err != nil {
-			logger.Error(
-				"panic recovered in PrepareProposal",
-				"height", req.Header.Height,
-				"time", req.Header.Time,
-				"panic", err,
-			)
-
-			resp = &abci.ResponsePrepareProposal{}
-		}
-	}()
-
-	return &abci.ResponsePrepareProposal{}, nil
-}
-
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 	if app.ChainID != req.Header.ChainID {

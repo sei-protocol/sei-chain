@@ -17,7 +17,6 @@ type Application interface {
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
-	PrepareProposal(context.Context, *RequestPrepareProposal) (*ResponsePrepareProposal, error)
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
 	Commit(context.Context) (*ResponseCommit, error)
@@ -76,10 +75,6 @@ func (BaseApplication) LoadSnapshotChunk(_ context.Context, _ *RequestLoadSnapsh
 
 func (BaseApplication) ApplySnapshotChunk(_ context.Context, req *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) {
 	return &ResponseApplySnapshotChunk{}, nil
-}
-
-func (BaseApplication) PrepareProposal(_ context.Context, req *RequestPrepareProposal) (*ResponsePrepareProposal, error) {
-	return &ResponsePrepareProposal{}, nil
 }
 
 func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessProposal) (*ResponseProcessProposal, error) {
