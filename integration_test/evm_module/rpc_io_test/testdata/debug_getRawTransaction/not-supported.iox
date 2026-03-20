@@ -1,0 +1,3 @@
+// debug_getRawTransaction is not supported on Sei EVM RPC (-32000).
+>> {"jsonrpc":"2.0","id":1,"method":"debug_getRawTransaction","params":["0x0000000000000000000000000000000000000000000000000000000000000001"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"debug_getRawTransaction is not supported on Sei EVM RPC"}}

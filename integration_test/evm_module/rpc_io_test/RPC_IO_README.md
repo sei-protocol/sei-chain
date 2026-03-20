@@ -1,6 +1,6 @@
 # EVM RPC .io / .iox tests
 
-Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **164 tests** from `testdata/` against a live RPC endpoint.
+Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **157 tests** from `testdata/` against a live RPC endpoint.
 
 ## How to run
 
@@ -61,7 +61,7 @@ For a fair comparison, both endpoints should serve the **same chain** (same gene
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **.io**   | ~50   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
 | **.iox**  | ~114  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
-| **Total** | 164   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
+| **Total** | 157   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -249,19 +249,13 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |
 
 
-### Failed tests (29)
+### Failed tests (~20; re-run suite for current count)
+
+Methods that Sei documents as unsupported use dedicated **`not-supported.iox`** fixtures (and `eth_blobBaseFee/blobs-not-supported-error.iox`). They return JSON-RPC **error** `-32000` with a fixed message. See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
 
 
 | Endpoint                           | Test                                                                              | Status | Source       | Reason                 | Error message                                                                            |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ------ | ------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
-| debug_getRawBlock                  | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawBlock does not exist/is not available" |
-| debug_getRawBlock                  | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawBlock does not exist/is not available" |
-| debug_getRawHeader                 | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawHeader does not exist/is not available" |
-| debug_getRawHeader                 | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawHeader does not exist/is not available" |
-| debug_getRawReceipts               | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawReceipts does not exist/is not available" |
-| debug_getRawReceipts               | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawReceipts does not exist/is not available" |
-| debug_getRawTransaction            | get-tx.iox                                                                        | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawTransaction does not exist/is not available" |
-| eth_blobBaseFee                    | blobs-not-supported-error.iox                                                     | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_blobBaseFee does not exist/is not available" |
 | eth_call                           | call-callenv-options-eip1559.iox                                                  | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
 | eth_createAccessList               | create-al-abi-revert.iox                                                          | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
 | eth_createAccessList               | create-al-contract-eip1559.iox                                                    | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
@@ -281,8 +275,6 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getProof                       | get-account-proof-with-storage.iox                                                | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
 | eth_getTransactionByBlockHashAndIndex | get-block-n.iox                                                                | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
 | eth_getTransactionByBlockNumberAndIndex | get-block-n.iox                                                            | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
-| eth_newPendingTransactionFilter    | newPendingTransactionFilter.iox                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_newPendingTransactionFilter does not exist/is not available" |
-| eth_syncing                        | check-syncing.iox                                                                 | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_syncing does not exist/is not available" |
 
 
 ### Skipped tests (0)
@@ -292,21 +284,25 @@ With the script setting **SEI_EVM_IO_SEED_BLOCK** and **SEI_EVM_IO_DEPLOY_TX_HAS
 **Debug one or a few SEED tests:** Run only specific files with extra per-pair logging (request after substitution, bindings, whether `result.transactions` is present):
 
 ```bash
-SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/get-tx.iox" go test ./integration_test/evm_module/rpc_io_test/ -v -run TestEVMRPCSpec
+SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/not-supported.iox" go test ./integration_test/evm_module/rpc_io_test/ -v -run TestEVMRPCSpec
 ```
 
-Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/get-tx.iox,debug_traceTransaction/traceTransaction.iox`. Logs show `SEI_EVM_IO_SEED_BLOCK`, each pair's placeholders and binding values, the actual request sent, and bindings after each response.
+Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/not-supported.iox,debug_traceTransaction/traceTransaction.iox`. Logs show `SEI_EVM_IO_SEED_BLOCK`, each pair's placeholders and binding values, the actual request sent, and bindings after each response.
 
-### Summary
+### Summary (three recorded runs)
 
 
-| Metric          | Previous run | Latest run |
-| --------------- | ------------ | ---------- |
-| **Total tests** | 255          | 164        |
-| **Passed**      | 157          | 135        |
-| **Failed**      | 98           | 29         |
-| **Skipped**     | 0            | 0          |
-| **Pass rate**   | 61.6%        | 82.3%      |
+| Metric | 248 tests¹ | 157 tests (29 fails)² | 157 tests latest (15 fails)³ |
+| ------ | ---------- | ---------------------- | ---------------------------- |
+| **Total tests** | 248 | 157 | 157 |
+| **Passed** | 157 | 128 | 142 |
+| **Failed** | 98 | 29 | 15 |
+| **Skipped** | 0 | 0 | 0 |
+| **Pass rate** | 61.6% | 81.5% | 90.4% |
+
+¹ Broader / earlier suite snapshot (includes more fixtures than current `testdata/`).  
+² Current fixture count after trimming; **29** spec mismatches before explicit unsupported-RPC (`not-supported.iox`) work and related fixes.  
+³ Same **157** fixtures, latest `evm_rpc_tests.sh` (e.g. Mar 2026); **15** fails—includes height-sensitive filter lifecycle when chain span &gt;2000 blocks.
 
 
 

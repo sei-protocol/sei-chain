@@ -264,24 +264,19 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
 }
 
-// ErrCodeBlobsNotSupported is the JSON-RPC error code (-32000) for blob-not-supported errors.
-// Matches go-ethereum rpc errcodeDefault (unexported).
-const ErrCodeBlobsNotSupported = -32000
-
-type ErrBlobsNotSupported struct{}
-
-func (e *ErrBlobsNotSupported) Error() string {
-	return "blobs not supported on this chain"
-}
-
-func (e *ErrBlobsNotSupported) ErrorCode() int {
-	return ErrCodeBlobsNotSupported
-}
-
 func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
-	return nil, &ErrBlobsNotSupported{}
+	return nil, &ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
+// Syncing implements eth_syncing. It is intentionally registered (not removed): the RPC returns
+// JSON-RPC error -32000 with a clear message instead of -32601 method not found. Ethereum returns
+// false or a sync object; Sei does not expose sync semantics on this API.
+func (i *InfoAPI) Syncing() (result any, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("eth_Syncing", i.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
 func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
