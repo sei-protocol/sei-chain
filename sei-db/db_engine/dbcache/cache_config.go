@@ -28,9 +28,6 @@ type CacheConfig struct {
 	// How often to scrape cache size for metrics, in seconds.
 	MetricsScrapeIntervalSeconds float64
 
-	// How often to run the lifecycle loop (flush + retire old versions), in seconds.
-	LifecycleIntervalSeconds float64
-
 	// The maximum number of unreleased snapshots that can be pending retirement before Snapshot() blocks.
 	MaxUnretiredVersions uint64
 
@@ -51,7 +48,6 @@ func DefaultCacheConfig() *CacheConfig {
 		EstimatedOverheadPerEntry:    256,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
-		LifecycleIntervalSeconds:     1.0,
 		MaxUnretiredVersions:         4,
 		TargetKeysPerFlush:           1024 * 10,
 	}
@@ -62,17 +58,11 @@ func DefaultTestCacheConfig() *CacheConfig {
 	config := DefaultCacheConfig()
 	config.MaxSize = unit.MB * 16
 	config.MetricsEnabled = false
-	// Really fast lifecycle loop to attempt to trigger edge cases in tests.
-	config.LifecycleIntervalSeconds = 0.01
 	return config
 }
 
 func (c *CacheConfig) MetricsScrapeInterval() time.Duration {
 	return time.Duration(c.MetricsScrapeIntervalSeconds * float64(time.Second))
-}
-
-func (c *CacheConfig) LifecycleInterval() time.Duration {
-	return time.Duration(c.LifecycleIntervalSeconds * float64(time.Second))
 }
 
 func (c *CacheConfig) Validate() error {
@@ -93,9 +83,6 @@ func (c *CacheConfig) Validate() error {
 	}
 	if c.MetricsEnabled && c.MetricsScrapeIntervalSeconds <= 0 {
 		return fmt.Errorf("MetricsScrapeIntervalSeconds must be positive when MetricsEnabled is true")
-	}
-	if c.LifecycleIntervalSeconds <= 0 {
-		return fmt.Errorf("LifecycleIntervalSeconds must be positive")
 	}
 	if c.MaxUnretiredVersions == 0 {
 		return fmt.Errorf("MaxUnretiredVersions must be greater than 0")

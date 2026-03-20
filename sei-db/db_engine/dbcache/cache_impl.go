@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -62,6 +61,10 @@ type cache struct {
 
 	// Set to true when the cache is shutting down.
 	shuttingDown bool
+
+	// Signaled (non-blocking) by scanRetirementEligibility when new versions become
+	// eligible for retirement. The lifecycle runner selects on this to wake up.
+	lifecycleWake chan struct{}
 
 	// Closed by the lifecycle runner when it exits, so Close() can wait for it.
 	lifecycleDone chan struct{}
@@ -147,6 +150,7 @@ func NewStandardCache(
 		oldestVersion:             1,
 		versionLock:               versionLock,
 		lifecycleBackpressureCond: lifecycleBackpressureCond,
+		lifecycleWake:             make(chan struct{}, 1),
 		lifecycleDone:             make(chan struct{}),
 	}
 
@@ -159,6 +163,16 @@ func NewStandardCache(
 	}
 
 	go c.lifecycleRunner()
+
+	// Shutdown sentinel: ensures Snapshot() is unblocked even if the lifecycle
+	// runner is mid-flush when the context is cancelled.
+	go func() {
+		<-childCtx.Done()
+		c.versionLock.Lock()
+		c.shuttingDown = true
+		c.versionLock.Unlock()
+		c.lifecycleBackpressureCond.Signal()
+	}()
 
 	return c, nil
 }
@@ -442,9 +456,11 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 // scanRetirementEligibility iterates from lastRetirementEligibleVersion+1 forward and marks
 // contiguous eligible versions. A version is eligible when its reference count
 // is 0 and (if hash tracking is enabled) its hash has been set.
+// When new eligible versions are found, the lifecycle runner is woken up.
 // Caller must hold versionLock.
 func (c *cache) scanRetirementEligibility() {
 	versionToConsider := c.lastRetirementEligibleVersion + 1
+	advanced := false
 	for {
 		counter, ok := c.versionMap[versionToConsider]
 		if !ok {
@@ -458,6 +474,20 @@ func (c *cache) scanRetirementEligibility() {
 		c.unretiredVersions++
 		c.lastRetirementEligibleVersion = versionToConsider
 		versionToConsider++
+		advanced = true
+	}
+	if advanced {
+		c.wakeLifecycle()
+	}
+}
+
+// wakeLifecycle performs a non-blocking send on the lifecycle wake channel.
+// If the channel already contains a signal, the send is a no-op; the lifecycle
+// runner's inner loop will pick up all pending work via unretiredVersions.
+func (c *cache) wakeLifecycle() {
+	select {
+	case c.lifecycleWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -574,28 +604,30 @@ func (c *cache) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 	return diff, nil
 }
 
-// Periodically retire old versions: flush their data to the underlying DB, then free the in-memory snapshots.
+// Retire old versions: flush their data to the underlying DB, then free the in-memory snapshots.
+// The runner sleeps until signaled via lifecycleWake (see wakeLifecycle / scanRetirementEligibility),
+// then processes all available work before sleeping again.
 func (c *cache) lifecycleRunner() {
 	defer close(c.lifecycleDone)
-
-	ticker := time.NewTicker(c.config.LifecycleInterval())
-	defer ticker.Stop()
 
 	for {
 		select {
 		case <-c.ctx.Done():
-			// Send a signal to wake up Snapshot() if it is blocked by backpressure.
-			c.versionLock.Lock()
-			c.shuttingDown = true
-			c.versionLock.Unlock()
-			c.lifecycleBackpressureCond.Signal()
 			return
-		case <-ticker.C:
+		case <-c.lifecycleWake:
+		}
+
+		for {
 			err := c.retireVersions()
 			if err != nil {
-				// Retirement failure is not recoverable. Continuing would risk
-				// data corruption and a divergent app hash.
 				panic(fmt.Sprintf("lifecycle: failed to retire versions: %v", err))
+			}
+
+			c.versionLock.Lock()
+			hasWork := c.unretiredVersions > 0
+			c.versionLock.Unlock()
+			if !hasWork {
+				break
 			}
 		}
 	}

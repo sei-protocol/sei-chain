@@ -21,10 +21,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type testDB struct {
-	mu       sync.RWMutex
-	store    map[string][]byte
-	getCalls atomic.Int64
-	getErr   error
+	mu          sync.RWMutex
+	store       map[string][]byte
+	getCalls    atomic.Int64
+	getErr      error
+	commitBlock chan struct{} // if non-nil, batch Commit blocks until closed
 }
 
 func newTestDB(store map[string][]byte) *testDB {
@@ -118,6 +119,9 @@ func (b *testBatch) Delete(key []byte) error {
 }
 
 func (b *testBatch) Commit(opts types.WriteOptions) error {
+	if b.db.commitBlock != nil {
+		<-b.db.commitBlock
+	}
 	b.db.mu.Lock()
 	defer b.db.mu.Unlock()
 	for _, op := range b.ops {
@@ -1498,9 +1502,15 @@ func TestSnapshotShutdownUnblocksBackpressure(t *testing.T) {
 	config.ShardCount = 1
 	config.MaxSize = 4096
 	config.MaxUnretiredVersions = 2
-	// Very slow lifecycle loop so versions pile up.
-	config.LifecycleIntervalSeconds = 100
-	c, err := NewStandardCache(ctx, config, newTestDB(nil), pool, pool)
+
+	// Block all batch commits so the lifecycle thread cannot finish flushing,
+	// causing unretired versions to pile up past MaxUnretiredVersions.
+	db := newTestDB(nil)
+	commitBlock := make(chan struct{})
+	db.commitBlock = commitBlock
+	defer close(commitBlock)
+
+	c, err := NewStandardCache(ctx, config, db, pool, pool)
 	require.NoError(t, err)
 
 	// Create and release enough snapshots to exceed MaxUnretiredVersions.
@@ -1510,6 +1520,9 @@ func TestSnapshotShutdownUnblocksBackpressure(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, snap.Release())
 	}
+
+	// Give the lifecycle thread time to pick up versions and block on commit.
+	time.Sleep(50 * time.Millisecond)
 
 	// Next Snapshot() should block due to backpressure. Cancel context to unblock.
 	done := make(chan error, 1)
