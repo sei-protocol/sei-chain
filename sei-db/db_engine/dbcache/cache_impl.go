@@ -2,10 +2,12 @@ package dbcache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -64,6 +66,17 @@ type cache struct {
 
 	// Closed by the GC runner when it exits, so Close() can wait for it.
 	gcDone chan struct{}
+
+	// Whether the first Snapshot() has already attempted to load the boot hash from the DB.
+	bootHashLoaded bool
+
+	// True only if the boot hash was successfully found in the DB; controls whether
+	// GC gates on hash being set.
+	hashTrackingEnabled bool
+
+	// The hash loaded from the DB at boot time. Used once to populate the first snapshot,
+	// then cleared.
+	bootHash []byte
 }
 
 // Tracks the reference count for a particular snapshot.
@@ -73,6 +86,13 @@ type snapshotReferenceCounter struct {
 
 	// the number of references to the snapshot, snapshot is eligible for cleanup when the referenceCount reaches 0
 	referenceCount uint64
+
+	// The hash associated with this snapshot (nil = not yet set).
+	// Set via SetHash after the snapshot is created (or auto-loaded from DB for the boot snapshot).
+	hash []byte
+
+	// Closed by SetHash to wake AwaitHash waiters. Only allocated when hash tracking is enabled.
+	hashReady chan struct{}
 }
 
 // Creates a new Cache.
@@ -248,6 +268,12 @@ func (c *cache) Set(key []byte, value []byte) {
 }
 
 func (c *cache) Snapshot() (CacheSnapshot, error) {
+	if !c.bootHashLoaded {
+		if err := c.initBootHash(); err != nil {
+			return nil, err
+		}
+	}
+
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -256,10 +282,25 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 		return nil, fmt.Errorf("failed wait for gc to catch up: %w", err)
 	}
 
+	var hashReady chan struct{}
+	if c.hashTrackingEnabled {
+		hashReady = make(chan struct{})
+	}
+
 	currentVersionRefCounter := &snapshotReferenceCounter{
 		version:        c.currentVersion,
 		referenceCount: 1,
+		hashReady:      hashReady,
 	}
+
+	if c.bootHash != nil {
+		currentVersionRefCounter.hash = c.bootHash
+		if hashReady != nil {
+			close(hashReady)
+		}
+		c.bootHash = nil
+	}
+
 	c.versionMap[c.currentVersion] = currentVersionRefCounter
 
 	snapshot := &cacheSnapshot{
@@ -278,6 +319,49 @@ func (c *cache) Snapshot() (CacheSnapshot, error) {
 	}
 
 	return snapshot, nil
+}
+
+// initBootHash loads the hash from the underlying DB on the first Snapshot() call.
+// If HashKey is not configured, hash tracking is disabled. If the hash key is
+// configured but missing from a non-empty DB, an error is returned.
+func (c *cache) initBootHash() error {
+	c.bootHashLoaded = true
+
+	if len(c.config.HashKey) == 0 {
+		return nil
+	}
+
+	val, err := c.db.Get(c.config.HashKey)
+	if err != nil {
+		if !errors.Is(err, errorutils.ErrNotFound) {
+			return fmt.Errorf("failed to read boot hash from DB: %w", err)
+		}
+
+		empty, emptyErr := c.isDBEmpty()
+		if emptyErr != nil {
+			return fmt.Errorf("failed to check if DB is empty: %w", emptyErr)
+		}
+		if !empty {
+			return fmt.Errorf("hash key %q missing from non-empty DB", string(c.config.HashKey))
+		}
+		return nil
+	}
+
+	c.hashTrackingEnabled = true
+	c.bootHash = val
+	return nil
+}
+
+func (c *cache) isDBEmpty() (bool, error) {
+	iter, err := c.db.NewIter(nil)
+	if err != nil {
+		return false, err
+	}
+	hasData := iter.First()
+	if err := iter.Close(); err != nil {
+		return false, err
+	}
+	return !hasData, nil
 }
 
 // This method blocks if GC/flush is not keeping up. It is assumed that the caller already holds the versionLock.
@@ -343,18 +427,24 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 
 	counter.referenceCount--
 
-	// Iterate through versions and mark versions as eligible/ineligible for GC.
-	// If the eligible version count ever gets too high, then backpressue will kick in and Snapshot() will block.
+	c.scanGCEligibility()
+
+	return nil
+}
+
+// scanGCEligibility iterates from lastVersionEligibleForGC+1 forward and marks
+// contiguous eligible versions. A version is eligible when its reference count
+// is 0 and (if hash tracking is enabled) its hash has been set.
+// Caller must hold versionLock.
+func (c *cache) scanGCEligibility() {
 	versionToConsider := c.lastVersionEligibleForGC + 1
 	for {
 		counter, ok := c.versionMap[versionToConsider]
 		if !ok {
-			// we've reached the end of the version map, no more versions to consider
 			break
 		}
 
-		if counter.referenceCount > 0 {
-			// stop once we find the first version that is ineligible for GC
+		if !c.isVersionGCEligible(counter) {
 			break
 		}
 
@@ -362,8 +452,94 @@ func (c *cache) DecrementReferenceCount(version uint64) error {
 		c.lastVersionEligibleForGC = versionToConsider
 		versionToConsider++
 	}
+}
+
+func (c *cache) isVersionGCEligible(counter *snapshotReferenceCounter) bool {
+	if counter.referenceCount > 0 {
+		return false
+	}
+	if c.hashTrackingEnabled && counter.hash == nil {
+		return false
+	}
+	return true
+}
+
+// SetSnapshotHash attaches a hash to the snapshot at the given version.
+func (c *cache) SetSnapshotHash(version uint64, hash []byte) error {
+	if !c.hashTrackingEnabled {
+		return fmt.Errorf("snapshot hashing is disabled")
+	}
+	if hash == nil {
+		return fmt.Errorf("hash must not be nil")
+	}
+
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	counter, ok := c.versionMap[version]
+	if !ok {
+		return fmt.Errorf("version (%d) not found", version)
+	}
+
+	if counter.hash != nil {
+		return fmt.Errorf("hash already set for version %d", version)
+	}
+
+	counter.hash = hash
+	if counter.hashReady != nil {
+		close(counter.hashReady)
+	}
+
+	c.scanGCEligibility()
 
 	return nil
+}
+
+// GetSnapshotHash returns the hash for the snapshot at the given version.
+func (c *cache) GetSnapshotHash(version uint64) ([]byte, error) {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	counter, ok := c.versionMap[version]
+	if !ok {
+		return nil, fmt.Errorf("version (%d) not found", version)
+	}
+
+	if counter.hash == nil {
+		return nil, fmt.Errorf("hash not yet set for version %d", version)
+	}
+
+	return counter.hash, nil
+}
+
+// AwaitSnapshotHash blocks until the hash for the given version is available.
+func (c *cache) AwaitSnapshotHash(ctx context.Context, version uint64) ([]byte, error) {
+	if !c.hashTrackingEnabled {
+		return nil, fmt.Errorf("snapshot hashing is disabled")
+	}
+
+	c.versionLock.Lock()
+	counter, ok := c.versionMap[version]
+	if !ok {
+		c.versionLock.Unlock()
+		return nil, fmt.Errorf("version (%d) not found", version)
+	}
+
+	if counter.hash != nil {
+		hash := counter.hash
+		c.versionLock.Unlock()
+		return hash, nil
+	}
+
+	hashReady := counter.hashReady
+	c.versionLock.Unlock()
+
+	_, err := threading.InterruptiblePull(ctx, hashReady)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await hash: %w", err)
+	}
+
+	return counter.hash, nil
 }
 
 // Get the diff at a given version.
@@ -432,7 +608,7 @@ func (c *cache) garbageCollect() error {
 			c.versionLock.Unlock()
 			return fmt.Errorf("version (%d) not found in version map", version)
 		}
-		if counter.referenceCount > 0 {
+		if !c.isVersionGCEligible(counter) {
 			break
 		}
 		lastVersionToGC++

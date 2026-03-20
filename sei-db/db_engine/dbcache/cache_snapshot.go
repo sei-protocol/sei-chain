@@ -1,10 +1,18 @@
 package dbcache
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
+
+// TODO before merge: write unit tests for snapshot hash behavior:
+//   - SetHash / GetHash / AwaitHash happy paths
+//   - SetHash errors: disabled, nil hash, double set, boot snapshot
+//   - GC gating: versions not GC'd until hash is set (when tracking enabled)
+//   - Boot hash loading: found in DB, missing from empty DB, missing from non-empty DB
+//   - AwaitHash with context cancellation
 
 var _ CacheSnapshot = (*cacheSnapshot)(nil)
 
@@ -57,4 +65,19 @@ func (s *cacheSnapshot) Release() error {
 		return fmt.Errorf("failed to decrement reference count: %w", err)
 	}
 	return nil
+}
+
+// SetHash implements [CacheSnapshot].
+func (s *cacheSnapshot) SetHash(hash []byte) error {
+	return s.parentCache.SetSnapshotHash(s.version, hash)
+}
+
+// GetHash implements [CacheSnapshot].
+func (s *cacheSnapshot) GetHash() ([]byte, error) {
+	return s.parentCache.GetSnapshotHash(s.version)
+}
+
+// AwaitHash implements [CacheSnapshot].
+func (s *cacheSnapshot) AwaitHash(ctx context.Context) ([]byte, error) {
+	return s.parentCache.AwaitSnapshotHash(ctx, s.version)
 }

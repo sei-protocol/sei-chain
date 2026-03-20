@@ -1,6 +1,7 @@
 package dbcache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -116,6 +117,19 @@ type CacheSnapshot interface {
 	// Note that when a snapshot is created, its reservation count is 1, meaning that this method should always
 	// be called a number of times equal to the number of times Reserve() was called plus one.
 	Release() error
+
+	// SetHash attaches a hash to this snapshot. Must be called exactly once per snapshot
+	// (except the boot snapshot, whose hash is auto-loaded from the DB). Returns an error
+	// if hashing is disabled, hash is nil, or the hash has already been set.
+	SetHash(hash []byte) error
+
+	// GetHash returns the hash previously set via SetHash (or auto-loaded at boot).
+	// Returns an error if the hash has not been set yet.
+	GetHash() ([]byte, error)
+
+	// AwaitHash blocks until the snapshot's hash becomes available, then returns it.
+	// Returns an error immediately if hashing is disabled on this cache.
+	AwaitHash(ctx context.Context) ([]byte, error)
 }
 
 // CacheUpdate describes a single key-value mutation to apply to the cache.

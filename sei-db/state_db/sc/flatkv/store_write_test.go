@@ -325,11 +325,6 @@ func TestAccountValueStorage(t *testing.T) {
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-
-	// AccountValue structure: one entry per address containing both nonce and codehash
-	require.Equal(t, 1, len(s.accountWrites), "should have 1 account write (AccountValue)")
-
-	// Commit
 	commitAndCheck(t, s)
 
 	// Verify AccountValue is stored in accountDB with addr as key
@@ -372,10 +367,6 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 
 	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-
-	// Should be in legacyWrites pending buffer
-	require.Len(t, s.legacyWrites, 1)
-
 	commitAndCheck(t, s)
 
 	// Verify legacyDB LocalMeta is updated
@@ -760,13 +751,16 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
 
-	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
-
-	paw := s.accountWrites[string(addr[:])]
-	require.NotNil(t, paw)
-	require.Equal(t, uint64(10), paw.value.Nonce)
-	require.Equal(t, codeHash, paw.value.CodeHash)
+	// Verify both nonce and codehash merged into one AccountValue
+	raw, found, err := s.accountDB.Get(AccountKey(addr), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	av, err := DecodeAccountValue(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10), av.Nonce)
+	require.Equal(t, codeHash, av.CodeHash)
 }
 
 // =============================================================================

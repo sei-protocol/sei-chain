@@ -36,6 +36,11 @@ type CacheConfig struct {
 
 	// Target number of keys per batch when flushing GC'd data to the underlying DB.
 	TargetKeysPerFlush int
+
+	// If set, the cache tracks a hash for each snapshot and requires
+	// snapshots to have their hash set before they become eligible for GC.
+	// If nil, snapshot hashing is disabled and SetHash returns an error.
+	HashKey []byte
 }
 
 // Default configuration for a production cache.

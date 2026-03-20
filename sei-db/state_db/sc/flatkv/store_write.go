@@ -2,51 +2,176 @@ package flatkv
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-// ApplyChangeSets buffers EVM changesets and updates LtHash.
-//
-// LtHash is computed based on actual storage format (internal keys):
-// - storageDB: key=addr||slot, value=storage_value
-// - accountDB: key=addr, value=AccountValue (balance(32)||nonce(8)||codehash(32)
-// - codeDB: key=addr, value=bytecode
-// - legacyDB: key=full original key (with prefix), value=raw value
-func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+// accountFieldOp represents a single nonce or codehash change for an address.
+type accountFieldOp struct {
+	kind     evm.EVMKeyKind // EVMKeyNonce or EVMKeyCodeHash
+	value    []byte         // nil when isDelete is true
+	isDelete bool
+}
+
+// changesetByDB holds changeset data grouped by DB.
+type changesetByDB struct {
+	// Key = internal DB key as string. Last write wins for duplicate keys.
+	storageUpdates map[string]dbcache.CacheUpdate
+	codeUpdates    map[string]dbcache.CacheUpdate
+	legacyUpdates  map[string]dbcache.CacheUpdate
+
+	// Key = addr string, value = ordered list of field-level operations.
+	accountOps map[string][]accountFieldOp
+
+	// Read keys for snapshot BatchGet (populated during parse, filled during read).
+	storageReadKeys map[string]types.BatchGetResult
+	accountReadKeys map[string]types.BatchGetResult
+	codeReadKeys    map[string]types.BatchGetResult
+	legacyReadKeys  map[string]types.BatchGetResult
+}
+
+// mergedAccount is the result of applying field-level ops to an existing account value.
+type mergedAccount struct {
+	addr   Address
+	update dbcache.CacheUpdate
+	oldRaw []byte // raw encoded bytes from snapshot (nil if account didn't exist)
+}
+
+// ApplyChangeSets writes EVM changesets through the cache interface and updates LtHash.
+func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) (retErr error) {
 	if s.readOnly {
 		return errReadOnly
 	}
 
-	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
-
-	// Batch read all old values from DBs in parallel.
-	storageOld, accountOld, codeOld, legacyOld, err := s.batchReadOldValues(cs)
+	// Phase 1: Snapshot data DBs.
+	s.phaseTimer.SetPhase("apply_snapshot")
+	snapshots, err := s.snapshotDataDBs()
 	if err != nil {
-		return fmt.Errorf("failed to batch read old values: %w", err)
+		return fmt.Errorf("snapshot data DBs: %w", err)
+	}
+	defer func() {
+		if retErr != nil {
+			s.releaseSnapshots(snapshots)
+		}
+	}()
+
+	if err := s.snapshotAndReleaseMetadataDB(); err != nil {
+		return fmt.Errorf("metadata snapshot: %w", err)
 	}
 
-	s.phaseTimer.SetPhase("apply_change_sets_prepare")
+	// Phase 2: Parse and group changesets by DB.
+	s.phaseTimer.SetPhase("apply_parse")
+	parsed, err := s.parseChangeSets(cs)
+	if err != nil {
+		return fmt.Errorf("parse changesets: %w", err)
+	}
 
-	s.phaseTimer.SetPhase("apply_change_sets_prepare")
+	// Phase 3: Batch read old values from snapshots.
+	s.phaseTimer.SetPhase("apply_snapshot_read")
+	if err := s.snapshotBatchRead(snapshots, &parsed); err != nil {
+		return fmt.Errorf("snapshot batch read: %w", err)
+	}
+
+	// Phase 4: Merge account field changes with old account values.
+	s.phaseTimer.SetPhase("apply_account_merge")
+	accounts, err := s.mergeAccountChanges(&parsed)
+	if err != nil {
+		return fmt.Errorf("merge accounts: %w", err)
+	}
+
+	// Phase 5: Write all changes to caches.
+	s.phaseTimer.SetPhase("apply_cache_write")
+	if err := s.writeToCaches(&parsed, accounts); err != nil {
+		return fmt.Errorf("cache write: %w", err)
+	}
+
+	// Phase 6: Compute per-DB and global LtHash.
+	s.phaseTimer.SetPhase("apply_lthash")
+	s.computePerDBLtHash(&parsed, accounts)
+
+	// Phase 7: SetHash on each data DB snapshot, then release.
+	s.phaseTimer.SetPhase("apply_set_hash")
+	for dir, snap := range snapshots {
+		if err := snap.SetHash(s.perDBWorkingLtHash[dir].Marshal()); err != nil {
+			return fmt.Errorf("set hash for %s: %w", dir, err)
+		}
+	}
+
+	s.releaseSnapshots(snapshots)
+	snapshots = nil // prevent double-release in defer
+
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
-	// Collect LtHash pairs per DB (using internal key format)
-	var storagePairs []lthash.KVPairWithLastValue
-	var codePairs []lthash.KVPairWithLastValue
-	var legacyPairs []lthash.KVPairWithLastValue
-	// Account pairs are collected at the end after all account changes are processed
+	s.phaseTimer.SetPhase("apply_done")
+	return nil
+}
 
-	// Pre-capture raw encoded account bytes so LtHash delta uses the correct
-	// baseline across multiple ApplyChangeSets calls before Commit.
-	// nil means the account didn't exist (no phantom MixOut for new accounts).
-	oldAccountRawValues := make(map[string][]byte)
+// snapshotDataDBs takes a snapshot of each data DB cache.
+func (s *CommitStore) snapshotDataDBs() (map[string]dbcache.CacheSnapshot, error) {
+	snapshots := make(map[string]dbcache.CacheSnapshot, 4)
+
+	type dbEntry struct {
+		dir   string
+		cache dbcache.Cache
+	}
+	dbs := [4]dbEntry{
+		{accountDBDir, s.accountDB},
+		{codeDBDir, s.codeDB},
+		{storageDBDir, s.storageDB},
+		{legacyDBDir, s.legacyDB},
+	}
+
+	for _, db := range dbs {
+		snap, err := db.cache.Snapshot()
+		if err != nil {
+			for _, acquired := range snapshots {
+				_ = acquired.Release()
+			}
+			return nil, fmt.Errorf("snapshot %s: %w", db.dir, err)
+		}
+		snapshots[db.dir] = snap
+	}
+
+	return snapshots, nil
+}
+
+// snapshotAndReleaseMetadataDB snapshots the metadata DB to ensure prior writes
+// are flushed to disk, then immediately releases the snapshot.
+func (s *CommitStore) snapshotAndReleaseMetadataDB() error {
+	snap, err := s.metadataDB.Snapshot()
+	if err != nil {
+		return fmt.Errorf("metadata snapshot: %w", err)
+	}
+	return snap.Release()
+}
+
+// releaseSnapshots releases all snapshots in the map. Errors are logged but not returned.
+func (s *CommitStore) releaseSnapshots(snapshots map[string]dbcache.CacheSnapshot) {
+	for dir, snap := range snapshots {
+		if err := snap.Release(); err != nil {
+			logger.Error("failed to release snapshot", "db", dir, "err", err)
+		}
+	}
+}
+
+// parseChangeSets iterates all changeset pairs and groups them by target DB.
+func (s *CommitStore) parseChangeSets(cs []*proto.NamedChangeSet) (changesetByDB, error) {
+	p := changesetByDB{
+		storageUpdates:  make(map[string]dbcache.CacheUpdate),
+		codeUpdates:     make(map[string]dbcache.CacheUpdate),
+		legacyUpdates:   make(map[string]dbcache.CacheUpdate),
+		accountOps:      make(map[string][]accountFieldOp),
+		storageReadKeys: make(map[string]types.BatchGetResult),
+		accountReadKeys: make(map[string]types.BatchGetResult),
+		codeReadKeys:    make(map[string]types.BatchGetResult),
+		legacyReadKeys:  make(map[string]types.BatchGetResult),
+	}
 
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
@@ -54,175 +179,273 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 
 		for _, pair := range namedCS.Changeset.Pairs {
-			// Parse memiavl key to determine type
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 			if kind == evm.EVMKeyUnknown {
-				// Skip non-EVM keys silently
 				continue
 			}
 
-			// Route to appropriate DB based on key type
 			switch kind {
 			case evm.EVMKeyStorage:
-				// Storage: keyBytes = addr(20) || slot(32)
 				keyStr := string(keyBytes)
-				oldValue := storageOld[keyStr].Value
-
-				if pair.Delete {
-					s.storageWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					storageOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.storageWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+				var value []byte
+				if !pair.Delete {
+					value = pair.Value
 				}
+				p.storageUpdates[keyStr] = dbcache.CacheUpdate{Key: keyBytes, Value: value}
+				p.storageReadKeys[keyStr] = types.BatchGetResult{}
 
-				// LtHash pair: internal key directly
-				storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
-
-			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				// Account data: keyBytes = addr(20)
+			case evm.EVMKeyNonce:
+				if !pair.Delete {
+					if len(pair.Value) != NonceLen {
+						return p, fmt.Errorf("invalid nonce value length: got %d, expected %d",
+							len(pair.Value), NonceLen)
+					}
+				}
 				addr, ok := AddressFromBytes(keyBytes)
 				if !ok {
-					return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
+					return p, fmt.Errorf("invalid address length %d for nonce key", len(keyBytes))
 				}
 				addrStr := string(addr[:])
-				addrKey := string(AccountKey(addr))
+				p.accountOps[addrStr] = append(p.accountOps[addrStr], accountFieldOp{
+					kind:     kind,
+					value:    pair.Value,
+					isDelete: pair.Delete,
+				})
+				p.accountReadKeys[addrStr] = types.BatchGetResult{}
 
-				if _, seen := oldAccountRawValues[addrStr]; !seen {
-					result := accountOld[addrKey]
-					if result.IsFound() {
-						oldAccountRawValues[addrStr] = result.Value
-					} else {
-						oldAccountRawValues[addrStr] = nil
+			case evm.EVMKeyCodeHash:
+				if !pair.Delete {
+					if len(pair.Value) != CodeHashLen {
+						return p, fmt.Errorf("invalid codehash value length: got %d, expected %d",
+							len(pair.Value), CodeHashLen)
 					}
 				}
-
-				paw := s.accountWrites[addrStr]
-				if paw == nil {
-					var existingValue AccountValue
-					result := accountOld[addrKey]
-					if result.IsFound() && result.Value != nil {
-						av, err := DecodeAccountValue(result.Value)
-						if err != nil {
-							return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
-						}
-						existingValue = av
-					}
-					paw = &pendingAccountWrite{
-						addr:  addr,
-						value: existingValue,
-					}
-					s.accountWrites[addrStr] = paw
+				addr, ok := AddressFromBytes(keyBytes)
+				if !ok {
+					return p, fmt.Errorf("invalid address length %d for codehash key", len(keyBytes))
 				}
-
-				if pair.Delete {
-					if kind == evm.EVMKeyNonce {
-						paw.value.ClearNonce()
-					} else {
-						paw.value.ClearCodeHash()
-					}
-				} else {
-					if kind == evm.EVMKeyNonce {
-						if len(pair.Value) != NonceLen {
-							return fmt.Errorf("invalid nonce value length: got %d, expected %d",
-								len(pair.Value), NonceLen)
-						}
-						paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
-					} else {
-						if len(pair.Value) != CodeHashLen {
-							return fmt.Errorf("invalid codehash value length: got %d, expected %d",
-								len(pair.Value), CodeHashLen)
-						}
-						copy(paw.value.CodeHash[:], pair.Value)
-					}
-				}
+				addrStr := string(addr[:])
+				p.accountOps[addrStr] = append(p.accountOps[addrStr], accountFieldOp{
+					kind:     kind,
+					value:    pair.Value,
+					isDelete: pair.Delete,
+				})
+				p.accountReadKeys[addrStr] = types.BatchGetResult{}
 
 			case evm.EVMKeyCode:
-				// Code: keyBytes = addr(20) - per x/evm/types/keys.go
 				keyStr := string(keyBytes)
-				oldValue := codeOld[keyStr].Value
-
-				if pair.Delete {
-					s.codeWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					codeOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.codeWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+				var value []byte
+				if !pair.Delete {
+					value = pair.Value
 				}
-
-				// LtHash pair: internal key directly
-				codePairs = append(codePairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
+				p.codeUpdates[keyStr] = dbcache.CacheUpdate{Key: keyBytes, Value: value}
+				p.codeReadKeys[keyStr] = types.BatchGetResult{}
 
 			case evm.EVMKeyLegacy:
 				keyStr := string(keyBytes)
-				oldValue := legacyOld[keyStr].Value
-
-				if pair.Delete {
-					s.legacyWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					legacyOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.legacyWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					legacyOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+				var value []byte
+				if !pair.Delete {
+					value = pair.Value
 				}
-
-				legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
+				p.legacyUpdates[keyStr] = dbcache.CacheUpdate{Key: keyBytes, Value: value}
+				p.legacyReadKeys[keyStr] = types.BatchGetResult{}
 			}
 		}
 	}
 
-	s.phaseTimer.SetPhase("apply_change_sets_collect_account_pairs")
+	return p, nil
+}
 
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountRawValues))
-	for addrStr, oldRaw := range oldAccountRawValues {
-		paw, ok := s.accountWrites[addrStr]
-		if !ok {
+// snapshotBatchRead issues parallel BatchGet calls against data DB snapshots.
+func (s *CommitStore) snapshotBatchRead(
+	snapshots map[string]dbcache.CacheSnapshot,
+	p *changesetByDB,
+) error {
+	type readJob struct {
+		dir  string
+		keys map[string]types.BatchGetResult
+	}
+
+	jobs := [4]readJob{
+		{storageDBDir, p.storageReadKeys},
+		{accountDBDir, p.accountReadKeys},
+		{codeDBDir, p.codeReadKeys},
+		{legacyDBDir, p.legacyReadKeys},
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	for i, job := range jobs {
+		if len(job.keys) == 0 {
 			continue
 		}
+		wg.Add(1)
+		err := s.miscPool.Submit(s.ctx, func() {
+			defer wg.Done()
+			errs[i] = snapshots[job.dir].BatchGet(job.keys)
+		})
+		if err != nil {
+			return fmt.Errorf("submit %s batch read: %w", job.dir, err)
+		}
+	}
+	wg.Wait()
 
-		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
-			Key:       AccountKey(paw.addr),
-			Value:     paw.value.Encode(),
-			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
-			Delete:    false,  // account rows are never physically deleted
+	for i, job := range jobs {
+		if errs[i] != nil {
+			return fmt.Errorf("%s batch read: %w", job.dir, errs[i])
+		}
+	}
+	return nil
+}
+
+// mergeAccountChanges applies field-level nonce/codehash operations to old account values.
+func (s *CommitStore) mergeAccountChanges(p *changesetByDB) (map[string]mergedAccount, error) {
+	result := make(map[string]mergedAccount, len(p.accountOps))
+
+	for addrStr, ops := range p.accountOps {
+		addr, ok := AddressFromBytes([]byte(addrStr))
+		if !ok {
+			return nil, fmt.Errorf("invalid address in account ops")
+		}
+
+		var av AccountValue
+		readResult := p.accountReadKeys[addrStr]
+		var oldRaw []byte
+		if readResult.IsFound() && readResult.Value != nil {
+			oldRaw = readResult.Value
+			decoded, err := DecodeAccountValue(readResult.Value)
+			if err != nil {
+				return nil, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
+			}
+			av = decoded
+		}
+
+		for _, op := range ops {
+			if op.isDelete {
+				if op.kind == evm.EVMKeyNonce {
+					av.ClearNonce()
+				} else {
+					av.ClearCodeHash()
+				}
+			} else {
+				if op.kind == evm.EVMKeyNonce {
+					av.Nonce = binary.BigEndian.Uint64(op.value)
+				} else {
+					copy(av.CodeHash[:], op.value)
+				}
+			}
+		}
+
+		key := AccountKey(addr)
+		result[addrStr] = mergedAccount{
+			addr: addr,
+			update: dbcache.CacheUpdate{
+				Key:   key,
+				Value: EncodeAccountValue(av),
+			},
+			oldRaw: oldRaw,
+		}
+	}
+
+	return result, nil
+}
+
+// writeToCaches writes all parsed updates and merged accounts to their respective caches.
+func (s *CommitStore) writeToCaches(p *changesetByDB, accounts map[string]mergedAccount) error {
+	type writeJob struct {
+		dir     string
+		cache   dbcache.Cache
+		updates []dbcache.CacheUpdate
+	}
+
+	storageUpdates := mapValues(p.storageUpdates)
+	codeUpdates := mapValues(p.codeUpdates)
+	legacyUpdates := mapValues(p.legacyUpdates)
+
+	accountUpdates := make([]dbcache.CacheUpdate, 0, len(accounts))
+	for _, ma := range accounts {
+		accountUpdates = append(accountUpdates, ma.update)
+	}
+
+	jobs := [4]writeJob{
+		{storageDBDir, s.storageDB, storageUpdates},
+		{accountDBDir, s.accountDB, accountUpdates},
+		{codeDBDir, s.codeDB, codeUpdates},
+		{legacyDBDir, s.legacyDB, legacyUpdates},
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	for i, job := range jobs {
+		if len(job.updates) == 0 {
+			continue
+		}
+		wg.Add(1)
+		err := s.miscPool.Submit(s.ctx, func() {
+			defer wg.Done()
+			errs[i] = job.cache.BatchSet(job.updates)
+		})
+		if err != nil {
+			return fmt.Errorf("submit %s batch set: %w", job.dir, err)
+		}
+	}
+	wg.Wait()
+
+	for i, job := range jobs {
+		if errs[i] != nil {
+			return fmt.Errorf("%s batch set: %w", job.dir, errs[i])
+		}
+	}
+	return nil
+}
+
+// computePerDBLtHash updates per-DB working LtHash and recomputes the global hash.
+func (s *CommitStore) computePerDBLtHash(p *changesetByDB, accounts map[string]mergedAccount) {
+	// Storage pairs
+	var storagePairs []lthash.KVPairWithLastValue
+	for keyStr, update := range p.storageUpdates {
+		storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
+			Key:       update.Key,
+			Value:     update.Value,
+			LastValue: p.storageReadKeys[keyStr].Value,
+			Delete:    update.IsDelete(),
 		})
 	}
 
-	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
+	// Code pairs
+	var codePairs []lthash.KVPairWithLastValue
+	for keyStr, update := range p.codeUpdates {
+		codePairs = append(codePairs, lthash.KVPairWithLastValue{
+			Key:       update.Key,
+			Value:     update.Value,
+			LastValue: p.codeReadKeys[keyStr].Value,
+			Delete:    update.IsDelete(),
+		})
+	}
 
-	// Per-DB LTHash updates
+	// Legacy pairs
+	var legacyPairs []lthash.KVPairWithLastValue
+	for keyStr, update := range p.legacyUpdates {
+		legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
+			Key:       update.Key,
+			Value:     update.Value,
+			LastValue: p.legacyReadKeys[keyStr].Value,
+			Delete:    update.IsDelete(),
+		})
+	}
+
+	// Account pairs (never physically deleted)
+	// TODO before merge: LLM refactor has reverted new account deletion semantics, do not merge before fixing!!!
+	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(accounts))
+	for _, ma := range accounts {
+		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
+			Key:       ma.update.Key,
+			Value:     ma.update.Value,
+			LastValue: ma.oldRaw,
+			Delete:    false,
+		})
+	}
+
 	type dbPairs struct {
 		dir   string
 		pairs []lthash.KVPairWithLastValue
@@ -239,27 +462,32 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		}
 	}
 
-	// Global LTHash = sum of per-DB hashes (homomorphic property).
-	// Compute into a fresh hash and swap to avoid a transient empty state
-	// on workingLtHash (safe for future pipelining / async callers).
 	globalHash := lthash.New()
 	for _, dir := range dataDBDirs {
 		globalHash.MixIn(s.perDBWorkingLtHash[dir])
 	}
 	s.workingLtHash = globalHash
+}
 
-	s.phaseTimer.SetPhase("apply_change_done")
-	return nil
+// mapValues extracts values from a map into a slice.
+func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
+	if len(m) == 0 {
+		return nil
+	}
+	result := make([]dbcache.CacheUpdate, 0, len(m))
+	for _, v := range m {
+		result = append(result, v)
+	}
+	return result
 }
 
 // Commit persists buffered writes and advances the version.
-// Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
+// Protocol: WAL -> per-DB LocalMeta -> flush -> update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	// Auto-increment version
 	version := s.committedVersion + 1
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
@@ -272,7 +500,7 @@ func (s *CommitStore) Commit() (int64, error) {
 		return 0, fmt.Errorf("changelog write: %w", err)
 	}
 
-	// Step 2: Commit to each DB (data + LocalMeta.CommittedVersion atomically)
+	// Step 2: Commit LocalMeta to each DB
 	if err := s.commitBatches(version); err != nil {
 		return 0, fmt.Errorf("db commit: %w", err)
 	}
@@ -310,342 +538,53 @@ func (s *CommitStore) Commit() (int64, error) {
 	return version, nil
 }
 
-// flushAllDBs flushes all DBs in parallel.
-func (s *CommitStore) flushAllDBs() error {
-	errs := make([]error, 4)
-	var wg sync.WaitGroup
-	wg.Add(4)
-	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
-		err := s.miscPool.Submit(s.ctx, func() {
-			errs[i] = db.Flush()
-			wg.Done()
-		})
-		if err != nil {
-			return fmt.Errorf("failed to submit flush: %w", err)
-		}
-	}
-	wg.Wait()
-	names := [4]string{"accountDB", "codeDB", "storageDB", "legacyDB"}
-	for i, err := range errs {
-		if err != nil {
-			return fmt.Errorf("%s flush: %w", names[i], err)
-		}
-	}
-	return nil
-}
-
-// clearPendingWrites clears all pending write buffers
-func (s *CommitStore) clearPendingWrites() {
-	s.accountWrites = make(map[string]*pendingAccountWrite)
-	s.codeWrites = make(map[string]*pendingKVWrite)
-	s.storageWrites = make(map[string]*pendingKVWrite)
-	s.legacyWrites = make(map[string]*pendingKVWrite)
-	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
-}
-
-// commitBatches commits pending writes to their respective DBs atomically.
-// Each DB batch includes LocalMeta update for crash recovery.
-// Batches are built serially, then committed in parallel.
-// Also called by catchup to replay WAL without re-writing changelog.
+// commitBatches writes LocalMeta (version + LtHash) to each data DB.
+// Data writes are handled by the cache; this only persists crash-recovery metadata.
 func (s *CommitStore) commitBatches(version int64) error {
-	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
-
-	type pendingCommit struct {
-		dbDir string
-		batch types.Batch
-	}
-	var pending []pendingCommit
-
-	// Commit to accountDB
-	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
-	if len(s.accountWrites) > 0 || version > s.localMeta[accountDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_account_db_prepare")
-		batch := s.accountDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, paw := range s.accountWrites {
-			key := AccountKey(paw.addr)
-			encoded := EncodeAccountValue(paw.value)
-			if err := batch.Set(key, encoded); err != nil {
-				return fmt.Errorf("accountDB set: %w", err)
-			}
-		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[accountDBDir]); err != nil {
-			return fmt.Errorf("accountDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{accountDBDir, batch})
+	type dbMeta struct {
+		dir   string
+		cache dbcache.Cache
 	}
 
-	// Commit to codeDB
-	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_code_db_prepare")
-		batch := s.codeDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.codeWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("codeDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("codeDB set: %w", err)
-				}
-			}
-		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[codeDBDir]); err != nil {
-			return fmt.Errorf("codeDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{codeDBDir, batch})
+	dbs := [4]dbMeta{
+		{accountDBDir, s.accountDB},
+		{codeDBDir, s.codeDB},
+		{storageDBDir, s.storageDB},
+		{legacyDBDir, s.legacyDB},
 	}
 
-	// Commit to storageDB
-	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_storage_db_prepare")
-		batch := s.storageDB.NewBatch()
-		defer func() { _ = batch.Close() }()
+	s.phaseTimer.SetPhase("commit_local_meta")
 
-		for _, pw := range s.storageWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("storageDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("storageDB set: %w", err)
-				}
-			}
+	for _, db := range dbs {
+		db.cache.Set(metaVersionKey, versionToBytes(version))
+		if h := s.perDBWorkingLtHash[db.dir]; h != nil {
+			db.cache.Set(metaLtHashKey, h.Marshal())
 		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[storageDBDir]); err != nil {
-			return fmt.Errorf("storageDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{storageDBDir, batch})
-	}
-
-	// Commit to legacyDB
-	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_legacy_db_prepare")
-		batch := s.legacyDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.legacyWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("legacyDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("legacyDB set: %w", err)
-				}
-			}
-		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[legacyDBDir]); err != nil {
-			return fmt.Errorf("legacyDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{legacyDBDir, batch})
-	}
-
-	if len(pending) == 0 {
-		return nil
-	}
-
-	// Commit all batches in parallel.
-	s.phaseTimer.SetPhase("commit_batches_parallel")
-	errs := make([]error, len(pending))
-	var wg sync.WaitGroup
-	wg.Add(len(pending))
-	for i, p := range pending {
-		err := s.miscPool.Submit(s.ctx, func() {
-			errs[i] = p.batch.Commit(syncOpt)
-			wg.Done()
-		})
-		if err != nil {
-			return fmt.Errorf("failed to submit commit: %w", err)
-		}
-	}
-	wg.Wait()
-
-	for i, p := range pending {
-		if errs[i] != nil {
-			return fmt.Errorf("%s commit: %w", p.dbDir, errs[i])
-		}
-	}
-
-	// Update in-memory local meta after all commits succeed.
-	for _, p := range pending {
-		s.localMeta[p.dbDir] = &LocalMeta{
+		s.localMeta[db.dir] = &LocalMeta{
 			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
+			LtHash:           s.perDBWorkingLtHash[db.dir].Clone(),
+		}
+	}
+
+	return nil
+}
+
+// flushAllDBs ensures all data DB caches have their pending data eligible for
+// GC flush by taking and immediately releasing a snapshot on each.
+func (s *CommitStore) flushAllDBs() error {
+	for _, cache := range []dbcache.Cache{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
+		snap, err := cache.Snapshot()
+		if err != nil {
+			return fmt.Errorf("flush snapshot: %w", err)
+		}
+		if err := snap.Release(); err != nil {
+			return fmt.Errorf("flush release: %w", err)
 		}
 	}
 	return nil
 }
 
-// batchReadOldValues scans all changeset pairs and returns one result map per
-// DB containing the "old value" for each key. Keys that already have uncommitted
-// pending writes (from a prior ApplyChangeSets call in the same block) are
-// resolved from those pending writes directly and excluded from the DB batch
-// read, avoiding unnecessary I/O and cache pollution.
-func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
-	storageOld map[string]types.BatchGetResult,
-	accountOld map[string]types.BatchGetResult,
-	codeOld map[string]types.BatchGetResult,
-	legacyOld map[string]types.BatchGetResult,
-	err error,
-) {
-	storageOld = make(map[string]types.BatchGetResult)
-	accountOld = make(map[string]types.BatchGetResult)
-	codeOld = make(map[string]types.BatchGetResult)
-	legacyOld = make(map[string]types.BatchGetResult)
-
-	// Separate maps for keys that need a DB read (no pending write).
-	storageBatch := make(map[string]types.BatchGetResult)
-	accountBatch := make(map[string]types.BatchGetResult)
-	codeBatch := make(map[string]types.BatchGetResult)
-	legacyBatch := make(map[string]types.BatchGetResult)
-
-	pendingKVResult := func(pw *pendingKVWrite) types.BatchGetResult {
-		if pw.isDelete {
-			return types.BatchGetResult{Value: nil}
-		}
-		return types.BatchGetResult{Value: pw.value}
-	}
-
-	// Partition changeset keys: resolve from pending writes when available
-	// (prior ApplyChangeSets call in the same block), otherwise queue for
-	// a DB batch read.
-	for _, namedCS := range cs {
-		if namedCS.Changeset.Pairs == nil {
-			continue
-		}
-		for _, pair := range namedCS.Changeset.Pairs {
-			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-			switch kind {
-			case evm.EVMKeyStorage:
-				k := string(keyBytes)
-				if _, done := storageOld[k]; done {
-					continue
-				}
-				if pw, ok := s.storageWrites[k]; ok {
-					storageOld[k] = pendingKVResult(pw)
-				} else {
-					storageBatch[k] = types.BatchGetResult{}
-				}
-
-			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				addr, ok := AddressFromBytes(keyBytes)
-				if !ok {
-					continue
-				}
-				k := string(AccountKey(addr))
-				if _, done := accountOld[k]; done {
-					continue
-				}
-				if paw, ok := s.accountWrites[k]; ok {
-					accountOld[k] = types.BatchGetResult{Value: EncodeAccountValue(paw.value)}
-				} else {
-					accountBatch[k] = types.BatchGetResult{}
-				}
-
-			case evm.EVMKeyCode:
-				k := string(keyBytes)
-				if _, done := codeOld[k]; done {
-					continue
-				}
-				if pw, ok := s.codeWrites[k]; ok {
-					codeOld[k] = pendingKVResult(pw)
-				} else {
-					codeBatch[k] = types.BatchGetResult{}
-				}
-
-			case evm.EVMKeyLegacy:
-				k := string(keyBytes)
-				if _, done := legacyOld[k]; done {
-					continue
-				}
-				if pw, ok := s.legacyWrites[k]; ok {
-					legacyOld[k] = pendingKVResult(pw)
-				} else {
-					legacyBatch[k] = types.BatchGetResult{}
-				}
-			}
-		}
-	}
-
-	// Issue parallel BatchGet calls only for keys that need a DB read.
-	var wg sync.WaitGroup
-	var storageErr, accountErr, codeErr, legacyErr error
-
-	if len(storageBatch) > 0 {
-		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
-			defer wg.Done()
-			storageErr = s.storageDB.BatchGet(storageBatch)
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
-		}
-	}
-
-	if len(accountBatch) > 0 {
-		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
-			defer wg.Done()
-			accountErr = s.accountDB.BatchGet(accountBatch)
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
-		}
-	}
-
-	if len(codeBatch) > 0 {
-		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
-			defer wg.Done()
-			codeErr = s.codeDB.BatchGet(codeBatch)
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
-		}
-	}
-
-	if len(legacyBatch) > 0 {
-		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
-			defer wg.Done()
-			legacyErr = s.legacyDB.BatchGet(legacyBatch)
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
-		}
-	}
-
-	wg.Wait()
-	if err = errors.Join(storageErr, accountErr, codeErr, legacyErr); err != nil {
-		return
-	}
-
-	// Merge DB results into the result maps.
-	for k, v := range storageBatch {
-		storageOld[k] = v
-	}
-	for k, v := range accountBatch {
-		accountOld[k] = v
-	}
-	for k, v := range codeBatch {
-		codeOld[k] = v
-	}
-	for k, v := range legacyBatch {
-		legacyOld[k] = v
-	}
-
-	return
+// clearPendingWrites clears all pending write buffers.
+func (s *CommitStore) clearPendingWrites() {
+	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
 }

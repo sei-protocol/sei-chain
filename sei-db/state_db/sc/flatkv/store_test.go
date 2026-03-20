@@ -256,14 +256,12 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, []byte{0xCC}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
-	// Should have pending writes
-	require.Len(t, s.storageWrites, 1)
+	// Should have pending changeset
 	require.Len(t, s.pendingChangeSets, 1)
 
 	commitAndCheck(t, s)
 
 	// Should be cleared after commit
-	require.Len(t, s.storageWrites, 0)
 	require.Len(t, s.pendingChangeSets, 0)
 }
 

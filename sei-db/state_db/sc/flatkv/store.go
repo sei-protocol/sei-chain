@@ -52,24 +52,6 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
-// pendingKVWrite tracks a buffered key-value write for code/storage DBs.
-type pendingKVWrite struct {
-	key      []byte // Internal DB key
-	value    []byte
-	isDelete bool
-}
-
-// pendingAccountWrite tracks a buffered account write.
-// Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
-//
-// Account-field deletes (KVPair.Delete for nonce or codehash) are field resets
-// within AccountValue, not physical row deletions. The accountDB row always
-// persists; there is no row-level tombstone for accounts.
-type pendingAccountWrite struct {
-	addr  Address
-	value AccountValue
-}
-
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
@@ -476,6 +458,16 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.localMeta = make(map[string]*LocalMeta)
 		}
 	}()
+
+	dataDBConfigs := []*pebbledb.PebbleDBConfig{
+		s.config.AccountDBConfig,
+		s.config.CodeDBConfig,
+		s.config.StorageDBConfig,
+		s.config.LegacyDBConfig,
+	}
+	for _, cfg := range dataDBConfigs {
+		cfg.CacheConfig.HashKey = metaLtHashKey
+	}
 
 	var err error
 	s.accountDB, err = s.openPebbleDB(s.config.AccountDBConfig)
