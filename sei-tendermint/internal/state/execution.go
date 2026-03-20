@@ -110,11 +110,10 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
-	rpp, err := blockExec.app.PrepareProposal(
+	_, err = blockExec.app.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:          maxDataBytes,
-			Txs:                 block.Txs.ToSliceOfBytes(),
 			LocalLastCommitInfo: buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
 			ByzantineValidators: block.Evidence.ToABCI(),
 			Header:              block.Header.ToProto(),
@@ -131,19 +130,6 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		// error for now (the production code calling this function is expected to panic).
 		return nil, err
 	}
-	txrSet := types.NewTxRecordSet(rpp.TxRecords)
-
-	if err := txrSet.Validate(maxDataBytes, block.Txs); err != nil {
-		return nil, err
-	}
-
-	for _, rtx := range txrSet.RemovedTxs() {
-		if err := blockExec.mempool.RemoveTxByKey(rtx.Key()); err != nil {
-			logger.Debug("error removing transaction from the mempool", "tx", rtx.Key(), "err", err)
-		}
-	}
-	itxs := txrSet.IncludedTxs()
-	block = state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr)
 	return block, nil
 }
 

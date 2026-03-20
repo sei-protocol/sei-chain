@@ -86,7 +86,6 @@ type BaseApp struct {
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	prepareProposalHandler    sdk.PrepareProposalHandler
 	processProposalHandler    sdk.ProcessProposalHandler
 	finalizeBlocker           sdk.FinalizeBlocker
 	anteHandler               sdk.AnteHandler // ante handler for fee and auth

@@ -41,7 +41,6 @@ type RequestCommit struct{}
 
 type RequestPrepareProposal struct {
 	MaxTxBytes          int64
-	Txs                 [][]byte
 	ByzantineValidators []Misbehavior
 	LocalLastCommitInfo CommitInfo
 
@@ -78,7 +77,6 @@ type ResponseInitChain struct {
 }
 
 type ResponsePrepareProposal struct {
-	TxRecords             []*TxRecord
 	AppHash               []byte
 	TxResults             []*ExecTxResult
 	ValidatorUpdates      []ValidatorUpdate
@@ -393,13 +391,6 @@ func (m *RequestQuery) GetHeight() int64 {
 		return m.Height
 	}
 	return 0
-}
-
-func (m *RequestPrepareProposal) GetTxs() [][]byte {
-	if m != nil {
-		return m.Txs
-	}
-	return nil
 }
 
 func (m *RequestPrepareProposal) GetByzantineValidators() []Misbehavior {

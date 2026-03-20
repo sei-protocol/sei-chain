@@ -493,9 +493,20 @@ func (g *Generator) GetPendingDeployHashes() []common.Hash {
 	return hashes
 }
 
-// StartProposalChannel creates a channel that generates proposals.
-func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-chan *abci.ResponsePrepareProposal {
-	ch := make(chan *abci.ResponsePrepareProposal, 100)
+func txRecordsToTxs(txRecords []*abci.TxRecord) [][]byte {
+	txs := make([][]byte, 0, len(txRecords))
+	for _, txRecord := range txRecords {
+		if txRecord == nil {
+			continue
+		}
+		txs = append(txs, txRecord.Tx)
+	}
+	return txs
+}
+
+// StartProposalChannel creates a channel that generates raw tx batches.
+func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-chan [][]byte {
+	ch := make(chan [][]byte, 100)
 
 	go func() {
 		defer close(ch)
@@ -509,12 +520,10 @@ func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-
 				continue
 			}
 
-			proposal := &abci.ResponsePrepareProposal{
-				TxRecords: txRecords,
-			}
+				proposal := txRecordsToTxs(txRecords)
 
-			select {
-			case ch <- proposal:
+				select {
+				case ch <- proposal:
 			case <-ctx.Done():
 				return
 			}

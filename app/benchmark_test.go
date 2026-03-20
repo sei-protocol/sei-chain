@@ -37,29 +37,15 @@ func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	resp, err := app.PrepareProposalBenchmarkHandler(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Len(t, resp.TxRecords, 0)
-
-	// Create a mock manager with a channel
-	proposalCh := make(chan *abci.ResponsePrepareProposal, 1)
-	testProposal := &abci.ResponsePrepareProposal{
-		TxRecords: []*abci.TxRecord{
-			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx1")},
-			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx2")},
-		},
-	}
-	proposalCh <- testProposal
+	require.Nil(t, resp.TxResults)
 
 	app.benchmarkManager = &benchmark.Manager{
 		Logger: benchmark.NewLogger(),
 	}
-	// We can't easily set the proposalCh since it's unexported, so we test the nil case
-
-	// Test that handler doesn't panic with nil manager
-	app.benchmarkManager = nil
 	resp2, err := app.PrepareProposalBenchmarkHandler(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp2)
-	require.Len(t, resp2.TxRecords, 0)
+	require.Nil(t, resp2.TxResults)
 }
 
 func TestBenchmarkHelperMethods(t *testing.T) {
@@ -166,7 +152,7 @@ func TestInitBenchmark_Success(t *testing.T) {
 		if ok {
 			require.NotNil(t, proposal, "Proposal should not be nil")
 			// EVMTransfer scenario doesn't need deployment, so should get load txs immediately
-			t.Logf("Received proposal with %d tx records", len(proposal.TxRecords))
+			t.Logf("Received proposal with %d txs", len(proposal))
 		}
 	case <-time.After(5 * time.Second):
 		t.Log("Timeout waiting for proposal (may be in setup phase)")

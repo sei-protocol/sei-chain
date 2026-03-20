@@ -79,19 +79,7 @@ func (BaseApplication) ApplySnapshotChunk(_ context.Context, req *RequestApplySn
 }
 
 func (BaseApplication) PrepareProposal(_ context.Context, req *RequestPrepareProposal) (*ResponsePrepareProposal, error) {
-	trs := make([]*TxRecord, 0, len(req.Txs))
-	var totalBytes int64
-	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx))
-		if totalBytes > req.MaxTxBytes {
-			break
-		}
-		trs = append(trs, &TxRecord{
-			Action: TxRecord_UNMODIFIED,
-			Tx:     tx,
-		})
-	}
-	return &ResponsePrepareProposal{TxRecords: trs}, nil
+	return &ResponsePrepareProposal{}, nil
 }
 
 func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessProposal) (*ResponseProcessProposal, error) {

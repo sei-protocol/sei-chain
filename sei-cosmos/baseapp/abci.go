@@ -23,7 +23,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
@@ -972,27 +971,17 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 			)
 
 			resp = &abci.ResponsePrepareProposal{
-				TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-					return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-				}),
 			}
 		}
 	}()
 
-	if app.prepareProposalHandler != nil {
-		resp, err = app.prepareProposalHandler(app.prepareProposalState.ctx, req)
-		if err != nil {
-			return nil, err
-		}
+	resp = &abci.ResponsePrepareProposal{}
 
-		if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
-			resp.ConsensusParamUpdates = cp
-		}
-
-		return resp, nil
+	if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
+		resp.ConsensusParamUpdates = cp
 	}
 
-	return nil, errors.New("no prepare proposal handler")
+	return resp, nil
 }
 
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {

@@ -289,9 +289,8 @@ func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPre
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	return &types.ResponsePrepareProposal{
-		TxRecords: app.substPrepareTx(req.Txs, req.MaxTxBytes),
-	}, nil
+	_ = req
+	return &types.ResponsePrepareProposal{}, nil
 }
 
 func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
@@ -441,36 +440,4 @@ func isPrepareTx(tx []byte) bool {
 func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
 	// noop
 	return &types.ExecTxResult{}
-}
-
-// substPrepareTx substitutes all the transactions prefixed with 'prepare' in the
-// proposal for transactions with the prefix stripped.
-// It marks all of the original transactions as 'REMOVED' so that
-// Tendermint will remove them from its mempool.
-func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*types.TxRecord {
-	trs := make([]*types.TxRecord, 0, len(blockData))
-	var removed []*types.TxRecord
-	var totalBytes int64
-	for _, tx := range blockData {
-		txMod := tx
-		action := types.TxRecord_UNMODIFIED
-		if isPrepareTx(tx) {
-			removed = append(removed, &types.TxRecord{
-				Tx:     tx,
-				Action: types.TxRecord_UNMODIFIED,
-			})
-			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_UNMODIFIED
-		}
-		totalBytes += int64(len(txMod))
-		if totalBytes > maxTxBytes {
-			break
-		}
-		trs = append(trs, &types.TxRecord{
-			Tx:     txMod,
-			Action: action,
-		})
-	}
-
-	return append(trs, removed...)
 }

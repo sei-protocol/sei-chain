@@ -31,22 +31,10 @@ func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID in
 	logger.Info("Benchmark system initialized")
 }
 
-// PrepareProposalBenchmarkHandler generates benchmark transactions during PrepareProposal.
+// PrepareProposalBenchmarkHandler is a no-op under the current PrepareProposal contract.
 func (app *App) PrepareProposalBenchmarkHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	if app.benchmarkManager == nil {
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
-
-	select {
-	case proposal, ok := <-app.benchmarkManager.ProposalChannel():
-		if proposal == nil || !ok {
-			return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-		}
-		app.benchmarkManager.Logger.Increment(int64(len(proposal.TxRecords)), req.Header.Time, req.Header.Height)
-		return proposal, nil
-	default:
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
+	_ = req
+	return &abci.ResponsePrepareProposal{}, nil
 }
 
 // ProcessBenchmarkReceipts extracts receipts from the block and forwards them to
