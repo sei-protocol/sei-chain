@@ -285,11 +285,7 @@ func (app *Application) Query(_ context.Context, reqQuery *types.RequestQuery) (
 	return &resQuery, nil
 }
 
-func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	_ = req
+func (app *Application) PrepareProposal(_ context.Context, _ *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
 	return &types.ResponsePrepareProposal{}, nil
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-load/config"
@@ -237,11 +236,11 @@ func (g *Generator) craftDeploymentTx(state *scenarioState, txScenario *loadtype
 // generateSetupBlock creates deployment transactions for undeployed scenarios.
 // This is called on every PrepareProposal during setup phase, but we only
 // create a deployment transaction ONCE per scenario.
-func (g *Generator) generateSetupBlock() []*abci.TxRecord {
+func (g *Generator) generateSetupBlock() [][]byte {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	txRecords := make([]*abci.TxRecord, 0, len(g.scenarios))
+	txs := make([][]byte, 0, len(g.scenarios))
 
 	for _, state := range g.scenarios {
 		// Skip if already deployed
@@ -278,11 +277,11 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 			"txHash", deployTx.Hash())
 
 		// Convert to Cosmos SDK tx
-		txRecord, err := g.ethTxToTxRecord(deployTx)
+		tx, err := g.ethTxToTx(deployTx)
 		if err != nil {
 			panic(fmt.Sprintf("benchmark: Failed to convert deployment tx for %s: %v", state.config.Name, err))
 		}
-		txRecords = append(txRecords, txRecord)
+		txs = append(txs, tx)
 	}
 
 	// Fast-path: if no scenarios need contract deployment (e.g., all EVMTransfer),
@@ -293,7 +292,7 @@ func (g *Generator) generateSetupBlock() []*abci.TxRecord {
 		g.transitionToLoadPhase()
 	}
 
-	return txRecords
+	return txs
 }
 
 // allScenariosDeployed returns true if all scenarios are marked as deployed.
@@ -307,7 +306,7 @@ func (g *Generator) allScenariosDeployed() bool {
 }
 
 // generateLoadBlock generates load transactions.
-func (g *Generator) generateLoadBlock() []*abci.TxRecord {
+func (g *Generator) generateLoadBlock() [][]byte {
 	g.mu.RLock()
 	loadGen := g.loadGenerator
 	g.mu.RUnlock()
@@ -317,20 +316,20 @@ func (g *Generator) generateLoadBlock() []*abci.TxRecord {
 	}
 
 	loadTxs := loadGen.GenerateN(g.txsPerBatch)
-	txRecords := make([]*abci.TxRecord, 0, len(loadTxs))
+	txs := make([][]byte, 0, len(loadTxs))
 	for _, loadTx := range loadTxs {
-		txRecord, err := g.ethTxToTxRecord(loadTx.EthTx)
+		tx, err := g.ethTxToTx(loadTx.EthTx)
 		if err != nil {
 			panic(fmt.Sprintf("benchmark: Failed to convert load tx: %v", err))
 		}
-		txRecords = append(txRecords, txRecord)
+		txs = append(txs, tx)
 	}
 
-	return txRecords
+	return txs
 }
 
-// ethTxToTxRecord converts an Ethereum transaction to a Cosmos SDK TxRecord.
-func (g *Generator) ethTxToTxRecord(ethTx *ethtypes.Transaction) (*abci.TxRecord, error) {
+// ethTxToTx converts an Ethereum transaction to an encoded Cosmos SDK tx.
+func (g *Generator) ethTxToTx(ethTx *ethtypes.Transaction) ([]byte, error) {
 	txData, err := ethtx.NewTxDataFromTx(ethTx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert eth tx to tx data: %w", err)
@@ -352,10 +351,7 @@ func (g *Generator) ethTxToTxRecord(ethTx *ethtypes.Transaction) (*abci.TxRecord
 		return nil, fmt.Errorf("failed to encode tx: %w", err)
 	}
 
-	return &abci.TxRecord{
-		Action: abci.TxRecord_UNMODIFIED,
-		Tx:     txbz,
-	}, nil
+	return txbz, nil
 }
 
 // ProcessReceipts handles receipts from FinalizeBlock to extract deployed addresses.
@@ -451,8 +447,8 @@ func (g *Generator) transitionToLoadPhase() {
 	logger.Info("benchmark: Load generator initialized and ready", "scenarios", len(weightedConfigs))
 }
 
-// Generate returns the next batch of transaction records.
-func (g *Generator) Generate() []*abci.TxRecord {
+// Generate returns the next batch of encoded txs.
+func (g *Generator) Generate() [][]byte {
 	g.mu.Lock()
 	phase := g.phase
 
@@ -493,17 +489,6 @@ func (g *Generator) GetPendingDeployHashes() []common.Hash {
 	return hashes
 }
 
-func txRecordsToTxs(txRecords []*abci.TxRecord) [][]byte {
-	txs := make([][]byte, 0, len(txRecords))
-	for _, txRecord := range txRecords {
-		if txRecord == nil {
-			continue
-		}
-		txs = append(txs, txRecord.Tx)
-	}
-	return txs
-}
-
 // StartProposalChannel creates a channel that generates raw tx batches.
 func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-chan [][]byte {
 	ch := make(chan [][]byte, 100)
@@ -515,15 +500,13 @@ func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-
 				return
 			}
 
-			txRecords := g.Generate()
-			if len(txRecords) == 0 {
+			txs := g.Generate()
+			if len(txs) == 0 {
 				continue
 			}
 
-			proposal := txRecordsToTxs(txRecords)
-
 			select {
-			case ch <- proposal:
+			case ch <- txs:
 			case <-ctx.Done():
 				return
 			}

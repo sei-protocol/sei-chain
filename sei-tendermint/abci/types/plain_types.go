@@ -286,26 +286,6 @@ type Evidence struct {
 	TotalVotingPower int64
 }
 
-type TxRecord struct {
-	Action TxRecord_TxAction
-	Tx     []byte
-}
-
-type TxRecord_TxAction int32
-
-const (
-	TxRecord_UNMODIFIED TxRecord_TxAction = iota
-)
-
-func (a TxRecord_TxAction) String() string {
-	switch a {
-	case TxRecord_UNMODIFIED:
-		return "UNMODIFIED"
-	default:
-		return "UNMODIFIED"
-	}
-}
-
 type Snapshot struct {
 	Height   uint64
 	Format   uint32
@@ -564,20 +544,6 @@ func (m *Evidence) GetTotalVotingPower() int64 {
 		return m.TotalVotingPower
 	}
 	return 0
-}
-
-func (m *TxRecord) GetAction() TxRecord_TxAction {
-	if m != nil {
-		return m.Action
-	}
-	return TxRecord_UNMODIFIED
-}
-
-func (m *TxRecord) GetTx() []byte {
-	if m != nil {
-		return m.Tx
-	}
-	return nil
 }
 
 func (m *Snapshot) GetHeight() uint64 {
