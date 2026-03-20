@@ -221,7 +221,11 @@ func TestTraceBlockByNumberDefaultTracerMatchesTraceTransaction(t *testing.T) {
 
 			blockTrace := blockTxs[1].(map[string]interface{})["result"]
 			txTrace := txRes["result"]
-			require.JSONEq(t, mustMarshalJSON(t, txTrace), mustMarshalJSON(t, blockTrace))
+			txTraceJSON, err := json.Marshal(txTrace)
+			require.NoError(t, err)
+			blockTraceJSON, err := json.Marshal(blockTrace)
+			require.NoError(t, err)
+			require.JSONEq(t, string(txTraceJSON), string(blockTraceJSON))
 		},
 	)
 }
