@@ -49,6 +49,7 @@ func DefaultCacheConfig() *CacheConfig {
 		ShardCount:                   8,
 		MaxSize:                      unit.GB / 2,
 		EstimatedOverheadPerEntry:    256,
+		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
 		GCIntervalSeconds:            1.0,
 		MaxUnGCdVersions:             4,

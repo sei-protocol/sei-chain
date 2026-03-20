@@ -104,6 +104,12 @@ func DefaultConfig() *Config {
 	cfg.AccountDBConfig.CacheConfig.MaxSize = unit.GB
 	cfg.StorageDBConfig.CacheConfig.MaxSize = unit.GB * 4
 
+	cfg.AccountDBConfig.CacheConfig.MetricsName = accountDBDir
+	cfg.CodeDBConfig.CacheConfig.MetricsName = codeDBDir
+	cfg.StorageDBConfig.CacheConfig.MetricsName = storageDBDir
+	cfg.LegacyDBConfig.CacheConfig.MetricsName = legacyDBDir
+	cfg.MetadataDBConfig.CacheConfig.MetricsName = metadataDir
+
 	return cfg
 }
 
