@@ -3,8 +3,8 @@ package keeper
 import (
 	"encoding/json"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	fuzz "github.com/google/gofuzz"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )

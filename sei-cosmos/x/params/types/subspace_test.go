@@ -5,16 +5,15 @@ import (
 	"testing"
 	"time"
 
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/params/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 type SubspaceTestSuite struct {
@@ -39,7 +38,7 @@ func (suite *SubspaceTestSuite) SetupTest() {
 
 	suite.cdc = encCfg.Marshaler
 	suite.amino = encCfg.Amino
-	suite.ctx = sdk.NewContext(ms, tmproto.Header{}, false, log.NewNopLogger())
+	suite.ctx = sdk.NewContext(ms, tmproto.Header{}, false)
 	suite.ss = ss.WithKeyTable(paramKeyTable())
 }
 
@@ -124,12 +123,12 @@ func (suite *SubspaceTestSuite) TestUpdate() {
 
 	bad := time.Minute * 5
 
-	bz, err := suite.amino.MarshalJSON(bad)
+	bz, err := suite.amino.MarshalAsJSON(bad)
 	suite.Require().NoError(err)
 	suite.Require().Error(suite.ss.Update(suite.ctx, keyUnbondingTime, bz))
 
 	good := time.Hour * 360
-	bz, err = suite.amino.MarshalJSON(good)
+	bz, err = suite.amino.MarshalAsJSON(good)
 	suite.Require().NoError(err)
 	suite.Require().NoError(suite.ss.Update(suite.ctx, keyUnbondingTime, bz))
 

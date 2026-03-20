@@ -7,21 +7,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	"github.com/tendermint/tendermint/internal/libs/tempfile"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/tempfile"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // TODO: type ?
@@ -234,7 +235,7 @@ func LoadFilePVEmptyState(keyFilePath, stateFilePath string) (*FilePV, error) {
 
 // If loadState is true, we load from the stateFilePath. Otherwise, we use an empty LastSignState.
 func loadFilePV(keyFilePath, stateFilePath string, loadState bool) (*FilePV, error) {
-	keyJSONBytes, err := os.ReadFile(keyFilePath)
+	keyJSONBytes, err := os.ReadFile(filepath.Clean(keyFilePath))
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +253,7 @@ func loadFilePV(keyFilePath, stateFilePath string, loadState bool) (*FilePV, err
 	pvState := FilePVLastSignState{}
 
 	if loadState {
-		stateJSONBytes, err := os.ReadFile(stateFilePath)
+		stateJSONBytes, err := os.ReadFile(filepath.Clean(stateFilePath))
 		if err != nil {
 			return nil, err
 		}

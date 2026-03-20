@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,7 +22,7 @@ func RunWithArgs(ctx context.Context, cmd *cobra.Command, args []string, env map
 	defer func() {
 		os.Args = oargs
 		for k, v := range oenv {
-			os.Setenv(k, v)
+			_ = os.Setenv(k, v)
 		}
 	}()
 
@@ -51,9 +50,9 @@ func RunWithTrace(ctx context.Context, cmd *cobra.Command) error {
 			const size = 64 << 10
 			buf := make([]byte, size)
 			buf = buf[:runtime.Stack(buf, false)]
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n%s\n", err, buf)
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %v\n%s\n", err, buf)
 		} else {
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		}
 
 		return err
@@ -69,7 +68,7 @@ func WriteConfigVals(dir string, vals map[string]string) error {
 		data += fmt.Sprintf("%s = \"%s\"\n", k, v)
 	}
 	cfile := filepath.Join(dir, "config.toml")
-	return ioutil.WriteFile(cfile, []byte(data), 0600)
+	return os.WriteFile(cfile, []byte(data), 0600)
 }
 
 // NewCompletionCmd returns a cobra.Command that generates bash and zsh

@@ -8,45 +8,48 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/client/debug"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	"github.com/cosmos/cosmos-sdk/client/pruning"
-	"github.com/cosmos/cosmos-sdk/client/rpc"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
-	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
-	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
+	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/debug"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/pruning"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	authcmd "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
+	genutilcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/tools"
-	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	tmcfg "github.com/tendermint/tendermint/config"
-	tmcli "github.com/tendermint/tendermint/libs/cli"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
+
+var logger = seilog.NewLogger("cmd", "seid", "cmd")
 
 // Option configures root command option.
 type Option func(*rootOptions)
@@ -95,6 +98,12 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 				return err
 			}
 
+			// Skip creating config.toml/app.toml when running "init"; init creates them itself.
+			// Otherwise the PreRun would create them in the init home, and init would then error
+			if strings.HasPrefix(cmd.Use, "init") {
+				return nil
+			}
+
 			customAppTemplate, customAppConfig := initAppConfig()
 
 			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
@@ -139,6 +148,7 @@ func initRootCmd(
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
+		LogLevelCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -220,13 +230,10 @@ func txCommand() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
-	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
-	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
 }
 
 // newApp creates a new Cosmos SDK app
 func newApp(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	tmConfig *tmcfg.Config,
@@ -269,7 +276,6 @@ func newApp(
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
 	app := app.New(
-		logger,
 		db,
 		traceStore,
 		true,
@@ -304,25 +310,11 @@ func newApp(
 		baseapp.SetOccEnabled(cast.ToBool(appOpts.Get(baseapp.FlagOccEnabled))),
 	)
 
-	// Start migration if --migrate flag is set
-	if cast.ToBool(appOpts.Get("migrate-iavl")) {
-		go func() {
-			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
-			stateStore := app.GetStateStore()
-			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
-			migrator := ss.NewMigrator(db, stateStore)
-			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
-				panic(err)
-			}
-		}()
-	}
-
 	return app
 }
 
 // appExport creates a new simapp (optionally at a given height)
 func appExport(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	height int64,
@@ -332,7 +324,6 @@ func appExport(
 	file *os.File,
 ) (servertypes.ExportedApp, error) {
 	exportableApp, err := getExportableApp(
-		logger,
 		db,
 		traceStore,
 		height,
@@ -350,7 +341,6 @@ func appExport(
 }
 
 func getExportableApp(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	height int64,
@@ -367,12 +357,12 @@ func getExportableApp(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
+		exportableApp = app.New(db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return nil, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
+		exportableApp = app.New(db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAppOptions)
 	}
 	return exportableApp, nil
 
@@ -439,8 +429,10 @@ func initAppConfig() (string, interface{}) {
 	customAppTemplate := serverconfig.ManualConfigTemplate +
 		seidbconfig.StateCommitConfigTemplate +
 		seidbconfig.StateStoreConfigTemplate +
+		seidbconfig.ReceiptStoreConfigTemplate +
 		evmrpcconfig.ConfigTemplate +
 		gigaconfig.ConfigTemplate +
+		admin.ConfigTemplate +
 		serverconfig.AutoManagedConfigTemplate + `
 ###############################################################################
 ###                        WASM Configuration (Auto-managed)                ###

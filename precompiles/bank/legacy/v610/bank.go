@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v606"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
@@ -380,10 +379,6 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
-}
-
-func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("precompile", "bank")
 }
 
 func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {

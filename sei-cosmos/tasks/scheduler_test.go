@@ -11,19 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/occ"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 )
 
 type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
@@ -69,7 +68,6 @@ func initTestCtx(injectStores bool) sdk.Context {
 	}
 	store := cachemulti.NewStore(db, stores, keys, nil, nil, nil)
 	ctx = ctx.WithMultiStore(&store)
-	ctx = ctx.WithLogger(log.NewNopLogger())
 	return ctx
 }
 
@@ -133,7 +131,7 @@ func TestProcessAll(t *testing.T) {
 					// just write so we have more writes going on
 					kv.Set(req.Tx, req.Tx)
 					iterator := kv.Iterator(nil, nil)
-					defer iterator.Close()
+					defer func() { _ = iterator.Close() }()
 					for ; iterator.Valid(); iterator.Next() {
 						// Do nothing, just iterate
 					}

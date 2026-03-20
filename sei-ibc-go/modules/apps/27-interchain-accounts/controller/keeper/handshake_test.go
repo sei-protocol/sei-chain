@@ -1,7 +1,7 @@
 package keeper_test
 
 import (
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -71,7 +71,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 				// attempt to downgrade version by reinitializing channel with version 1, but setting channel to version 2
 				metadata.Version = "ics27-2"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				counterparty := channeltypes.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
@@ -121,7 +121,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			func() {
 				metadata.Encoding = "invalid-encoding-format"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -134,7 +134,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			func() {
 				metadata.TxType = "invalid-tx-types"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -155,7 +155,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			func() {
 				metadata.ControllerConnectionId = "invalid-connnection-id"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -168,7 +168,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			func() {
 				metadata.HostConnectionId = "invalid-connnection-id"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -181,7 +181,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			func() {
 				metadata.Version = "invalid-version"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -227,7 +227,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 
 			// default values
 			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "", icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
-			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+			versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 			suite.Require().NoError(err)
 
 			counterparty := channeltypes.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
@@ -297,7 +297,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			func() {
 				metadata.Encoding = "invalid-encoding-format"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
@@ -309,7 +309,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			func() {
 				metadata.TxType = "invalid-tx-types"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
@@ -321,7 +321,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			func() {
 				metadata.Address = "invalid-account-address"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
@@ -333,7 +333,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			func() {
 				metadata.Address = ""
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
@@ -345,7 +345,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			func() {
 				metadata.Version = "invalid-version"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
@@ -384,7 +384,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			suite.Require().True(exists)
 
 			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, interchainAccAddr, icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
-			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+			versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 			suite.Require().NoError(err)
 
 			path.EndpointB.ChannelConfig.Version = string(versionBytes)

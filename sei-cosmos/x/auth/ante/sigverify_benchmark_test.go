@@ -3,11 +3,11 @@ package ante_test
 import (
 	"testing"
 
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/stretchr/testify/require"
-	tmcrypto "github.com/tendermint/tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256r1"
 )
 
 // This benchmark is used to asses the ante.Secp256k1ToR1GasFactor value

@@ -5,14 +5,14 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/storev2/commitment"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
 	"github.com/spf13/cast"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )
@@ -41,6 +41,11 @@ func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConf
 }
 
 func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
+	// Skip invariance checks when mock_balances is enabled since we fake balances
+	// without updating the actual store, which would fail the supply check.
+	if MockBalancesEnabled {
+		return
+	}
 	if config.SupplyEnabled {
 		app.LightInvarianceTotalSupply(cms)
 	}
@@ -53,7 +58,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	)
 	ckv, ok := cms.GetStore(app.BankKeeper.GetStoreKey()).(*commitment.Store)
 	if !ok {
-		app.Logger().Error("bank store is not a memiavl store; cannot run light invariance check")
+		logger.Error("bank store is not a memiavl store; cannot run light invariance check")
 		return
 	}
 	balanceChangePairs := ckv.GetChangedPairs(banktypes.BalancesPrefix)
@@ -68,7 +73,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "sei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
+			logger.Error("invalid changed pair key for usei", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
 		addrLen := int(p.Key[1])
@@ -80,7 +85,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "sei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
+			logger.Error("invalid changed pair key for usei", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
 		addr := p.Key[2 : addrLen+2]
@@ -100,7 +105,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 						Value: "post_block",
 					},
 				})
-				app.Logger().Error(fmt.Sprintf("failed to unmarshal balance: %s", err))
+				logger.Error("failed to unmarshal balance", "err", err)
 				continue
 			}
 			if balance.Amount.IsNegative() {
@@ -128,7 +133,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock balance: %s", err))
+			logger.Error("failed to unmarshal preblock balance", "err", err)
 			continue
 		}
 		useiPreTotal = useiPreTotal.Add(balance.Amount)
@@ -145,7 +150,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "wei",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("invalid changed pair key: %X", p.Key))
+			logger.Error("invalid changed pair key", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
 		if !p.Delete {
@@ -159,7 +164,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 						Value: "post_block",
 					},
 				})
-				app.Logger().Error(fmt.Sprintf("failed to unmarshal wei balance: %s", err))
+				logger.Error("failed to unmarshal wei balance", "err", err)
 				continue
 			}
 			weiPostTotal = weiPostTotal.Add(amt)
@@ -187,7 +192,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock wei balance: %s", err))
+			logger.Error("failed to unmarshal preblock wei balance", "err", err)
 			continue
 		}
 		weiPreTotal = weiPreTotal.Add(amt)
@@ -207,7 +212,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 					Value: "pre_block",
 				},
 			})
-			app.Logger().Error(fmt.Sprintf("failed to unmarshal pre total supply: %s", err))
+			logger.Error("failed to unmarshal pre total supply", "err", err)
 			return
 		}
 		preTotalSupply = amt
@@ -228,7 +233,7 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 							Value: "post_block",
 						},
 					})
-					app.Logger().Error(fmt.Sprintf("failed to unmarshal total supply: %s", err))
+					logger.Error("failed to unmarshal total supply", "err", err)
 				} else {
 					supplyChanged = amt.Sub(preTotalSupply)
 				}
@@ -241,9 +246,13 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	if !weiDiffRemainder.IsZero() {
 		panic(fmt.Sprintf("non-zero wei diff found! Pre-block wei total %s, post-block wei total %s", weiPreTotal, weiPostTotal))
 	}
+	// Formula: useiDiff = useiPreTotal - useiPostTotal - weiDiffInUsei + supplyChanged
+	// If money is conserved, this should be zero
+	// useiPreTotal - useiPostTotal = how much usei left balances (negative means usei entered balances)
+	// weiDiffInUsei = how much usei was moved to wei balances
+	// supplyChanged = how much new usei was minted
 	useiDiff := useiPreTotal.Sub(useiPostTotal).Sub(weiDiffInUsei).Add(supplyChanged)
 	if !useiDiff.IsZero() {
 		panic(fmt.Sprintf("unexpected usei balance total found! Pre-block usei total %s wei total %s total supply %s, post-block usei total %s wei total %s total supply %s", useiPreTotal, weiPreTotal, preTotalSupply, useiPostTotal, weiPostTotal, preTotalSupply.Add(supplyChanged)))
 	}
-	app.Logger().Info("successfully verified supply light invariance")
 }

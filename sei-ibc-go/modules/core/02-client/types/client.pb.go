@@ -5,11 +5,11 @@ package types
 
 import (
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	types1 "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	types1 "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"

@@ -3,7 +3,7 @@ package cli_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/auth/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
 	"github.com/stretchr/testify/require"
 )
 

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/eventlog"
-	"github.com/tendermint/tendermint/internal/eventlog/cursor"
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	tmquery "github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog/cursor"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 const (
@@ -38,9 +38,9 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 		return nil, errors.New("maximum query length exceeded")
 	}
 
-	env.Logger.Info("WARNING: Websocket subscriptions are deprecated and will be removed " +
+	logger.Info("WARNING: Websocket subscriptions are deprecated and will be removed " +
 		"in Tendermint v0.37. See https://tinyurl.com/adr075 for more information.")
-	env.Logger.Info("Subscribe to query", "remote", addr, "query", req.Query)
+	logger.Info("Subscribe to query", "remote", addr, "query", req.Query)
 
 	q, err := tmquery.New(req.Query)
 	if err != nil {
@@ -75,7 +75,7 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 				resp := callInfo.RPCRequest.MakeError(nil, err)
 				ok := callInfo.WSConn.TryWriteRPCResponse(opctx, resp)
 				if !ok {
-					env.Logger.Info("Unable to write response (slow client)",
+					logger.Info("Unable to write response (slow client)",
 						"to", addr, "subscriptionID", subscriptionID, "err", err)
 				}
 				return
@@ -91,7 +91,7 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 			err = callInfo.WSConn.WriteRPCResponse(wctx, resp)
 			cancel()
 			if err != nil {
-				env.Logger.Info("Unable to write response (slow client)",
+				logger.Info("Unable to write response (slow client)",
 					"to", addr, "subscriptionID", subscriptionID, "err", err)
 			}
 		}
@@ -104,7 +104,7 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 // More: https://docs.tendermint.com/master/rpc/#/Websocket/unsubscribe
 func (env *Environment) Unsubscribe(ctx context.Context, req *coretypes.RequestUnsubscribe) (*coretypes.ResultUnsubscribe, error) {
 	args := tmpubsub.UnsubscribeArgs{Subscriber: rpctypes.GetCallInfo(ctx).RemoteAddr()}
-	env.Logger.Info("Unsubscribe from query", "remote", args.Subscriber, "subscription", req.Query)
+	logger.Info("Unsubscribe from query", "remote", args.Subscriber, "subscription", req.Query)
 
 	var err error
 	args.Query, err = tmquery.New(req.Query)
@@ -124,7 +124,7 @@ func (env *Environment) Unsubscribe(ctx context.Context, req *coretypes.RequestU
 // More: https://docs.tendermint.com/master/rpc/#/Websocket/unsubscribe_all
 func (env *Environment) UnsubscribeAll(ctx context.Context) (*coretypes.ResultUnsubscribe, error) {
 	addr := rpctypes.GetCallInfo(ctx).RemoteAddr()
-	env.Logger.Info("Unsubscribe from all", "remote", addr)
+	logger.Info("Unsubscribe from all", "remote", addr)
 	err := env.EventBus.UnsubscribeAll(ctx, addr)
 	if err != nil {
 		return nil, err

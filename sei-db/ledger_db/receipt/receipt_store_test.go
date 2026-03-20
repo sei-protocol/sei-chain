@@ -5,13 +5,11 @@ import (
 	"testing"
 	"time"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
@@ -31,7 +29,7 @@ func setupReceiptStore(t *testing.T) (receipt.ReceiptStore, sdk.Context, storety
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = 0
-	store, err := receipt.NewReceiptStore(dbLogger.NewNopLogger(), cfg, storeKey)
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store, ctx, storeKey
@@ -57,46 +55,30 @@ func makeReceipt(txHash common.Hash, addr common.Address, topics []common.Hash, 
 	}
 }
 
-func withBloom(r *types.Receipt) *types.Receipt {
-	logs := receipt.GetLogsForTx(r, 0)
-	bloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: logs})
-	r.LogsBloom = bloom.Bytes()
-	return r
-}
-
 func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	storeKey := storetypes.NewKVStoreKey("evm")
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = ""
-	store, err := receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.Error(t, err)
 	require.Nil(t, store)
 
 	cfg.DBDirectory = t.TempDir()
 	cfg.Backend = "rocksdb"
-	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.Error(t, err)
 	require.Nil(t, store)
 
-	cfg.Backend = "pebbledb"
-	store, err = receipt.NewReceiptStore(nil, cfg, storeKey)
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
-}
 
-func TestReceiptStoreNilReceiver(t *testing.T) {
-	store := receipt.NilReceiptStore()
-	require.Equal(t, int64(0), store.LatestVersion())
-	require.Error(t, store.SetLatestVersion(1))
-	require.Error(t, store.SetEarliestVersion(1))
-	_, err := store.GetReceipt(sdk.Context{}, common.Hash{})
-	require.Error(t, err)
-	_, err = store.GetReceiptFromStore(sdk.Context{}, common.Hash{})
-	require.Error(t, err)
-	require.Error(t, store.SetReceipts(sdk.Context{}, nil))
-	_, err = store.FilterLogs(sdk.Context{}, 1, common.Hash{}, nil, filters.FilterCriteria{}, false)
-	require.Error(t, err)
+	cfg.Backend = "parquet"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 }
 
@@ -159,68 +141,43 @@ func TestSetReceiptsAsync(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
-func TestFilterLogs(t *testing.T) {
-	store, ctx, _ := setupReceiptStore(t)
-	blockHeight := int64(8)
-	blockHash := common.HexToHash("0xab")
+func TestReceiptStorePebbleBackendBasic(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(0)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.Backend = "pebble"
 
-	txHash1 := common.HexToHash("0x10")
-	txHash2 := common.HexToHash("0x11")
-	txHash3 := common.HexToHash("0x12")
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
 
-	addr1 := common.HexToAddress("0x100")
-	addr2 := common.HexToAddress("0x200")
-	addr3 := common.HexToAddress("0x300")
+	txHash := common.HexToHash("0x55")
+	addr := common.HexToAddress("0x500")
+	topic := common.HexToHash("0x501")
+	r := makeReceipt(txHash, addr, []common.Hash{topic}, 0)
 
-	topic1 := common.HexToHash("0xaa")
-	topic2 := common.HexToHash("0xbb")
-	topic3 := common.HexToHash("0xcc")
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{{TxHash: txHash, Receipt: r}}))
 
-	r1 := withBloom(makeReceipt(txHash1, addr1, []common.Hash{topic1}, 0))
-	r2 := makeReceipt(txHash2, addr2, []common.Hash{topic2}, 1)
-	r3 := withBloom(makeReceipt(txHash3, addr3, []common.Hash{topic3}, 2))
+	got, err := store.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, r.TxHashHex, got.TxHashHex)
 
-	err := store.SetReceipts(ctx.WithBlockHeight(0), []receipt.ReceiptRecord{
-		{TxHash: txHash1, Receipt: r1},
-		{TxHash: txHash2, Receipt: r2},
-		{TxHash: txHash3, Receipt: r3},
+	// Pebble backend does not support range queries
+	_, err = store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
 	})
-	require.NoError(t, err)
-
-	logs, err := store.FilterLogs(ctx, blockHeight, blockHash, nil, filters.FilterCriteria{}, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 0)
-
-	crit := filters.FilterCriteria{
-		Addresses: []common.Address{addr1},
-		Topics:    [][]common.Hash{{topic1}},
-	}
-	txHashes := []common.Hash{txHash1, txHash2, txHash3, common.HexToHash("0xdead")}
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, true)
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, addr1, logs[0].Address)
-	require.Equal(t, uint64(blockHeight), logs[0].BlockNumber)
-	require.Equal(t, blockHash, logs[0].BlockHash)
-	require.Equal(t, uint(0), logs[0].TxIndex)
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes, crit, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 2)
-	require.Equal(t, addr1, logs[0].Address)
-	require.Equal(t, addr2, logs[1].Address)
-
-	logs, err = store.FilterLogs(ctx, blockHeight, blockHash, txHashes[:3], filters.FilterCriteria{}, false)
-	require.NoError(t, err)
-	require.Len(t, logs, 3)
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 
-func TestMatchTopics(t *testing.T) {
-	topic1 := common.HexToHash("0x1")
-	topic2 := common.HexToHash("0x2")
-	require.True(t, receipt.MatchTopics([][]common.Hash{{topic1}, {}}, []common.Hash{topic1}))
-	require.False(t, receipt.MatchTopics([][]common.Hash{{topic1}, {topic2}}, []common.Hash{topic1}))
+func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
+	store, ctx, _ := setupReceiptStore(t)
+	// Pebble backend does not support range queries, so FilterLogs returns ErrRangeQueryNotSupported.
+	_, err := store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{})
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 
 func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
@@ -228,7 +185,7 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	changelogPath := dbutils.GetChangelogPath(dir)
 	require.NoError(t, os.MkdirAll(changelogPath, 0o750))
 
-	stream, err := wal.NewChangelogWAL(dbLogger.NewNopLogger(), changelogPath, wal.Config{})
+	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
 	require.NoError(t, err)
 
 	txHash1 := common.HexToHash("0x20")
@@ -248,20 +205,20 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
-	dbCfg := dbconfig.StateStoreConfig{
-		DBDirectory:          cfg.DBDirectory,
-		Backend:              cfg.Backend,
-		AsyncWriteBuffer:     cfg.AsyncWriteBuffer,
-		KeepRecent:           cfg.KeepRecent,
-		PruneIntervalSeconds: cfg.PruneIntervalSeconds,
-		UseDefaultComparer:   cfg.UseDefaultComparer,
+	ssConfig := dbconfig.DefaultStateStoreConfig()
+	ssConfig.DBDirectory = cfg.DBDirectory
+	ssConfig.KeepRecent = cfg.KeepRecent
+	if cfg.PruneIntervalSeconds > 0 {
+		ssConfig.PruneIntervalSeconds = cfg.PruneIntervalSeconds
 	}
-	db, err := mvcc.OpenDB(dir, dbCfg)
+	ssConfig.KeepLastVersion = false
+	ssConfig.Backend = "pebbledb"
+	db, err := mvcc.OpenDB(dir, ssConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	require.NoError(t, db.SetLatestVersion(1))
-	require.NoError(t, receipt.RecoverReceiptStore(dbLogger.NewNopLogger(), changelogPath, db))
+	require.NoError(t, receipt.RecoverReceiptStore(changelogPath, db))
 	require.Equal(t, int64(2), db.GetLatestVersion())
 
 	bz, err := db.Get(types.ReceiptStoreKey, db.GetLatestVersion(), types.ReceiptKey(txHash2))

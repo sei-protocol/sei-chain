@@ -9,10 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
@@ -21,15 +19,20 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
 const (
 	IsPanicCacheSize = 5000
 	IsPanicCacheTTL  = 1 * time.Minute
 )
+
+var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
 
 type DebugAPI struct {
 	tracersAPI         *tracers.API
@@ -48,12 +51,40 @@ type DebugAPI struct {
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
 // It returns a function that must be called (typically with defer) to release the semaphore.
 // If the semaphore is nil (unlimited concurrency), it does nothing and returns a no-op release function.
-func (api *DebugAPI) acquireTraceSemaphore() func() {
+// The acquisition respects cancellation and fails fast if all trace slots are in use.
+func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) {
 	if api.traceCallSemaphore != nil {
-		api.traceCallSemaphore <- struct{}{}
-		return func() { <-api.traceCallSemaphore }
+		select {
+		case api.traceCallSemaphore <- struct{}{}:
+			// If cancellation won the race at the same time as semaphore acquisition,
+			// release the slot and surface the context error.
+			if err := ctx.Err(); err != nil {
+				<-api.traceCallSemaphore
+				return func() {}, err
+			}
+			return func() { <-api.traceCallSemaphore }, nil
+		case <-ctx.Done():
+			return func() {}, ctx.Err()
+		default:
+			return func() {}, errTraceConcurrencyLimit
+		}
 	}
-	return func() {} // No-op if semaphore is not active
+	return func() {}, nil // No-op if semaphore is not active
+}
+
+// prepareTraceContext creates the trace timeout context and acquires a trace slot if one
+// is immediately available, returning a cleanup function for acquired resources.
+func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, func(), error) {
+	traceCtx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	release, err := api.acquireTraceSemaphore(traceCtx)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return traceCtx, func() {
+		release()
+		cancel()
+	}, nil
 }
 
 type SeiDebugAPI struct {
@@ -144,14 +175,15 @@ func NewSeiDebugAPI(
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
-
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
 }
 
@@ -173,19 +205,20 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 }
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
-	defer release()
+	startTime := time.Now()
+	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
 
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	startTime := time.Now()
-	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	if returnErr != nil {
@@ -206,14 +239,15 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
-	defer release()
-
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
-
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	if returnErr != nil {
@@ -287,47 +321,74 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
 
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	startTime := time.Now()
-	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	return
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
-
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	return
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
-
-	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
-	defer cancel()
-
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceCall", api.connectionType, startTime, returnErr)
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
+}
+
+func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawHeader", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawBlock(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawBlock", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ []hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawReceipts", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawTransaction(ctx context.Context, hash common.Hash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawTransaction", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 
 type StateAccessResponse struct {

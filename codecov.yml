@@ -4,30 +4,22 @@ coverage:
   status:
     project:
       default:
+        informational: true # PR fast-path uploads are partial; avoid scary global regressions.
         target: auto
         threshold: 3% # allow this much decrease on project
       sei-chain:
         target: 40%
-        paths:
-          - "!sei-cosmos/**"
-          - "!sei-tendermint/**"
         flags:
           - sei-chain
-      sei-cosmos:
-        target: 35%
-        paths:
-          - "sei-cosmos/**"
+      sei-chain-pr:
+        informational: true
         flags:
-          - sei-cosmos
-      sei-tendermint:
-        target: 40%
-        paths:
-          - "sei-tendermint/**"
-        flags:
-          - sei-tendermint
+          - sei-chain-pr
     patch:
       default:
-        target: auto
+        informational: true   # Show patch coverage, but do not fail CI for it.
+        target: 50%           # Keep displayed goal stable across PRs.
+        threshold: 5%         # Toleration for noisy small diffs.
 
 comment:
   layout: "reach,diff,flags,tree,betaprofiling"
@@ -60,3 +52,10 @@ ignore:
   # Project-specific exclusions
   - "precompiles/**/legacy/**/*"
   - "**/cli/**/*"
+  - "sei-db/state_db/bench"
+
+flags:
+  sei-chain:
+    carryforward: true
+  sei-chain-pr:
+    carryforward: false

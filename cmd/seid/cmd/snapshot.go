@@ -5,16 +5,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -57,9 +56,6 @@ func SnapshotCmd() *cobra.Command {
 				panic(err)
 			}
 
-			// Create logger
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
-
 			// Get app options from server context
 			appOpts := serverCtx.Viper
 
@@ -68,7 +64,6 @@ func SnapshotCmd() *cobra.Command {
 
 			// Initialize app with correct options
 			app := app.New(
-				logger,
 				dbm.NewMemDB(),
 				nil,
 				true,

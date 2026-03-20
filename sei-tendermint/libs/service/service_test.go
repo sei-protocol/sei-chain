@@ -9,8 +9,6 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 type testService struct {
@@ -57,12 +55,11 @@ func (t *testService) isMultiStopped() bool {
 
 func TestBaseService(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	logger := log.NewNopLogger()
 
 	t.Run("Wait", func(t *testing.T) {
 		wctx, wcancel := context.WithCancel(t.Context())
 		ts := &testService{}
-		ts.BaseService = *NewBaseService(logger, t.Name(), ts)
+		ts.BaseService = *NewBaseService(t.Name(), ts)
 		err := ts.Start(wctx)
 		require.NoError(t, err)
 		require.True(t, ts.isStarted())
@@ -86,7 +83,7 @@ func TestBaseService(t *testing.T) {
 	t.Run("ManualStop", func(t *testing.T) {
 		ctx := t.Context()
 		ts := &testService{}
-		ts.BaseService = *NewBaseService(logger, t.Name(), ts)
+		ts.BaseService = *NewBaseService(t.Name(), ts)
 		require.False(t, ts.IsRunning())
 		require.False(t, ts.isStarted())
 		require.NoError(t, ts.Start(ctx))
@@ -101,7 +98,7 @@ func TestBaseService(t *testing.T) {
 		t.Run("SingleThreaded", func(t *testing.T) {
 			ctx := t.Context()
 			ts := &testService{}
-			ts.BaseService = *NewBaseService(logger, t.Name(), ts)
+			ts.BaseService = *NewBaseService(t.Name(), ts)
 
 			require.NoError(t, ts.Start(ctx))
 			require.True(t, ts.isStarted())
@@ -115,7 +112,7 @@ func TestBaseService(t *testing.T) {
 			ctx := t.Context()
 
 			ts := &testService{}
-			ts.BaseService = *NewBaseService(logger, t.Name(), ts)
+			ts.BaseService = *NewBaseService(t.Name(), ts)
 
 			require.NoError(t, ts.Start(ctx))
 			require.True(t, ts.isStarted())

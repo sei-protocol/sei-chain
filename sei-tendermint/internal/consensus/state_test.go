@@ -6,27 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	abci "github.com/tendermint/tendermint/abci/types"
-	abcimocks "github.com/tendermint/tendermint/abci/types/mocks"
-	"github.com/tendermint/tendermint/crypto"
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	tmquery "github.com/tendermint/tendermint/internal/pubsub/query"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 /*
@@ -431,7 +432,15 @@ func TestStateFullRound2(t *testing.T) {
 // two validators, 4 rounds.
 // two vals take turns proposing. val1 locks on first one, precommits nil on everything else
 func TestStateLock_NoPOL(t *testing.T) {
+	synctest.Test(t, testStateLockNoPOL)
+}
+
+func testStateLockNoPOL(t *testing.T) {
 	config := configSetup(t)
+	// Deflake: when cs1 is proposer in round 3, proposal construction can race
+	// timeoutPropose on loaded CI runners and force an early prevote nil.
+	config.Consensus.UnsafeProposeTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -635,11 +644,10 @@ func TestStateLock_NoPOL(t *testing.T) {
 // power on the network for the block.
 func TestStateLock_POLUpdateLock(t *testing.T) {
 	config := configSetup(t)
-	logger := log.NewNopLogger()
 
 	ctx := t.Context()
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -701,7 +709,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 	round++
 
 	// Generate a new proposal block.
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	propR1, propBlockR1 := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
 	propBlockR1Parts, err := propBlockR1.MakePartSet(partSize)
 	require.NoError(t, err)
@@ -913,7 +921,7 @@ func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 // if it is locked on a block and misses the proposal in a round.
 func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
+
 	config := configSetup(t)
 	/*
 		All of the assertions in this test occur on the `cs1` validator.
@@ -922,7 +930,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 		state.
 	*/
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -979,7 +987,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	propR1, propBlockR1 := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
 	propBlockR1Parts, err := propBlockR1.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1010,7 +1018,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 // that it has been completely removed.
 func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	config := configSetup(t)
-	logger := log.NewNopLogger()
+
 	ctx := t.Context()
 	/*
 		All of the assertions in this test occur on the `cs1` validator.
@@ -1019,7 +1027,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 		state.
 	*/
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1081,7 +1089,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	*/
 	round++
 	incrementRound(vs2, vs3, vs4)
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
 	propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1115,7 +1123,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	*/
 	round++
 	incrementRound(vs2, vs3, vs4)
-	cs3 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs3 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	prop, propBlock = decideProposal(ctx, t, cs3, vs3, vs3.Height, vs3.Round)
 	propBlockParts, err = propBlock.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1144,10 +1152,10 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 // new block if a proposal was not seen for that block.
 func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	config := configSetup(t)
-	logger := log.NewNopLogger()
+
 	ctx := t.Context()
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1200,7 +1208,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
 	require.NotNil(t, propBlock, "Failed to create proposal block with vs2")
 	require.NotNil(t, prop, "Failed to create proposal block with vs2")
@@ -1302,10 +1310,13 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 // then we see the polka from round 1 but shouldn't unlock
 func TestStateLock_POLSafety1(t *testing.T) {
 	config := configSetup(t)
-	logger := log.NewNopLogger()
+	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
+	config.Consensus.UnsafeProposeTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
+
 	ctx := t.Context()
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1330,6 +1341,17 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	partSet, err := propBlock.MakePartSet(partSize)
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: partSet.Header()}
+	// Pre-build the round 2 proposal before cs1 transitions rounds to avoid
+	// burning round 2's propose timeout budget under CI load.
+	r2Round := round + 1
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
+	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, r2Round)
+	propBlockParts, err := propBlock.MakePartSet(partSize)
+	require.NoError(t, err)
+	r2BlockID := types.BlockID{
+		Hash:          propBlock.Hash(),
+		PartSetHeader: propBlockParts.Header(),
+	}
 	// the others sign a polka but we don't see it
 	prevotes := signVotes(ctx, t, tmproto.PrevoteType, config.ChainID(),
 		blockID,
@@ -1344,14 +1366,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 
 	incrementRound(vs2, vs3, vs4)
 	round++ // moving to the next round
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
-	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round)
-	propBlockParts, err := propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	r2BlockID := types.BlockID{
-		Hash:          propBlock.Hash(),
-		PartSetHeader: propBlockParts.Header(),
-	}
+	require.Equal(t, r2Round, round)
 
 	ensureNewRound(t, newRoundCh, height, round)
 
@@ -1511,9 +1526,8 @@ func TestStateLock_POLSafety2(t *testing.T) {
 func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	logger := log.NewNopLogger()
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, logger: logger})
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1575,7 +1589,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	incrementRound(vs2, vs3, vs4)
 	round++
 	// Generate a new proposal block.
-	cs2 := newState(ctx, t, logger, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	cs2.roundState.SetValidRound(1)
 	propR1, propBlockR1 := decideProposal(ctx, t, cs2, vs2, vs2.Height, round)
 
@@ -2453,6 +2467,112 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	if rs.ProposalBlockParts.Total() == 0 {
 		t.Error("rs.ProposalBlockParts should be set")
 	}
+}
+
+func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, _ := decideProposal(ctx, t, cs, vss[1], height, round)
+	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	require.NoError(t, err)
+
+	cs.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
+	rs := cs.GetRoundState()
+	require.NotNil(t, rs.ProposalBlock, "expected proposal block to be created from tx keys")
+	originalPartSetHeader := rs.ProposalBlockParts.Header()
+
+	wrongParts := types.NewPartSetFromData(tmrand.Bytes(256), types.BlockPartSizeBytes)
+	wrongBlockID := types.BlockID{
+		Hash:          tmrand.Bytes(crypto.HashSize),
+		PartSetHeader: wrongParts.Header(),
+	}
+
+	for _, vs := range vss[1:] {
+		vs.Height = height
+		vs.Round = round
+		precommit := signVote(ctx, t, vs, tmproto.PrecommitType, config.ChainID(), wrongBlockID)
+		cs.handleMsg(ctx, msgInfo{&VoteMessage{precommit}, peerID, tmtime.Now()}, false)
+	}
+
+	rs = cs.GetRoundState()
+	require.Nil(t, rs.ProposalBlock, "proposal block should be cleared when commit cert mismatches")
+	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should match commit certificate")
+
+	cs.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
+
+	rs = cs.GetRoundState()
+	require.Nil(t, rs.ProposalBlock, "proposal block must stay nil until matching commit block parts arrive")
+	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should keep pointing to commit certificate despite duplicate proposals")
+	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
+}
+
+func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	cs.roundState.SetProposal(proposal)
+
+	parts, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(parts.Header()))
+	cs.roundState.SetProposalBlock(nil)
+
+	mismatchedParts := types.NewPartSetFromData(tmrand.Bytes(256), types.BlockPartSizeBytes)
+	cs.roundState.SetProposalBlockParts(mismatchedParts)
+
+	created := cs.tryCreateProposalBlock(ctx)
+	require.False(t, created, "tryCreateProposalBlock should fail when part set header differs from proposal")
+	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when header mismatches")
+}
+
+func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	cs.config.GossipTransactionKeyOnly = true
+
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	err := assertMempool(t, cs.txNotifier).CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	require.NoError(t, err, "failed to seed the mempool with a transaction")
+
+	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
+	require.NotEmpty(t, block.Data.Txs, "expected proposal block to contain at least one transaction")
+	t.Log("Malform the TxKeys list.")
+	proposal.TxKeys = proposal.TxKeys[:len(proposal.TxKeys)-1]
+	cs.roundState.SetProposal(proposal)
+
+	parts := types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
+	cs.roundState.SetProposalBlockParts(parts)
+	cs.roundState.SetProposalBlock(nil)
+
+	proposal.BlockID.Hash = tmrand.Bytes(crypto.HashSize)
+
+	created := cs.tryCreateProposalBlock(ctx)
+	require.False(t, created, "tryCreateProposalBlock should fail when rebuilt block hash mismatches the block parts")
+	require.Nil(t, cs.roundState.ProposalBlock(), "proposal block should remain nil when hash mismatches")
 }
 
 func TestStateOutputVoteStats(t *testing.T) {

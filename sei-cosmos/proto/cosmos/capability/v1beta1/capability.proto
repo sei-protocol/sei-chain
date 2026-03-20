@@ -3,7 +3,7 @@ package cosmos.capability.v1beta1;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/capability/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types";
 
 // Capability defines an implementation of an object capability. The index
 // provided to a Capability must be globally unique.

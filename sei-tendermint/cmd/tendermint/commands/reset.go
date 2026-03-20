@@ -4,20 +4,19 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tendermint/tendermint/libs/cli"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/types"
 )
+
+const wasmDirName = "wasm"
 
 // MakeResetCommand constructs a command that removes the database of
 // the specified Tendermint core instance.
-func MakeResetCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+func MakeResetCommand(conf *config.Config) *cobra.Command {
 	var keyType string
 
 	resetCmd := &cobra.Command{
@@ -29,7 +28,7 @@ func MakeResetCommand(conf *config.Config, logger log.Logger) *cobra.Command {
 		Use:   "blockchain",
 		Short: "Removes all blocks, state, transactions and evidence stored by the tendermint node",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return ResetState(conf.DBDir(), logger)
+			return ResetState(conf.DBDir())
 		},
 	}
 
@@ -47,7 +46,7 @@ func MakeResetCommand(conf *config.Config, logger log.Logger) *cobra.Command {
 		Long: `Resets private validator signer state.
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return ResetFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile(), logger, keyType)
+			return ResetFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile(), keyType)
 		},
 	}
 
@@ -66,7 +65,7 @@ Only use in testing. This can cause the node to double sign`,
 				home = conf.RootDir
 			}
 			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
-				conf.PrivValidator.StateFile(), logger, keyType, home)
+				conf.PrivValidator.StateFile(), keyType, home)
 		},
 	}
 
@@ -87,7 +86,7 @@ Only use in testing. This can cause the node to double sign`,
 // ResetAll removes address book files plus all data, and resets the privValdiator data.
 // Exported for extenal CLI usage
 // XXX: this is unsafe and should only suitable for testnets.
-func ResetAll(dbDir, privValKeyFile, privValStateFile string, logger log.Logger, keyType string, homeDir string) error {
+func ResetAll(dbDir, privValKeyFile, privValStateFile string, keyType string, homeDir string) error {
 	if err := os.RemoveAll(filepath.Join(homeDir, dbDir)); err == nil {
 		logger.Info("Removed all blockchain history", "dir", dbDir)
 	} else {
@@ -100,12 +99,19 @@ func ResetAll(dbDir, privValKeyFile, privValStateFile string, logger log.Logger,
 		logger.Info("Removed dbDir")
 	}
 
+	wasmDir := filepath.Join(homeDir, wasmDirName)
+	if err := os.RemoveAll(wasmDir); err == nil {
+		logger.Info("Removed wasm directory", "dir", wasmDir)
+	} else {
+		logger.Error("error removing wasm directory", "dir", wasmDir, "err", err)
+	}
+
 	// recreate the dbDir since the privVal state needs to live there
-	return ResetFilePV(filepath.Join(homeDir, privValKeyFile), filepath.Join(homeDir, privValStateFile), logger, keyType)
+	return ResetFilePV(filepath.Join(homeDir, privValKeyFile), filepath.Join(homeDir, privValStateFile), keyType)
 }
 
 // ResetState removes all blocks, tendermint state, indexed transactions and evidence.
-func ResetState(dbDir string, logger log.Logger) error {
+func ResetState(dbDir string) error {
 	blockdb := filepath.Join(dbDir, "blockstore.db")
 	state := filepath.Join(dbDir, "state.db")
 	wal := filepath.Join(dbDir, "cs.wal")
@@ -158,7 +164,7 @@ func ResetState(dbDir string, logger log.Logger) error {
 // ResetFilePV loads the file private validator and resets the watermark to 0. If used on an existing network,
 // this can cause the node to double sign.
 // XXX: this is unsafe and should only suitable for testnets.
-func ResetFilePV(privValKeyFile, privValStateFile string, logger log.Logger, keyType string) error {
+func ResetFilePV(privValKeyFile, privValStateFile string, keyType string) error {
 	if _, err := os.Stat(privValKeyFile); err == nil {
 		pv, err := privval.LoadFilePVEmptyState(privValKeyFile, privValStateFile)
 		if err != nil {
@@ -193,13 +199,13 @@ func ResetPeerStore(dbDir string) error {
 	return nil
 }
 
-func MakeUnsafeResetAllCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+func MakeUnsafeResetAllCommand(conf *config.Config) *cobra.Command {
 	var keyType string
 
 	resetAllCmd := &cobra.Command{
 		Use:   "unsafe-reset-all",
-		Short: "Removes all tendermint data including signing state",
-		Long: `Removes all tendermint data including signing state.
+		Short: "Removes all tendermint data, wasm directory, and signing state",
+		Long: `Removes all tendermint data including signing state, and the wasm directory (contract blobs and compiled modules).
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get the --home flag value from the command
@@ -214,7 +220,7 @@ Only use in testing. This can cause the node to double sign`,
 			}
 
 			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
-				conf.PrivValidator.StateFile(), logger, keyType, home)
+				conf.PrivValidator.StateFile(), keyType, home)
 		},
 	}
 

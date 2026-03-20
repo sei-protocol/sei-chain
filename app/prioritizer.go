@@ -4,21 +4,20 @@ import (
 	"math"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	cosmosante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
-	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	cosmosante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 var _ sdk.TxPrioritizer = (*SeiTxPrioritizer)(nil).GetTxPriorityHint
@@ -27,12 +26,10 @@ type SeiTxPrioritizer struct {
 	evmKeeper     *evmkeeper.Keeper
 	upgradeKeeper *upgradekeeper.Keeper
 	paramsKeeper  *paramskeeper.Keeper
-	logger        log.Logger
 }
 
-func NewSeiTxPrioritizer(logger log.Logger, ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
+func NewSeiTxPrioritizer(ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
 	return &SeiTxPrioritizer{
-		logger:        logger,
 		evmKeeper:     ek,
 		upgradeKeeper: uk,
 		paramsKeeper:  pk,
@@ -46,7 +43,7 @@ func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_prior
 			// vectors where a malicious actor crafts a transaction that panics the
 			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
 			// back to zero priority in this case and log the panic for monitoring purposes.
-			s.logger.Error("tx prioritizer panicked. Falling back on no priority", "error", r)
+			logger.Error("tx prioritizer panicked. Falling back on no priority", "err", r)
 			_priorityHint = 0
 			_err = nil
 		}

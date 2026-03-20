@@ -19,10 +19,10 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/tendermint/tendermint/internal/p2p/pb"
-	"github.com/tendermint/tendermint/internal/protoutils"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 var errAEAD = errors.New("decoding failed")
@@ -200,7 +200,7 @@ func (sc *SecretConnection) flush(ctx context.Context, sendState *sendState) err
 	if len(sendState.data) == 0 {
 		return nil
 	}
-	binary.LittleEndian.PutUint32(sendState.frame, uint32(len(sendState.data)))
+	binary.LittleEndian.PutUint32(sendState.frame, uint32(len(sendState.data))) //nolint:gosec // data length bounded by frame size
 	if sendState.nonce == math.MaxUint64 {
 		return fmt.Errorf("nonce overflow")
 	}
@@ -208,10 +208,10 @@ func (sc *SecretConnection) flush(ctx context.Context, sendState *sendState) err
 	binary.LittleEndian.PutUint64(nonce[4:], sendState.nonce)
 	sendState.nonce += 1
 	// We use a predeclared stack-allocated buffer, to prevent Seal from doing heap allocation.
-	// I'm not surre whether this optimization is needed though.
+	// I'm not sure whether this optimization is needed though.
 	var sealedFrame [frameSize + aeadOverhead]byte
 	err := sc.conn.Write(ctx, sendState.cipher.Seal(sealedFrame[:0], nonce[:], sendState.frame[:], nil))
-	// Zeroize the the frame to avoid resending data from the previous frame.
+	// Zeroize the frame to avoid resending data from the previous frame.
 	// Security-wise it doesn't make any difference, it is here just to avoid people raising concerns.
 	clear(sendState.frame)
 	sendState.data = sendState.frame[dataSizeLen:dataSizeLen]
@@ -273,7 +273,7 @@ func genEphKey() ephSecret {
 	// see: https://github.com/dalek-cryptography/x25519-dalek/blob/34676d336049df2bba763cc076a75e47ae1f170f/src/x25519.rs#L56-L74
 	public, secret, err := box.GenerateKey(crand.Reader)
 	if err != nil {
-		panic(fmt.Errorf("Could not generate ephemeral key-pair: %w", err))
+		panic(fmt.Errorf("could not generate ephemeral key-pair: %w", err))
 	}
 	return ephSecret{
 		secret: *secret,

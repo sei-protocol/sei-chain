@@ -8,15 +8,17 @@ import (
 	"io"
 	"sync"
 
-	"github.com/rs/zerolog/log"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/libs/bits"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "types")
+
 	ErrPartSetUnexpectedIndex = errors.New("error part set unexpected index")
 	ErrPartSetInvalidProof    = errors.New("error part set invalid proof")
 )
@@ -166,18 +168,18 @@ type PartSet struct {
 // CONTRACT: partSize is greater than zero.
 func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 	// divide data into 4kb parts.
-	total := (uint32(len(data)) + partSize - 1) / partSize
+	total := (uint32(len(data)) + partSize - 1) / partSize //nolint:gosec // data length is bounded by block size limits; no overflow risk
 	parts := make([]*Part, total)
 	partsBytes := make([][]byte, total)
-	partsBitArray := bits.NewBitArray(int(total))
+	partsBitArray := bits.NewBitArray(int(total)) //nolint:gosec // total fits in int since it's derived from block-bounded data
 	for i := uint32(0); i < total; i++ {
 		part := &Part{
 			Index: i,
-			Bytes: data[i*partSize : tmmath.MinInt(len(data), int((i+1)*partSize))],
+			Bytes: data[i*partSize : tmmath.MinInt(len(data), int((i+1)*partSize))], //nolint:gosec // partSize is small (4KB); product fits in uint32
 		}
 		parts[i] = part
 		partsBytes[i] = part.Bytes
-		partsBitArray.SetIndex(int(i), true)
+		partsBitArray.SetIndex(int(i), true) //nolint:gosec // i < total which fits in int
 	}
 	// Compute merkle proofs
 	root, proofs := merkle.ProofsFromByteSlices(partsBytes)
@@ -197,7 +199,7 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 // Returns an empty PartSet ready to be populated.
 func NewPartSetFromHeader(header PartSetHeader) *PartSet {
 	if header.Total > MaxBlockPartsCount {
-		log.Warn().Msgf("Attempted to create PartSet with excessive Total: %d (max: %d). Creating minimal safe PartSet instead.", header.Total, MaxBlockPartsCount)
+		logger.Warn("Attempted to create PartSet with excessive Total. Creating minimal safe PartSet instead.", "total", header.Total, "max", MaxBlockPartsCount)
 		return &PartSet{
 			total:         1,           // Minimal safe size
 			hash:          header.Hash, // Keep original hash for compatibility

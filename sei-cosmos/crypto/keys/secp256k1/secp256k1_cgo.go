@@ -4,8 +4,8 @@
 package secp256k1
 
 import (
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1/internal/secp256k1"
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1/internal/secp256k1"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
 )
 
 // Sign creates an ECDSA signature on curve Secp256k1, using SHA256 on the msg.

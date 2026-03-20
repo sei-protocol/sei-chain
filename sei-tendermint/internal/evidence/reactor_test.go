@@ -14,15 +14,14 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/evidence"
-	"github.com/tendermint/tendermint/internal/evidence/mocks"
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -31,7 +30,6 @@ var (
 
 type reactorTestSuite struct {
 	network        *p2p.TestNetwork
-	logger         log.Logger
 	reactors       map[types.NodeID]*evidence.Reactor
 	pools          map[types.NodeID]*evidence.Pool
 	nodes          []*p2p.TestNode
@@ -43,7 +41,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 	numStateStores := len(stateStores)
 	rts := &reactorTestSuite{
 		numStateStores: numStateStores,
-		logger:         log.NewNopLogger().With("testCase", t.Name()),
 		network:        p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numStateStores}),
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
@@ -52,7 +49,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 
 	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
-		logger := rts.logger.With("validator", idx)
 		evidenceDB := dbm.NewMemDB()
 		blockStore := &mocks.BlockStore{}
 		state, _ := stateStores[idx].Load()
@@ -62,15 +58,15 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 			}
 			return nil
 		})
-		eventBus := eventbus.NewDefault(logger)
+		eventBus := eventbus.NewDefault()
 		err := eventBus.Start(ctx)
 		require.NoError(t, err)
 
-		rts.pools[nodeID] = evidence.NewPool(logger, evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
+		rts.pools[nodeID] = evidence.NewPool(evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
 		startPool(t, rts.pools[nodeID], stateStores[idx])
 		rts.nodes = append(rts.nodes, node)
 
-		reactor, err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
+		reactor, err := evidence.NewReactor(node.Router, rts.pools[nodeID])
 		if err != nil {
 			t.Fatalf("evidence.NewReactor(): %v", err)
 		}

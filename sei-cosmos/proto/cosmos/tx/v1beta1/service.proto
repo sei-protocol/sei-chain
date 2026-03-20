@@ -9,7 +9,7 @@ import "google/api/annotations.proto";
 import "tendermint/types/block.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/types/tx";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx";
 option (gogoproto.goproto_registration) = true;
 
 // Service defines a gRPC service for interacting with transactions.

@@ -1,23 +1,27 @@
 package keeper
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/seilog"
 )
 
-var _ Keeper = (*BaseKeeper)(nil)
+var (
+	logger = seilog.NewLogger("cosmos", "x", "bank", "keeper")
+
+	_ Keeper = (*BaseKeeper)(nil)
+)
 
 // Keeper defines a module interface that facilitates the transfer of coins
 // between accounts.
@@ -324,7 +328,7 @@ func (k BaseKeeper) IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metad
 	denomMetaDataStore := prefix.NewStore(store, types.DenomMetadataPrefix)
 
 	iterator := denomMetaDataStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var metadata types.Metadata
@@ -383,7 +387,7 @@ func (k BaseKeeper) SendCoinsFromModuleToModule(
 		return nil
 	}
 
-	k.Logger(ctx).Debug("Sending coins from module to module", "sender", senderModule, "sender_address", senderAddr.String(), "recipient", recipientModule, "recipient_address", recipientAcc.GetAddress().String(), "amount", amt.String())
+	logger.Debug("Sending coins from module to module", "sender", senderModule, "sender_address", senderAddr.String(), "recipient", recipientModule, "recipient_address", recipientAcc.GetAddress().String(), "amount", amt.String())
 
 	return k.SendCoins(ctx, senderAddr, recipientAcc.GetAddress(), amt)
 }
@@ -423,7 +427,10 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	}
 	// get txIndex
 	txIndex := ctx.TxIndex()
-	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount)
+	if txIndex < 0 {
+		return fmt.Errorf("negative tx index: %d", txIndex)
+	}
+	err = k.deferredCache.UpsertBalances(ctx, moduleAcc.GetAddress(), uint64(txIndex), amount) //nolint:gosec // bounds checked above
 	if err != nil {
 		return err
 	}
@@ -441,7 +448,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	// maps between bech32 stringified module account address and balance
 	moduleAddrBalanceMap := make(map[string]sdk.Coins)
 	// slice of modules to be sorted for consistent write order later
-	moduleList := []string{}
+	var moduleList []string
 
 	// iterate over deferred cache and accumulate totals per module
 	k.deferredCache.IterateDeferredBalances(ctx, func(moduleAddr sdk.AccAddress, amount sdk.Coin) bool {
@@ -466,13 +473,13 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	for _, moduleBech32Addr := range moduleList {
 		amount, ok := moduleAddrBalanceMap[moduleBech32Addr]
 		if !ok {
-			err := fmt.Errorf("Failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
-			ctx.Logger().Error(err.Error())
+			err := fmt.Errorf("failed to get module balance for writing deferred balances for address=%s", moduleBech32Addr)
+			logger.Error(err.Error())
 			panic(err)
 		}
 		err := k.AddCoins(ctx, sdk.MustAccAddressFromBech32(moduleBech32Addr), amount, true)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to add coin=%s to module address=%s, error is: %s", amount, moduleBech32Addr, err))
+			logger.Error("Failed to add coin to module address", "coin", amount, "address", moduleBech32Addr, "err", err)
 			panic(err)
 		}
 	}
@@ -531,7 +538,7 @@ func (k BaseKeeper) UndelegateCoinsFromModuleToAccount(
 func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins, addFn AddFn) error {
 	err := k.mintCoinsRestrictionFn(ctx, amounts)
 	if err != nil {
-		ctx.Logger().Error(fmt.Sprintf("Module %q attempted to mint coins %s it doesn't have permission for, error %v", moduleName, amounts, err))
+		logger.Error("Module attempted to mint coins it doesn't have permission for", "module", moduleName, "coins", amounts, "err", err)
 		return err
 	}
 	acc := k.ak.GetModuleAccount(ctx, moduleName)
@@ -553,8 +560,7 @@ func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.
 		k.SetSupply(ctx, supply)
 	}
 
-	logger := k.Logger(ctx)
-	logger.Info("minted coins from module account", "amount", amounts.String(), "from", moduleName)
+	logger.Info("minted coins from module account", "amount", amounts, "from", moduleName)
 
 	// emit mint event
 	ctx.EventManager().EmitEvent(
@@ -570,7 +576,7 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
 		if acc == nil {
-			return errors.New(fmt.Sprintf("module account for %s not found", moduleName))
+			return fmt.Errorf("module account for %s not found", moduleName)
 		}
 		return k.AddCoins(ctx, acc.GetAddress(), amounts, true)
 	}
@@ -603,8 +609,7 @@ func (k BaseKeeper) destroyCoins(ctx sdk.Context, moduleName string, amounts sdk
 		k.SetSupply(ctx, supply)
 	}
 
-	logger := k.Logger(ctx)
-	logger.Info("burned tokens from module account", "amount", amounts.String(), "from", moduleName)
+	logger.Info("burned tokens from module account", "amount", amounts, "from", moduleName)
 
 	// emit burn event
 	ctx.EventManager().EmitEvent(
@@ -698,7 +703,7 @@ func (k BaseViewKeeper) IterateTotalSupply(ctx sdk.Context, cb func(sdk.Coin) bo
 	supplyStore := prefix.NewStore(store, types.SupplyKey)
 
 	iterator := supplyStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var amount sdk.Int

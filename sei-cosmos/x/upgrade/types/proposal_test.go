@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	gov "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	gov "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 type ProposalWrapper struct {
@@ -95,11 +95,11 @@ func TestMarshalSoftwareUpdateProposal(t *testing.T) {
 	cdc := codec.NewProtoCodec(ir)
 
 	// marshal message
-	bz, err := cdc.MarshalJSON(sup)
+	bz, err := cdc.MarshalAsJSON(sup)
 	require.NoError(t, err)
 
 	// unmarshal proposal
 	newSup := &types.SoftwareUpgradeProposal{}
-	err = cdc.UnmarshalJSON(bz, newSup)
+	err = cdc.UnmarshalAsJSON(bz, newSup)
 	require.NoError(t, err)
 }

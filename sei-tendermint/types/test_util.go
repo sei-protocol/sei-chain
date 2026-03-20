@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func MakeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
@@ -21,7 +21,7 @@ func MakeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
 		}
 		vote := &Vote{
 			ValidatorAddress: pubKey.Address(),
-			ValidatorIndex:   int32(i),
+			ValidatorIndex:   int32(i), //nolint:gosec // i is bounded by len(validators) which is bounded by MaxValidators
 			Height:           height,
 			Round:            round,
 			Type:             tmproto.PrecommitType,

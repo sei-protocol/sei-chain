@@ -5,21 +5,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	tmtime "github.com/cosmos/cosmos-sdk/std"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	vesting "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
-	cosmosbanktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vesting "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const (
@@ -100,6 +100,7 @@ func (suite *IntegrationTestSuite) SetupTest() {
 		ChainID: ctx.BlockHeader().ChainID,
 		Time:    blockTime,
 	})
+	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 
 	a.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 	a.GigaBankKeeper.SetParams(ctx, cosmosbanktypes.DefaultParams())
@@ -317,7 +318,7 @@ func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccount() {
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 	authKeeper.SetModuleAccount(ctx, multiPermAcc)
 	app := suite.app
-	app.GigaBankKeeper = keeper
+	app.GigaBankKeeper = &keeper
 
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)
@@ -775,8 +776,9 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 	}
 
 	for _, test := range tests {
-		suite.app.GigaBankKeeper = keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
+		bk := keeper.NewBaseKeeperWithDeferredCache(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
 			suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil, suite.app.GetKey(types.DeferredCacheStoreKey)).WithMintCoinsRestriction(keeper.MintingRestrictionFn(test.restrictionFn))
+		suite.app.GigaBankKeeper = &bk
 		for _, testCase := range test.testCases {
 			if testCase.expectPass {
 				suite.Require().NoError(

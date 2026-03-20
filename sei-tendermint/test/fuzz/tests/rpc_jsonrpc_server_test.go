@@ -11,9 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
-	"github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 func FuzzRPCJSONRPCServer(f *testing.F) {
@@ -28,7 +27,7 @@ func FuzzRPCJSONRPCServer(f *testing.F) {
 	}
 
 	mux := http.NewServeMux()
-	rpcserver.RegisterRPCFuncs(mux, rpcFuncMap, log.NewNopLogger())
+	rpcserver.RegisterRPCFuncs(mux, rpcFuncMap)
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) == 0 {
 			return

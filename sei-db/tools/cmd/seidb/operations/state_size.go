@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -48,7 +48,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 		ZeroCopy:        true,
 		CreateIfMissing: false,
 	}
-	db, err := memiavl.OpenDB(logger.NewNopLogger(), height, opts)
+	db, err := memiavl.OpenDB(height, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +105,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
-			if moduleName == "evm" && prefix == "03" {
+			if moduleName == commonevm.EVMStoreKey && prefix == "03" {
 				addr := prefixKey[2:42]
 				if _, exists := result.ContractSizes[addr]; !exists {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}
@@ -231,17 +231,33 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
 			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize, result.TotalSize)
 
-		prefixKeyResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].KeySize, "", "  ")
-		fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", result.ModuleName, prefixKeyResult)
+		prefixKeyResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeySize, "", "  ")
+		if err != nil {
+			fmt.Printf("Module %s failed to marshal key size: %v\n", result.ModuleName, err)
+		} else {
+			fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", result.ModuleName, prefixKeyResult)
+		}
 
-		prefixValueResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].ValueSize, "", "  ")
-		fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", result.ModuleName, prefixValueResult)
+		prefixValueResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].ValueSize, "", "  ")
+		if err != nil {
+			fmt.Printf("Module %s failed to marshal value size: %v\n", result.ModuleName, err)
+		} else {
+			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", result.ModuleName, prefixValueResult)
+		}
 
-		totalSizeResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].TotalSize, "", "  ")
-		fmt.Printf("Module %s prefix total size breakdown (bytes): %s \n", result.ModuleName, totalSizeResult)
+		totalSizeResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].TotalSize, "", "  ")
+		if err != nil {
+			fmt.Printf("Module %s failed to marshal total size: %v\n", result.ModuleName, err)
+		} else {
+			fmt.Printf("Module %s prefix total size breakdown (bytes): %s \n", result.ModuleName, totalSizeResult)
+		}
 
-		numKeysResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].KeyCount, "", "  ")
-		fmt.Printf("Module %s prefix num of keys breakdown: %s \n", result.ModuleName, numKeysResult)
+		numKeysResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeyCount, "", "  ")
+		if err != nil {
+			fmt.Printf("Module %s failed to marshal key count: %v\n", result.ModuleName, err)
+		} else {
+			fmt.Printf("Module %s prefix num of keys breakdown: %s \n", result.ModuleName, numKeysResult)
+		}
 
 		// Display top contracts (already limited to top 100)
 		fmt.Printf("\nDetailed breakdown for 0x03 prefix (top %d contracts by total size):\n", len(result.ContractSizes))
@@ -249,7 +265,7 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 		fmt.Printf("%s\n", strings.Repeat("-", 70))
 
 		// Convert to slice for display
-		var contractSlice []utils.ContractSizeEntry
+		contractSlice := make([]utils.ContractSizeEntry, 0, len(result.ContractSizes))
 		for _, entry := range result.ContractSizes {
 			contractSlice = append(contractSlice, *entry)
 		}

@@ -3,7 +3,8 @@ package protoutils
 import (
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/libs/utils"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Conv is a pair of functions to encode and decode between a type and a Message.

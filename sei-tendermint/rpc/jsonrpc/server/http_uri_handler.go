@@ -9,8 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 // uriReqID is a placeholder ID used for GET requests, which do not receive a
@@ -18,7 +17,7 @@ import (
 const uriReqID = -1
 
 // convert from a function name to the http handler
-func makeHTTPHandler(rpcFunc *RPCFunc, logger log.Logger) func(http.ResponseWriter, *http.Request) {
+func makeHTTPHandler(rpcFunc *RPCFunc) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		ctx := rpctypes.WithCallInfo(req.Context(), &rpctypes.CallInfo{
 			HTTPRequest: req,
@@ -27,15 +26,15 @@ func makeHTTPHandler(rpcFunc *RPCFunc, logger log.Logger) func(http.ResponseWrit
 		if err != nil {
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintln(w, err.Error())
+			_, _ = fmt.Fprintln(w, err.Error())
 			return
 		}
 		jreq := rpctypes.NewRequest(uriReqID)
 		result, err := rpcFunc.Call(ctx, args)
 		if err == nil {
-			writeHTTPResponse(w, logger, jreq.MakeResponse(result))
+			writeHTTPResponse(w, jreq.MakeResponse(result))
 		} else {
-			writeHTTPResponse(w, logger, jreq.MakeError(result, err))
+			writeHTTPResponse(w, jreq.MakeError(result, err))
 		}
 	}
 }

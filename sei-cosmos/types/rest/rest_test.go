@@ -3,7 +3,6 @@ package rest_test
 import (
 	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -14,14 +13,14 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 )
 
 func TestBaseReq_Sanitize(t *testing.T) {
@@ -206,11 +205,11 @@ func TestProcessPostResponse(t *testing.T) {
 	ctx = ctx.WithLegacyAmino(cdc)
 
 	// setup expected results
-	jsonNoIndent, err := ctx.LegacyAmino.MarshalJSON(acc)
+	jsonNoIndent, err := ctx.LegacyAmino.MarshalAsJSON(acc)
 	require.Nil(t, err)
 
 	respNoIndent := rest.NewResponseWithHeight(height, jsonNoIndent)
-	expectedNoIndent, err := ctx.LegacyAmino.MarshalJSON(respNoIndent)
+	expectedNoIndent, err := ctx.LegacyAmino.MarshalAsJSON(respNoIndent)
 	require.Nil(t, err)
 
 	// check that negative height writes an error
@@ -226,7 +225,7 @@ func TestProcessPostResponse(t *testing.T) {
 
 func TestReadRESTReq(t *testing.T) {
 	t.Parallel()
-	reqBody := ioutil.NopCloser(strings.NewReader(`{"chain_id":"alessio","memo":"text"}`))
+	reqBody := io.NopCloser(strings.NewReader(`{"chain_id":"alessio","memo":"text"}`))
 	req := &http.Request{Body: reqBody}
 	w := httptest.NewRecorder()
 	var br rest.BaseReq
@@ -239,7 +238,7 @@ func TestReadRESTReq(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
 	// test non valid JSON
-	reqBody = ioutil.NopCloser(strings.NewReader(`MALFORMED`))
+	reqBody = io.NopCloser(strings.NewReader(`MALFORMED`))
 	req = &http.Request{Body: reqBody}
 	br = rest.BaseReq{}
 	w = httptest.NewRecorder()
@@ -257,7 +256,7 @@ func TestWriteSimulationResponse(t *testing.T) {
 	res := w.Result() //nolint:bodyclose
 	t.Cleanup(func() { res.Body.Close() })
 	require.Equal(t, http.StatusOK, res.StatusCode)
-	bs, err := ioutil.ReadAll(res.Body)
+	bs, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 	t.Cleanup(func() { res.Body.Close() })
 	require.Equal(t, `{"gas_estimate":"10"}`, string(bs))
@@ -320,7 +319,7 @@ func TestPostProcessResponseBare(t *testing.T) {
 	res := w.Result() //nolint:bodyclose
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
-	got, err := ioutil.ReadAll(res.Body)
+	got, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { res.Body.Close() })
@@ -338,7 +337,7 @@ func TestPostProcessResponseBare(t *testing.T) {
 	res = w.Result() //nolint:bodyclose
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
-	got, err = ioutil.ReadAll(res.Body)
+	got, err = io.ReadAll(res.Body)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { res.Body.Close() })
@@ -356,7 +355,7 @@ func TestPostProcessResponseBare(t *testing.T) {
 	res = w.Result() //nolint:bodyclose
 	require.Equal(t, http.StatusOK, res.StatusCode)
 
-	got, err = ioutil.ReadAll(res.Body)
+	got, err = io.ReadAll(res.Body)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { res.Body.Close() })
@@ -371,7 +370,7 @@ func TestPostProcessResponseBare(t *testing.T) {
 	res = w.Result() //nolint:bodyclose
 	require.Equal(t, http.StatusInternalServerError, res.StatusCode)
 
-	got, err = ioutil.ReadAll(res.Body)
+	got, err = io.ReadAll(res.Body)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { res.Body.Close() })
@@ -398,11 +397,11 @@ func runPostProcessResponse(t *testing.T, ctx client.Context, obj interface{}, e
 	resp := w.Result() //nolint:bodyclose
 	t.Cleanup(func() { resp.Body.Close() })
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	require.Nil(t, err)
 	require.Equal(t, expectedBody, body)
 
-	marshalled, err := ctx.LegacyAmino.MarshalJSON(obj)
+	marshalled, err := ctx.LegacyAmino.MarshalAsJSON(obj)
 	require.NoError(t, err)
 
 	// test using marshalled struct
@@ -413,7 +412,7 @@ func runPostProcessResponse(t *testing.T, ctx client.Context, obj interface{}, e
 	resp = w.Result() //nolint:bodyclose
 
 	t.Cleanup(func() { resp.Body.Close() })
-	body, err = ioutil.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 
 	require.Nil(t, err)
 	require.Equal(t, string(expectedBody), string(body))

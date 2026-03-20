@@ -5,19 +5,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/grpc/tmservice"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var GrpcConn *grpc.ClientConn
 
 func InitializeGRPCClient(targetEndpoint string, port int) {
-	var dialOptions []grpc.DialOption
+	dialOptions := make([]grpc.DialOption, 0, 3)
 
 	// Use default insecure if we don't have credentials setup
-	dialOptions = append(dialOptions, grpc.WithInsecure())
+	dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
 		grpc.MaxCallRecvMsgSize(20*1024*1024),
 		grpc.MaxCallSendMsgSize(20*1024*1024)),

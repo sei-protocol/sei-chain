@@ -3,40 +3,35 @@ package flatkv
 import (
 	"io"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
-
-// Exporter streams FlatKV state (in x/evm memiavl key format) for snapshots.
-type Exporter interface {
-	// Next returns the next key/value pair. Returns (nil, nil, io.EOF) when done.
-	Next() (key, value []byte, err error)
-
-	io.Closer
-}
 
 // Options configures a FlatKV store.
 type Options struct {
-	// Dir is the base directory containing
-	// accounts/,
-	// code/,
-	// storage/,
-	// changelog/,
-	// __metadata.
+	// Dir is the base directory containing snapshot dirs, working/, and changelog/.
 	Dir string
 }
 
 // Store provides EVM state storage with LtHash integrity.
 //
+// Lifecycle: NewCommitStore (create) → LoadVersion (open) → ApplyChangeSets/Commit → Close.
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
 // Read path: Get/Has/Iterator read committed state only.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
+	// LoadVersion opens the database at the given version (0 = latest).
+	// When readOnly is true an isolated, read-only store is returned;
+	// the caller must Close it when done.
+	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
+
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
 	// Non-EVM modules are ignored. Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes and advances the version.
-	Commit(version int64) error
+	Commit() (int64, error)
 
 	// Get returns the value for the x/evm memiavl key, or (nil, false) if not found.
 	Get(key []byte) ([]byte, bool)
@@ -47,12 +42,15 @@ type Store interface {
 	// Iterator returns an iterator over [start, end) in memiavl key order.
 	// Pass nil for unbounded.
 	//
-	// Multiplexes across internal DBs to return keys in standard memiavl prefix order:
-	//   0x03 (Storage), 0x07 (Code), 0x08 (CodeHash), 0x09 (CodeSize), 0x0a (Nonce).
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	Iterator(start, end []byte) Iterator
 
 	// IteratorByPrefix iterates all keys with the given prefix (more efficient than Iterator).
-	// Supported: StateKeyPrefix||addr, NonceKeyPrefix, CodeKeyPrefix.
+	// Currently only supports: StateKeyPrefix||addr (storage iteration).
+	//
+	// EXPERIMENTAL: not used in production; only storage keys supported.
+	// Interface may change when Exporter/state-sync is implemented.
 	IteratorByPrefix(prefix []byte) Iterator
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
@@ -60,23 +58,39 @@ type Store interface {
 	// raw LtHash vector.
 	RootHash() []byte
 
-	// Version returns the latest committed version.
-	Version() (int64, error)
+	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
+	CommittedRootHash() []byte
 
-	// Exporter creates an exporter for the given version (0 = current).
-	Exporter(version int64) (Exporter, error)
+	// Version returns the latest committed version.
+	Version() int64
 
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
-	// Rollback restores state to targetVersion. Not implemented.
+	// Rollback restores state to targetVersion by rewinding to the best
+	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
 	Rollback(targetVersion int64) error
+
+	// Exporter creates an exporter for the given version (0 = current).
+	Exporter(version int64) (types.Exporter, error)
+
+	// Importer load data from snapshot to the database
+	Importer(version int64) (types.Importer, error)
+
+	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
+	// integration with external phases of execution.
+	GetPhaseTimer() *metrics.PhaseTimer
 
 	io.Closer
 }
 
-// Iterator provides ordered iteration over EVM keys (memiavl format).
+// Iterator provides ordered iteration over EVM keys.
 // Follows PebbleDB semantics: not positioned on creation.
+//
+// Keys are returned in internal format (without memiavl prefix).
+//
+// EXPERIMENTAL: not used in production. Interface may change when
+// Exporter/state-sync is implemented.
 type Iterator interface {
 	Domain() (start, end []byte)
 	Valid() bool
@@ -90,7 +104,10 @@ type Iterator interface {
 	Next() bool
 	Prev() bool
 
-	// Key returns the current key (valid until next move).
+	// Key returns the current key in internal format (valid until next move).
+	// Internal formats:
+	//   - Storage: addr(20) || slot(32)
+	//   - Nonce/Code/CodeHash: addr(20)
 	Key() []byte
 
 	// Value returns the current value (valid until next move).

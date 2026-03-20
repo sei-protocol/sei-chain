@@ -1,8 +1,8 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 )
@@ -31,7 +31,7 @@ func NewMetadata(version, controllerConnectionID, hostConnectionID, accAddress, 
 // It ensures all fields are equal except the Address string
 func IsPreviousMetadataEqual(previousVersion string, metadata Metadata) bool {
 	var previousMetadata Metadata
-	if err := ModuleCdc.UnmarshalJSON([]byte(previousVersion), &previousMetadata); err != nil {
+	if err := ModuleCdc.UnmarshalAsJSON([]byte(previousVersion), &previousMetadata); err != nil {
 		return false
 	}
 

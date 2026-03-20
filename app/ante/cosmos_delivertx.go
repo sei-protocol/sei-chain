@@ -1,14 +1,14 @@
 package ante
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	feegrantkeeper "github.com/cosmos/cosmos-sdk/x/feegrant/keeper"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )

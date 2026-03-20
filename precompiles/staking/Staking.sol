@@ -66,6 +66,18 @@ interface IStaking {
         string moniker
     );
 
+    /**
+     * @notice Emitted when rewards are withdrawn during redelegation/undelegation
+     * @param delegator The address of delegator
+     * @param validator The validator address
+     * @param amount The amount withdrawn
+     */
+    event DelegationRewardsWithdrawn(
+        address indexed delegator,
+        string validator,
+        uint256 amount
+    );
+
     // Transactions
 
     /**

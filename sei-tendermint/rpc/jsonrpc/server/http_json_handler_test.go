@@ -10,11 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
 func testMux() *http.ServeMux {
@@ -30,8 +28,8 @@ func testMux() *http.ServeMux {
 		"block": NewRPCFunc(func(ctx context.Context, arg *blockArgs) (string, error) { return "block", nil }),
 	}
 	mux := http.NewServeMux()
-	logger := log.NewNopLogger()
-	RegisterRPCFuncs(mux, funcMap, logger)
+
+	RegisterRPCFuncs(mux, funcMap)
 
 	return mux
 }

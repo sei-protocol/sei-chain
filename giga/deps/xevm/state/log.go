@@ -20,7 +20,7 @@ func (s *DBImpl) AddLog(l *ethtypes.Log) {
 }
 
 func (s *DBImpl) GetAllLogs() []*ethtypes.Log {
-	res := []*ethtypes.Log{}
+	res := make([]*ethtypes.Log, 0, len(s.tempState.logs))
 	res = append(res, s.tempState.logs...)
 	return res
 }

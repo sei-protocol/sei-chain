@@ -3,21 +3,20 @@ package types
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func useUpgradeLoader(height int64, upgrades *store.StoreUpgrades) func(*baseapp.BaseApp) {
@@ -26,12 +25,8 @@ func useUpgradeLoader(height int64, upgrades *store.StoreUpgrades) func(*baseapp
 	}
 }
 
-func defaultLogger() log.Logger {
-	return log.NewNopLogger()
-}
-
 func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
-	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs := rootmulti.NewStore(db)
 	rs.SetPruning(store.PruneNothing)
 	key := sdk.NewKVStoreKey(storeKey)
 	rs.MountStoreWithDB(key, store.StoreTypeIAVL, nil)
@@ -48,7 +43,7 @@ func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
 }
 
 func checkStore(t *testing.T, db dbm.DB, ver int64, storeKey string, k, v []byte) {
-	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs := rootmulti.NewStore(db)
 	rs.SetPruning(store.PruneNothing)
 	key := sdk.NewKVStoreKey(storeKey)
 	rs.MountStoreWithDB(key, store.StoreTypeIAVL, nil)
@@ -78,7 +73,7 @@ func TestSetLoader(t *testing.T) {
 	data, err := json.Marshal(upgradeInfo)
 	require.NoError(t, err)
 
-	err = ioutil.WriteFile(upgradeInfoFilePath, data, 0644)
+	err = os.WriteFile(upgradeInfoFilePath, data, 0644)
 	require.NoError(t, err)
 
 	// make sure it exists before running everything
@@ -120,13 +115,13 @@ func TestSetLoader(t *testing.T) {
 			// load the app with the existing db
 			opts := []func(*baseapp.BaseApp){baseapp.SetPruning(store.PruneNothing)}
 
-			origapp := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, nil, &testutil.TestAppOpts{}, opts...)
+			origapp := baseapp.NewBaseApp(t.Name(), db, nil, nil, &testutil.TestAppOpts{}, opts...)
 			origapp.MountStores(sdk.NewKVStoreKey(tc.origStoreKey))
 			err := origapp.LoadLatestVersion()
 			require.Nil(t, err)
 
 			for i := int64(2); i <= upgradeHeight-1; i++ {
-				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: origapp.ChainID, Height: i}})
 				origapp.SetDeliverStateToCommit()
 				origapp.Commit(context.Background())
 			}
@@ -136,13 +131,13 @@ func TestSetLoader(t *testing.T) {
 			}
 
 			// load the new app with the original app db
-			app := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, nil, &testutil.TestAppOpts{}, opts...)
+			app := baseapp.NewBaseApp(t.Name(), db, nil, nil, &testutil.TestAppOpts{}, opts...)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
 			err = app.LoadLatestVersion()
 			require.Nil(t, err)
 
 			// "execute" one block
-			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: upgradeHeight})
+			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: upgradeHeight}})
 			app.SetDeliverStateToCommit()
 			app.Commit(context.Background())
 

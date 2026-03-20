@@ -5,9 +5,9 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
 // DefaultTxEncoder returns a default protobuf TxEncoder using the provided Marshaler
@@ -33,12 +33,12 @@ func DefaultJSONTxEncoder(cdc codec.ProtoCodecMarshaler) sdk.TxEncoder {
 	return func(tx sdk.Tx) ([]byte, error) {
 		txWrapper, ok := tx.(*wrapper)
 		if ok {
-			return cdc.MarshalJSON(txWrapper.tx)
+			return cdc.MarshalAsJSON(txWrapper.tx)
 		}
 
 		protoTx, ok := tx.(*txtypes.Tx)
 		if ok {
-			return cdc.MarshalJSON(protoTx)
+			return cdc.MarshalAsJSON(protoTx)
 		}
 
 		return nil, fmt.Errorf("expected %T, got %T", &wrapper{}, tx)

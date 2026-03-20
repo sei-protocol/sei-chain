@@ -1,8 +1,8 @@
 package keeper_test
 
 import (
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"

@@ -9,31 +9,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	tmconfig "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/privval"
-	tmstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmversion "github.com/tendermint/tendermint/proto/tendermint/version"
-	tmtypes "github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -79,10 +78,6 @@ func (m *mockApplication) Commit(ctx context.Context) (*abci.ResponseCommit, err
 	return &abci.ResponseCommit{}, nil
 }
 
-func (m *mockApplication) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {
-	return &abci.ResponseLoadLatest{}, nil
-}
-
 func (m *mockApplication) ListSnapshots(ctx context.Context, req *abci.RequestListSnapshots) (*abci.ResponseListSnapshots, error) {
 	return &abci.ResponseListSnapshots{}, nil
 }
@@ -123,7 +118,7 @@ func setupTestApp(t *testing.T, height int64) (*mockApplication, string) {
 	db, err := dbm.NewDB("test", dbm.MemDBBackend, tempDir)
 	require.NoError(t, err)
 
-	cms := rootmulti.NewStore(db, log.NewNopLogger())
+	cms := rootmulti.NewStore(db)
 	key := storetypes.NewKVStoreKey("test")
 	cms.MountStoreWithDB(key, storetypes.StoreTypeIAVL, db)
 	err = cms.LoadLatestVersion()
@@ -415,7 +410,7 @@ func TestRollbackScenario1_BothAtSameHeight(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, initialHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -426,7 +421,6 @@ func TestRollbackScenario1_BothAtSameHeight(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -458,7 +452,7 @@ func TestRollbackScenario2_AppAheadOfTendermint(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, tmHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -469,7 +463,6 @@ func TestRollbackScenario2_AppAheadOfTendermint(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -501,7 +494,7 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, tmHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -512,7 +505,6 @@ func TestRollbackScenario3_TendermintAheadOfApp(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -540,7 +532,7 @@ func TestRollbackErrorCases(t *testing.T) {
 		// Setup tendermint state at height 0
 		cfg := setupTendermintStateDB(t, tempDir, 0)
 
-		appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+		appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 			return app
 		}
 
@@ -549,7 +541,6 @@ func TestRollbackErrorCases(t *testing.T) {
 
 		ctx := &Context{
 			Config: cfg,
-			Logger: log.NewNopLogger(),
 			Viper:  nil,
 		}
 		cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)
@@ -573,7 +564,7 @@ func TestRollbackWithNumBlocks(t *testing.T) {
 	cfg := setupTendermintStateDB(t, tempDir, initialHeight)
 
 	// Create app creator
-	appCreator := func(log.Logger, dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
+	appCreator := func(dbm.DB, io.Writer, *tmconfig.Config, servertypes.AppOptions) servertypes.Application {
 		return app
 	}
 
@@ -585,7 +576,6 @@ func TestRollbackWithNumBlocks(t *testing.T) {
 	// Set up server context
 	ctx := &Context{
 		Config: cfg,
-		Logger: log.NewNopLogger(),
 		Viper:  nil,
 	}
 	cmdCtx := context.WithValue(context.Background(), ServerContextKey, ctx)

@@ -7,10 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/code"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (
@@ -79,9 +78,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 	ctx := t.Context()
 
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	key := testKey
 	value := key
 	tx := []byte(key)
@@ -95,9 +93,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 func TestPersistentKVStoreInfo(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	if err := InitKVStore(ctx, kvstore); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +112,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	// make and apply block
 	height = int64(1)
 	hash := []byte("foo")
-	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Height: height}); err != nil {
+	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Header: &tmproto.Header{Height: height}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +205,7 @@ func makeApplyBlock(ctx context.Context, t *testing.T, kvstore types.Application
 	hash := []byte("foo")
 	resFinalizeBlock, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{
 		Hash:   hash,
-		Height: height,
+		Header: &tmproto.Header{Height: height},
 		Txs:    txs,
 	})
 	if err != nil {
@@ -241,7 +238,7 @@ func valsEqual(t *testing.T, vals1, vals2 []types.ValidatorUpdate) {
 	}
 }
 
-func runClientTests(ctx context.Context, t *testing.T, client abciclient.Client) {
+func runClientTests(ctx context.Context, t *testing.T, client types.Application) {
 	// run some tests....
 	key := testKey
 	value := key
@@ -253,7 +250,7 @@ func runClientTests(ctx context.Context, t *testing.T, client abciclient.Client)
 	testClient(ctx, t, client, tx, key, value)
 }
 
-func testClient(ctx context.Context, t *testing.T, app abciclient.Client, tx []byte, key, value string) {
+func testClient(ctx context.Context, t *testing.T, app types.Application, tx []byte, key, value string) {
 	ar, err := app.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Txs: [][]byte{tx}})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(ar.TxResults))

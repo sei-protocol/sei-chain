@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	tmquery "github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var DefaultBufferCapacity = 10000
@@ -30,11 +29,10 @@ type EventBus struct {
 }
 
 // NewDefault returns a new event bus with default options.
-func NewDefault(l log.Logger) *EventBus {
-	logger := l.With("module", "eventbus")
-	pubsub := tmpubsub.NewServer(l, tmpubsub.BufferCapacity(DefaultBufferCapacity))
+func NewDefault() *EventBus {
+	pubsub := tmpubsub.NewServer(tmpubsub.BufferCapacity(DefaultBufferCapacity))
 	b := &EventBus{pubsub: pubsub}
-	b.BaseService = *service.NewBaseService(logger, "EventBus", b)
+	b.BaseService = *service.NewBaseService("EventBus", b)
 	return b
 }
 

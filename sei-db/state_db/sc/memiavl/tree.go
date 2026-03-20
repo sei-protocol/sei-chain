@@ -8,14 +8,14 @@ import (
 	"sync"
 
 	ics23 "github.com/confio/ics23/go"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ types.ModuleStore = (*Tree)(nil)
+var _ types.CommitKVStore = (*Tree)(nil)
 var emptyHash = sha256.New().Sum(nil)
 
 // Tree verify change sets by replay them to rebuild iavl tree and verify the root hashes
@@ -29,8 +29,6 @@ type Tree struct {
 
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
-
-	logger logger.Logger
 
 	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
@@ -72,7 +70,6 @@ func NewFromSnapshot(snapshot *Snapshot, opts Options) *Tree {
 		version:   snapshot.Version(),
 		snapshot:  snapshot,
 		zeroCopy:  opts.ZeroCopy,
-		logger:    opts.Logger,
 		mtx:       &sync.RWMutex{},
 		pendingWg: &sync.WaitGroup{},
 	}
@@ -329,6 +326,7 @@ func (t *Tree) ReplaceWith(other *Tree) error {
 	t.initialVersion = other.initialVersion
 	t.cowVersion = other.cowVersion
 	t.zeroCopy = other.zeroCopy
+
 	if snapshot != nil {
 		return snapshot.Close()
 	}

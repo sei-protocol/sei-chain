@@ -2,8 +2,9 @@ package client
 
 import (
 	"context"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // TendermintRPC defines the interface of a Tendermint RPC client needed for

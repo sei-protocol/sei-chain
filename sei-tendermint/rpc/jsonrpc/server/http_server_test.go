@@ -13,11 +13,9 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
 type sampleResult struct {
@@ -30,8 +28,6 @@ func TestMaxOpenConnections(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
 	ctx := t.Context()
-
-	logger := log.NewNopLogger()
 
 	// Start the server.
 	var open int32
@@ -49,7 +45,7 @@ func TestMaxOpenConnections(t *testing.T) {
 	require.NoError(t, err)
 	defer l.Close()
 
-	go Serve(ctx, l, mux, logger, config) //nolint:errcheck // ignore for tests
+	go Serve(ctx, l, mux, config) //nolint:errcheck // ignore for tests
 
 	// Make N GET calls to the server.
 	attempts := max * 2
@@ -91,12 +87,10 @@ func TestServeTLS(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
 	chErr := make(chan error, 1)
 	go func() {
 		select {
-		case chErr <- ServeTLS(ctx, ln, mux, "test.crt", "test.key", logger, DefaultConfig()):
+		case chErr <- ServeTLS(ctx, ln, mux, "test.crt", "test.key", DefaultConfig()):
 		case <-ctx.Done():
 		}
 	}()
@@ -129,8 +123,8 @@ func TestWriteRPCResponse(t *testing.T) {
 
 	// one argument
 	w := httptest.NewRecorder()
-	logger := log.NewNopLogger()
-	writeRPCResponse(w, logger, req.MakeResponse(&sampleResult{"hello"}))
+
+	writeRPCResponse(w, req.MakeResponse(&sampleResult{"hello"}))
 	resp := w.Result()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, resp.Body.Close())
@@ -142,7 +136,7 @@ func TestWriteRPCResponse(t *testing.T) {
 
 	// multiple arguments
 	w = httptest.NewRecorder()
-	writeRPCResponse(w, logger,
+	writeRPCResponse(w,
 		req.MakeResponse(&sampleResult{"hello"}),
 		req.MakeResponse(&sampleResult{"world"}),
 	)
@@ -159,9 +153,9 @@ func TestWriteRPCResponse(t *testing.T) {
 
 func TestWriteHTTPResponse(t *testing.T) {
 	w := httptest.NewRecorder()
-	logger := log.NewNopLogger()
+
 	req := rpctypes.NewRequest(-1)
-	writeHTTPResponse(w, logger, req.MakeErrorf(rpctypes.CodeInternalError, "foo"))
+	writeHTTPResponse(w, req.MakeErrorf(rpctypes.CodeInternalError, "foo"))
 	resp := w.Result()
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, resp.Body.Close())

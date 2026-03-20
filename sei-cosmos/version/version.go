@@ -13,7 +13,7 @@
 //	 -X github.com/cosmos/cosmos-sdk/version.AppName=gaiad \
 //	 -X github.com/cosmos/cosmos-sdk/version.Version=1.0 \
 //	 -X github.com/cosmos/cosmos-sdk/version.Commit=f0f7b7dab7e36c20b757cebce0e8f4fc5b95de60 \
-//	 -X "github.com/cosmos/cosmos-sdk/version.BuildTags=linux darwin amd64"
+//	 -X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=linux darwin amd64"
 package version
 
 import (
@@ -43,7 +43,7 @@ func getSDKVersion() string {
 	}
 	var sdkVersion string
 	for _, dep := range deps.Deps {
-		if dep.Path == "github.com/cosmos/cosmos-sdk" {
+		if dep.Path == "github.com/sei-protocol/sei-chain/sei-cosmos" {
 			sdkVersion = dep.Version
 		}
 	}

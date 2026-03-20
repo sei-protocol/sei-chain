@@ -3,8 +3,8 @@ package query
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -45,7 +45,7 @@ func FilteredPaginate(
 
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		var (
 			numHits uint64
@@ -78,7 +78,7 @@ func FilteredPaginate(
 	}
 
 	iterator := getIterator(prefixStore, nil, reverse)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	end := offset + limit
 
@@ -144,7 +144,7 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	limit := pageRequest.Limit
 	countTotal := pageRequest.CountTotal
 	reverse := pageRequest.Reverse
-	results := []F{}
+	var results []F
 
 	if offset > 0 && key != nil {
 		return results, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
@@ -159,7 +159,7 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		var (
 			numHits uint64
@@ -200,7 +200,7 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	}
 
 	iterator := getIterator(prefixStore, nil, reverse)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	end := offset + limit
 

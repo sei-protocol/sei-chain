@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +14,7 @@ import (
 func TestMultiTreeWriteSnapshotPriorityEVM(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"evm", "bank", "acc"},
@@ -53,7 +52,7 @@ func TestLoadMultiTreeWithPrefetchDisabled(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create a DB with data
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -75,11 +74,11 @@ func TestLoadMultiTreeWithPrefetchDisabled(t *testing.T) {
 
 	// Reload with prefetch disabled (simulating background load)
 	opts := Options{
-		Dir:               dir,
-		PrefetchThreshold: 0, // Disable prefetch
+		Config: Config{SnapshotPrefetchThreshold: 0}, // Disable prefetch
+		Dir:    dir,
 	}
 
-	db2, err := OpenDB(logger.NewNopLogger(), 0, opts)
+	db2, err := OpenDB(0, opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db2.Close()) })
 

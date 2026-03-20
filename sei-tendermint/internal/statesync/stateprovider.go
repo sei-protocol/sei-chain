@@ -9,29 +9,31 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/light"
-	lightprovider "github.com/tendermint/tendermint/light/provider"
-	lighthttp "github.com/tendermint/tendermint/light/provider/http"
-	lightrpc "github.com/tendermint/tendermint/light/rpc"
-	lightdb "github.com/tendermint/tendermint/light/store/db"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	lightprovider "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	lighthttp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	lightrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
+	lightdb "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
 	consensusParamsResponseTimeout = 5 * time.Second
 )
 
-//go:generate ../scripts/mockery_generate.sh StateProvider
+//go:generate ../../scripts/mockery_generate.sh StateProvider
+
+var logger = seilog.NewLogger("tendermint", "internal", "statesync")
 
 // StateProvider is a provider of trusted state data for bootstrapping a node. This refers
 // to the state.State object, not the state machine. There are two implementations. One
@@ -51,7 +53,6 @@ type stateProviderRPC struct {
 	initialHeight           int64
 	providers               map[lightprovider.Provider]string
 	verifyLightBlockTimeout time.Duration
-	logger                  log.Logger
 }
 
 // NewRPCStateProvider creates a new StateProvider using a light client and RPC clients.
@@ -62,7 +63,6 @@ func NewRPCStateProvider(
 	verifyLightBlockTimeout time.Duration,
 	servers []string,
 	trustOptions light.TrustOptions,
-	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(servers) < 2 {
@@ -84,12 +84,11 @@ func NewRPCStateProvider(
 	}
 
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
 		return nil, err
 	}
 	return &stateProviderRPC{
-		logger:                  logger,
 		lc:                      lc,
 		initialHeight:           initialHeight,
 		providers:               providerRemotes,
@@ -100,7 +99,7 @@ func NewRPCStateProvider(
 func (s *stateProviderRPC) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements part of StateProvider. It calls the application to verify the
@@ -194,7 +193,7 @@ func (s *stateProviderRPC) State(ctx context.Context, height uint64) (sm.State, 
 	if err != nil {
 		return sm.State{}, fmt.Errorf("unable to create RPC client: %w", err)
 	}
-	rpcclient := lightrpc.NewClient(s.logger, primaryRPC, s.lc)
+	rpcclient := lightrpc.NewClient(primaryRPC, s.lc)
 	result, err := rpcclient.ConsensusParams(ctx, &currentLightBlock.Height)
 	if err != nil {
 		return sm.State{}, fmt.Errorf("unable to fetch consensus parameters for height %v: %w",
@@ -233,7 +232,6 @@ func NewP2PStateProvider(
 	providers []lightprovider.Provider,
 	trustOptions light.TrustOptions,
 	paramsSendCh *p2p.Channel[*pb.Message],
-	logger log.Logger,
 	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
@@ -241,7 +239,7 @@ func NewP2PStateProvider(
 	}
 
 	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), blacklistTTL, light.Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +256,7 @@ func NewP2PStateProvider(
 func (s *StateProviderP2P) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.verifyLightBlockTimeout)
 	defer cancel()
-	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
+	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts) //nolint:gosec // height validated by Message.Validate() upstream
 }
 
 // AppHash implements StateProvider.
@@ -400,11 +398,11 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 					if err != nil {
 						return fmt.Errorf("invalid provider (%v) node id: %w", p, err)
 					}
-					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer)
+					s.paramsSendCh.Send(wrap(&pb.ParamsRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 				}
 				// jitter+backoff the retry loop
 				timeout := time.Duration(iterCount)*consensusParamsResponseTimeout +
-					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond // nolint:gosec
+					time.Duration(100*rand.Int63n(iterCount))*time.Millisecond //nolint:gosec
 				if err := utils.Sleep(ctx, timeout); err != nil {
 					return nil
 				}

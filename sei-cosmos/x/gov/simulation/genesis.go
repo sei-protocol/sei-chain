@@ -8,10 +8,10 @@ import (
 	"math/rand"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 // Simulation parameter constants
@@ -80,7 +80,7 @@ func GenTallyParamsVeto(r *rand.Rand) sdk.Dec {
 
 // RandomizedGenState generates a random GenesisState for gov
 func RandomizedGenState(simState *module.SimulationState) {
-	startingProposalID := uint64(simState.Rand.Intn(100))
+	startingProposalID := uint64(simState.Rand.Intn(100)) //nolint:gosec // Intn(100) always returns a non-negative value
 
 	var minDeposit sdk.Coins
 	simState.AppParams.GetOrGenerate(

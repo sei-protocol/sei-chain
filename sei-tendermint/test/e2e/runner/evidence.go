@@ -11,14 +11,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // 1 in 4 evidence is light client evidence, the rest is duplicate vote evidence
@@ -28,7 +27,7 @@ const lightClientEvidenceRatio = 4
 // evidence and broadcasts it to a random node through the rpc endpoint `/broadcast_evidence`.
 // Evidence is random and can be a mixture of LightClientAttackEvidence and
 // DuplicateVoteEvidence.
-func InjectEvidence(ctx context.Context, logger log.Logger, r *rand.Rand, testnet *e2e.Testnet, amount int) error {
+func InjectEvidence(ctx context.Context, r *rand.Rand, testnet *e2e.Testnet, amount int) error {
 	// select a random node
 	var targetNode *e2e.Node
 
@@ -43,7 +42,7 @@ func InjectEvidence(ctx context.Context, logger log.Logger, r *rand.Rand, testne
 		return errors.New("could not find node to inject evidence into")
 	}
 
-	logger.Info(fmt.Sprintf("Injecting evidence through %v (amount: %d)...", targetNode.Name, amount))
+	logger.Info("injecting evidence", "node", targetNode.Name, "amount", amount)
 
 	client, err := targetNode.Client()
 	if err != nil {
@@ -113,7 +112,7 @@ func InjectEvidence(ctx context.Context, logger log.Logger, r *rand.Rand, testne
 
 	// wait for the node to make progress after submitting
 	// evidence (3 (forged height) + 1 (progress))
-	_, err = waitForNode(wctx, logger, targetNode, evidenceHeight+4)
+	_, err = waitForNode(wctx, targetNode, evidenceHeight+4)
 	if err != nil {
 		return err
 	}
@@ -237,7 +236,7 @@ func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) 
 }
 
 func readPrivKey(keyFilePath string) (crypto.PrivKey, error) {
-	keyJSONBytes, err := os.ReadFile(keyFilePath)
+	keyJSONBytes, err := os.ReadFile(filepath.Clean(keyFilePath))
 	if err != nil {
 		return crypto.PrivKey{}, err
 	}

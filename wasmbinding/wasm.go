@@ -1,9 +1,9 @@
 package wasmbinding
 
 import (
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"

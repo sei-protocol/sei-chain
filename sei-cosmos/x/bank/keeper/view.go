@@ -3,14 +3,12 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	vestexported "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/exported"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 var _ ViewKeeper = (*BaseViewKeeper)(nil)
@@ -48,11 +46,6 @@ func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.Ac
 		storeKey: storeKey,
 		ak:       ak,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k BaseViewKeeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // HasBalance returns whether or not an account has at least amt balance.
@@ -120,7 +113,7 @@ func (k BaseViewKeeper) IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddr
 	accountStore := k.getAccountStore(ctx, addr)
 
 	iterator := accountStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var balance sdk.Coin
@@ -140,12 +133,12 @@ func (k BaseViewKeeper) IterateAllBalances(ctx sdk.Context, cb func(sdk.AccAddre
 	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
 
 	iterator := balancesStore.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		address, err := types.AddressFromBalancesStore(iterator.Key())
 		if err != nil {
-			k.Logger(ctx).With("key", iterator.Key(), "err", err).Error("failed to get address from balances store")
+			logger.Error("failed to get address from balances store", "key", iterator.Key(), "err", err)
 			// TODO: revisit, for now, panic here to keep same behavior as in 0.42
 			// ref: https://github.com/cosmos/cosmos-sdk/issues/7409
 			panic(err)
@@ -253,7 +246,7 @@ func (k BaseViewKeeper) IterateAllWeiBalances(ctx sdk.Context, cb func(sdk.AccAd
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
 
 	iterator := store.Iterator(nil, nil)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		val := new(sdk.Int)

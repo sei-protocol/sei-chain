@@ -8,14 +8,14 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clientrest "github.com/cosmos/cosmos-sdk/client/rest"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	genutilrest "github.com/cosmos/cosmos-sdk/x/genutil/client/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientrest "github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	genutilrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/rest"
 )
 
 // QueryAccountRequestHandlerFn is the query accountREST Handler.
@@ -105,7 +105,14 @@ func QueryTxsRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		for _, txRes := range searchResult.Txs {
-			packStdTxResponse(w, clientCtx, txRes)
+			err := packStdTxResponse(w, clientCtx, txRes)
+			if err != nil {
+				rest.WriteErrorResponse(
+					w, http.StatusBadRequest,
+					fmt.Sprintf("failed to convert to standard tx: %s", err),
+				)
+				return
+			}
 		}
 
 		err = checkAminoMarshalError(clientCtx, searchResult, "/cosmos/tx/v1beta1/txs")
@@ -204,7 +211,7 @@ func checkAminoMarshalError(ctx client.Context, resp interface{}, grpcEndPoint s
 	// LegacyAmino used intentionally here to handle the SignMode errors
 	marshaler := ctx.LegacyAmino
 
-	_, err := marshaler.MarshalJSON(resp)
+	_, err := marshaler.MarshalAsJSON(resp)
 	if err != nil {
 
 		// If there's an unmarshalling error, we assume that it's because we're

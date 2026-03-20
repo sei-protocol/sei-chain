@@ -13,22 +13,21 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"golang.org/x/mod/semver"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
-	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
-	"github.com/tendermint/tendermint/libs/log"
-
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	v152 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152"
 	v155 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
 // contractMemoryLimit is the memory limit of each contract execution (in MiB)
@@ -250,7 +249,7 @@ func (k Keeper) create(ctx sdk.Context, creator sdk.AccAddress, wasmCode []byte,
 		return 0, sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
 	codeID = k.autoIncrementID(ctx, types.KeyLastCodeID)
-	k.Logger(ctx).Debug("storing new contract", "features", report.RequiredFeatures, "code_id", codeID)
+	logger.Debug("storing new contract", "features", report.RequiredFeatures, "code_id", codeID)
 	codeInfo := types.NewCodeInfo(checksum, creator, *instantiateAccess)
 	k.storeCodeInfo(ctx, codeID, codeInfo)
 
@@ -1146,7 +1145,7 @@ func (k Keeper) emitCW721OwnerBeforeTransferIfApplicable(ctx sdk.Context, contra
 		if err != nil {
 			return
 		}
-		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && strings.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
+		if ctx.IsTracing() && ctx.ChainID() == "pacific-1" && semver.Compare(ctx.ClosestUpgradeName(), "v6.3.0") < 0 {
 			ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		}
 		resBz, err := k.QuerySmart(ctx, contractAddress, ownerQueryBz)
@@ -1186,15 +1185,6 @@ func (m MultipliedGasMeter) GasConsumed() sdk.Gas {
 
 func (k Keeper) gasMeter(ctx sdk.Context) MultipliedGasMeter {
 	return NewMultipliedGasMeter(ctx.GasMeter(), k.gasRegister)
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return moduleLogger(ctx)
-}
-
-func moduleLogger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
 // Querier creates a new grpc querier instance

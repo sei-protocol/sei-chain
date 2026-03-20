@@ -1,54 +1,52 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
+	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	ssconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/config"
 
-	"bytes"
-	"encoding/hex"
-	"strconv"
-
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	bam "github.com/cosmos/cosmos-sdk/baseapp"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authsign "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	bam "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	authsign "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
-	xevmtypes "github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 )
 
@@ -76,9 +74,10 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	UseSc         bool
-	EnableGiga    bool
-	EnableGigaOCC bool
+	UseSc          bool
+	EnableGiga     bool
+	EnableGigaOCC  bool
+	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -98,6 +97,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
+	}
+	if s == receiptStoreBackendKey && t.ReceiptBackend != "" {
+		return t.ReceiptBackend
 	}
 	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
 	// when multiple tests run in parallel (all would try to bind to port 8545)
@@ -127,8 +129,47 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
-	genState := xevmtypes.DefaultGenesis()
-	wrapper.App.GigaEvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	return wrapper
+}
+
+// NewGigaTestWrapperWithRegularStore creates a test wrapper that runs Giga executor
+// but uses regular KVStore instead of GigaKVStore. This is for debugging - it isolates
+// whether issues are in the Giga executor logic vs the GigaKVStore layer.
+//
+// How it works:
+// - Creates app with UseSc=true but EnableGiga=false (so GigaKVStore is NOT registered)
+// - Manually enables Giga executor flags on the app
+// - Sets GigaEvmKeeper.UseRegularStore=true so it uses ctx.KVStore instead of ctx.GigaKVStore
+func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
+	// Create wrapper with Sc but WITHOUT EnableGiga - this means GigaKVStore won't be registered
+	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: false, EnableGigaOCC: false}, baseAppOptions...)
+
+	// Manually enable Giga executor on the app
+	wrapper.App.GigaExecutorEnabled = true
+	wrapper.App.GigaOCCEnabled = useOcc
+	tmtypes.SkipLastResultsHashValidation.Store(true)
+
+	// Configure GigaEvmKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaEvmKeeper.UseRegularStore = true
+
+	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
+	wrapper.App.GigaBankKeeper.UseRegularStore = true
+
+	// Initialize evmone VM if not already initialized
+	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
+		evmoneVM, err := gigalib.InitEvmoneVM()
+		if err != nil {
+			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		}
+		wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
+	}
+
+	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
+	genState := evmtypes.DefaultGenesis()
+	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+
 	return wrapper
 }
 
@@ -284,7 +325,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
+	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +363,6 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		dbm.NewMemDB(),
 		nil,
 		true,
@@ -352,6 +392,7 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -395,7 +436,6 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -422,6 +462,56 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return res
+}
+
+// SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
+// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// Use this to test the full app path with rs-backend from config.
+func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+
+	res = New(
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		t.TempDir(),
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		testAppOpts,
+		EmptyWasmOpts,
+		nil, // no options: receipt store is created from testAppOpts inside New()
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() { _ = recover() }()
+
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -449,7 +539,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -499,7 +588,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -525,6 +613,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -567,7 +656,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	db := dbm.NewMemDB()
 	encCdc := MakeEncodingConfig()
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -653,6 +741,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -660,9 +749,12 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// commit genesis changes
 	_, _ = app.Commit(context.Background())
 	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Height:             app.LastBlockHeight() + 1,
-		Hash:               app.LastCommitID().Hash,
-		NextValidatorsHash: valSet.Hash(),
+		Hash: app.LastCommitID().Hash,
+		Header: &tmproto.Header{
+			ChainID:            "sei-test",
+			Height:             app.LastBlockHeight() + 1,
+			NextValidatorsHash: valSet.Hash(),
+		},
 	})
 
 	return app
@@ -692,12 +784,13 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
 }
@@ -876,15 +969,16 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 
 func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
-	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
+	require.NotEmpty(t, header.ChainID)
 
 	tx, err := GenTx(
 		txCfg,
 		msgs,
 		sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
 		DefaultGenTxGas,
-		chainID,
+		header.ChainID,
 		accNums,
 		accSeqs,
 		priv...,
@@ -903,23 +997,27 @@ func SignCheckDeliver(
 		require.Error(t, err)
 		require.Nil(t, res)
 	}
-
-	// Simulate a sending a transaction and committing a block
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	gInfo, res, deliverErr := app.Deliver(txCfg.TxEncoder(), tx)
+	if deliverErr == nil && res == nil {
+		deliverErr = fmt.Errorf("deliver tx returned no result")
+	}
 
 	if expPass {
-		require.NoError(t, err)
+		require.NoError(t, deliverErr)
 		require.NotNil(t, res)
 	} else {
-		require.Error(t, err)
+		require.Error(t, deliverErr)
 		require.Nil(t, res)
 	}
 
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	_, _ = app.Commit(context.Background())
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
-	return gInfo, res, err
+	return gInfo, res, deliverErr
 }
 
 func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/wal"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
@@ -114,7 +114,7 @@ func TestRandomRead(t *testing.T) {
 
 func prepareTestData(t *testing.T) *WAL[proto.ChangelogEntry] {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	writeTestData(t, changelog)
 	return changelog
@@ -139,12 +139,12 @@ func TestSynchronousWrite(t *testing.T) {
 	lastIndex, err := changelog.LastOffset()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), lastIndex)
-
 }
 
 func TestAsyncWrite(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 	for _, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
@@ -160,7 +160,8 @@ func TestAsyncWrite(t *testing.T) {
 	}
 	err = changelog.Close()
 	require.NoError(t, err)
-	changelog, err = NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
+	changelog, err = NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 	lastIndex, err := changelog.LastOffset()
 	require.NoError(t, err)
@@ -253,7 +254,7 @@ func TestTruncateBefore(t *testing.T) {
 
 func TestCloseSyncMode(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 
 	// Write some data in sync mode
@@ -263,11 +264,8 @@ func TestCloseSyncMode(t *testing.T) {
 	err = changelog.Close()
 	require.NoError(t, err)
 
-	// Verify isClosed is set
-	require.True(t, changelog.isClosed)
-
 	// Reopen and verify data persisted
-	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
 
@@ -298,21 +296,21 @@ func TestReplayWithError(t *testing.T) {
 		return nil
 	})
 	require.Error(t, err)
-	require.Equal(t, expectedErr, err)
+	require.True(t, strings.Contains(err.Error(), expectedErr.Error()))
 }
 
 func TestReopenAndContinueWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and write initial data
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	writeTestData(t, changelog)
 	err = changelog.Close()
 	require.NoError(t, err)
 
 	// Reopen and continue writing
-	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 
 	// Verify nextOffset is correctly set after reopen
@@ -343,7 +341,7 @@ func TestReopenAndContinueWrite(t *testing.T) {
 
 func TestEmptyLog(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
@@ -359,7 +357,8 @@ func TestEmptyLog(t *testing.T) {
 
 func TestCheckErrorNoError(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	// Write some data to initialize async mode
@@ -389,7 +388,8 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create with async write and write data
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	for _, changes := range ChangeSets {
@@ -403,7 +403,8 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen with async write and continue
-	changelog2, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 
 	// Write more entries
@@ -418,7 +419,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen and verify all 6 entries
-	changelog3, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog3, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog3.Close()) })
 
@@ -441,9 +442,62 @@ func TestReplaySingleEntry(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
+// TestBatchWrite exercises the batch write path by writing many entries quickly so they
+// are processed in batches, then verifies all entries were written correctly.
+func TestBatchWrite(t *testing.T) {
+	const (
+		batchSize = 8
+		numWrites = 32
+	)
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{
+			WriteBatchSize:  batchSize,
+			WriteBufferSize: 64,
+		})
+	require.NoError(t, err)
+
+	// Pump writes quickly so the main loop batches them (handleBatchedWrite drains up to batchSize).
+	for i := 0; i < numWrites; i++ {
+		entry := &proto.ChangelogEntry{}
+		entry.Changesets = []*proto.NamedChangeSet{{
+			Name:      fmt.Sprintf("batch-%d", i),
+			Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("key-%d", i), fmt.Sprintf("val-%d", i))},
+		}}
+		require.NoError(t, changelog.Write(*entry))
+	}
+
+	require.NoError(t, changelog.Close())
+
+	// Reopen and verify all entries
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err := changelog2.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), first)
+	last, err := changelog2.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(numWrites), last)
+
+	var replayed int
+	err = changelog2.Replay(1, uint64(numWrites), func(index uint64, entry proto.ChangelogEntry) error {
+		replayed++
+		require.Len(t, entry.Changesets, 1)
+		require.Equal(t, fmt.Sprintf("batch-%d", index-1), entry.Changesets[0].Name)
+		require.Len(t, entry.Changesets[0].Changeset.Pairs, 1)
+		require.Equal(t, []byte(fmt.Sprintf("key-%d", index-1)), entry.Changesets[0].Changeset.Pairs[0].Key)
+		require.Equal(t, []byte(fmt.Sprintf("val-%d", index-1)), entry.Changesets[0].Changeset.Pairs[0].Value)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, numWrites, replayed)
+}
+
 func TestWriteMultipleChangesets(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
 
@@ -469,7 +523,8 @@ func TestWriteMultipleChangesets(t *testing.T) {
 
 func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{WriteBufferSize: 8})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir,
+		Config{WriteBufferSize: 8})
 	require.NoError(t, err)
 
 	// Intentionally avoid t.Cleanup here: we want Close() to race with in-flight async writes.
@@ -535,7 +590,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 
 func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{
 		WriteBufferSize: 10,
 		KeepRecent:      10,
 		PruneInterval:   1 * time.Millisecond,
@@ -604,9 +659,82 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 	require.NoError(t, changelog.Close())
 }
 
+func TestTruncateAll(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+
+	writeTestData(t, changelog)
+	last, err := changelog.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), last)
+
+	// Remove all entries.
+	require.NoError(t, changelog.TruncateAll())
+
+	// WAL is now empty.
+	first, err := changelog.FirstOffset()
+	require.NoError(t, err)
+	last, err = changelog.LastOffset()
+	require.NoError(t, err)
+	// With AllowEmpty, FirstIndex returns LastIndex+1 when empty.
+	require.True(t, first > last, "expected empty WAL (first > last)")
+
+	// Can write new entries after truncating all.
+	entry := proto.ChangelogEntry{
+		Changesets: []*proto.NamedChangeSet{{Name: "after", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")}}},
+	}
+	require.NoError(t, changelog.Write(entry))
+
+	last, err = changelog.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), last) // continues from previous index
+
+	require.NoError(t, changelog.Close())
+
+	// Reopen and verify.
+	changelog2, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog2.Close()) })
+
+	first, err = changelog2.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), first)
+	last, err = changelog2.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), last)
+
+	readEntry, err := changelog2.ReadAt(4)
+	require.NoError(t, err)
+	require.Equal(t, "after", readEntry.Changesets[0].Name)
+}
+
+func TestTruncateAllWithoutAllowEmpty(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	writeTestData(t, changelog)
+
+	// Without AllowEmpty, TruncateAll should fail.
+	err = changelog.TruncateAll()
+	require.Error(t, err)
+}
+
+func TestTruncateAllOnEmptyLog(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	// TruncateAll on an already-empty log is a no-op.
+	require.NoError(t, changelog.TruncateAll())
+}
+
 func TestGetLastIndex(t *testing.T) {
 	dir := t.TempDir()
-	changelog, err := NewWAL(marshalEntry, unmarshalEntry, logger.NewNopLogger(), dir, Config{})
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{})
 	require.NoError(t, err)
 	writeTestData(t, changelog)
 	err = changelog.Close()
@@ -621,4 +749,100 @@ func TestGetLastIndex(t *testing.T) {
 func TestLogPath(t *testing.T) {
 	path := LogPath("/some/dir")
 	require.Equal(t, "/some/dir/changelog", path)
+}
+
+// batchTestEntry is a simple type for testing batch marshal failures.
+type batchTestEntry struct {
+	value string
+}
+
+func TestBatchWriteWithMarshalFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	// Marshal fails for entries with value "fail"
+	marshalBatchTest := func(e batchTestEntry) ([]byte, error) {
+		if e.value == "fail" {
+			return nil, fmt.Errorf("mock marshal failure")
+		}
+		return []byte(e.value), nil
+	}
+	unmarshalBatchTest := func(b []byte) (batchTestEntry, error) {
+		return batchTestEntry{value: string(b)}, nil
+	}
+
+	// Use sync writes (WriteBufferSize 0) and batching (WriteBatchSize 4)
+	// so we can observe per-write errors. The channel buffer allows multiple
+	// goroutines to push before the handler runs, forming a batch.
+	config := Config{
+		WriteBufferSize: 0, // sync writes
+		WriteBatchSize:  4, // batch up to 4
+	}
+
+	w, err := NewWAL(t.Context(), marshalBatchTest, unmarshalBatchTest, dir, config)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Write 4 entries concurrently so they get batched. The "fail" entry will fail to marshal.
+	// A marshal failure is fatal: the WAL shuts down and all batched writes receive errors.
+	entries := []batchTestEntry{
+		{value: "ok1"},
+		{value: "fail"},
+		{value: "ok2"},
+		{value: "ok3"},
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	for i := range entries {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = w.Write(entries[idx])
+		}(i)
+	}
+	wg.Wait()
+
+	// The "fail" entry should get the marshal error
+	require.Error(t, errs[1])
+	require.Contains(t, errs[1].Error(), "mock marshal failure")
+
+	// Other entries may succeed (if batched before "fail") or get errors (if in the same batch as "fail").
+	// After the fatal error, the WAL is shut down.
+
+	// WAL is shut down; subsequent operations fail
+	_, err = w.LastOffset()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "shut down")
+
+	_, err = w.ReadAt(1)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "shut down")
+
+	// Close returns the fatal error
+	closeErr := w.Close()
+	require.Error(t, closeErr)
+	require.Contains(t, closeErr.Error(), "mock marshal failure")
+}
+
+func TestMultipleCloseCalls(t *testing.T) {
+	changelog := prepareTestData(t)
+	entry, err := changelog.ReadAt(2)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello1"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world1"), entry.Changesets[0].Changeset.Pairs[0].Value)
+	require.Equal(t, []byte("hello2"), entry.Changesets[0].Changeset.Pairs[1].Key)
+	require.Equal(t, []byte("world2"), entry.Changesets[0].Changeset.Pairs[1].Value)
+	entry, err = changelog.ReadAt(1)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world"), entry.Changesets[0].Changeset.Pairs[0].Value)
+	entry, err = changelog.ReadAt(3)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello3"), entry.Changesets[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("world3"), entry.Changesets[0].Changeset.Pairs[0].Value)
+
+	// Calling close lots of times shouldn't cause any problems.
+	for i := 0; i < 10; i++ {
+		require.NoError(t, changelog.Close())
+	}
 }

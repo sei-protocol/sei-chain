@@ -1,7 +1,6 @@
 package state
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
@@ -9,8 +8,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	ethutils "github.com/ethereum/go-ethereum/trie/utils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("x", "evm", "state")
 
 // Initialized for each transaction individually
 type DBImpl struct {
@@ -172,7 +175,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 }
 
 func (s *DBImpl) Finalise(bool) {
-	s.ctx.Logger().Info("Finalise should only be called during simulation and will no-op")
+	logger.Info("Finalise should only be called during simulation and will no-op")
 }
 
 func (s *DBImpl) Commit(uint64, bool, bool) (common.Hash, error) {

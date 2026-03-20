@@ -3,7 +3,7 @@ package merkle
 import (
 	"hash"
 
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 
 // TODO: make these have a large predefined capacity

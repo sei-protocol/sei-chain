@@ -5,7 +5,7 @@ package tendermint.types;
 import "gogoproto/gogo.proto";
 import "tendermint/crypto/keys.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 
 message ValidatorSet {
   repeated Validator validators = 1;

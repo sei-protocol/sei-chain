@@ -12,9 +12,9 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/tendermint/tendermint/rpc/client/eventstream"
-	rpcclient "github.com/tendermint/tendermint/rpc/client/http"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/eventstream"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var (

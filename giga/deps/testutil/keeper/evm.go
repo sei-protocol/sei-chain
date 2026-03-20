@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
@@ -29,12 +29,14 @@ func MockApp(t *testing.T) (*app.App, sdk.Context) {
 	testWrapper := app.NewGigaTestWrapper(t, time.Now(), accts[0].PublicKey, false, false)
 	testApp := testWrapper.App
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
+	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 	return testApp, ctx
 }
 
 func MockEVMKeeper(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
 	testApp, ctx := MockApp(t)
 	k := testApp.GigaEvmKeeper
+	ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
 	// mint some coins to a sei address

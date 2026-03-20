@@ -3,20 +3,21 @@ package types_test
 import (
 	"encoding/hex"
 	"fmt"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"strings"
 	"testing"
 
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+
 	"github.com/golang/protobuf/proto"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/bytes"
-	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type resultTestSuite struct {
@@ -46,7 +47,7 @@ func (s *resultTestSuite) TestABCIMessageLog() {
 	events := sdk.Events{sdk.NewEvent("transfer", sdk.NewAttribute("sender", "foo"))}
 	msgLog := sdk.NewABCIMessageLog(0, "", events)
 	msgLogs := sdk.ABCIMessageLogs{msgLog}
-	bz, err := cdc.MarshalJSON(msgLogs)
+	bz, err := cdc.MarshalAsJSON(msgLogs)
 
 	s.Require().NoError(err)
 	s.Require().Equal(string(bz), msgLogs.String())
@@ -220,7 +221,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 }
 
 func TestWrapServiceResult(t *testing.T) {
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 
 	res, err := sdk.WrapServiceResult(ctx, nil, fmt.Errorf("test"))
 	require.Nil(t, res)

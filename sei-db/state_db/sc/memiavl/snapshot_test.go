@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSnapshotEncodingRoundTrip(t *testing.T) {
@@ -144,11 +144,11 @@ func TestDBSnapshotRestore(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "test2"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               dir,
-		CreateIfMissing:   true,
-		InitialStores:     initialStores,
-		AsyncCommitBuffer: -1,
+	db, err := OpenDB(0, Options{
+		Config:          Config{AsyncCommitBuffer: -1},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   initialStores,
 	})
 	require.NoError(t, err)
 
@@ -198,7 +198,7 @@ func testSnapshotRoundTrip(t *testing.T, db *DB) {
 	require.NoError(t, importer.Close())
 	require.NoError(t, exporter.Close())
 
-	db2, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: restoreDir})
+	db2, err := OpenDB(0, Options{Dir: restoreDir})
 	require.NoError(t, err)
 	require.Equal(t, db.LastCommitInfo(), db2.LastCommitInfo())
 

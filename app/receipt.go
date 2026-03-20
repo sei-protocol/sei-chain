@@ -6,16 +6,16 @@ import (
 	"math/big"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 var ERC20ApprovalTopic = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
@@ -59,7 +59,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	ownerEventsMap := map[string][]abci.Event{}
 	for _, ownerEvent := range ownerEvents {
 		if len(ownerEvent.Attributes) != 3 {
-			ctx.Logger().Error("received owner event with number of attributes != 3")
+			logger.Error("received owner event with number of attributes != 3")
 			continue
 		}
 		ownerEventKey := getOwnerEventKey(string(ownerEvent.Attributes[0].Value), string(ownerEvent.Attributes[1].Value))
@@ -219,13 +219,13 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 						ownerEvmAddr := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerSeiAddr)
 						sender = common.BytesToHash(ownerEvmAddr[:])
 					} else {
-						ctx.Logger().Error("Translate CW721 error: invalid bech32 owner", "error", err, "address", ownerSeiAddrStr)
+						logger.Error("Translate CW721 error: invalid bech32 owner", "address", ownerSeiAddrStr, "err", err)
 					}
 				} else {
-					ctx.Logger().Error("Translate CW721 error: insufficient owner events", "key", ownerEventKey, "counter", currentCounter, "events", len(ownerEvents))
+					logger.Error("Translate CW721 error: insufficient owner events", "key", ownerEventKey, "counter", currentCounter, "events", len(ownerEvents))
 				}
 			} else {
-				ctx.Logger().Error("Translate CW721 error: owner event not found", "key", ownerEventKey)
+				logger.Error("Translate CW721 error: owner event not found", "key", ownerEventKey)
 			}
 			res = append(res, &ethtypes.Log{
 				Address: pointerAddr,
@@ -352,7 +352,7 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 			dataArgs := cw1155.GetParsedABI().Events["TransferBatch"].Inputs.NonIndexed()
 			value, err := dataArgs.Pack(action.TokenIds, action.Amounts)
 			if err != nil {
-				ctx.Logger().Error(fmt.Sprintf("failed to parse TransferBatch event data due to %s", err))
+				logger.Error("Failed to parse TransferBatch event data", "err", err)
 				continue
 			}
 			res = append(res, &ethtypes.Log{

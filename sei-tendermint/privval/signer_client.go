@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/log"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // SignerClient implements PrivValidator.
 // Handles remote validator connections that provide signing services
 type SignerClient struct {
-	logger   log.Logger
 	endpoint *SignerListenerEndpoint
 	chainID  string
 }
@@ -32,7 +30,6 @@ func NewSignerClient(ctx context.Context, endpoint *SignerListenerEndpoint, chai
 	}
 
 	return &SignerClient{
-		logger:   endpoint.logger,
 		endpoint: endpoint,
 		chainID:  chainID,
 	}, nil
@@ -65,7 +62,7 @@ func (sc *SignerClient) WaitForConnection(ctx context.Context, maxWait time.Dura
 func (sc *SignerClient) Ping(ctx context.Context) error {
 	response, err := sc.endpoint.SendRequest(ctx, mustWrapMsg(&privvalproto.PingRequest{}))
 	if err != nil {
-		sc.logger.Error("SignerClient::Ping", "err", err)
+		logger.Error("SignerClient::Ping", "err", err)
 		return nil
 	}
 

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/types"
 )
 
 func TestLRUTxCache(t *testing.T) {

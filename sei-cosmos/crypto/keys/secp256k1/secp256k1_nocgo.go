@@ -6,7 +6,7 @@ package secp256k1
 import (
 	secp256k1 "github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
 )
 
 // Sign creates an ECDSA signature on curve Secp256k1, using SHA256 on the msg.
@@ -14,12 +14,9 @@ import (
 func (pk *PrivKey) Sign(msg []byte) ([]byte, error) {
 	priv, _ := secp256k1.PrivKeyFromBytes(pk.Key)
 	hash := cosmoscrypto.Sha256(msg)
-	sig, err := ecdsa.SignCompact(priv, hash, true) // true=compressed pubkey
-	if err != nil {
-		return nil, err
-	}
-	// SignCompact struct: [recovery_id][R][S]
-	// we need to remove the recovery id and return the R||S bytes
+	// SignCompact returns [recovery_id][R][S] - note: newer btcec versions only return 1 value
+	sig := ecdsa.SignCompact(priv, hash, true) // true=compressed pubkey
+	// Remove the recovery id and return the R||S bytes
 	return sig[1:], nil
 }
 

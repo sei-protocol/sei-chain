@@ -6,13 +6,13 @@ import (
 
 	"cosmossdk.io/errors"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/kv"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 const StoreTypeSSStore = 100
@@ -24,12 +24,12 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    sstypes.StateStore
+	store    seidbtypes.StateStore
 	storeKey types.StoreKey
 	version  int64
 }
 
-func NewStore(store sstypes.StateStore, storeKey types.StoreKey, version int64) *Store {
+func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64) *Store {
 	return &Store{store, storeKey, version}
 }
 
@@ -108,7 +108,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		for ; iterator.Valid(); iterator.Next() {
 			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
 		}
-		iterator.Close()
+		_ = iterator.Close()
 
 		bz, err := pairs.Marshal()
 		if err != nil {
@@ -129,11 +129,11 @@ func (st *Store) VersionExists(version int64) bool {
 
 func (st *Store) DeleteAll(start, end []byte) error {
 	iter := st.Iterator(start, end)
-	keys := [][]byte{}
+	var keys [][]byte
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+	_ = iter.Close()
 	for _, key := range keys {
 		st.Delete(key)
 	}
@@ -142,7 +142,7 @@ func (st *Store) DeleteAll(start, end []byte) error {
 
 func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := st.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

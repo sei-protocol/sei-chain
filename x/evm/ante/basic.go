@@ -3,11 +3,11 @@ package ante
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -34,6 +34,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 				// bump nonce if it is for some reason not incremented (e.g. ante failure)
 				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
 					gl.k.SetNonce(callCtx, msg.Derived.SenderEVMAddr, startingNonce+1)
+					gl.k.SetNonceBumped(callCtx)
 				}
 			})
 		}

@@ -2,9 +2,12 @@ package core
 
 import (
 	"context"
+	"maps"
+	"slices"
 
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Validators gets the validator set at the given block height.
@@ -51,28 +54,32 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.ResultDumpConsensusState, error) {
 	// Get Peer consensus states.
 
-	var peerStates []coretypes.PeerStateInfo
-	peers := env.PeerManager.Peers()
-	peerStates = make([]coretypes.PeerStateInfo, 0, len(peers))
-	for _, pid := range peers {
-		peerState, ok := env.ConsensusReactor.GetPeerState(pid)
+	peerStates := map[types.NodeID]coretypes.PeerStateInfo{}
+	for _, info := range env.Router.ConnInfos() {
+		if _, ok := peerStates[info.ID]; ok {
+			continue
+		}
+		peerState, ok := env.ConsensusReactor.GetPeerState(info.ID)
 		if !ok {
 			continue
 		}
-
 		peerStateJSON, err := peerState.ToJSON()
 		if err != nil {
 			return nil, err
 		}
 
-		addr := env.PeerManager.Addresses(pid)
-		if len(addr) != 0 {
-			peerStates = append(peerStates, coretypes.PeerStateInfo{
-				// Peer basic info.
-				NodeAddress: addr[0].String(),
-				// Peer consensus state.
-				PeerState: peerStateJSON,
-			})
+		nodeAddress := ""
+		if addr, ok := info.DialedAddr.Get(); ok {
+			nodeAddress = addr.String()
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
+			nodeAddress = addr.String()
+		}
+
+		peerStates[info.ID] = coretypes.PeerStateInfo{
+			// Peer basic info.
+			NodeAddress: nodeAddress,
+			// Peer consensus state.
+			PeerState: peerStateJSON,
 		}
 	}
 
@@ -83,7 +90,7 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 	}
 	return &coretypes.ResultDumpConsensusState{
 		RoundState: roundState,
-		Peers:      peerStates,
+		Peers:      slices.Collect(maps.Values(peerStates)),
 	}, nil
 }
 

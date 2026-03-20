@@ -56,7 +56,7 @@ func (s *SyncSet[T]) Contains(val T) bool {
 }
 
 func (s *SyncSet[T]) ToOrderedSlice(comparator func(T, T) bool) []T {
-	res := []T{}
+	res := make([]T, 0, len(s.dict))
 	for s := range s.dict {
 		res = append(res, s)
 	}

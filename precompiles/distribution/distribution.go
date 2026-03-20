@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"math/big"
 
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
@@ -208,15 +208,7 @@ func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *a
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 
-	logData, err := p.abi.Events[DelegationRewardsEvent].Inputs.NonIndexed().Pack(args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt())
-	if err != nil {
-		rerr = err
-		return
-	}
-	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
-		DelegationRewardsEventSig,
-		common.BytesToHash(caller.Bytes()),
-	}, logData); err != nil {
+	if err := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, args[0].(string), amts.AmountOf(sdk.DefaultBondDenom).BigInt()); err != nil {
 		rerr = err
 		return
 	}

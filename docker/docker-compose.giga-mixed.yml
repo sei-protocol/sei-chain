@@ -1,0 +1,31 @@
+# Docker Compose override for mixed-mode giga testing.
+# Only node 0 runs with GIGA_EXECUTOR enabled; nodes 1-3 run standard V2.
+# This allows testing that giga produces identical results to V2 at the
+# consensus level — any divergence will cause the giga node to halt.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.giga-mixed.yml up
+#
+# Or via Makefile:
+#   make giga-mixed-integration-test
+
+services:
+  node0:
+    environment:
+      - GIGA_EXECUTOR=true
+      - GIGA_OCC=false
+
+  node1:
+    environment:
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  node2:
+    environment:
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  node3:
+    environment:
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false

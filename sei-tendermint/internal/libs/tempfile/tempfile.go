@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -14,10 +13,10 @@ import (
 const (
 	atomicWriteFilePrefix = "write-file-atomic-"
 	// Maximum number of atomic write file conflicts before we start reseeding
-	// (reduced from golang's default 10 due to using an increased randomness space)
+	// (reduced from Golang's default 10 due to using an increased randomness space)
 	atomicWriteFileMaxNumConflicts = 5
 	// Maximum number of attempts to make at writing the write file before giving up
-	// (reduced from golang's default 10000 due to using an increased randomness space)
+	// (reduced from Golang's default 10000 due to using an increased randomness space)
 	atomicWriteFileMaxNumWriteAttempts = 1000
 	// LCG constants from Donald Knuth MMIX
 	// This LCG's has a period equal to 2**64
@@ -42,7 +41,7 @@ func writeFileRandReseed() uint64 {
 	// The important thing here is that now for a seed conflict, they would both have to be on
 	// the correct nanosecond offset, and second-based offset, which is much less likely than
 	// just a conflict with the correct nanosecond offset.
-	return uint64(time.Now().UnixNano() + int64(os.Getpid()<<20))
+	return uint64(time.Now().UnixNano() + int64(os.Getpid())<<20) //nolint:gosec // PID shifted left 20 fits in int64; final sum reinterpreted as uint64 for seed
 }
 
 // Use a fast thread safe LCG for atomic write file names.
@@ -61,11 +60,11 @@ func randWriteFileSuffix() string {
 	atomicWriteFileRand = r
 	atomicWriteFileRandMu.Unlock()
 	// Can have a negative name, replace this in the following
-	suffix := strconv.Itoa(int(r))
-	if string(suffix[0]) == "-" {
+	suffix := strconv.Itoa(int(r)) //nolint:gosec // intentional reinterpretation of random bits; negative values handled below
+	if suffix[0] == '-' {
 		// Replace first "-" with "0". This is purely for UI clarity,
-		// as otherwhise there would be two `-` in a row.
-		suffix = strings.Replace(suffix, "-", "0", 1)
+		// as otherwise there would be two `-` in a row.
+		suffix = "0" + suffix[1:]
 	}
 	return suffix
 }
@@ -76,7 +75,7 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) (err error)
 	// This implementation is inspired by the golang stdlibs method of creating
 	// tempfiles. Notable differences are that we use different flags, a 64 bit LCG
 	// and handle negatives differently.
-	// The core reason we can't use golang's TempFile is that we must write
+	// The core reason we can't use Golang's TempFile is that we must write
 	// to the file synchronously, as we need this to persist to disk.
 	// We also open it in write-only mode, to avoid concerns that arise with read.
 	var (
@@ -91,10 +90,10 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) (err error)
 	i := 0
 	for ; i < atomicWriteFileMaxNumWriteAttempts; i++ {
 		name := filepath.Join(dir, atomicWriteFilePrefix+randWriteFileSuffix())
-		f, err = os.OpenFile(name, atomicWriteFileFlag, perm)
+		f, err = os.OpenFile(filepath.Clean(name), atomicWriteFileFlag, perm)
 		// If the file already exists, try a new file
 		if os.IsExist(err) {
-			// If the files exists too many times, start reseeding as we've
+			// If the files exist too many times, start reseeding as we've
 			// likely hit another instances seed.
 			if nconflict++; nconflict > atomicWriteFileMaxNumConflicts {
 				atomicWriteFileRandMu.Lock()
@@ -112,8 +111,10 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) (err error)
 	}
 
 	// Clean up in any case. Defer stacking order is last-in-first-out.
-	defer os.Remove(f.Name())
-	defer f.Close()
+	defer func() {
+		_ = os.Remove(f.Name())
+		_ = f.Close()
+	}()
 
 	if n, err := f.Write(data); err != nil {
 		return err
@@ -122,7 +123,7 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) (err error)
 	}
 	// Close the file before renaming it, otherwise it will cause "The process
 	// cannot access the file because it is being used by another process." on windows.
-	f.Close()
+	_ = f.Close()
 
 	return os.Rename(f.Name(), filename)
 }

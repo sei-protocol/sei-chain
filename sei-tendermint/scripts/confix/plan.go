@@ -121,7 +121,7 @@ var plan = transform.Plan{
 		T: transform.Func(func(ctx context.Context, doc *tomledit.Document) error {
 			// If the key already exists, rename it preserving its value.
 			if found := doc.First("statesync", "chunk-fetchers"); found != nil {
-				found.KeyValue.Name = parser.Key{"fetchers"}
+				found.Name = parser.Key{"fetchers"}
 				return nil
 			}
 
@@ -210,13 +210,13 @@ var plan = transform.Plan{
 
 			// Versions prior to v0.35 had a string value here, v0.35 and onward
 			// use an array of strings.
-			switch idx.KeyValue.Value.X.(type) {
+			switch idx.Value.X.(type) {
 			case parser.Array:
 				// OK, this is already up-to-date.
 				return nil
 			case parser.Token:
 				// Wrap the value in a single-element array.
-				idx.KeyValue.Value.X = parser.Array{idx.KeyValue.Value}
+				idx.Value.X = parser.Array{idx.Value}
 				return nil
 			}
 			return fmt.Errorf("unrecognized value: %v", idx.KeyValue)

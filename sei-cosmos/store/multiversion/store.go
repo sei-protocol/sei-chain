@@ -5,9 +5,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/types/occ"
-	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	db "github.com/tendermint/tm-db"
 )
 
@@ -253,7 +252,7 @@ func (s *Store) CollectIteratorItems(index int) *db.MemDB {
 		// TODO: do we want to exclude keys out of the range or just let the iterator handle it?
 		for _, key := range indexedWriteset {
 			// TODO: inefficient because (logn) for each key + rebalancing? maybe theres a better way to add to a tree to reduce rebalancing overhead
-			sortedItems.Set([]byte(key), []byte{})
+			_ = sortedItems.Set([]byte(key), []byte{})
 		}
 	}
 	return sortedItems
@@ -264,13 +263,13 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 	sortedItems := s.CollectIteratorItems(index)
 	// add the iterationtracker writeset keys to the sorted items
 	for key := range tracker.writeset {
-		sortedItems.Set([]byte(key), []byte{})
+		_ = sortedItems.Set([]byte(key), []byte{})
 	}
 	validChannel := make(chan bool, 1)
-	abortChannel := make(chan occtypes.Abort, 1)
+	abortChannel := make(chan occ.Abort, 1)
 
 	// listen for abort while iterating
-	go func(iterationTracker iterationTracker, items *db.MemDB, returnChan chan bool, abortChan chan occtypes.Abort) {
+	go func(iterationTracker iterationTracker, items *db.MemDB, returnChan chan bool, abortChan chan occ.Abort) {
 		var parentIter types.Iterator
 		expectedKeys := iterationTracker.iteratedKeys
 		foundKeys := 0
@@ -282,7 +281,7 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 		}
 		// create a new MVSMergeiterator
 		mergeIterator := NewMVSMergeIterator(parentIter, iter, iterationTracker.ascending, NoOpHandler{})
-		defer mergeIterator.Close()
+		defer func() { _ = mergeIterator.Close() }()
 		for ; mergeIterator.Valid(); mergeIterator.Next() {
 			if (len(expectedKeys) - foundKeys) == 0 {
 				// if we have no more expected keys, then the iterator is invalid
@@ -306,7 +305,7 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 			}
 		}
 		// return whether we found the exact number of expected keys
-		returnChan <- !((len(expectedKeys) - foundKeys) > 0)
+		returnChan <- foundKeys >= len(expectedKeys)
 	}(tracker, sortedItems, validChannel, abortChannel)
 	select {
 	case <-abortChannel:

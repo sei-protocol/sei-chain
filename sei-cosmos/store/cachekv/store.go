@@ -6,10 +6,10 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/internal/conv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/internal/conv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -33,7 +33,7 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 		cache:         &sync.Map{},
 		deleted:       &sync.Map{},
 		unsortedCache: &sync.Map{},
-		sortedCache:   dbm.NewMemDB(),
+		sortedCache:   nil,
 		parent:        parent,
 		storeKey:      storeKey,
 		cacheSize:     cacheSize,
@@ -120,7 +120,7 @@ func (store *Store) Write() {
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
 	store.unsortedCache = &sync.Map{}
-	store.sortedCache = dbm.NewMemDB()
+	store.sortedCache = nil
 }
 
 // CacheWrap implements CacheWrapper.
@@ -146,6 +146,13 @@ func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
 	return store.iterator(start, end, false)
 }
 
+func (store *Store) getOrInitSortedCache() *dbm.MemDB {
+	if store.sortedCache == nil {
+		store.sortedCache = dbm.NewMemDB()
+	}
+	return store.sortedCache
+}
+
 func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
@@ -162,13 +169,13 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 		if err := recover(); err != nil {
 			// close out parent iterator, then reraise panic
 			if parent != nil {
-				parent.Close()
+				_ = parent.Close()
 			}
 			panic(err)
 		}
 	}()
 	store.dirtyItems(start, end)
-	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending)
+	cache = newMemIterator(start, end, store.getOrInitSortedCache(), store.deleted, ascending)
 	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
 }
 
@@ -285,7 +292,6 @@ func (store *Store) dirtyItems(start, end []byte) {
 		return true
 	})
 	store.clearUnsortedCacheSubset(unsorted, stateUnsorted)
-	return
 }
 
 func (store *Store) clearUnsortedCacheSubset(unsorted []*kv.Pair, sortState sortState) {
@@ -301,13 +307,13 @@ func (store *Store) clearUnsortedCacheSubset(unsorted []*kv.Pair, sortState sort
 		if item.Value == nil {
 			// deleted element, tracked by store.deleted
 			// setting arbitrary value
-			if err := store.sortedCache.Set(item.Key, []byte{}); err != nil {
+			if err := store.getOrInitSortedCache().Set(item.Key, []byte{}); err != nil {
 				panic(err)
 			}
 
 			continue
 		}
-		if err := store.sortedCache.Set(item.Key, item.Value); err != nil {
+		if err := store.getOrInitSortedCache().Set(item.Key, item.Value); err != nil {
 			panic(err)
 		}
 	}

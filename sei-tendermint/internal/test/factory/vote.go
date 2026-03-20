@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func MakeVote(
@@ -32,7 +32,7 @@ func MakeVote(
 		ValidatorIndex:   valIndex,
 		Height:           height,
 		Round:            round,
-		Type:             tmproto.SignedMsgType(step),
+		Type:             tmproto.SignedMsgType(step), //nolint:gosec // step is a small enum value (prevote/precommit/commit); no overflow risk
 		BlockID:          blockID,
 		Timestamp:        time,
 	}

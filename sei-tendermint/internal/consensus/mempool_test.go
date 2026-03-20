@@ -13,14 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/abci/example/code"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/mempool"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // for testing
@@ -29,6 +29,30 @@ func assertMempool(t *testing.T, txn txNotifier) mempool.Mempool {
 	mp, ok := txn.(mempool.Mempool)
 	require.True(t, ok)
 	return mp
+}
+
+func ensureNewBlockHeightEventually(t *testing.T, newBlockCh <-chan tmpubsub.Message, expectedHeight int64) {
+	t.Helper()
+
+	var (
+		lastHeight int64  = -1
+		lastType   string = "<none>"
+	)
+	require.Eventually(t, func() bool {
+		select {
+		case msg := <-newBlockCh:
+			blockEvent, ok := msg.Data().(types.EventDataNewBlock)
+			if !ok {
+				lastType = fmt.Sprintf("%T", msg.Data())
+				return false
+			}
+			lastType = "types.EventDataNewBlock"
+			lastHeight = blockEvent.Block.Height
+			return lastHeight == expectedHeight
+		default:
+			return false
+		}
+	}, 3*ensureTimeout, 20*time.Millisecond, "expected EventDataNewBlock height %d, last height %d, last type %s", expectedHeight, lastHeight, lastType)
 }
 
 func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
@@ -45,7 +69,7 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
@@ -54,8 +78,8 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 	ensureNewEventOnChannel(t, newBlockCh) // first block gets committed
 	ensureNoNewEventOnChannel(t, newBlockCh)
 	checkTxsRange(ctx, t, cs, 0, 1)
-	ensureNewEventOnChannel(t, newBlockCh) // commit txs
-	ensureNewEventOnChannel(t, newBlockCh) // commit updated app hash
+	ensureNewBlockHeightEventually(t, newBlockCh, height+1)
+	ensureNewBlockHeightEventually(t, newBlockCh, height+2)
 	ensureNoNewEventOnChannel(t, newBlockCh)
 }
 
@@ -72,7 +96,7 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 
@@ -97,7 +121,7 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
@@ -113,8 +137,8 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 	}
 	startTestRound(ctx, cs, height, round)
 
-	ensureNewRound(t, newRoundCh, height, round) // first round at first height
-	ensureNewEventOnChannel(t, newBlockCh)       // first block gets committed
+	ensureNewRound(t, newRoundCh, height, round)          // first round at first height
+	ensureNewBlockHeightEventually(t, newBlockCh, height) // first block gets committed
 
 	height++ // moving to the next height
 	round = 0
@@ -122,9 +146,9 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 	ensureNewRound(t, newRoundCh, height, round) // first round at next height
 	checkTxsRange(ctx, t, cs, 0, 1)              // we deliver txs, but don't set a proposal so we get the next round
 	ensureNewTimeout(t, timeoutCh, height, round)
-	round++                                      // moving to the next round
-	ensureNewRound(t, newRoundCh, height, round) // wait for the next round
-	ensureNewEventOnChannel(t, newBlockCh)       // now we can commit the block
+	round++                                               // moving to the next round
+	ensureNewRound(t, newRoundCh, height, round)          // wait for the next round
+	ensureNewBlockHeightEventually(t, newBlockCh, height) // now we can commit the block
 }
 
 func checkTxsRange(ctx context.Context, t *testing.T, cs *State, start, end int) {
@@ -144,7 +168,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	ctx := t.Context()
 
 	config := configSetup(t)
-	logger := log.NewNopLogger()
+
 	state, privVals := makeGenesisState(ctx, t, config, genesisStateArgs{
 		Validators: 1,
 		Power:      10,
@@ -154,7 +178,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
 	cs := newStateWithConfigAndBlockStore(
-		ctx, logger, config, state, privVals[0], NewCounterApplication(), blockStore)
+		ctx, config, state, privVals[0], NewCounterApplication(), blockStore)
 
 	err := stateStore.Save(state)
 	require.NoError(t, err)
@@ -198,7 +222,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 	app := NewCounterApplication()
 	stateStore := sm.NewStore(dbm.NewMemDB())
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	cs := newStateWithConfigAndBlockStore(ctx, log.NewNopLogger(), config, state, privVals[0], app, blockStore)
+	cs := newStateWithConfigAndBlockStore(ctx, config, state, privVals[0], app, blockStore)
 	err := stateStore.Save(state)
 	require.NoError(t, err)
 

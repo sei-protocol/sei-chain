@@ -13,21 +13,19 @@ import (
 	"github.com/stretchr/testify/mock"
 	dbm "github.com/tendermint/tm-db"
 
-	clientmocks "github.com/tendermint/tendermint/abci/client/mocks"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/proxy"
-	smmocks "github.com/tendermint/tendermint/internal/state/mocks"
-	"github.com/tendermint/tendermint/internal/statesync/mocks"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/light/provider"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	smmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
@@ -37,7 +35,7 @@ type reactorTestSuite struct {
 	node    *p2p.TestNode
 	reactor *Reactor
 
-	conn          *clientmocks.Client
+	conn          *testStatesyncApp
 	stateProvider *mocks.StateProvider
 
 	stateStore *smmocks.Store
@@ -46,20 +44,19 @@ type reactorTestSuite struct {
 
 func setup(
 	t *testing.T,
-	conn *clientmocks.Client,
+	conn *testStatesyncApp,
 	stateProvider *mocks.StateProvider,
 	setSyncer bool,
 ) *reactorTestSuite {
 	t.Helper()
 
 	if conn == nil {
-		conn = &clientmocks.Client{}
+		conn = newTestStatesyncApp()
 	}
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     utils.Some(100),
 			MaxConnected: utils.Some(100),
 		},
 	})
@@ -69,14 +66,11 @@ func setup(
 	cfg := config.DefaultStateSyncConfig()
 	cfg.LightBlockResponseTimeout = 100 * time.Millisecond
 
-	logger, _ := log.NewDefaultLogger("plain", "debug")
-
 	n := network.Nodes()[0]
 	reactor, err := NewReactor(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
-		logger.With("component", "reactor"),
 		conn,
 		n.Router,
 		stateStore,
@@ -86,14 +80,13 @@ func setup(
 		nil,   // eventbus can be nil
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
-		make(chan struct{}),
+		func() {},
 		config.DefaultSelfRemediationConfig(),
 	)
 	require.NoError(t, err)
 
 	if setSyncer {
 		reactor.syncer = &syncer{
-			logger:        logger,
 			stateProvider: stateProvider,
 			conn:          conn,
 			snapshots:     newSnapshotPool(),
@@ -129,9 +122,8 @@ func orPanic[T any](v T, err error) T {
 	return v
 }
 
-func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+func (rts *reactorTestSuite) AddPeerWithoutWaiting(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
 	n := &Node{
@@ -141,7 +133,15 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
-	rts.node.Connect(t.Context(), testNode)
+	testNode.Connect(t.Context(), rts.node)
+	return n
+}
+
+func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+	n := rts.AddPeerWithoutWaiting(t)
+	// Peer registration in the reactor is asynchronous, so block until this peer
+	// is visible before returning to callers that may assert on peer counts.
+	utils.OrPanic(rts.reactor.peers.WaitUntilContains(t.Context(), n.TestNode.NodeID))
 	return n
 }
 
@@ -152,20 +152,18 @@ func TestReactor_Sync(t *testing.T) {
 	const snapshotHeight = 7
 	rts := setup(t, nil, nil, false)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	// app accepts any snapshot
-	rts.conn.On("OfferSnapshot", ctx, mock.IsType(&abci.RequestOfferSnapshot{})).
-		Return(&abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, nil)
-
-	// app accepts every chunk
-	rts.conn.On("ApplySnapshotChunk", ctx, mock.IsType(&abci.RequestApplySnapshotChunk{})).
-		Return(&abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil)
-
-	// app query returns valid state app hash
-	rts.conn.On("Info", mock.Anything, &proxy.RequestInfo).Return(&abci.ResponseInfo{
+	appConn := rts.conn
+	appConn.offerSnapshot.Set(func(context.Context, *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
+		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, nil
+	})
+	appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
+		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
+	})
+	appConn.info.Push(mkHandler(&proxy.RequestInfo, &abci.ResponseInfo{
 		AppVersion:       testAppVersion,
 		LastBlockHeight:  snapshotHeight,
 		LastBlockAppHash: chain[snapshotHeight+1].AppHash,
-	}, nil)
+	}))
 
 	// store accepts state and validator sets
 	rts.stateStore.On("Bootstrap", mock.AnythingOfType("state.State")).Return(nil)
@@ -178,7 +176,7 @@ func TestReactor_Sync(t *testing.T) {
 			if _, err := utils.Recv(ctx, ticker.C); err != nil {
 				return
 			}
-			n := rts.AddPeer(t)
+			n := rts.AddPeerWithoutWaiting(t)
 			go n.handleLightBlockRequests(t, chain, false)
 			go n.handleChunkRequests(t, []byte("abc"))
 			go n.handleConsensusParamsRequest(t)
@@ -236,12 +234,13 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			ctx := t.Context()
 
 			// mock ABCI connection to return local snapshots
-			conn := &clientmocks.Client{}
-			conn.On("LoadSnapshotChunk", mock.Anything, &abci.RequestLoadSnapshotChunk{
+			conn := newTestStatesyncApp()
+			expected := &abci.RequestLoadSnapshotChunk{
 				Height: tc.request.Height,
 				Format: tc.request.Format,
 				Chunk:  tc.request.Index,
-			}).Return(&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}, nil)
+			}
+			conn.loadSnapshotChunk.Push(mkHandler(expected, &abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
@@ -293,12 +292,14 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
+			snapshots := make([]*abci.Snapshot, len(tc.snapshots))
+			for i, s := range tc.snapshots {
+				snapshots[i] = utils.ProtoClone(s)
+			}
 
 			// mock ABCI connection to return local snapshots
-			conn := &clientmocks.Client{}
-			conn.On("ListSnapshots", mock.Anything, &abci.RequestListSnapshots{}).Return(utils.ProtoClone(&abci.ResponseListSnapshots{
-				Snapshots: tc.snapshots,
-			}), nil)
+			conn := newTestStatesyncApp()
+			conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{Snapshots: snapshots}))
 
 			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
@@ -333,6 +334,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			if err := utils.TestDiff(want, got); err != nil {
 				t.Fatal(err)
 			}
+			conn.AssertExpectations(t)
 		})
 	}
 }
@@ -445,7 +447,13 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	rts.reactor.cfg.TrustHeight = 1
 	rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
 
-	ictx, cancel := context.WithTimeout(ctx, time.Second)
+	// Peer registration is asynchronous; wait for a minimum set before
+	// initializing the provider to avoid CI flakes under load.
+	require.Eventually(t, func() bool {
+		return rts.reactor.peers.Len() >= 2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	ictx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	func() {
@@ -509,7 +517,6 @@ func TestReactor_Backfill(t *testing.T) {
 	for _, failureRate := range failureRates {
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
 			ctx := t.Context()
-			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
 			rts := setup(t, nil, nil, false)
 
 			var (

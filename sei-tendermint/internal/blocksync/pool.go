@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/libs/flowrate"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/flowrate"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 /*
@@ -27,6 +27,8 @@ eg, L = latency = 0.1s
 
 	12.8 * 0.1 = 1.28 blocks on conn
 */
+
+var logger = seilog.NewLogger("tendermint", "internal", "blocksync")
 
 const (
 	requestInterval           = 100 * time.Millisecond
@@ -81,7 +83,6 @@ type BlockRequest struct {
 // BlockPool keeps track of the block sync peers, block requests and block responses.
 type BlockPool struct {
 	service.BaseService
-	logger log.Logger
 
 	lastAdvance time.Time
 
@@ -109,14 +110,12 @@ type BlockPool struct {
 // NewBlockPool returns a new BlockPool with the height equal to start. Block
 // requests and errors will be sent to requestsCh and errorsCh accordingly.
 func NewBlockPool(
-	logger log.Logger,
 	start int64,
 	requestsCh chan<- BlockRequest,
 	errorsCh chan<- peerError,
 	router router,
 ) *BlockPool {
 	bp := &BlockPool{
-		logger:       logger,
 		peers:        make(map[types.NodeID]*bpPeer),
 		requesters:   make(map[int64]*bpRequester),
 		height:       start,
@@ -127,7 +126,7 @@ func NewBlockPool(
 		lastSyncRate: 0,
 		router:       router,
 	}
-	bp.BaseService = *service.NewBaseService(logger, "BlockPool", bp)
+	bp.BaseService = *service.NewBaseService("BlockPool", bp)
 	return bp
 }
 
@@ -186,10 +185,10 @@ func (pool *BlockPool) removeTimedoutPeers() {
 			if curRate != 0 && curRate < minRecvRate {
 				err := errors.New("peer is not sending us data fast enough")
 				pool.sendError(err, peer.id)
-				pool.logger.Error("SendTimeout", "peer", peer.id,
+				logger.Error("SendTimeout", "peer", peer.id,
 					"reason", err,
-					"curRate", fmt.Sprintf("%d KB/s", curRate/1024),
-					"minRate", fmt.Sprintf("%d KB/s", minRecvRate/1024))
+					"curRate-kbps", curRate/1024,
+					"minRate-kbps", minRecvRate/1024)
 				peer.didTimeout = true
 			}
 		}
@@ -379,10 +378,9 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 			base:       base,
 			height:     height,
 			numPending: 0,
-			logger:     pool.logger.With("peer", peerID),
 			startAt:    time.Now(),
 		}
-		pool.logger.Info(fmt.Sprintf("Adding peer %s to blocksync pool", peerID))
+		logger.Info("Adding peer to blocksync pool", "peer", peerID)
 		pool.peers[peerID] = peer
 	}
 
@@ -485,7 +483,7 @@ func (pool *BlockPool) makeNextRequester(ctx context.Context) {
 		return
 	}
 
-	request := newBPRequester(pool.logger, pool, nextHeight)
+	request := newBPRequester(pool, nextHeight)
 
 	pool.requesters[nextHeight] = request
 	atomic.AddInt32(&pool.numPending, 1)
@@ -494,7 +492,7 @@ func (pool *BlockPool) makeNextRequester(ctx context.Context) {
 	pool.cancels = append(pool.cancels, cancel)
 	err := request.Start(ctx)
 	if err != nil {
-		request.logger.Error("error starting request", "err", err)
+		logger.Error("error starting request", "err", err)
 	}
 }
 
@@ -543,8 +541,6 @@ type bpPeer struct {
 
 	timeout *time.Timer
 	startAt time.Time
-
-	logger log.Logger
 }
 
 func (peer *bpPeer) resetMonitor() {
@@ -586,7 +582,7 @@ func (peer *bpPeer) onTimeout() {
 
 	err := errors.New("peer did not send us anything")
 	peer.pool.sendError(err, peer.id)
-	peer.logger.Error("SendTimeout", "reason", err, "timeout", peerTimeout)
+	logger.Error("SendTimeout", "id", peer.id, "reason", err, "timeout", peerTimeout)
 	peer.didTimeout = true
 }
 
@@ -594,7 +590,6 @@ func (peer *bpPeer) onTimeout() {
 
 type bpRequester struct {
 	service.BaseService
-	logger        log.Logger
 	pool          *BlockPool
 	height        int64
 	gotBlockCh    chan struct{}
@@ -612,9 +607,8 @@ type RedoOp struct {
 	Reason RetryReason
 }
 
-func newBPRequester(logger log.Logger, pool *BlockPool, height int64) *bpRequester {
+func newBPRequester(pool *BlockPool, height int64) *bpRequester {
 	bpr := &bpRequester{
-		logger:        pool.logger,
 		pool:          pool,
 		height:        height,
 		gotBlockCh:    make(chan struct{}, 1),
@@ -623,7 +617,7 @@ func newBPRequester(logger log.Logger, pool *BlockPool, height int64) *bpRequest
 		peerID:        "",
 		block:         nil,
 	}
-	bpr.BaseService = *service.NewBaseService(logger, "bpRequester", bpr)
+	bpr.BaseService = *service.NewBaseService("bpRequester", bpr)
 	return bpr
 }
 

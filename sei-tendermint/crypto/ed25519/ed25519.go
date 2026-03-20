@@ -10,7 +10,7 @@ import (
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
 
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type ErrBadSig struct {
@@ -60,13 +60,14 @@ func SecretKeyFromSecretBytes(b []byte) (SecretKey, error) {
 	if got, want := len(b), ed25519.PrivateKeySize; got != want {
 		return SecretKey{}, fmt.Errorf("ed25519: bad private key length: got %d, want %d", got, want)
 	}
-	raw := utils.Alloc([ed25519.PrivateKeySize]byte(b))
-	runtime.AddCleanup(&raw, func(int) {
+	type Secret = [ed25519.PrivateKeySize]byte
+	raw := utils.Alloc(Secret(b))
+	runtime.AddCleanup(&raw, func(raw *Secret) {
 		// Zero the memory to avoid leaking the secret.
 		for i := range raw {
 			raw[i] = 0
 		}
-	}, 0)
+	}, raw)
 	key := SecretKey{key: &raw}
 	// Zero the input slice to avoid leaking the secret.
 	for i := range b {

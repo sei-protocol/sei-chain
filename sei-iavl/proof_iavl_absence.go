@@ -5,8 +5,8 @@ import (
 
 	proto "github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	tmmerkle "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	tmmerkle "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
 	"github.com/sei-protocol/sei-chain/sei-iavl/internal/encoding"
 	iavlproto "github.com/sei-protocol/sei-chain/sei-iavl/proto"

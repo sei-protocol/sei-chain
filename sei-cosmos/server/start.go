@@ -4,39 +4,39 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	//nolint:gosec,G108
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/pprof"
+	"sync"
 	"time"
 
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta"
+	crgserver "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/rpc/client/local"
-	tmtypes "github.com/tendermint/tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
-
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	"github.com/cosmos/cosmos-sdk/server/rosetta"
-	crgserver "github.com/cosmos/cosmos-sdk/server/rosetta/lib/server"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 const (
@@ -132,7 +132,9 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			// Bind flags to the Context's Viper so the app construction can set
 			// options accordingly.
-			serverCtx.Viper.BindPFlags(cmd.Flags())
+			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
 
 			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
 			return err
@@ -142,10 +144,16 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
 				go func() {
-					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-					err := http.ListenAndServe(":6060", nil)
+					logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+					// TODO: Should this be bound to all interfaces?
+					server := &http.Server{
+						Addr:              "localhost:6060",
+						ReadHeaderTimeout: 10 * time.Second,
+						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
+					}
+					err := server.ListenAndServe()
 					if err != nil {
-						serverCtx.Logger.Error("Error from profiling server", "error", err)
+						logger.Error("Error from profiling server", "error", err)
 					}
 				}()
 			}
@@ -171,17 +179,17 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
 			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
-				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
+				logger.Info("--tracing not passed in, tracing is not enabled")
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			// amino is needed here for backwards compatibility of REST routes
-			exitCode := RestartErrorCode
-
-			serverCtx.Logger.Info("Creating node metrics provider")
+			logger.Info("Creating node metrics provider")
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
 
-			config, _ := config.GetConfig(serverCtx.Viper)
+			config, err := config.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return err
+			}
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
@@ -193,33 +201,21 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				}
 			}
 
-			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
-			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
-			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
-
-			serverCtx.Logger.Info("Starting Process")
+			logger.Info("Starting Process")
 			for {
-				err = startInProcess(
+				err := startInProcess(
 					serverCtx,
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
 					nodeMetricsProvider,
 					apiMetrics,
-					canRestartAfter,
 				)
-				errCode, ok := err.(ErrorCode)
-				exitCode = errCode.Code
-				if !ok {
+				if !errors.Is(err, ErrShouldRestart) {
 					return err
 				}
-				if exitCode != RestartErrorCode {
-					break
-				}
-				serverCtx.Logger.Info("restarting node...")
-				canRestartAfter = time.Now().Add(restartCoolDownDuration)
+				logger.Info("restarting node...")
 			}
-			return nil
 		},
 	}
 
@@ -283,7 +279,6 @@ func startInProcess(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetricsProvider *node.NodeMetrics,
 	apiMetrics *telemetry.Metrics,
-	canRestartAfter time.Time,
 ) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
@@ -291,7 +286,7 @@ func startInProcess(
 	defer cancel()
 	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
+		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
 			return fmt.Errorf("failed to create cpuProfile file %w", err)
 		}
@@ -301,9 +296,9 @@ func startInProcess(
 		}
 
 		cpuProfileCleanup = func() {
-			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
+			logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
-			f.Close()
+			_ = f.Close()
 		}
 	}
 
@@ -324,25 +319,32 @@ func startInProcess(
 	}
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
-		ctx.Logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
+		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
 
-	var (
-		tmNode    service.Service
-		restartCh chan struct{}
-		gRPCOnly  = ctx.Viper.GetBool(flagGRPCOnly)
-	)
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	var tmNode service.Service
 
-	restartCh = make(chan struct{})
+	var restartMtx sync.Mutex
+	restartCh := make(chan struct{})
+	restartEvent := func() {
+		restartMtx.Lock()
+		defer restartMtx.Unlock()
+		select {
+		case <-restartCh:
+		default:
+			close(restartCh)
+		}
+	}
 
 	if gRPCOnly {
-		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
+		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
 		config.GRPC.Enable = true
 	} else {
-		ctx.Logger.Info("starting node with ABCI Tendermint in-process")
+		logger.Info("starting node with ABCI Tendermint in-process")
 		var gen *tmtypes.GenesisDoc
 		if config.Genesis.StreamImport {
 			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
@@ -360,9 +362,8 @@ func startInProcess(
 		tmNode, err = node.New(
 			goCtx,
 			ctx.Config,
-			ctx.Logger,
-			restartCh,
-			abciclient.NewLocalClient(ctx.Logger, app),
+			restartEvent,
+			app,
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
@@ -379,7 +380,7 @@ func startInProcess(
 	// service if API or gRPC is enabled, and avoid doing so in the general
 	// case, because it spawns a new local tendermint RPC client.
 	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		localClient, err := local.New(ctx.Logger, tmNode.(local.NodeService))
+		localClient, err := local.New(tmNode.(local.NodeService))
 		if err != nil {
 			return err
 		}
@@ -392,7 +393,7 @@ func startInProcess(
 	var apiSrv *api.Server
 	if config.API.Enable {
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
-		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
+		apiSrv = api.New(clientCtx)
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -424,7 +425,7 @@ func startInProcess(
 		if config.GRPCWeb.Enable {
 			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
 			if err != nil {
-				ctx.Logger.Error("failed to start grpc-web http server: ", err)
+				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
 		}
@@ -434,7 +435,7 @@ func startInProcess(
 	// we do not need to start Rosetta or handle any Tendermint related processes.
 	if gRPCOnly {
 		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+		return WaitForQuitSignals(goCtx, restartCh)
 	}
 
 	var rosettaSrv crgserver.Server
@@ -496,16 +497,16 @@ func startInProcess(
 		if grpcSrv != nil {
 			grpcSrv.Stop()
 			if grpcWebSrv != nil {
-				grpcWebSrv.Close()
+				_ = grpcWebSrv.Close()
 			}
 		}
 
-		ctx.Logger.Info("close any other open resource...")
+		logger.Info("close any other open resource...")
 		if err := app.Close(); err != nil {
-			ctx.Logger.Error("error closing database", "err", err)
+			logger.Error("error closing database", "err", err)
 		}
 	}()
 
 	// wait for signal capture and gracefully return
-	return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+	return WaitForQuitSignals(goCtx, restartCh)
 }

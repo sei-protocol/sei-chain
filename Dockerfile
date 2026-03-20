@@ -19,8 +19,6 @@ RUN mkdir -p /go/lib && \
     cp /tmp/wasmvm-libs/libwasmvm.${ARCH_SUFFIX}.so /go/lib/
 
 COPY go.* ./
-COPY sei-cosmos/go.* ./sei-cosmos/
-COPY sei-tendermint/go.* ./sei-tendermint/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
@@ -33,15 +31,14 @@ ARG GO_BUILD_ARGS=""
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     BUILD_TAGS="netgo ledger ${GO_BUILD_TAGS}" && \
-    VERSION_PKG="github.com/cosmos/cosmos-sdk/version" && \
+    VERSION_PKG="github.com/sei-protocol/sei-chain/sei-cosmos/version" && \
     LDFLAGS="\
       -X ${VERSION_PKG}.Name=sei \
       -X ${VERSION_PKG}.AppName=seid \
       -X ${VERSION_PKG}.Version=$(git describe --tags || echo "${SEI_CHAIN_REF}") \
       -X ${VERSION_PKG}.Commit=$(git log -1 --format='%H') \
       -X '${VERSION_PKG}.BuildTags=${BUILD_TAGS}'" && \
-    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid && \
-    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/price-feeder ./oracle/price-feeder
+    go build -tags "${BUILD_TAGS}" -ldflags "${LDFLAGS}" ${GO_BUILD_ARGS} -o /go/bin/seid ./cmd/seid
 
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
@@ -49,7 +46,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /go/bin/seid /go/bin/price-feeder /usr/bin/
+COPY --from=builder /go/bin/seid /usr/bin/
 COPY --from=seictl /usr/bin/seictl /usr/bin/
 COPY --from=builder /go/lib/*.so /usr/lib/
 

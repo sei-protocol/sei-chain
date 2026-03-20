@@ -2,14 +2,15 @@ package cli
 
 import (
 	"context"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	rpcclientmock "github.com/tendermint/tendermint/rpc/client/mock"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	rpcclientmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 var _ client.TendermintRPC = (*MockTendermintRPC)(nil)

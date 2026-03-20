@@ -35,11 +35,11 @@ func (r *Rand) init() {
 		seed |= uint64(bz[i])
 		seed <<= 8
 	}
-	r.reset(int64(seed))
+	r.reset(int64(seed)) //#nosec G115 -- intentional conversion; full uint64 entropy is desired, sign bit is irrelevant for seeding
 }
 
 func (r *Rand) reset(seed int64) {
-	r.rand = mrand.New(mrand.NewSource(seed)) // nolint:gosec // G404: Use of weak random number generator
+	r.rand = mrand.New(mrand.NewSource(seed)) //nolint:gosec // G404: seeded from crypto/rand, used for non-security purposes
 }
 
 func (r *Rand) Int() int {
@@ -61,7 +61,7 @@ func (r *Rand) Str(length int) string {
 		return ""
 	}
 
-	chars := []byte{}
+	chars := make([]byte, 0, length)
 MAIN_LOOP:
 	for {
 		val := r.Int63()

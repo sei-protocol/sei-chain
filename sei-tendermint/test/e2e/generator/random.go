@@ -24,7 +24,7 @@ import (
 // {"foo": 3, "bar": 5}
 // {"foo": 3, "bar": 6}
 func combinations(items map[string][]interface{}) []map[string]interface{} {
-	keys := []string{}
+	keys := make([]string, 0, len(items))
 	for key := range items {
 		keys = append(keys, key)
 	}
@@ -77,12 +77,12 @@ type uniformSetChoice []string
 func (usc uniformSetChoice) Choose(r *rand.Rand) []string { return usc.ChooseAtLeast(r, 1) }
 
 func (usc uniformSetChoice) ChooseAtLeast(r *rand.Rand, num int) []string {
-	choices := []string{}
 	indexes := r.Perm(len(usc))
 	if num < len(indexes) {
 		indexes = indexes[:1+randomInRange(r, num, len(indexes)-1)]
 	}
 
+	choices := make([]string, 0, len(indexes))
 	for _, i := range indexes {
 		choices = append(choices, usc[i])
 	}

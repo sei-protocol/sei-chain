@@ -6,11 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
@@ -42,7 +41,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	}
 
 	logDir := filepath.Join(dbDir, "changelog")
-	stream, err := wal.NewChangelogWAL(logger.NewNopLogger(), logDir, wal.Config{})
+	stream, err := wal.NewChangelogWAL(logDir, wal.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -71,7 +70,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		ssConfig := config.DefaultStateStoreConfig()
 		ssConfig.KeepRecent = 0
 		ssConfig.DBDirectory = dbDir
-		ssStore, err = ss.NewStateStore(logger.NewNopLogger(), dbDir, ssConfig)
+		ssStore, err = ss.NewStateStore(dbDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}

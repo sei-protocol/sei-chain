@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // ErrTxInCache is returned to the client if we saw tx earlier
@@ -20,13 +21,15 @@ func (txKey *TxKey) ToProto() *tmproto.TxKey {
 
 	txBzs := make([]byte, len(txKey))
 	if len(txKey) > 0 {
-		for i := range txKey {
-			txBzs[i] = txKey[i]
-		}
+		copy(txBzs, txKey[:])
 		tp.TxKey = txBzs
 	}
 
 	return tp
+}
+
+func (txKey TxKey) String() string {
+	return tmbytes.HexBytes(txKey[:]).String()
 }
 
 // TxKeyFromProto takes a protobuf representation of TxKey &
@@ -36,9 +39,7 @@ func TxKeyFromProto(dp *tmproto.TxKey) (TxKey, error) {
 		return TxKey{}, errors.New("nil data")
 	}
 	var txBzs [sha256.Size]byte
-	for i := range dp.TxKey {
-		txBzs[i] = dp.TxKey[i]
-	}
+	copy(txBzs[:], dp.TxKey)
 
 	return txBzs, nil
 }

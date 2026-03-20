@@ -5,7 +5,7 @@ import "cosmos/bank/v1beta1/bank.proto";
 import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/bank/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types";
 
 // Msg defines the bank Msg service.
 service Msg {
@@ -25,7 +25,7 @@ message MsgSend {
   string to_address = 2 [(gogoproto.moretags) = "yaml:\"to_address\""];
   repeated cosmos.base.v1beta1.Coin amount = 3 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins"
   ];
 }
 

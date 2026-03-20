@@ -8,16 +8,18 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/cli"
-	"github.com/tendermint/tendermint/libs/log"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 )
 
-func getDumpCmd(logger log.Logger) *cobra.Command {
+var logger = seilog.NewLogger("tendermint", "cmd", "tendermint", "commands", "debug")
+
+func getDumpCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dump [output-directory]",
 		Short: "Continuously poll a Tendermint process and dump debugging data into a single location",
@@ -51,7 +53,7 @@ if enabled.`,
 			}
 
 			if _, err := os.Stat(outDir); os.IsNotExist(err) {
-				if err := os.Mkdir(outDir, os.ModePerm); err != nil {
+				if err := os.Mkdir(outDir, 0750); err != nil {
 					return fmt.Errorf("failed to create output directory: %w", err)
 				}
 			}
@@ -73,14 +75,20 @@ if enabled.`,
 				outDir:   outDir,
 				profAddr: profAddr,
 			}
-			dumpDebugData(ctx, logger, rpc, dumpArgs)
+			dumpDebugData(ctx, rpc, dumpArgs)
 
-			ticker := time.NewTicker(time.Duration(frequency) * time.Second)
-			for range ticker.C {
-				dumpDebugData(ctx, logger, rpc, dumpArgs)
+			ticker := time.NewTicker(time.Duration(frequency) * time.Second) //nolint: gosec
+			defer ticker.Stop()
+
+			for ctx.Err() == nil {
+				select {
+				case <-ticker.C:
+					dumpDebugData(ctx, rpc, dumpArgs)
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
-
-			return nil
+			return ctx.Err()
 		},
 	}
 	cmd.Flags().Uint(
@@ -96,7 +104,6 @@ if enabled.`,
 	)
 
 	return cmd
-
 }
 
 type dumpDebugDataArgs struct {
@@ -105,7 +112,7 @@ type dumpDebugDataArgs struct {
 	profAddr string
 }
 
-func dumpDebugData(ctx context.Context, logger log.Logger, rpc *rpchttp.HTTP, args dumpDebugDataArgs) {
+func dumpDebugData(ctx context.Context, rpc *rpchttp.HTTP, args dumpDebugDataArgs) {
 	start := time.Now().UTC()
 
 	tmpDir, err := os.MkdirTemp(args.outDir, "tendermint_debug_tmp")
@@ -113,7 +120,7 @@ func dumpDebugData(ctx context.Context, logger log.Logger, rpc *rpchttp.HTTP, ar
 		logger.Error("failed to create temporary directory", "dir", tmpDir, "error", err)
 		return
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	logger.Info("getting node status...")
 	if err := dumpStatus(ctx, rpc, tmpDir, "status.json"); err != nil {

@@ -3,14 +3,17 @@ package antedecorators
 import (
 	"fmt"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "antedecorators")
 
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteDecorator
@@ -70,7 +73,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			ctx.Logger().Error("panic recovered in IsTxGasless", "panic", r)
+			logger.Error("panic recovered in IsTxGasless", "err", r)
 			err = fmt.Errorf("panic in IsTxGasless: %v", r)
 			isGasless = false
 		}

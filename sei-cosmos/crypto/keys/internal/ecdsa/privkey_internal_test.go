@@ -4,7 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"math/big"
 	"testing"
 

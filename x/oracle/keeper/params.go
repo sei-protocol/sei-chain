@@ -3,7 +3,7 @@ package keeper
 import (
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // VotePeriod returns the number of blocks during which voting takes place.

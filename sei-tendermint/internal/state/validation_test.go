@@ -10,34 +10,30 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	mpmocks "github.com/tendermint/tendermint/internal/mempool/mocks"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/mocks"
-	statefactory "github.com/tendermint/tendermint/internal/state/test/factory"
-	"github.com/tendermint/tendermint/internal/store"
-	testfactory "github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	testfactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const validationTestsStopHeight int64 = 10
 
 func TestValidateBlockHeader(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
 
-	eventBus := eventbus.NewDefault(logger)
+	app := &testApp{}
+
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 3, 1)
@@ -45,7 +41,6 @@ func TestValidateBlockHeader(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -59,8 +54,7 @@ func TestValidateBlockHeader(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -140,11 +134,9 @@ func TestValidateBlockHeader(t *testing.T) {
 func TestValidateBlockCommit(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
+	app := &testApp{}
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, 1)
@@ -152,7 +144,6 @@ func TestValidateBlockCommit(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -166,8 +157,7 @@ func TestValidateBlockCommit(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -283,9 +273,7 @@ func TestValidateBlockCommit(t *testing.T) {
 func TestValidateBlockEvidence(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	proxyApp := proxy.New(abciclient.NewLocalClient(logger, &testApp{}), logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
+	app := &testApp{}
 
 	state, stateDB, privVals := makeState(t, 4, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -298,12 +286,11 @@ func TestValidateBlockEvidence(t *testing.T) {
 	evpool.On("ABCIEvidence", mock.AnythingOfType("int64"), mock.AnythingOfType("[]types.Evidence")).Return(
 		[]abci.Misbehavior{})
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -317,8 +304,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 	state.ConsensusParams.Evidence.MaxBytes = 1000
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		blockStore,

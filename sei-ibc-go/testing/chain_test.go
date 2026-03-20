@@ -3,8 +3,8 @@ package ibctesting_test
 import (
 	"testing"
 
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/mock"

@@ -15,27 +15,24 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	abcitypes "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/inspect"
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	indexermocks "github.com/tendermint/tendermint/internal/state/indexer/mocks"
-	statemocks "github.com/tendermint/tendermint/internal/state/mocks"
-	"github.com/tendermint/tendermint/libs/log"
-	httpclient "github.com/tendermint/tendermint/rpc/client/http"
-	"github.com/tendermint/tendermint/types"
+	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/inspect"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	indexermocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/mocks"
+	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	httpclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestInspectConstructor(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "test")
 	require.NoError(t, err)
-	testLogger := log.NewNopLogger()
 	t.Cleanup(leaktest.Check(t))
 	defer func() { _ = os.RemoveAll(cfg.RootDir) }()
 	t.Run("from config", func(t *testing.T) {
-		logger := testLogger.With(t.Name())
-		d, err := inspect.NewFromConfig(logger, cfg)
+		d, err := inspect.NewFromConfig(cfg)
 		require.NoError(t, err)
 		require.NotNil(t, d)
 	})
@@ -46,12 +43,10 @@ func TestInspectRun(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "test")
 	require.NoError(t, err)
 
-	testLogger := log.NewNopLogger()
 	t.Cleanup(leaktest.Check(t))
 	defer func() { _ = os.RemoveAll(cfg.RootDir) }()
 	t.Run("from config", func(t *testing.T) {
-		logger := testLogger.With(t.Name())
-		d, err := inspect.NewFromConfig(logger, cfg)
+		d, err := inspect.NewFromConfig(cfg)
 		require.NoError(t, err)
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		stoppedWG := &sync.WaitGroup{}
@@ -84,8 +79,7 @@ func TestBlock(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -131,8 +125,7 @@ func TestTxSearch(t *testing.T) {
 		Return([]*abcitypes.TxResultV2{testTxResult}, nil)
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -179,8 +172,7 @@ func TestTx(t *testing.T) {
 	}, nil)
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -228,8 +220,7 @@ func TestConsensusParams(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -264,7 +255,7 @@ func TestBlockResults(t *testing.T) {
 	testHeight := int64(1)
 	testGasUsed := int64(100)
 	stateStoreMock := &statemocks.Store{}
-	//	tmstate "github.com/tendermint/tendermint/proto/tendermint/state"
+	//	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
 	stateStoreMock.On("LoadFinalizeBlockResponses", testHeight).Return(&abcitypes.ResponseFinalizeBlock{
 		TxResults: []*abcitypes.ExecTxResult{
 			{
@@ -280,8 +271,7 @@ func TestBlockResults(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -329,8 +319,7 @@ func TestCommit(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -384,8 +373,7 @@ func TestBlockByHash(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -438,8 +426,7 @@ func TestBlockchain(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -492,8 +479,7 @@ func TestValidators(t *testing.T) {
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -552,8 +538,7 @@ func TestBlockSearch(t *testing.T) {
 		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() })).
 		Return([]int64{testHeight}, nil)
 	rpcConfig := config.TestRPCConfig()
-	l := log.NewNopLogger()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}

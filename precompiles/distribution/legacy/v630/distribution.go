@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"math/big"
 
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"

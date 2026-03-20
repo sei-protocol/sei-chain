@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "gov")
 
 // EndBlocker called every block, process inflation, update validator set.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
-
-	logger := keeper.Logger(ctx)
 
 	// delete inactive proposal from store and its deposits
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
@@ -54,7 +55,7 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		// the deposit at this point since the proposal is converted to regular.
 		// As a result, the deposits are either deleted or refunded in all casses
 		// EXCEPT when an expedited proposal fails.
-		if !(proposal.IsExpedited && !passes) {
+		if !proposal.IsExpedited || passes {
 			if burnDeposits {
 				keeper.DeleteDeposits(ctx, proposal.ProposalId)
 			} else {

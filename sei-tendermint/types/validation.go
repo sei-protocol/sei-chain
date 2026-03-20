@@ -1,12 +1,13 @@
 package types
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
-	"github.com/tendermint/tendermint/crypto"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const batchVerifyThreshold = 2
@@ -106,11 +107,11 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	}
 
 	// safely calculate voting power needed.
-	totalVotingPowerMulByNumerator, overflow := safeMul(vals.TotalVotingPower(), int64(trustLevel.Numerator))
+	totalVotingPowerMulByNumerator, overflow := safeMul(vals.TotalVotingPower(), int64(trustLevel.Numerator)) //nolint:gosec // trustLevel.Numerator is a small trusted config value; no overflow risk
 	if overflow {
 		return errors.New("int64 overflow while calculating voting power needed. please provide smaller trustLevel numerator")
 	}
-	votingPowerNeeded := totalVotingPowerMulByNumerator / int64(trustLevel.Denominator)
+	votingPowerNeeded := totalVotingPowerMulByNumerator / int64(trustLevel.Denominator) //nolint:gosec // trustLevel.Denominator is a small trusted config value; no overflow risk
 
 	// ignore all commit signatures that are not for the block
 	ignore := func(c CommitSig) bool { return c.BlockIDFlag != BlockIDFlagCommit }
@@ -155,6 +156,8 @@ func verifyCommitBatch(
 	chainID string,
 	vals *ValidatorSet,
 	commit *Commit,
+	// misnamed argument - votingPowerNeeded is not enough for commit to be valid.
+	// It has to be MORE than votingPowerNeeded.
 	votingPowerNeeded int64,
 	ignoreSig func(CommitSig) bool,
 	countSig func(CommitSig) bool,
@@ -184,6 +187,9 @@ func verifyCommitBatch(
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
 			val = vals.Validators[idx]
+			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
+				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
+			}
 		} else {
 			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
 
@@ -203,7 +209,7 @@ func verifyCommitBatch(
 		}
 
 		// Validate signature.
-		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
+		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
 
 		// add the key, sig and message to the verifier
 		sig, ok := commitSig.Signature.Get()
@@ -234,7 +240,7 @@ func verifyCommitBatch(
 
 	// attempt to verify the batch.
 	if err := bv.Verify(); err != nil {
-		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic()
+		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic("unexpected error type")
 		// go back from the batch index to the commit.Signatures index
 		idx := batchSigIdxs[err.Idx]
 		sig := commit.Signatures[idx]
@@ -254,6 +260,8 @@ func verifyCommitSingle(
 	chainID string,
 	vals *ValidatorSet,
 	commit *Commit,
+	// misnamed argument - votingPowerNeeded is not enough for commit to be valid.
+	// It has to be MORE than votingPowerNeeded.
 	votingPowerNeeded int64,
 	ignoreSig func(CommitSig) bool,
 	countSig func(CommitSig) bool,
@@ -276,6 +284,9 @@ func verifyCommitSingle(
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
 			val = vals.Validators[idx]
+			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
+				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
+			}
 		} else {
 			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
 
@@ -294,7 +305,7 @@ func verifyCommitSingle(
 			seenVals[valIdx] = idx
 		}
 
-		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
+		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
 		sig, ok := commitSig.Signature.Get()
 		if !ok {
 			return fmt.Errorf("missing signature at idx %v", idx)

@@ -13,12 +13,12 @@ message Params {
   uint64 vote_period = 1 [(gogoproto.moretags) = "yaml:\"vote_period\""];
   string vote_threshold = 2 [
     (gogoproto.moretags) = "yaml:\"vote_threshold\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   string reward_band = 3 [
     (gogoproto.moretags) = "yaml:\"reward_band\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   repeated Denom whitelist = 4 [
@@ -28,7 +28,7 @@ message Params {
   ];
   string slash_fraction = 5 [
     (gogoproto.moretags) = "yaml:\"slash_fraction\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   // The interval in blocks at which the oracle module will assess validator penalty counters, and penalize validators with too poor performance.
@@ -36,7 +36,7 @@ message Params {
   // The minimum percentage of voting windows for which a validator must have `success`es in order to not be penalized at the end of the slash window.
   string min_valid_per_window = 7 [
     (gogoproto.moretags) = "yaml:\"min_valid_per_window\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   uint64 lookback_duration = 9 [(gogoproto.moretags) = "yaml:\"lookback_duration\""];
@@ -72,7 +72,7 @@ message ExchangeRateTuple {
   string denom = 1 [(gogoproto.moretags) = "yaml:\"denom\""];
   string exchange_rate = 2 [
     (gogoproto.moretags) = "yaml:\"exchange_rate\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
 }
@@ -84,12 +84,12 @@ message OracleExchangeRate {
 
   string exchange_rate = 1 [
     (gogoproto.moretags) = "yaml:\"exchange_rate\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   string last_update = 2 [
     (gogoproto.moretags) = "yaml:\"last_update\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   int64 last_update_timestamp = 3 [(gogoproto.moretags) = "yaml:\"last_update_timestamp\""];
@@ -113,7 +113,7 @@ message OracleTwap {
   string denom = 1;
   string twap = 2 [
     (gogoproto.moretags) = "yaml:\"twap\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];
   int64 lookback_seconds = 3;

@@ -4,7 +4,7 @@ package testdata;
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/testutil/testdata";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata";
 
 message Dog {
   string size = 1;

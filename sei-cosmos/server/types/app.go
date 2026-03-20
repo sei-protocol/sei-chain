@@ -6,20 +6,19 @@ import (
 	"os"
 	"time"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gogo/protobuf/grpc"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmcfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	"github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
 
 // ServerStartTime defines the time duration that the server need to stay running after startup
@@ -68,7 +67,7 @@ type (
 
 	// AppCreator is a function that allows us to lazily initialize an
 	// application using various configurations.
-	AppCreator func(log.Logger, dbm.DB, io.Writer, *tmcfg.Config, AppOptions) Application
+	AppCreator func(dbm.DB, io.Writer, *tmcfg.Config, AppOptions) Application
 
 	// ModuleInitFlags takes a start command and adds modules specific init flags.
 	ModuleInitFlags func(startCmd *cobra.Command)
@@ -89,5 +88,5 @@ type (
 	// AppExporter is a function that dumps all app state to
 	// JSON-serializable structure and returns the current validator set.
 	// If a file is specified,
-	AppExporter func(log.Logger, dbm.DB, io.Writer, int64, bool, []string, AppOptions, *os.File) (ExportedApp, error)
+	AppExporter func(dbm.DB, io.Writer, int64, bool, []string, AppOptions, *os.File) (ExportedApp, error)
 )

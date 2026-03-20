@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestUpgradesListIsSorted(t *testing.T) {
@@ -50,7 +50,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		require.True(t, plan.ShouldExecute(testCtx))
 
 		res, _ := testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{
-			Height: 1,
+			Header: &tmproto.Header{Height: 1, ChainID: "sei-test"},
 		})
 		require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 		require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
@@ -71,7 +71,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		require.False(t, plan.ShouldExecute(testCtx))
 
 		go func() {
-			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Height: 1})
+			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Header: &tmproto.Header{Height: 1, ChainID: "sei-test"}})
 		}()
 
 		require.Eventually(t, func() bool {

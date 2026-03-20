@@ -2,6 +2,7 @@ package light_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -9,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	"github.com/tendermint/tendermint/light/provider"
-	httpp "github.com/tendermint/tendermint/light/provider/http"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // NOTE: these are ports of the tests from example_test.go but
@@ -29,8 +30,6 @@ func TestClientIntegration_Update(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
-
-	logger := log.NewNopLogger()
 
 	// Start a test application
 	app := kvstore.NewApplication()
@@ -69,7 +68,6 @@ func TestClientIntegration_Update(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -92,8 +90,6 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
-
-	logger := log.NewNopLogger()
 
 	// Start a test application
 	app := kvstore.NewApplication()
@@ -126,7 +122,6 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -148,18 +143,16 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 func waitForBlock(ctx context.Context, p provider.Provider, height int64) (*types.LightBlock, error) {
 	for {
 		block, err := p.LightBlock(ctx, height)
-		switch err {
-		case nil:
+		if err == nil {
 			return block, nil
-		// node isn't running yet, wait 1 second and repeat
-		case provider.ErrNoResponse, provider.ErrHeightTooHigh:
-			timer := time.NewTimer(1 * time.Second)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		default:
+		}
+		ok := errors.Is(err, provider.ErrNoResponse)
+		ok = ok || errors.Is(err, provider.ErrHeightTooHigh)
+		ok = ok || utils.ErrorAs[provider.ErrUnreliableProvider](err).IsPresent()
+		if !ok {
+			return nil, err
+		}
+		if err := utils.Sleep(ctx, time.Second); err != nil {
 			return nil, err
 		}
 	}
@@ -205,7 +198,6 @@ func TestClientStatusRPC(t *testing.T) {
 		witnesses,
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(log.NewNopLogger()),
 	)
 	require.NoError(t, err)
 

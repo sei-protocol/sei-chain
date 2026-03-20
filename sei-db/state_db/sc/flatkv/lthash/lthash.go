@@ -76,6 +76,14 @@ func (l *LtHash) MixOut(other *LtHash) {
 	}
 }
 
+// Equal returns true if both LtHash vectors are identical.
+func (l *LtHash) Equal(other *LtHash) bool {
+	if other == nil {
+		return false
+	}
+	return l.limbs == other.limbs
+}
+
 // Clone returns a deep copy.
 func (l *LtHash) Clone() *LtHash {
 	clone := &LtHash{}

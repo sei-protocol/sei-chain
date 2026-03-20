@@ -4,7 +4,7 @@ package hashable.internal;
 
 import "hashable/hashable.proto";
 
-option go_package = "github.com/tendermint/tendermint/internal/hashable/internal/pb";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/internal/pb";
 
 enum TestonlyEnum {
   TESTONLY_ENUM_UNSPECIFIED = 0;
@@ -18,6 +18,10 @@ message TestonlyNested {
     string note = 1;
     uint32 value = 2;
   }
+  // Recursive field. Even without optional
+  // it can be missing - we need to ensure that
+  // canonical encoding works with it.
+  TestonlyNested recursive = 3;
 }
 
 message TestonlyMsg {

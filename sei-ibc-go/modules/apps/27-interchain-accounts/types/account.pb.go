@@ -5,10 +5,10 @@ package types
 
 import (
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/x/auth/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	_ "github.com/regen-network/cosmos-proto"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"

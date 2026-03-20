@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/cosmos/cosmos-sdk/x/gov"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 func TestImportExportQueues(t *testing.T) {
@@ -26,7 +26,7 @@ func TestImportExportQueues(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	ctx = app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -79,7 +79,7 @@ func TestImportExportQueues(t *testing.T) {
 	)
 
 	app2.Commit(context.Background())
-	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app2.LastBlockHeight() + 1})
+	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app2.LastBlockHeight() + 1}})
 
 	ctx2 := app2.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -136,7 +136,7 @@ func TestEqualProposals(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	// Submit two proposals
 	proposal := TestProposal

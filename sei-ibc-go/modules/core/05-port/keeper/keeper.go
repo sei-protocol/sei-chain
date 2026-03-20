@@ -3,14 +3,16 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	"github.com/tendermint/tendermint/libs/log"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 )
+
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "05-port", "keeper")
 
 // Keeper defines the IBC connection keeper
 type Keeper struct {
@@ -24,11 +26,6 @@ func NewKeeper(sck capabilitykeeper.ScopedKeeper) Keeper {
 	return Keeper{
 		scopedKeeper: sck,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
 }
 
 // IsBound checks a given port ID is already bounded.
@@ -55,7 +52,7 @@ func (k *Keeper) BindPort(ctx sdk.Context, portID string) *capabilitytypes.Capab
 		panic(err.Error())
 	}
 
-	k.Logger(ctx).Info("port binded", "port", portID)
+	logger.Info("port binded", "port", portID)
 	return key
 }
 

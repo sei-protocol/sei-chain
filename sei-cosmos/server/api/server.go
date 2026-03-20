@@ -13,18 +13,20 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
+	tmrpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/seilog"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 
 	// unnamed import of statik for swagger UI support
-	_ "github.com/cosmos/cosmos-sdk/client/docs/statik"
+	_ "github.com/sei-protocol/sei-chain/sei-cosmos/client/docs/statik"
 )
+
+var logger = seilog.NewLogger("tendermint", "server", "api")
 
 // Server defines the server's API interface.
 type Server struct {
@@ -32,7 +34,6 @@ type Server struct {
 	GRPCGatewayRouter *runtime.ServeMux
 	ClientCtx         client.Context
 
-	logger  log.Logger
 	metrics *telemetry.Metrics
 	// Start() is blocking and generally called from a separate goroutine.
 	// Close() can be called asynchronously and access shared memory
@@ -56,7 +57,7 @@ func CustomGRPCHeaderMatcher(key string) (string, bool) {
 	}
 }
 
-func New(clientCtx client.Context, logger log.Logger) *Server {
+func New(clientCtx client.Context) *Server {
 	// The default JSON marshaller used by the gRPC-Gateway is unable to marshal non-nullable non-scalar fields.
 	// Using the gogo/gateway package with the gRPC-Gateway WithMarshaler option fixes the scalar field marshalling issue.
 	marshalerOption := &gateway.JSONPb{
@@ -69,7 +70,6 @@ func New(clientCtx client.Context, logger log.Logger) *Server {
 	return &Server{
 		Router:    mux.NewRouter(),
 		ClientCtx: clientCtx,
-		logger:    logger,
 		GRPCGatewayRouter: runtime.NewServeMux(
 			// Custom marshaler option is required for gogo proto
 			runtime.WithMarshalerOption(runtime.MIMEWildcard, marshalerOption),
@@ -97,10 +97,10 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	}
 
 	tmCfg := tmrpcserver.DefaultConfig()
-	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)
-	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second
-	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second
-	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)
+	tmCfg.MaxOpenConnections = int(cfg.API.MaxOpenConnections)                //nolint:gosec // config value, validated at startup
+	tmCfg.ReadTimeout = time.Duration(cfg.API.RPCReadTimeout) * time.Second   //nolint:gosec // config value, validated at startup
+	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second //nolint:gosec // config value, validated at startup
+	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)                       //nolint:gosec // config value, validated at startup
 
 	listener, err := tmrpcserver.Listen(cfg.API.Address, tmCfg.MaxOpenConnections)
 	if err != nil {
@@ -116,12 +116,12 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	if cfg.API.EnableUnsafeCORS {
 		allowAllCORS := handlers.CORS(handlers.AllowedHeaders([]string{"Content-Type"}))
 		s.mtx.Unlock()
-		return tmrpcserver.Serve(context.Background(), s.listener, allowAllCORS(h), s.logger, tmCfg)
+		return tmrpcserver.Serve(context.Background(), s.listener, allowAllCORS(h), tmCfg)
 	}
 
-	s.logger.Info("starting API server...")
+	logger.Info("starting API server...")
 	s.mtx.Unlock()
-	return tmrpcserver.Serve(context.Background(), s.listener, s.Router, s.logger, tmCfg)
+	return tmrpcserver.Serve(context.Background(), s.listener, s.Router, tmCfg)
 }
 
 // Close closes the API server.

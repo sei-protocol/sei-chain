@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"

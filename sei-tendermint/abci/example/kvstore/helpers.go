@@ -4,10 +4,10 @@ import (
 	"context"
 	mrand "math/rand"
 
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
 // RandVals returns a list of cnt validators for initializing

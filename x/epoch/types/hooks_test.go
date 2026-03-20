@@ -3,12 +3,12 @@ package types_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmdb "github.com/tendermint/tm-db"
 )
 
@@ -59,7 +59,7 @@ func TestMultiHooks(t *testing.T) {
 
 	db := tmdb.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(ms, tmproto.Header{}, false)
 	epoch := types.Epoch{}
 
 	multiHooks.AfterEpochEnd(ctx, epoch)
@@ -83,7 +83,7 @@ func TestMultiHooks_Panic(t *testing.T) {
 
 	db := tmdb.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(ms, tmproto.Header{}, false)
 	epoch := types.Epoch{}
 
 	multiHooks.AfterEpochEnd(ctx, epoch)

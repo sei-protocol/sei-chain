@@ -3,14 +3,17 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/seilog"
 )
 
 // Global tracker state
 var (
+	logger = seilog.NewLogger("evmrpc", "stats")
+
 	httpTracker *tracker
 	wsTracker   *tracker
 )
@@ -40,21 +43,21 @@ type methodStats struct {
 }
 
 // InitRPCTracker initializes the HTTP/RPC tracker.
-func InitRPCTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
+func InitRPCTracker(ctx context.Context, interval time.Duration) {
 	if interval > 0 {
-		httpTracker = newTracker(ctx, logger, "http", interval)
+		httpTracker = newTracker(ctx, "http", interval)
 	}
 }
 
 // InitWSTracker initializes the WebSocket tracker.
-func InitWSTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
+func InitWSTracker(ctx context.Context, interval time.Duration) {
 	if interval > 0 {
-		wsTracker = newTracker(ctx, logger, "ws", interval)
+		wsTracker = newTracker(ctx, "ws", interval)
 	}
 }
 
 type tracker struct {
-	logger   log.Logger
+	logger   *slog.Logger
 	ch       chan apiEvent
 	interval time.Duration
 	ctx      context.Context
@@ -64,20 +67,21 @@ type tracker struct {
 	// Simple current period tracking
 	mu            sync.RWMutex
 	currentPeriod *periodStats
+	connType      string
 }
 
 // newTracker creates a new stats tracker.
-func newTracker(ctx context.Context, logger log.Logger,
+func newTracker(ctx context.Context,
 	connType string, interval time.Duration) *tracker {
-	logger = logger.With("conn_type", connType)
 	trackerCtx, cancel := context.WithCancel(ctx)
 
 	t := &tracker{
-		logger:   logger,
 		ch:       make(chan apiEvent, 10000),
 		interval: interval,
 		ctx:      trackerCtx,
 		cancel:   cancel,
+		connType: connType,
+		logger:   logger.With("connType", connType),
 	}
 
 	t.wg.Add(1)

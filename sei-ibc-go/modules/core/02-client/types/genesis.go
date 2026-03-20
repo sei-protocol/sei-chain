@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"

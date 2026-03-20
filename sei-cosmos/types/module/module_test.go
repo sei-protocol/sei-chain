@@ -5,22 +5,22 @@ import (
 	"errors"
 	"testing"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/tests/mocks"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/genesis"
-	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/tests/mocks"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 )
 
 var errFoo = errors.New("dummy")
@@ -256,5 +256,5 @@ func TestManager_MidBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
 	mockAppModule2.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
-	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), height)
+	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false), height)
 }

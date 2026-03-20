@@ -2,12 +2,12 @@ package keys
 
 import (
 	"bufio"
-	"io/ioutil"
+	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/input"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
 )
 
 // ImportKeyCommand imports private keys from a keyfile.
@@ -24,7 +24,7 @@ func ImportKeyCommand() *cobra.Command {
 			}
 			buf := bufio.NewReader(clientCtx.Input)
 
-			bz, err := ioutil.ReadFile(args[1])
+			bz, err := os.ReadFile(args[1])
 			if err != nil {
 				return err
 			}

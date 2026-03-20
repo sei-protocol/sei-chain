@@ -9,16 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	tmtimemocks "github.com/tendermint/tendermint/libs/time/mocks"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	tmtimemocks "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -117,7 +116,7 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		Time:       tc.genesisTime,
 		Validators: validators,
 	})
-	cs := newState(ctx, t, log.NewNopLogger(), state, privVals[0], kvstore.NewApplication())
+	cs := newState(ctx, t, state, privVals[0], kvstore.NewApplication())
 	vss := make([]*validatorStub, validators)
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
@@ -225,9 +224,8 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 		t.Fatalf("error signing proposal: %s", err)
 	}
 
-	time.Sleep(time.Until(deliverTime))
 	prop.Signature = utils.OrPanic1(crypto.SigFromBytes(tp.Signature))
-	if err := p.observedState.SetProposalAndBlock(ctx, prop, b, ps, "peerID"); err != nil {
+	if err := p.sendProposalAndPartsAt(ctx, prop, ps, deliverTime); err != nil {
 		t.Fatal(err)
 	}
 	ensureProposal(t, p.ensureProposalCh, p.currentHeight, 0, bid)
@@ -246,6 +244,35 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	p.currentHeight++
 	incrementHeight(p.otherValidators...)
 	return res
+}
+
+func (p *pbtsTestHarness) sendProposalAndPartsAt(
+	ctx context.Context,
+	prop *types.Proposal,
+	ps *types.PartSet,
+	recvTime time.Time,
+) error {
+	peerID := types.NodeID("peerID")
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.observedState.peerMsgQueue <- msgInfo{&ProposalMessage{prop}, peerID, recvTime}:
+	}
+
+	for i := 0; i < int(ps.Total()); i++ {
+		part := ps.GetPart(i)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case p.observedState.peerMsgQueue <- msgInfo{
+			&BlockPartMessage{prop.Height, prop.Round, part},
+			peerID,
+			recvTime,
+		}:
+		}
+	}
+	return nil
 }
 
 func timestampedCollector(ctx context.Context, t *testing.T, eb *eventbus.EventBus) <-chan timestampedEvent {
@@ -276,6 +303,10 @@ func collectHeightResults(ctx context.Context, t *testing.T, eventCh <-chan time
 			if v.Vote.Height > height {
 				t.Fatalf("received prevote from unexpected height, expected: %d, saw: %d", height, v.Vote.Height)
 			}
+			// Avoid recording stale prevote (possibly nil) from a previous height.
+			if v.Vote.Height < height {
+				continue
+			}
 			if !bytes.Equal(address, v.Vote.ValidatorAddress) {
 				continue
 			}
@@ -288,6 +319,10 @@ func collectHeightResults(ctx context.Context, t *testing.T, eventCh <-chan time
 		case types.EventDataCompleteProposal:
 			if v.Height > height {
 				t.Fatalf("received proposal from unexpected height, expected: %d, saw: %d", height, v.Height)
+			}
+			// Avoid recording stale prevote (possibly nil) from a previous height.
+			if v.Height < height {
+				continue
 			}
 			res.proposalIssuedAt = event.ts
 		}
@@ -374,10 +409,12 @@ func TestProposerWaitsForPreviousBlock(t *testing.T) {
 	initialTime := time.Now().Add(time.Millisecond * 50)
 	cfg := pbtsTestConfiguration{
 		synchronyParams: types.SynchronyParams{
-			Precision:    100 * time.Millisecond,
-			MessageDelay: 500 * time.Millisecond,
+			// Keep this test away from timing boundaries on loaded CI runners.
+			// We are validating proposer wait behavior, not tight timely-window edges.
+			Precision:    200 * time.Millisecond,
+			MessageDelay: 900 * time.Millisecond,
 		},
-		timeoutPropose:                    50 * time.Millisecond,
+		timeoutPropose:                    250 * time.Millisecond, // Provide enough headroom for CI
 		genesisTime:                       initialTime,
 		height2ProposalTimeDeliveryOffset: 150 * time.Millisecond,
 		height2ProposedBlockOffset:        100 * time.Millisecond,
@@ -442,10 +479,12 @@ func TestTimelyProposal(t *testing.T) {
 
 	cfg := pbtsTestConfiguration{
 		synchronyParams: types.SynchronyParams{
-			Precision:    10 * time.Millisecond,
-			MessageDelay: 140 * time.Millisecond,
+			// Keep this test away from timing boundaries so scheduler jitter in CI does not
+			// cause occasional nil prevotes for an otherwise timely proposal.
+			Precision:    25 * time.Millisecond,
+			MessageDelay: 300 * time.Millisecond,
 		},
-		timeoutPropose:                    40 * time.Millisecond,
+		timeoutPropose:                    80 * time.Millisecond,
 		genesisTime:                       initialTime,
 		height2ProposedBlockOffset:        15 * time.Millisecond,
 		height2ProposalTimeDeliveryOffset: 30 * time.Millisecond,

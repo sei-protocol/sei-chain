@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/kv"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/tendermint/tendermint/libs/log"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp/helpers"
@@ -16,33 +15,26 @@ import (
 
 // SetupSimulation creates the config, db (levelDB), temporary directory and logger for
 // the simulation tests. If `FlagEnabledValue` is false it skips the current test.
-// Returns error on an invalid db intantiation or temp dir creation.
-func SetupSimulation(dirPrefix, dbName string) (simtypes.Config, dbm.DB, string, log.Logger, bool, error) {
+// Returns error on an invalid db instantiation or temp dir creation.
+func SetupSimulation(dirPrefix, dbName string) (simtypes.Config, dbm.DB, string, bool, error) {
 	if !FlagEnabledValue {
-		return simtypes.Config{}, nil, "", nil, true, nil
+		return simtypes.Config{}, nil, "", true, nil
 	}
 
 	config := NewConfigFromFlags()
 	config.ChainID = helpers.SimAppChainID
 
-	var logger log.Logger
-	if FlagVerboseValue {
-		logger = log.TestingLogger()
-	} else {
-		logger = log.NewNopLogger()
-	}
-
 	dir, err := os.MkdirTemp("", dirPrefix)
 	if err != nil {
-		return simtypes.Config{}, nil, "", nil, false, err
+		return simtypes.Config{}, nil, "", false, err
 	}
 
 	db, err := sdk.NewLevelDB(dbName, dir)
 	if err != nil {
-		return simtypes.Config{}, nil, "", nil, false, err
+		return simtypes.Config{}, nil, "", false, err
 	}
 
-	return config, db, dir, logger, false, nil
+	return config, db, dir, false, nil
 }
 
 // CheckExportSimulation exports the app state and simulation parameters to JSON

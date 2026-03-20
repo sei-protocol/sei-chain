@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 )
 
 // IsConnTimeout returns a boolean indicating whether the error is known to
@@ -26,7 +25,7 @@ func IsConnTimeout(err error) bool {
 }
 
 // NewSignerListener creates a new SignerListenerEndpoint using the corresponding listen address
-func NewSignerListener(listenAddr string, logger log.Logger) (*SignerListenerEndpoint, error) {
+func NewSignerListener(listenAddr string) (*SignerListenerEndpoint, error) {
 	protocol, address := tmnet.ProtocolAndAddress(listenAddr)
 	if protocol != "unix" && protocol != "tcp" { //nolint:goconst
 		return nil, fmt.Errorf("unsupported address family %q, want unix or tcp", protocol)
@@ -48,5 +47,5 @@ func NewSignerListener(listenAddr string, logger log.Logger) (*SignerListenerEnd
 		panic("invalid protocol: " + protocol) // semantically unreachable
 	}
 
-	return NewSignerListenerEndpoint(logger.With("module", "privval"), listener), nil
+	return NewSignerListenerEndpoint(listener), nil
 }

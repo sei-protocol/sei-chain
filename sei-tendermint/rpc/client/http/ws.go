@@ -7,18 +7,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/pubsub"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	jsonrpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	jsonrpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "rpc", "client", "http")
 
 // wsEvents is a wrapper around WSClient, which implements SubscriptionClient.
 type wsEvents struct {
-	Logger log.Logger
-	ws     *jsonrpcclient.WSClient
+	ws *jsonrpcclient.WSClient
 
 	mtx           sync.RWMutex
 	subscriptions map[string]*wsSubscription
@@ -34,7 +35,6 @@ var _ rpcclient.SubscriptionClient = (*wsEvents)(nil)
 
 func newWsEvents(remote string) (*wsEvents, error) {
 	w := &wsEvents{
-		Logger:        log.NewNopLogger(),
 		subscriptions: make(map[string]*wsSubscription),
 	}
 
@@ -47,7 +47,6 @@ func newWsEvents(remote string) (*wsEvents, error) {
 		// resubscribe immediately
 		w.redoSubscriptionsAfter(0 * time.Second)
 	})
-	w.ws.Logger = w.Logger
 
 	return w, nil
 }
@@ -151,7 +150,7 @@ func (w *wsEvents) redoSubscriptionsAfter(d time.Duration) {
 		}
 		err := w.ws.Subscribe(ctx, q)
 		if err != nil {
-			w.Logger.Error("failed to resubscribe", "query", q, "err", err)
+			logger.Error("failed to resubscribe", "query", q, "err", err)
 			delete(w.subscriptions, q)
 		}
 	}
@@ -170,7 +169,7 @@ func (w *wsEvents) eventListener(ctx context.Context) {
 			}
 
 			if resp.Error != nil {
-				w.Logger.Error("WS error", "err", resp.Error.Error())
+				logger.Error("WS error", "err", resp.Error)
 				// Error can be ErrAlreadySubscribed or max client (subscriptions per
 				// client) reached or Tendermint exited.
 				// We can ignore ErrAlreadySubscribed, but need to retry in other
@@ -186,7 +185,7 @@ func (w *wsEvents) eventListener(ctx context.Context) {
 			result := new(coretypes.ResultEvent)
 			err := tmjson.Unmarshal(resp.Result, result)
 			if err != nil {
-				w.Logger.Error("failed to unmarshal response", "err", err)
+				logger.Error("failed to unmarshal response", "err", err)
 				continue
 			}
 

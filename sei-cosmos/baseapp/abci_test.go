@@ -5,18 +5,17 @@ import (
 	"encoding/json"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func TestGetBlockRentionHeight(t *testing.T) {
-	logger := defaultLogger()
 	db := dbm.NewMemDB()
 	name := t.Name()
 
@@ -27,20 +26,20 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		expected     int64
 	}{
 		"defaults": {
-			bapp:         NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}),
+			bapp:         NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{}),
 			maxAgeBlocks: 0,
 			commitHeight: 499000,
 			expected:     0,
 		},
 		"pruning unbonding time only": {
-			bapp:         NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}, SetMinRetainBlocks(1)),
+			bapp:         NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{}, SetMinRetainBlocks(1)),
 			maxAgeBlocks: 362880,
 			commitHeight: 499000,
 			expected:     136120,
 		},
 		"pruning iavl snapshot only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(1),
 			),
@@ -50,7 +49,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning state sync snapshot only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetSnapshotInterval(50000),
 				SetSnapshotKeepRecent(3),
 				SetMinRetainBlocks(1),
@@ -61,7 +60,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning min retention only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetMinRetainBlocks(400000),
 			),
 			maxAgeBlocks: 0,
@@ -70,7 +69,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning all conditions": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(400000),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -81,7 +80,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"no pruning due to no persisted state": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(400000),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -92,7 +91,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"disable pruning": {
 			bapp: NewBaseApp(
-				name, logger, db, nil, nil, &testutil.TestAppOpts{},
+				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(0),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -116,7 +115,9 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		})
 
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tc.expected, tc.bapp.GetBlockRetentionHeight(tc.commitHeight))
+			height, err := tc.bapp.GetBlockRetentionHeight(tc.commitHeight)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, height)
 		})
 	}
 }
@@ -128,16 +129,15 @@ func TestGetBlockRentionHeight(t *testing.T) {
 func TestBaseAppCreateQueryContext(t *testing.T) {
 	t.Parallel()
 
-	logger := defaultLogger()
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{})
+	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: 1}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: 2}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
@@ -202,10 +202,10 @@ func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
 	}
 }
 func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
-	logger := defaultLogger()
+
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{})
+	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
 
 	// Mock a non-queryable cms
 	mockCMS := &mockNonQueryableMultiStore{}

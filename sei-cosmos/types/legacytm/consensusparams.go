@@ -1,8 +1,8 @@
 package legacytm
 
 import (
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func ABCIToLegacyConsensusParams(params *tmproto.ConsensusParams) *abci.ConsensusParams {

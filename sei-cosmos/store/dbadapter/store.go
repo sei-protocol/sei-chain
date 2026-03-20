@@ -5,9 +5,9 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // Wrapper type for dbm.Db with implementation of KVStore
@@ -99,7 +99,9 @@ func (dsa Store) DeleteAll(start, end []byte) error {
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+	if err := iter.Close(); err != nil {
+		return err
+	}
 	for _, key := range keys {
 		dsa.Delete(key)
 	}
@@ -108,7 +110,7 @@ func (dsa Store) DeleteAll(start, end []byte) error {
 
 func (dsa Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := dsa.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

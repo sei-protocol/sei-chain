@@ -3,17 +3,17 @@ package rest
 import (
 	"net/http"
 
-	"github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 
 	"github.com/gorilla/mux"
 
-	govrest "github.com/cosmos/cosmos-sdk/x/gov/client/rest"
+	govrest "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/rest"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 func registerTxHandlers(

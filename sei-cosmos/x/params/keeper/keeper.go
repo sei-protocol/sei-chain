@@ -2,13 +2,11 @@ package keeper
 
 import (
 	"encoding/json"
+	"fmt"
 
-	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/params/types"
-	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 // Keeper of the global paramstore
@@ -36,7 +34,10 @@ func NewKeeper(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey 
 }
 
 func (k Keeper) SetFeesParams(ctx sdk.Context, feesParams types.FeesParams) {
-	feesParams.Validate()
+	err := feesParams.Validate()
+	if err != nil {
+		panic(fmt.Errorf("validating feesParams: %w", err))
+	}
 	subspace, exist := k.GetSubspace(types.ModuleName)
 	if !exist {
 		panic("subspace params should exist")
@@ -54,12 +55,18 @@ func (k Keeper) GetFeesParams(ctx sdk.Context) types.FeesParams {
 
 	bz := subspace.GetRaw(ctx, types.ParamStoreKeyFeesParams)
 	var feesParams types.FeesParams
-	json.Unmarshal(bz, &feesParams)
+	err := json.Unmarshal(bz, &feesParams)
+	if err != nil {
+		panic(fmt.Errorf("marshalling feesParams: %w", err))
+	}
 	return feesParams
 }
 
 func (k Keeper) SetCosmosGasParams(ctx sdk.Context, cosmosGasParams types.CosmosGasParams) {
-	cosmosGasParams.Validate()
+	err := cosmosGasParams.Validate()
+	if err != nil {
+		panic(fmt.Errorf("validating cosmosGasParams: %w", err))
+	}
 	subspace, exist := k.GetSubspace(types.ModuleName)
 	if !exist {
 		panic("subspace params should exist")
@@ -77,13 +84,11 @@ func (k Keeper) GetCosmosGasParams(ctx sdk.Context) types.CosmosGasParams {
 	}
 
 	bz := subspace.GetRaw(ctx, types.ParamStoreKeyCosmosGasParams)
-	json.Unmarshal(bz, &cosmosGasParams)
+	err := json.Unmarshal(bz, &cosmosGasParams)
+	if err != nil {
+		panic(fmt.Errorf("marshalling cosmosGasParams: %w", err))
+	}
 	return cosmosGasParams
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+proposal.ModuleName)
 }
 
 // Allocate subspace used for keepers

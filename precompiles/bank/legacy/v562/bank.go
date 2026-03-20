@@ -7,16 +7,15 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
@@ -360,8 +359,4 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
-}
-
-func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("precompile", "bank")
 }

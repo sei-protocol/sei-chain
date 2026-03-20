@@ -6,14 +6,14 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
 // LegacyMsg defines the old interface a message must fulfill, containing
@@ -61,7 +61,7 @@ func StdSignBytes(chainID string, accnum, sequence, timeout uint64, fee StdFee, 
 		msgsBytes = append(msgsBytes, json.RawMessage(legacyMsg.GetSignBytes()))
 	}
 
-	bz, err := legacy.Cdc.MarshalJSON(StdSignDoc{
+	bz, err := legacy.Cdc.MarshalAsJSON(StdSignDoc{
 		AccountNumber: accnum,
 		ChainID:       chainID,
 		Fee:           json.RawMessage(fee.Bytes()),
@@ -103,7 +103,7 @@ func (ss StdSignature) GetPubKey() cryptotypes.PubKey {
 func (ss StdSignature) MarshalYAML() (interface{}, error) {
 	pk := ""
 	if ss.PubKey != nil {
-		pk = ss.PubKey.String()
+		pk = ss.String()
 	}
 
 	bz, err := yaml.Marshal(struct {

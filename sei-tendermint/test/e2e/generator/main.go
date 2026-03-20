@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 
-	"github.com/tendermint/tendermint/libs/log"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
+
+var logger = seilog.NewLogger("tendermint", "test", "e2e", "generator")
 
 const (
 	randomSeed int64 = 4827085738
@@ -33,21 +35,13 @@ func main() {
 
 // CLI is the Cobra-based command-line interface.
 type CLI struct {
-	root   *cobra.Command
-	opts   Options
-	logger log.Logger
+	root *cobra.Command
+	opts Options
 }
 
 // NewCLI sets up the CLI.
 func NewCLI() (*CLI, error) {
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	cli := &CLI{
-		logger: logger,
-	}
+	var cli CLI
 	cli.root = &cobra.Command{
 		Use:           "generator",
 		Short:         "End-to-end testnet generator",
@@ -67,7 +61,7 @@ func NewCLI() (*CLI, error) {
 	cli.root.PersistentFlags().IntVarP(&cli.opts.MaxNetworkSize, "max-size", "", 0,
 		"Maxmum network size (nodes), 0 is unlimited")
 
-	return cli, nil
+	return &cli, nil
 }
 
 // generate generates manifests in a directory.
@@ -108,7 +102,7 @@ func (cli *CLI) generate() error {
 // Run runs the CLI.
 func (cli *CLI) Run(ctx context.Context) {
 	if err := cli.root.ExecuteContext(ctx); err != nil {
-		cli.logger.Error(err.Error())
+		logger.Error(err.Error())
 		os.Exit(1)
 	}
 }

@@ -1,4 +1,5 @@
-name: UCI / Backport
+name: UCI
+run-name: UCI / Backport
 
 on:
   pull_request_target:
@@ -14,4 +15,6 @@ permissions:
 
 jobs:
   backport:
-    uses: sei-protocol/uci/.github/workflows/backport.yml@v0.0.4
+    name: Backport
+    uses: sei-protocol/uci/.github/workflows/backport.yml@v0.0.6
+    secrets: inherit

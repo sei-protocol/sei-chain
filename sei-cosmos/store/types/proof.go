@@ -2,10 +2,10 @@ package types
 
 import (
 	ics23 "github.com/confio/ics23/go"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	tmmerkle "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	tmmerkle "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 const (

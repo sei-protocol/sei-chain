@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/types"
 )
 
 // TestInitApp makes sure we can initialize this thing without an error
@@ -54,9 +55,10 @@ func TestDeliverTx(t *testing.T) {
 		AppStateBytes: appState,
 	}
 	app.InitChain(goCtx, &req)
+	header := tmproto.Header{Height: 1}
 	app.FinalizeBlock(goCtx, &abci.RequestFinalizeBlock{
 		Hash:   []byte("apphash"),
-		Height: 1,
+		Header: &header,
 		Txs:    [][]byte{txBytes},
 	})
 	app.Commit(goCtx)

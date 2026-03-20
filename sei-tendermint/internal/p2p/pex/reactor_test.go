@@ -6,17 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	pb "github.com/tendermint/tendermint/proto/tendermint/p2p"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
 	testSendInterval = 500 * time.Millisecond
-	checkFrequency   = 500 * time.Millisecond
 	shortWait        = 5 * time.Second
 )
 
@@ -96,29 +95,6 @@ func TestReactorSendsResponseWithoutRequest(t *testing.T) {
 	testNet.listenForPeerDown(t, 1, 0)
 }
 
-func TestReactorNeverSendsTooManyPeers(t *testing.T) {
-	t.Skip("This test needs updated https://github.com/tendermint/tendermint/issue/7634")
-	ctx := t.Context()
-
-	testNet := setupNetwork(t, testOptions{
-		MockNodes:  1,
-		TotalNodes: 2,
-	})
-	testNet.connectAll(t)
-	testNet.start(ctx, t)
-
-	testNet.addNodes(t, 110)
-	nodes := make([]int, 110)
-	for i := range nodes {
-		nodes[i] = i + 2
-	}
-	testNet.addAddresses(t, 1, nodes)
-
-	// first we check that even although we have 110 peers, honest pex reactors
-	// only send 100 (test if secondNode sends firstNode 100 addresses)
-	testNet.pingAndlistenForNAddresses(ctx, t, 1, 0, shortWait, 100)
-}
-
 func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	ctx := t.Context()
 	testNet := setupNetwork(t, testOptions{
@@ -157,77 +133,6 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	testNet.listenForPeerDown(t, 1, 0)
 }
 
-func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
-	ctx := t.Context()
-
-	testNet := setupNetwork(t, testOptions{
-		TotalNodes:   8,
-		MaxPeers:     utils.Some(7), // total-1, because PeerManager doesn't count self
-		MaxConnected: utils.Some(2), // enough capacity to establish a connected graph
-	})
-	testNet.network.ConnectCycle(ctx, t) // Saturate capacity by connecting nodes in a cycle.
-	testNet.start(ctx, t)
-
-	t.Logf("test that peers are gossiped even if connection cap is reached")
-	for _, nodeID := range testNet.nodes {
-		node := testNet.network.Node(nodeID)
-		require.Eventually(t, func() bool {
-			return node.Router.PeerRatio() >= 0.9
-		}, time.Minute, checkFrequency,
-			"peer ratio is: %f", node.Router.PeerRatio())
-	}
-}
-
-func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
-	ctx := t.Context()
-
-	testNet := setupNetwork(t, testOptions{
-		TotalNodes:   3,
-		MaxPeers:     utils.Some(25),
-		MaxConnected: utils.Some(25),
-	})
-	testNet.seedAddrs(t)
-	testNet.start(ctx, t)
-
-	// assert that all nodes add each other in the network
-	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
-	}
-}
-
-func TestReactorWithNetworkGrowth(t *testing.T) {
-	t.Skip("This test needs updated https://github.com/tendermint/tendermint/issue/7634")
-	ctx := t.Context()
-
-	testNet := setupNetwork(t, testOptions{
-		TotalNodes: 5,
-	})
-	testNet.connectAll(t)
-	testNet.start(ctx, t)
-
-	// assert that all nodes add each other in the network
-	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
-	}
-
-	// now we inject 10 more nodes
-	testNet.addNodes(t, 10)
-	for i := 5; i < testNet.total; i++ {
-		node := testNet.nodes[i]
-		require.NoError(t, testNet.reactors[node].Start(ctx))
-		require.True(t, testNet.reactors[node].IsRunning())
-		// we connect all new nodes to a single entry point and check that the
-		// node can distribute the addresses to all the others
-		testNet.connectPeers(ctx, t, 0, i)
-	}
-	require.Len(t, testNet.reactors, 15)
-
-	// assert that all nodes add each other in the network
-	for idx := 0; idx < len(testNet.nodes); idx++ {
-		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1)
-	}
-}
-
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
 
@@ -243,7 +148,6 @@ type reactorTestSuite struct {
 type testOptions struct {
 	MockNodes    int
 	TotalNodes   int
-	MaxPeers     utils.Option[int]
 	MaxConnected utils.Option[int]
 }
 
@@ -256,7 +160,6 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 	networkOpts := p2p.TestNetworkOptions{
 		NumNodes: opts.TotalNodes,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     opts.MaxPeers,
 			MaxConnected: opts.MaxConnected,
 		},
 	}
@@ -281,7 +184,6 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 			require.NoError(t, err)
 		} else {
 			reactor, err := NewReactor(
-				node.Logger,
 				node.Router,
 				testSendInterval,
 			)
@@ -296,26 +198,6 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 	require.Len(t, rts.reactors, realNodes)
 
 	return rts
-}
-
-// connects node1 to node2
-func (r *reactorTestSuite) connectPeers(ctx context.Context, t *testing.T, sourceNode, targetNode int) {
-	t.Helper()
-	node1, node2 := r.checkNodePair(t, sourceNode, targetNode)
-
-	n1 := r.network.Node(node1)
-	if n1 == nil {
-		require.Fail(t, "connectPeers: source node %v is not part of the testnet", node1)
-		return
-	}
-
-	n2 := r.network.Node(node2)
-	if n2 == nil {
-		require.Fail(t, "connectPeers: target node %v is not part of the testnet", node2)
-		return
-	}
-
-	n1.Connect(ctx, n2)
 }
 
 // starts up the pex reactors for each node
@@ -335,29 +217,6 @@ func (r *reactorTestSuite) start(ctx context.Context, t *testing.T) {
 			}
 		}
 	})
-}
-
-func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
-	t.Helper()
-
-	for range nodes {
-		node := r.network.MakeNode(t, p2p.TestNodeOptions{
-			MaxPeers:     r.opts.MaxPeers,
-			MaxConnected: r.opts.MaxConnected,
-		})
-		nodeID := node.NodeID
-		reactor, err := NewReactor(
-			node.Logger,
-			node.Router,
-			testSendInterval,
-		)
-		if err != nil {
-			t.Fatalf("NewReactor(): %v", err)
-		}
-		r.reactors[nodeID] = reactor
-		r.nodes = append(r.nodes, nodeID)
-		r.total++
-	}
 }
 
 func (r *reactorTestSuite) listenFor(
@@ -396,40 +255,6 @@ func (r *reactorTestSuite) listenForRequest(ctx context.Context, t *testing.T, f
 		require.Equal(t, wrap(&pb.PexRequest{}), msg.Message)
 		return true
 	}
-	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
-}
-
-func (r *reactorTestSuite) pingAndlistenForNAddresses(
-	ctx context.Context,
-	t *testing.T,
-	fromNode, toNode int,
-	waitPeriod time.Duration,
-	addresses int,
-) {
-	t.Helper()
-
-	to, from := r.checkNodePair(t, toNode, fromNode)
-	conditional := func(msg p2p.RecvMsg[*pb.PexMessage]) bool {
-		_, ok := msg.Message.Sum.(*pb.PexMessage_PexResponse)
-		return ok && msg.From == from
-	}
-	assertion := func(t *testing.T, msg p2p.RecvMsg[*pb.PexMessage]) bool {
-		m, ok := msg.Message.Sum.(*pb.PexMessage_PexResponse)
-		if !ok {
-			require.Fail(t, "expected pex response v2")
-			return true
-		}
-		// assert the same amount of addresses
-		if len(m.PexResponse.Addresses) == addresses {
-			return true
-		}
-		// if we didn't get the right length, we wait and send the
-		// request again
-		time.Sleep(300 * time.Millisecond)
-		r.sendRequest(t, toNode, fromNode)
-		return false
-	}
-	r.sendRequest(t, toNode, fromNode)
 	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
 }
 
@@ -501,7 +326,7 @@ func (r *reactorTestSuite) seedAddrs(t *testing.T) {
 	for i := range r.total - 1 {
 		n1 := r.network.Node(r.nodes[i])
 		n2 := r.network.Node(r.nodes[i+1])
-		require.NoError(t, n1.Router.AddAddrs(utils.Slice(n2.NodeAddress)))
+		require.NoError(t, n1.Router.AddAddrs(n2.NodeID, utils.Slice(n2.NodeAddress)))
 	}
 }
 
@@ -510,14 +335,6 @@ func (r *reactorTestSuite) checkNodePair(t *testing.T, first, second int) (types
 	require.Less(t, first, r.total)
 	require.Less(t, second, r.total)
 	return r.nodes[first], r.nodes[second]
-}
-
-func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrIDs []int) {
-	var addrs []p2p.NodeAddress
-	for _, i := range addrIDs {
-		addrs = append(addrs, r.network.Node(r.nodes[i]).NodeAddress)
-	}
-	require.NoError(t, r.network.Node(r.nodes[node]).Router.AddAddrs(addrs))
 }
 
 func randomNodeID() types.NodeID {

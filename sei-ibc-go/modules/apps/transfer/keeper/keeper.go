@@ -1,18 +1,16 @@
 package keeper
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
 // Keeper defines the IBC fungible transfer keeper
@@ -73,11 +71,6 @@ func NewKeeperWithAddressHandler(
 		panic("the IBC transfer module address handler has not been set")
 	}
 	return keeper
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+host.ModuleName+"-"+types.ModuleName)
 }
 
 // GetTransferAccount returns the ICS20 - transfers ModuleAccount

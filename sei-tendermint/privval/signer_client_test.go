@@ -10,15 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/libs/utils"
-	cryptoproto "github.com/tendermint/tendermint/proto/tendermint/crypto"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type signerTestCase struct {
@@ -30,7 +29,7 @@ type signerTestCase struct {
 	closer       context.CancelFunc
 }
 
-func getSignerTestCases(ctx context.Context, t *testing.T, logger log.Logger) []signerTestCase {
+func getSignerTestCases(ctx context.Context, t *testing.T) []signerTestCase {
 	t.Helper()
 
 	testCases := make([]signerTestCase, 0)
@@ -42,7 +41,7 @@ func getSignerTestCases(ctx context.Context, t *testing.T, logger log.Logger) []
 
 		cctx, ccancel := context.WithCancel(ctx)
 		// get a pair of signer listener, signer dialer endpoints
-		sl, sd := getMockEndpoints(cctx, t, logger, dtc.addr, dtc.dialer)
+		sl, sd := getMockEndpoints(cctx, t, dtc.addr, dtc.dialer)
 		sc, err := NewSignerClient(cctx, sl, chainID)
 		require.NoError(t, err)
 		ss := NewSignerServer(sd, chainID, mockPV)
@@ -71,9 +70,7 @@ func TestSignerClose(t *testing.T) {
 
 	bctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(bctx, t, logger) {
+	for _, tc := range getSignerTestCases(bctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer leaktest.Check(t)
 			defer func() {
@@ -93,9 +90,7 @@ func TestSignerPing(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		err := tc.signerClient.Ping(ctx)
 		assert.NoError(t, err)
 	}
@@ -106,9 +101,7 @@ func TestSignerGetPubKey(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
@@ -135,9 +128,7 @@ func TestSignerProposal(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
@@ -174,9 +165,7 @@ func TestSignerVote(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
@@ -216,9 +205,7 @@ func TestSignerVoteResetDeadline(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			ts := time.Now()
 			hash := tmrand.Bytes(crypto.HashSize)
@@ -266,9 +253,7 @@ func TestSignerVoteKeepAlive(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
@@ -315,9 +300,7 @@ func TestSignerSignProposalErrors(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 			// Replace service with a mock that always fails
@@ -355,9 +338,7 @@ func TestSignerSignVoteErrors(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
@@ -420,9 +401,7 @@ func TestSignerUnexpectedResponse(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	for _, tc := range getSignerTestCases(ctx, t, logger) {
+	for _, tc := range getSignerTestCases(ctx, t) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 

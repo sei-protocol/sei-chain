@@ -6,11 +6,11 @@ import (
 	"math/bits"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 var (
@@ -99,11 +99,14 @@ func (p *Proposal) IsTimely(recvTime time.Time, sp SynchronyParams, round int32)
 	// proceed in the case that the chosen value was too small for the given network conditions.
 	// For more information and discussion on this mechanism, see the relevant github issue:
 	// https://github.com/tendermint/spec/issues/371
-	maxShift := bits.LeadingZeros64(uint64(sp.MessageDelay)) - 1
-	nShift := int((round / 10))
+	if round < 0 {
+		return false
+	}
+	maxShift := bits.LeadingZeros64(uint64(sp.MessageDelay)) - 1 //nolint:gosec // message delay is non zero
+	nShift := int(round / 10)                                    //nolint:gosec // round is validated non-negative above
 
 	if nShift > maxShift {
-		// if the number of 'doublings' would would overflow the size of the int, use the
+		// if the number of 'doublings' would overflow the size of the int, use the
 		// maximum instead.
 		nShift = maxShift
 	}
@@ -211,7 +214,7 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.Timestamp = pp.Timestamp
 	sig, err := crypto.SigFromBytes(pp.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("Signature: %w", err)
+		return nil, fmt.Errorf("signature: %w", err)
 	}
 	p.Signature = sig
 	txKeys, err := TxKeysListFromProto(pp.TxKeys)
@@ -225,9 +228,14 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	}
 	p.Header = header
 	lastCommit, err := CommitFromProto(pp.LastCommit)
+	if err != nil {
+		return nil, err
+	}
 	p.LastCommit = lastCommit
 	eviD := new(EvidenceList)
-	eviD.FromProto(pp.Evidence)
+	if err := eviD.FromProto(pp.Evidence); err != nil {
+		return nil, err
+	}
 	p.Evidence = *eviD
 	p.ProposerAddress = pp.ProposerAddress
 

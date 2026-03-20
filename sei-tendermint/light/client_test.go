@@ -13,13 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	"github.com/tendermint/tendermint/light/provider"
-	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	provider_mocks "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/mocks"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -229,8 +228,6 @@ func TestClient(t *testing.T) {
 			t.Run(testCase.name, func(t *testing.T) {
 				ctx := t.Context()
 
-				logger := log.NewNopLogger()
-
 				mockNode := mockNodeFromHeadersAndVals(testCase.otherHeaders, testCase.vals)
 				mockNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
 				c, err := light.NewClient(
@@ -242,7 +239,6 @@ func TestClient(t *testing.T) {
 					dbs.New(dbm.NewMemDB()),
 					blacklistTTL,
 					light.SequentialVerification(),
-					light.Logger(logger),
 				)
 
 				if testCase.initErr {
@@ -352,7 +348,6 @@ func TestClient(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				ctx := t.Context()
-				logger := log.NewNopLogger()
 
 				mockNode := mockNodeFromHeadersAndVals(tc.otherHeaders, tc.vals)
 				mockNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
@@ -365,7 +360,6 @@ func TestClient(t *testing.T) {
 					dbs.New(dbm.NewMemDB()),
 					blacklistTTL,
 					light.SkippingVerification(light.DefaultTrustLevel),
-					light.Logger(logger),
 				)
 				if tc.initErr {
 					require.Error(t, err)
@@ -467,7 +461,6 @@ func TestClient(t *testing.T) {
 	})
 	t.Run("Cleanup", func(t *testing.T) {
 		ctx := t.Context()
-		logger := log.NewNopLogger()
 
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, int64(1)).Return(l1, nil)
@@ -479,7 +472,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 		_, err = c.TrustedLightBlock(1)
@@ -501,8 +493,6 @@ func TestClient(t *testing.T) {
 		t.Run("hashes should match", func(t *testing.T) {
 			ctx := t.Context()
 
-			logger := log.NewNopLogger()
-
 			mockNode := &provider_mocks.Provider{}
 			trustedStore := dbs.New(dbm.NewMemDB())
 			err := trustedStore.SaveLightBlock(l1)
@@ -516,7 +506,6 @@ func TestClient(t *testing.T) {
 				[]provider.Provider{mockNode},
 				trustedStore,
 				blacklistTTL,
-				light.Logger(logger),
 			)
 			require.NoError(t, err)
 
@@ -536,8 +525,6 @@ func TestClient(t *testing.T) {
 			err := trustedStore.SaveLightBlock(l1)
 			require.NoError(t, err)
 
-			logger := log.NewNopLogger()
-
 			// header1 != h1
 			header1 := keys.GenSignedHeader(t, chainID, 1, bTime.Add(1*time.Hour), nil, vals, vals,
 				hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys))
@@ -555,7 +542,6 @@ func TestClient(t *testing.T) {
 				[]provider.Provider{mockNode},
 				trustedStore,
 				blacklistTTL,
-				light.Logger(logger),
 			)
 			require.NoError(t, err)
 
@@ -577,8 +563,6 @@ func TestClient(t *testing.T) {
 		mockFullNode.On("LightBlock", mock.Anything, int64(1)).Return(l1, nil)
 		mockFullNode.On("LightBlock", mock.Anything, int64(3)).Return(l3, nil)
 
-		logger := log.NewNopLogger()
-
 		c, err := light.NewClient(
 			ctx,
 			chainID,
@@ -587,7 +571,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 
@@ -603,7 +586,6 @@ func TestClient(t *testing.T) {
 
 	t.Run("Concurrency", func(t *testing.T) {
 		ctx := t.Context()
-		logger := log.NewNopLogger()
 
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, int64(2)).Return(l2, nil)
@@ -616,7 +598,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 
@@ -657,7 +638,6 @@ func TestClient(t *testing.T) {
 			2: h2,
 		}, valSet)
 		mockFullNode.On("ID", mock.Anything, mock.Anything).Return(id1, nil)
-		logger := log.NewNopLogger()
 
 		c, err := light.NewClient(
 			ctx,
@@ -667,7 +647,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 
@@ -700,7 +679,6 @@ func TestClient(t *testing.T) {
 		mockDeadNode := &provider_mocks.Provider{}
 		mockDeadNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
 
-		logger := log.NewNopLogger()
 		c, err := light.NewClient(
 			ctx,
 			chainID,
@@ -709,7 +687,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockDeadNode, mockFullNode, mockFullNode1},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 
 		require.NoError(t, err)
@@ -732,8 +709,6 @@ func TestClient(t *testing.T) {
 		mockSlowNode := &provider_mocks.Provider{}
 		mockSlowNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, context.DeadlineExceeded)
 
-		logger := log.NewNopLogger()
-
 		_, err := light.NewClient(
 			ctx,
 			chainID,
@@ -742,7 +717,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockDeadNode, mockSlowNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.Error(t, err)
 		require.Equal(t, context.DeadlineExceeded, err)
@@ -756,7 +730,6 @@ func TestClient(t *testing.T) {
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, mock.Anything).Return(l1, nil)
 
-		logger := log.NewNopLogger()
 		mockDeadNode := &provider_mocks.Provider{}
 		mockDeadNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
 		mockDeadNode.On("ID", mock.Anything, mock.Anything).Return(id2, nil)
@@ -769,7 +742,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode, mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 		_, err = c.Update(ctx, bTime.Add(2*time.Hour))
@@ -780,7 +752,6 @@ func TestClient(t *testing.T) {
 	})
 	t.Run("BackwardsVerification", func(t *testing.T) {
 		ctx := t.Context()
-		logger := log.NewNopLogger()
 
 		{
 			headers, vals, _ := genLightBlocksWithKeys(t, 9, 3, 0, bTime)
@@ -803,7 +774,6 @@ func TestClient(t *testing.T) {
 				[]provider.Provider{mockLargeFullNode},
 				dbs.New(dbm.NewMemDB()),
 				blacklistTTL,
-				light.Logger(logger),
 			)
 			require.NoError(t, err)
 
@@ -863,7 +833,6 @@ func TestClient(t *testing.T) {
 				[]provider.Provider{mockNode},
 				dbs.New(dbm.NewMemDB()),
 				blacklistTTL,
-				light.Logger(logger),
 			)
 			require.NoError(t, err)
 
@@ -896,7 +865,6 @@ func TestClient(t *testing.T) {
 		mockNode.AssertExpectations(t)
 	})
 	t.Run("RemovesWitnessIfItSendsUsIncorrectHeader", func(t *testing.T) {
-		logger := log.NewNopLogger()
 
 		// different headers hash then primary plus less than 1/3 signed (no fork)
 		headers1 := map[int64]*types.SignedHeader{
@@ -941,7 +909,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockBadNode1, mockBadNode2},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		// witness should have behaved properly -> no error
 		require.NoError(t, err)
@@ -965,7 +932,6 @@ func TestClient(t *testing.T) {
 		mockBadNode2.AssertExpectations(t)
 	})
 	t.Run("BadWitnessesAreBlacklisted", func(t *testing.T) {
-		logger := log.NewNopLogger()
 
 		// different headers hash then primary plus less than 1/3 signed (no fork)
 		headers1 := map[int64]*types.SignedHeader{
@@ -1010,7 +976,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockBadNode1, mockBadNode2},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 
 		// witness should have behaved properly -> no error
@@ -1035,8 +1000,6 @@ func TestClient(t *testing.T) {
 	})
 	t.Run("TrustedValidatorSet", func(t *testing.T) {
 		ctx := t.Context()
-
-		logger := log.NewNopLogger()
 
 		// Create a different header for height 2 that will cause a hash mismatch
 		// This is more reliable than validator set mismatches for witness removal
@@ -1083,7 +1046,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockBadValSetNode, mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, len(c.Witnesses()))
@@ -1117,7 +1079,6 @@ func TestClient(t *testing.T) {
 			})
 
 		ctx := t.Context()
-		logger := log.NewNopLogger()
 
 		c, err := light.NewClient(
 			ctx,
@@ -1127,7 +1088,6 @@ func TestClient(t *testing.T) {
 			[]provider.Provider{mockFullNode},
 			dbs.New(dbm.NewMemDB()),
 			blacklistTTL,
-			light.Logger(logger),
 			light.PruningSize(1),
 		)
 		require.NoError(t, err)

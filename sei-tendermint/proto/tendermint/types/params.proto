@@ -5,7 +5,7 @@ package tendermint.types;
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 option (gogoproto.equal_all) = true;
 
 // ConsensusParams contains consensus critical parameters that determine the

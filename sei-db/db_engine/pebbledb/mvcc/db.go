@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
@@ -21,30 +20,28 @@ import (
 	"golang.org/x/exp/slices"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 const (
 	VersionSize = 8
 
-	PrefixStore                  = "s/k:"
-	LenPrefixStore               = 4
-	StorePrefixTpl               = "s/k:%s/" // s/k:<storeKey>
-	latestVersionKey             = "s/_latest"
-	earliestVersionKey           = "s/_earliest"
-	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
-	latestMigratedModuleMetadata = "s/_latestMigratedModule"
-	tombstoneVal                 = "TOMBSTONE"
+	PrefixStore        = "s/k:"
+	LenPrefixStore     = 4
+	StorePrefixTpl     = "s/k:%s/" // s/k:<storeKey>
+	latestVersionKey   = "s/_latest"
+	earliestVersionKey = "s/_earliest"
+	tombstoneVal       = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
+	MinWALEntriesToKeep   = 1000
 )
 
 var (
@@ -79,9 +76,10 @@ type Database struct {
 type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
+	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
+func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 
@@ -171,8 +169,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(config.KeepRecent),
+	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
+	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
+		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -212,6 +211,15 @@ func (db *Database) Close() error {
 	err := db.storage.Close()
 	db.storage = nil
 	return err
+}
+
+// PebbleMetrics returns the underlying Pebble DB metrics for observability (e.g. compaction/flush counts).
+// Returns nil if the database is closed.
+func (db *Database) PebbleMetrics() *pebble.Metrics {
+	if db.storage == nil {
+		return nil
+	}
+	return db.storage.Metrics()
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -293,42 +301,6 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 		return 0, fmt.Errorf("earliest version in database overflows int64: %d", ubz)
 	}
 	return int64(ubz), nil
-}
-
-// SetLatestKey sets the latest key processed during migration.
-func (db *Database) SetLatestMigratedKey(key []byte) error {
-	return db.storage.Set([]byte(latestMigratedKeyMetadata), key, defaultWriteOpts)
-}
-
-// GetLatestKey retrieves the latest key processed during migration.
-func (db *Database) GetLatestMigratedKey() ([]byte, error) {
-	bz, closer, err := db.storage.Get([]byte(latestMigratedKeyMetadata))
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer func() { _ = closer.Close() }()
-	return bz, nil
-}
-
-// SetLatestModule sets the latest module processed during migration.
-func (db *Database) SetLatestMigratedModule(module string) error {
-	return db.storage.Set([]byte(latestMigratedModuleMetadata), []byte(module), defaultWriteOpts)
-}
-
-// GetLatestModule retrieves the latest module processed during migration.
-func (db *Database) GetLatestMigratedModule() (string, error) {
-	bz, closer, err := db.storage.Get([]byte(latestMigratedModuleMetadata))
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return "", nil
-		}
-		return "", err
-	}
-	defer func() { _ = closer.Close() }()
-	return string(bz), nil
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
@@ -434,8 +406,10 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	if err := b.Write(); err != nil {
 		return err
 	}
-	// Update latest version after all writes succeed
-	db.latestVersion.Store(version)
+	// Update latest version after all writes succeed (only if higher to avoid lowering it when writing out of order)
+	if version > db.latestVersion.Load() {
+		db.latestVersion.Store(version)
+	}
 	return nil
 }
 
@@ -453,11 +427,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			int64(len(db.pendingChanges)),
 		)
 	}()
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
-		Version:    version,
-		Changesets: changesets,
-	}
 	// Write to WAL
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
@@ -470,18 +439,33 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-
+	// Add to pending changes first
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
 	return nil
 }
 
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
+		if nextChange.Done != nil {
+			close(nextChange.Done)
+			continue
+		}
 		version := nextChange.Version
 		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 			panic(err)
 		}
 	}
+}
+
+// WaitForPendingWrites waits for all pending writes to be processed
+func (db *Database) WaitForPendingWrites() {
+	done := make(chan struct{})
+	db.pendingChanges <- VersionedChangesets{Done: done}
+	<-done
 }
 
 // Prune attempts to prune all versions up to and including the current version
@@ -492,6 +476,11 @@ func (db *Database) writeAsyncInBackground() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) (_err error) {
+	// Defensive check: ensure database is not closed
+	if db.storage == nil {
+		return errors.New("pebbledb: database is closed")
+	}
+
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.pruneLatency.Record(
@@ -716,87 +705,6 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 		if batch.Size() > 0 {
 			if err := batch.Write(); err != nil {
-				panic(err)
-			}
-		}
-	}
-
-	wg.Add(db.config.ImportNumWorkers)
-	for i := 0; i < db.config.ImportNumWorkers; i++ {
-		go worker()
-	}
-
-	wg.Wait()
-
-	return nil
-}
-
-func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
-	var wg sync.WaitGroup
-
-	worker := func() {
-		defer wg.Done()
-		batch, err := NewRawBatch(db.storage)
-		if err != nil {
-			panic(err)
-		}
-
-		var counter int
-		var latestKey []byte // store the latest key from the batch
-		var latestModule string
-		for entry := range ch {
-			err := batch.Set(entry.StoreKey, entry.Key, entry.Value, entry.Version)
-			if err != nil {
-				panic(err)
-			}
-
-			latestKey = entry.Key // track the latest key
-			latestModule = entry.StoreKey
-			counter++
-
-			if counter%ImportCommitBatchSize == 0 {
-				startTime := time.Now()
-
-				// Commit the batch and record the latest key as metadata
-				if err := batch.Write(); err != nil {
-					panic(err)
-				}
-
-				// Persist the latest key in the metadata
-				if err := db.SetLatestMigratedKey(latestKey); err != nil {
-					panic(err)
-				}
-
-				if err := db.SetLatestMigratedModule(latestModule); err != nil {
-					panic(err)
-				}
-
-				if counter%1000000 == 0 {
-					fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
-					metrics.IncrCounterWithLabels([]string{"sei", "migration", "nodes_imported"}, float32(1000000), []metrics.Label{
-						{Name: "module", Value: latestModule},
-					})
-				}
-
-				batch, err = NewRawBatch(db.storage)
-				if err != nil {
-					panic(err)
-				}
-			}
-		}
-
-		// Final batch write
-		if batch.Size() > 0 {
-			if err := batch.Write(); err != nil {
-				panic(err)
-			}
-
-			// Persist the final latest key
-			if err := db.SetLatestMigratedKey(latestKey); err != nil {
-				panic(err)
-			}
-
-			if err := db.SetLatestMigratedModule(latestModule); err != nil {
 				panic(err)
 			}
 		}

@@ -16,17 +16,19 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sei-protocol/seilog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/privval"
-	grpcprivval "github.com/tendermint/tendermint/privval/grpc"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	grpcprivval "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "cmd", "priv-val-server")
+
 	// Create a metrics registry.
 	reg = prometheus.NewRegistry()
 
@@ -47,13 +49,6 @@ func main() {
 		prometheusAddr   = flag.String("prometheus-addr", "", "address for prometheus endpoint (host:port)")
 	)
 	flag.Parse()
-
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to construct logger: %v", err)
-		os.Exit(1)
-	}
-	logger = logger.With("module", "priv_val")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -113,7 +108,7 @@ func main() {
 	// add prometheus metrics for unary RPC calls
 	opts = append(opts, grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor))
 
-	ss := grpcprivval.NewSignerServer(logger, *chainID, pv)
+	ss := grpcprivval.NewSignerServer(*chainID, pv)
 
 	protocol, address := tmnet.ProtocolAndAddress(*addr)
 
@@ -161,11 +156,15 @@ func registerPrometheus(addr string, s *grpc.Server) *http.Server {
 	// Initialize all metrics.
 	grpcMetrics.InitializeMetrics(s)
 	// create http server to serve prometheus
-	httpServer := &http.Server{Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}), Addr: addr}
+	httpServer := &http.Server{
+		Handler:           promhttp.HandlerFor(reg, promhttp.HandlerOpts{}),
+		Addr:              addr,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to start a http server: %v", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to start a http server: %v", err)
 			os.Exit(1)
 		}
 	}()

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"

@@ -7,13 +7,13 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/testutil/network"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	grpctypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 )
 
 type IntegrationTestSuite struct {
@@ -60,7 +60,7 @@ func (s *IntegrationTestSuite) TestQueryParamsGRPC() {
 		resp, err := rest.GetRequest(tc.url)
 		s.Run(tc.name, func() {
 			s.Require().NoError(err)
-			s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+			s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			s.Require().Equal(tc.expected, tc.respType)
 		})
 	}
@@ -110,10 +110,10 @@ func (s *IntegrationTestSuite) TestQueryOutstandingRewardsGRPC() {
 		resp, err := testutil.GetRequestWithHeaders(tc.url, tc.headers)
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -164,10 +164,10 @@ func (s *IntegrationTestSuite) TestQueryValidatorCommissionGRPC() {
 		resp, err := testutil.GetRequestWithHeaders(tc.url, tc.headers)
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -223,10 +223,10 @@ func (s *IntegrationTestSuite) TestQuerySlashesGRPC() {
 
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -299,10 +299,10 @@ func (s *IntegrationTestSuite) TestQueryDelegatorRewardsGRPC() {
 
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -351,10 +351,10 @@ func (s *IntegrationTestSuite) TestQueryDelegatorValidatorsGRPC() {
 
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -403,10 +403,10 @@ func (s *IntegrationTestSuite) TestQueryWithdrawAddressGRPC() {
 
 		s.Run(tc.name, func() {
 			if tc.expErr {
-				s.Require().Error(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().Error(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})
@@ -451,7 +451,7 @@ func (s *IntegrationTestSuite) TestQueryValidatorCommunityPoolGRPC() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(val.ClientCtx.Codec.UnmarshalJSON(resp, tc.respType))
+				s.Require().NoError(val.ClientCtx.Codec.UnmarshalAsJSON(resp, tc.respType))
 				s.Require().Equal(tc.expected.String(), tc.respType.String())
 			}
 		})

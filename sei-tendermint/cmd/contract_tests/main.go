@@ -29,6 +29,6 @@ func main() {
 		}
 	})
 	server.Serve()
-	defer server.Listener.Close()
+	defer func() { _ = server.Listener.Close() }()
 	fmt.Print("FINE")
 }

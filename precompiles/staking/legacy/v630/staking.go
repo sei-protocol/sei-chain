@@ -6,18 +6,21 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("precompiles", "staking", "legacy", "v630")
 
 const (
 	DelegateMethod                      = "delegate"
@@ -232,7 +235,7 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	// Emit EVM event
 	if emitErr := pcommon.EmitDelegateEvent(evm, p.address, caller, validatorBech32, value); emitErr != nil {
 		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit EVM delegate event", "error", emitErr)
+		logger.Error("Failed to emit EVM delegate event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)
@@ -270,7 +273,7 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	// Emit EVM event
 	if emitErr := pcommon.EmitRedelegateEvent(evm, p.address, caller, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
 		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
+		logger.Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)
@@ -306,7 +309,7 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	// Emit EVM event
 	if emitErr := pcommon.EmitUndelegateEvent(evm, p.address, caller, validatorBech32, amount); emitErr != nil {
 		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit EVM undelegate event", "error", emitErr)
+		logger.Error("Failed to emit EVM undelegate event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)
@@ -560,7 +563,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	// Emit EVM event
 	if emitErr := pcommon.EmitValidatorCreatedEvent(evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
 		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit EVM validator created event", "error", emitErr)
+		logger.Error("Failed to emit EVM validator created event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)
@@ -634,7 +637,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	// Emit EVM event
 	if emitErr := pcommon.EmitValidatorEditedEvent(evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
 		// Log error but don't fail the transaction
-		ctx.Logger().Error("Failed to emit EVM validator edited event", "error", emitErr)
+		logger.Error("Failed to emit EVM validator edited event", "error", emitErr)
 	}
 
 	bz, err := method.Outputs.Pack(true)

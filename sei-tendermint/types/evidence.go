@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/internal/jsontypes"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/libs/utils"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Evidence represents any provable malicious activity by a validator.
@@ -400,7 +400,7 @@ func (l *LightClientAttackEvidence) ConflictingHeaderIsInvalid(trustedHeader *He
 		!bytes.Equal(trustedHeader.NextValidatorsHash, l.ConflictingBlock.NextValidatorsHash) ||
 		!bytes.Equal(trustedHeader.ConsensusHash, l.ConflictingBlock.ConsensusHash) ||
 		!bytes.Equal(trustedHeader.AppHash, l.ConflictingBlock.AppHash) ||
-		!bytes.Equal(trustedHeader.LastResultsHash, l.ConflictingBlock.LastResultsHash)
+		(!SkipLastResultsHashValidation.Load() && !bytes.Equal(trustedHeader.LastResultsHash, l.ConflictingBlock.LastResultsHash))
 
 }
 
@@ -739,7 +739,7 @@ func (evl EvidenceList) Has(evidence Evidence) bool {
 // ToABCI converts the evidence list to a slice of the ABCI protobuf messages
 // for use when communicating the evidence to an application.
 func (evl EvidenceList) ToABCI() []abci.Misbehavior {
-	var el []abci.Misbehavior
+	el := make([]abci.Misbehavior, 0, len(evl))
 	for _, e := range evl {
 		el = append(el, e.ABCI()...)
 	}

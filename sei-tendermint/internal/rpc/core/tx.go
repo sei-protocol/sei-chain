@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"sort"
 
-	tmquery "github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	"github.com/tendermint/tendermint/types"
+	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Tx allows you to query the transaction results. `nil` could mean the
@@ -33,7 +33,7 @@ func (env *Environment) Tx(ctx context.Context, req *coretypes.RequestTx) (*core
 			var proof types.TxProof
 			if req.Prove {
 				block := env.BlockStore.LoadBlock(r.Height)
-				proof = block.Data.Txs.Proof(int(r.Index))
+				proof = block.Txs.Proof(int(r.Index))
 			}
 
 			return &coretypes.ResultTx{
@@ -111,7 +111,7 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 				var proof types.TxProof
 				if req.Prove {
 					block := env.BlockStore.LoadBlock(r.Height)
-					proof = block.Data.Txs.Proof(int(r.Index))
+					proof = block.Txs.Proof(int(r.Index))
 				}
 
 				apiResults = append(apiResults, &coretypes.ResultTx{

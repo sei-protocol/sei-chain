@@ -11,28 +11,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	cosmosConfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestEmptyBlockIdempotency(t *testing.T) {
@@ -42,7 +41,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &types.Header{ChainID: "sei-test", Height: 1}})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
 		commitData = append(commitData, data)
@@ -54,85 +53,15 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	}
 }
 
-func TestPartitionPrioritizedTxs(t *testing.T) {
+func TestFinalizeBlockRequiresChainID(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-
-	account := sdk.AccAddress(valPub.Address()).String()
-	validator := sdk.ValAddress(valPub.Address()).String()
-
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1.2uatom",
-		Feeder:        account,
-		Validator:     validator,
-	}
-
-	otherMsg := &stakingtypes.MsgDelegate{
-		DelegatorAddress: account,
-		ValidatorAddress: validator,
-		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
-	}
-
-	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
-	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-	mixedTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-
-	err := oracleTxBuilder.SetMsgs(oracleMsg)
-	require.NoError(t, err)
-	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = otherTxBuilder.SetMsgs(otherMsg)
-	require.NoError(t, err)
-	otherTx, err := txEncoder(otherTxBuilder.GetTx())
-	require.NoError(t, err)
-
-	// this should be treated as non-oracle vote
-	err = mixedTxBuilder.SetMsgs([]sdk.Msg{oracleMsg, otherMsg}...)
-	require.NoError(t, err)
-	mixedTx, err := txEncoder(mixedTxBuilder.GetTx())
-	require.NoError(t, err)
-
-	txs := [][]byte{
-		oracleTx,
-		otherTx,
-		mixedTx,
-	}
-	typedTxs := []sdk.Tx{
-		oracleTxBuilder.GetTx(),
-		otherTxBuilder.GetTx(),
-		mixedTxBuilder.GetTx(),
-	}
-
-	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
-	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
-	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
-	require.Equal(t, []int{0}, prioIdxs)
-	require.Equal(t, []int{1, 2}, otherIdxs)
-	require.Equal(t, 1, len(prioritizedTypedTxs))
-	require.Equal(t, 2, len(otherTypedTxs))
-
-	diffOrderTxs := [][]byte{
-		otherTx,
-		oracleTx,
-		mixedTx,
-	}
-	differOrderTypedTxs := []sdk.Tx{
-		otherTxBuilder.GetTx(),
-		oracleTxBuilder.GetTx(),
-		mixedTxBuilder.GetTx(),
-	}
-
-	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
-	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
-	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
-	require.Equal(t, []int{1}, prioIdxs)
-	require.Equal(t, []int{0, 2}, otherIdxs)
-	require.Equal(t, 1, len(prioritizedTypedTxs))
-	require.Equal(t, 2, len(otherTypedTxs))
+	_, err := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{Height: 1},
+	})
+	require.Error(t, err)
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
@@ -182,14 +111,14 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req := &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		txs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
 	)
@@ -205,14 +134,14 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req = &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		diffOrderTxs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
 	)
@@ -240,7 +169,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	badProposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, emptyTx},
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
@@ -401,7 +330,7 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			proposal := abci.RequestProcessProposal{
 				Txs:    txs,
-				Height: 1,
+				Header: &types.Header{ChainID: "sei-test", Height: 1},
 			}
 			res, err := ap.ProcessProposalHandler(ctx, &proposal)
 			require.Nil(t, err)
@@ -430,7 +359,7 @@ func TestOverflowGas(t *testing.T) {
 
 	proposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, secondTx},
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &proposal)
 	require.Nil(t, err)
@@ -589,9 +518,9 @@ func TestGetDeliverTxEntry(t *testing.T) {
 	tx := emptyTxBuilder.GetTx()
 	bz, _ := txEncoder(tx)
 
-	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, 0, bz, tx))
+	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, bz, tx))
 
-	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, 0, bz, nil))
+	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, bz, nil))
 }
 
 func isSwaggerRouteAdded(router *mux.Router) bool {
@@ -653,7 +582,7 @@ func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
 	}
 
 	req := &abci.RequestProcessProposal{
-		Height: ctx.BlockHeight(),
+		Header: &types.Header{ChainID: "sei-test", Height: ctx.BlockHeight()},
 		Hash:   []byte("panic-test"),
 		Txs:    [][]byte{maliciousTx}, // Include the malicious transaction
 	}
@@ -808,4 +737,19 @@ func TestDeliverTxWithNilTypedTxDoesNotPanic(t *testing.T) {
 		result := sei.DeliverTxWithResult(ctx, malformedTxBytes, nil)
 		require.NotNil(t, result)
 	})
+}
+
+func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {
+	var height int64
+	var blockTime time.Time
+	if req.Header != nil {
+		height = req.Header.Height
+		blockTime = req.Header.Time
+	}
+	return &app.BlockProcessRequest{
+		Hash:                req.Hash,
+		ByzantineValidators: req.ByzantineValidators,
+		Height:              height,
+		Time:                blockTime,
+	}
 }

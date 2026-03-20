@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
@@ -14,12 +13,14 @@ import (
 func TestSnapshotTimeThrottling(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        100,           // Small interval for testing
-		SnapshotMinTimeInterval: 1 * time.Hour, // 1 hour minimum time interval
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:        100,     // Small interval for testing
+			SnapshotMinTimeInterval: 60 * 60, // 1 hour minimum time interval (in seconds)
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -68,11 +69,11 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:              dir,
-		CreateIfMissing:  true,
-		InitialStores:    []string{"test"},
-		SnapshotInterval: 100,
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotInterval: 100},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -154,12 +155,14 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 func TestSnapshotWithShortTimeInterval(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        100,
-		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:        100,
+			SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()

@@ -1,29 +1,23 @@
 package light_test
 
 import (
-	"github.com/tendermint/tendermint/light/provider"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	httpp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
+	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
-	httpp "github.com/tendermint/tendermint/light/provider/http"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
 )
 
 // Manually getting light blocks and verifying them.
 func TestExampleClient(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, "ExampleClient_VerifyLightBlockAtHeight")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,8 +39,8 @@ func TestExampleClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// give Tendermint time to generate some blocks
-	time.Sleep(5 * time.Second)
+	t.Logf("wait for the blocks used in test")
+	utils.OrPanic1(waitForBlock(ctx, primary, 3))
 
 	block, err := primary.LightBlock(ctx, 2)
 	if err != nil {
@@ -69,7 +63,6 @@ func TestExampleClient(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -101,5 +94,5 @@ func TestExampleClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logger.Info("verified light block", "light-block", lb)
+	t.Log("verified light block", "light-block", lb)
 }

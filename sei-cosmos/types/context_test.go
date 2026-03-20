@@ -7,15 +7,14 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/tests/mocks"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type contextTestSuite struct {
@@ -53,23 +52,6 @@ func (s *contextTestSuite) TestCacheContext() {
 	s.Require().Equal(v2, store.Get(k2))
 }
 
-func (s *contextTestSuite) TestLogContext() {
-	key := types.NewKVStoreKey(s.T().Name())
-	ctx := testutil.DefaultContext(key, types.NewTransientStoreKey("transient_"+s.T().Name()))
-	ctrl := gomock.NewController(s.T())
-	s.T().Cleanup(ctrl.Finish)
-
-	logger := mocks.NewMockLogger(ctrl)
-	logger.EXPECT().Debug("debug")
-	logger.EXPECT().Info("info")
-	logger.EXPECT().Error("error")
-
-	ctx = ctx.WithLogger(logger)
-	ctx.Logger().Debug("debug")
-	ctx.Logger().Info("info")
-	ctx.Logger().Error("error")
-}
-
 type dummy int64 //nolint:unused
 
 func (d dummy) Clone() interface{} {
@@ -90,13 +72,12 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	ischeck := true
 	isOCC := true
 	txbytes := []byte("txbytes")
-	logger := mocks.NewMockLogger(ctrl)
 	voteinfos := []abci.VoteInfo{{}}
 	meter := types.NewGasMeterWithMultiplier(ctx, 10000)
 	minGasPrices := types.DecCoins{types.NewInt64DecCoin("feetoken", 1)}
 	headerHash := []byte("headerHash")
 
-	ctx = types.NewContext(nil, header, ischeck, logger)
+	ctx = types.NewContext(nil, header, ischeck)
 	s.Require().Equal(header, ctx.BlockHeader())
 
 	ctx = ctx.
@@ -114,7 +95,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(ischeck, ctx.IsCheckTx())
 	s.Require().Equal(isOCC, ctx.IsOCCEnabled())
 	s.Require().Equal(txbytes, ctx.TxBytes())
-	s.Require().Equal(logger, ctx.Logger())
 	s.Require().Equal(voteinfos, ctx.VoteInfos())
 	s.Require().Equal(meter, ctx.GasMeter())
 	s.Require().Equal(minGasPrices, ctx.MinGasPrices())
@@ -147,7 +127,7 @@ func (s *contextTestSuite) TestContextHeader() {
 	addr := secp256k1.GenPrivKey().PubKey().Address()
 	proposer := types.ConsAddress(addr)
 
-	ctx = types.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx = types.NewContext(nil, tmproto.Header{}, false)
 
 	fmt.Printf("Start ctx\n")
 
@@ -205,7 +185,7 @@ func (s *contextTestSuite) TestContextHeaderClone() {
 	for name, tc := range cases {
 		tc := tc
 		s.T().Run(name, func(t *testing.T) {
-			ctx := types.NewContext(nil, tc.h, false, nil)
+			ctx := types.NewContext(nil, tc.h, false)
 			s.Require().Equal(tc.h.Height, ctx.BlockHeight())
 			s.Require().Equal(tc.h.Time.UTC(), ctx.BlockTime())
 
@@ -219,7 +199,7 @@ func (s *contextTestSuite) TestContextHeaderClone() {
 }
 
 func (s *contextTestSuite) TestUnwrapSDKContext() {
-	sdkCtx := types.NewContext(nil, tmproto.Header{}, false, nil)
+	sdkCtx := types.NewContext(nil, tmproto.Header{}, false)
 	ctx := types.WrapSDKContext(sdkCtx)
 	sdkCtx2 := types.UnwrapSDKContext(ctx)
 	s.Require().Equal(sdkCtx, sdkCtx2)

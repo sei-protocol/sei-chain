@@ -155,6 +155,66 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 	})
 }
 
+func TestAccountValueNonceBytes(t *testing.T) {
+	t.Run("ZeroNonce", func(t *testing.T) {
+		v := AccountValue{Nonce: 0}
+		b, ok := v.NonceBytes()
+		require.True(t, ok, "zero nonce should still be found")
+		require.Equal(t, make([]byte, NonceLen), b)
+	})
+
+	t.Run("NonZeroNonce", func(t *testing.T) {
+		v := AccountValue{Nonce: 42}
+		b, ok := v.NonceBytes()
+		require.True(t, ok)
+		require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, b)
+	})
+
+	t.Run("MaxNonce", func(t *testing.T) {
+		v := AccountValue{Nonce: math.MaxUint64}
+		b, ok := v.NonceBytes()
+		require.True(t, ok)
+		require.Equal(t, []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, b)
+	})
+}
+
+func TestAccountValueCodeHashBytes(t *testing.T) {
+	t.Run("ZeroCodeHash", func(t *testing.T) {
+		v := AccountValue{CodeHash: CodeHash{}}
+		b, ok := v.CodeHashBytes()
+		require.False(t, ok, "zero codehash should be absent")
+		require.Nil(t, b)
+	})
+
+	t.Run("NonZeroCodeHash", func(t *testing.T) {
+		var ch CodeHash
+		ch[0] = 0xAA
+		ch[31] = 0xBB
+		v := AccountValue{CodeHash: ch}
+		b, ok := v.CodeHashBytes()
+		require.True(t, ok)
+		require.Equal(t, ch[:], b)
+	})
+}
+
+func TestAccountValueClearNonce(t *testing.T) {
+	var ch CodeHash
+	ch[0] = 0xFF
+	v := AccountValue{Nonce: 99, CodeHash: ch}
+	v.ClearNonce()
+	require.Equal(t, uint64(0), v.Nonce, "nonce should be zero after ClearNonce")
+	require.Equal(t, ch, v.CodeHash, "ClearNonce must not touch codehash")
+}
+
+func TestAccountValueClearCodeHash(t *testing.T) {
+	var ch CodeHash
+	ch[0] = 0xFF
+	v := AccountValue{Nonce: 99, CodeHash: ch}
+	v.ClearCodeHash()
+	require.Equal(t, CodeHash{}, v.CodeHash, "codehash should be zero after ClearCodeHash")
+	require.Equal(t, uint64(99), v.Nonce, "ClearCodeHash must not touch nonce")
+}
+
 func TestFlatKVTypeConversions(t *testing.T) {
 	t.Run("AddressFromBytes", func(t *testing.T) {
 		valid := make([]byte, AddressLen)
@@ -163,16 +223,6 @@ func TestFlatKVTypeConversions(t *testing.T) {
 
 		invalid := make([]byte, AddressLen-1)
 		_, ok = AddressFromBytes(invalid)
-		require.False(t, ok)
-	})
-
-	t.Run("CodeHashFromBytes", func(t *testing.T) {
-		valid := make([]byte, CodeHashLen)
-		_, ok := CodeHashFromBytes(valid)
-		require.True(t, ok)
-
-		invalid := make([]byte, CodeHashLen+1)
-		_, ok = CodeHashFromBytes(invalid)
 		require.False(t, ok)
 	})
 
@@ -185,4 +235,13 @@ func TestFlatKVTypeConversions(t *testing.T) {
 		_, ok = SlotFromBytes(invalid)
 		require.False(t, ok)
 	})
+}
+
+func TestIsMetaKey(t *testing.T) {
+	require.True(t, isMetaKey(metaVersionKey))
+	require.True(t, isMetaKey(metaLtHashKey))
+	require.True(t, isMetaKey([]byte("_meta/future")))
+	require.False(t, isMetaKey([]byte{0x00}))
+	require.False(t, isMetaKey(AccountKey(Address{0x01})))
+	require.False(t, isMetaKey(StorageKey(Address{0x01}, Slot{0x02})))
 }

@@ -4,18 +4,19 @@ import (
 	"context"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "state", "indexer")
 
 // Service connects event bus, transaction and block indexers together in
 // order to index transactions and blocks coming from the event bus.
 type Service struct {
 	service.BaseService
-	logger log.Logger
 
 	eventSinks []EventSink
 	eventBus   *eventbus.EventBus
@@ -31,7 +32,6 @@ type Service struct {
 // NewService constructs a new indexer service from the given arguments.
 func NewService(args ServiceArgs) *Service {
 	is := &Service{
-		logger:     args.Logger,
 		eventSinks: args.Sinks,
 		eventBus:   args.EventBus,
 		metrics:    args.Metrics,
@@ -39,7 +39,7 @@ func NewService(args ServiceArgs) *Service {
 	if is.metrics == nil {
 		is.metrics = NopMetrics()
 	}
-	is.BaseService = *service.NewBaseService(args.Logger, "IndexerService", is)
+	is.BaseService = *service.NewBaseService("IndexerService", is)
 	return is
 }
 
@@ -72,7 +72,7 @@ func (is *Service) publish(msg pubsub.Message) error {
 		// GATHER: Accumulate a transaction into the current block's batch.
 		txResult := msg.Data().(types.EventDataTx).TxResultV2
 		if err := curr.Add(&txResult); err != nil {
-			is.logger.Error("failed to add tx to batch",
+			logger.Error("failed to add tx to batch",
 				"height", is.currentBlock.height, "index", txResult.Index, "err", err)
 		}
 
@@ -85,12 +85,12 @@ func (is *Service) publish(msg pubsub.Message) error {
 		for _, sink := range is.eventSinks {
 			start := time.Now()
 			if err := sink.IndexBlockEvents(is.currentBlock.header); err != nil {
-				is.logger.Error("failed to index block header",
+				logger.Error("failed to index block header",
 					"height", is.currentBlock.height, "err", err)
 			} else {
 				is.metrics.BlockEventsSeconds.Observe(time.Since(start).Seconds())
 				is.metrics.BlocksIndexed.Add(1)
-				is.logger.Debug("indexed block",
+				logger.Debug("indexed block",
 					"height", is.currentBlock.height, "sink", sink.Type())
 			}
 
@@ -98,12 +98,12 @@ func (is *Service) publish(msg pubsub.Message) error {
 				start := time.Now()
 				err := sink.IndexTxEvents(curr.Ops)
 				if err != nil {
-					is.logger.Error("failed to index block txs",
+					logger.Error("failed to index block txs",
 						"height", is.currentBlock.height, "err", err)
 				} else {
 					is.metrics.TxEventsSeconds.Observe(time.Since(start).Seconds())
 					is.metrics.TransactionsIndexed.Add(float64(curr.Size()))
-					is.logger.Debug("indexed txs",
+					logger.Debug("indexed txs",
 						"height", is.currentBlock.height, "sink", sink.Type())
 				}
 			}
@@ -135,7 +135,7 @@ func (is *Service) OnStart(ctx context.Context) error {
 func (is *Service) OnStop() {
 	for _, sink := range is.eventSinks {
 		if err := sink.Stop(); err != nil {
-			is.logger.Error("failed to close eventsink", "eventsink", sink.Type(), "err", err)
+			logger.Error("failed to close eventsink", "eventsink", sink.Type(), "err", err)
 		}
 	}
 }
@@ -145,7 +145,6 @@ type ServiceArgs struct {
 	Sinks    []EventSink
 	EventBus *eventbus.EventBus
 	Metrics  *Metrics
-	Logger   log.Logger
 }
 
 // KVSinkEnabled returns the given eventSinks is containing KVEventSink.

@@ -19,6 +19,7 @@ package evmrpc
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -33,7 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
-	"github.com/tendermint/tendermint/libs/log"
 )
 
 // HTTPConfig is the JSON-RPC/HTTP configuration.
@@ -67,7 +67,6 @@ type rpcHandler struct {
 }
 
 type HTTPServer struct {
-	log      log.Logger
 	timeouts rpc.HTTPTimeouts
 	mux      http.ServeMux // registered handlers go here
 
@@ -97,8 +96,8 @@ const (
 	metricsPrinterInterval = 5 * time.Second
 )
 
-func NewHTTPServer(log log.Logger, timeouts rpc.HTTPTimeouts) *HTTPServer {
-	h := &HTTPServer{log: log, timeouts: timeouts, handlerNames: make(map[string]string)}
+func NewHTTPServer(timeouts rpc.HTTPTimeouts) *HTTPServer {
+	h := &HTTPServer{timeouts: timeouts, handlerNames: make(map[string]string)}
 
 	h.httpHandler.Store((*rpcHandler)(nil))
 	h.wsHandler.Store((*rpcHandler)(nil))
@@ -161,8 +160,8 @@ func (h *HTTPServer) Start() error {
 	}
 	h.listener = listener
 	go func() {
-		if err := h.server.Serve(listener); err != nil {
-			h.log.Error(fmt.Sprintf("server exiting due to %s\n", err))
+		if err := h.server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server stopped erroneously", "err", err)
 		}
 	}()
 
@@ -171,14 +170,14 @@ func (h *HTTPServer) Start() error {
 		if h.WsConfig.prefix != "" {
 			url += h.WsConfig.prefix
 		}
-		h.log.Info("WebSocket enabled", "url", url)
+		logger.Info("WebSocket enabled", "url", url)
 	}
 	// if server is websocket only, return after logging
 	if !h.rpcAllowed() {
 		return nil
 	}
 	// Log http endpoint.
-	h.log.Info("HTTP server started",
+	logger.Info("HTTP server started",
 		"endpoint", listener.Addr(), "auth", (h.HTTPConfig.JwtSecret != nil),
 		"prefix", h.HTTPConfig.prefix,
 		"cors", strings.Join(h.HTTPConfig.CorsAllowedOrigins, ","),
@@ -199,7 +198,7 @@ func (h *HTTPServer) Start() error {
 	for _, path := range paths {
 		name := h.handlerNames[path]
 		if !logged[name] {
-			h.log.Info(name+" enabled", "url", "http://"+listener.Addr().String()+path)
+			logger.Info(name+" enabled", "url", "http://"+listener.Addr().String()+path)
 			logged[name] = true
 		}
 	}
@@ -251,9 +250,9 @@ func CheckPath(r *http.Request, path string) bool {
 func (h *HTTPServer) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.log.Info("Stopping EVM HTTP Server")
+	logger.Info("Stopping EVM HTTP Server")
 	h.doStop()
-	h.log.Info("EVM HTTP Server stopped")
+	logger.Info("EVM HTTP Server stopped")
 }
 
 func (h *HTTPServer) doStop() {
@@ -280,12 +279,12 @@ func (h *HTTPServer) doStop() {
 	defer cancel()
 	err := h.server.Shutdown(ctx)
 	if err != nil && err == ctx.Err() {
-		h.log.Error("HTTP server graceful shutdown timed out")
+		logger.Error("HTTP server graceful shutdown timed out")
 		_ = h.server.Close()
 	}
 
 	_ = h.listener.Close()
-	h.log.Info("HTTP server stopped", "endpoint", h.listener.Addr())
+	logger.Info("HTTP server stopped", "endpoint", h.listener.Addr())
 
 	// Clear out everything to allow re-configuring it later.
 	h.host, h.port, h.endpoint = "", 0, ""
@@ -304,11 +303,11 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	h.log.Info("Registering apis for evm rpc")
-	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
+	logger.Info("Registering apis for evm rpc")
+	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
 	}
-	h.log.Info(fmt.Sprintf("[Debug] Registering deny list for evm rpc:%v", config.DenyList))
+	logger.Info("Registering deny list for evm rpc", "deny-list", config.DenyList)
 	for _, method := range config.DenyList {
 		srv.RegisterDenyList(method)
 	}
@@ -342,8 +341,8 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
 	srv.SetReadLimits(config.readLimit)
-	h.log.Info("Registering apis for evm websocket")
-	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
+	logger.Info("Registering apis for evm websocket")
+	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
 	}
 	h.WsConfig = config
@@ -580,7 +579,7 @@ func NewGzipHandler(next http.Handler) http.Handler {
 
 // RegisterApis checks the given modules' availability, generates an allowlist based on the allowed modules,
 // and then registers all of the APIs exposed by the services.
-func RegisterApis(logger log.Logger, apis []rpc.API, modules []string, srv *rpc.Server) error {
+func RegisterApis(apis []rpc.API, modules []string, srv *rpc.Server) error {
 	if bad, available := checkModuleAvailability(modules, apis); len(bad) > 0 {
 		logger.Error("Unavailable modules in HTTP API list", "unavailable", bad, "available", available)
 	}

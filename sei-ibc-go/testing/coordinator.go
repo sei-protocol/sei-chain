@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 var (
@@ -70,11 +71,14 @@ func (coord *Coordinator) UpdateTimeForChain(chain *TestChain) {
 	_, err := chain.App.FinalizeBlock(
 		chain.Context(),
 		&abci.RequestFinalizeBlock{
-			Height:             chain.App.LastBlockHeight() + 1,
-			Time:               chain.CurrentHeader.Time,
-			AppHash:            chain.CurrentHeader.AppHash,
-			ValidatorsHash:     chain.Vals.Hash(),
-			NextValidatorsHash: chain.Vals.Hash(),
+			Header: &tmproto.Header{
+				ChainID:            chain.ChainID,
+				Height:             chain.App.LastBlockHeight() + 1,
+				Time:               chain.CurrentHeader.Time,
+				AppHash:            chain.CurrentHeader.AppHash,
+				ValidatorsHash:     chain.Vals.Hash(),
+				NextValidatorsHash: chain.Vals.Hash(),
+			},
 		},
 	)
 	require.NoError(coord.T, err)
@@ -203,12 +207,14 @@ func (coord *Coordinator) CommitBlock(chains ...*TestChain) {
 func (coord *Coordinator) CommitNBlocks(chain *TestChain, n uint64) {
 	for i := uint64(0); i < n; i++ {
 		_, err := chain.App.FinalizeBlock(coord.Context(), &abci.RequestFinalizeBlock{
-			Height:  chain.App.LastBlockHeight() + 1,
-			Time:    chain.CurrentHeader.Time,
-			AppHash: chain.CurrentHeader.AppHash,
-
-			ValidatorsHash:     chain.Vals.Hash(),
-			NextValidatorsHash: chain.Vals.Hash(),
+			Header: &tmproto.Header{
+				ChainID:            chain.ChainID,
+				Height:             chain.App.LastBlockHeight() + 1,
+				Time:               chain.CurrentHeader.Time,
+				AppHash:            chain.CurrentHeader.AppHash,
+				ValidatorsHash:     chain.Vals.Hash(),
+				NextValidatorsHash: chain.Vals.Hash(),
+			},
 		})
 		require.NoError(coord.T, err)
 		chain.App.GetBaseApp().SetDeliverStateToCommit()

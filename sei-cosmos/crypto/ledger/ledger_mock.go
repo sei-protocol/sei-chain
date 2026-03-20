@@ -12,11 +12,11 @@ import (
 
 	"github.com/cosmos/go-bip39"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	csecp256k1 "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	csecp256k1 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cosmoscrypto "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // If ledger support (build tag) has been enabled, which implies a CGO dependency,
@@ -88,7 +88,7 @@ func (mock LedgerSECP256K1Mock) GetAddressPubKeySECP256K1(derivationPath []uint3
 	return pk, addr, err
 }
 
-func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message []byte) ([]byte, error) {
+func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message []byte, _ byte) ([]byte, error) {
 	path := hd.NewParams(derivationPath[0], derivationPath[1], derivationPath[2], derivationPath[3] != 0, derivationPath[4])
 	seed, err := bip39.NewSeedWithErrorChecking(testdata.TestMnemonic, "")
 	if err != nil {
@@ -106,10 +106,7 @@ func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message [
 
 	// Use single SHA256 to match the secp256k1.VerifySignature expectations
 	hash := cosmoscrypto.Sha256(message)
-	sig, err := ecdsa.SignCompact(privKey, hash, true) // true=compressed pubkey
-	if err != nil {
-		return nil, err
-	}
+	sig := ecdsa.SignCompact(privKey, hash, true) // true=compressed pubkey
 
 	// Return 64-byte R||S format (remove recovery id)
 	return sig[1:], nil

@@ -9,11 +9,11 @@ import (
 	"github.com/google/orderedcode"
 	dbm "github.com/tendermint/tm-db"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmstate "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/state"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -160,7 +160,7 @@ func (store dbStore) Save(state State) error {
 
 func (store dbStore) save(state State, key []byte) error {
 	batch := store.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	nextHeight := state.LastBlockHeight + 1
 	// If first block, save validators for the block.
@@ -204,7 +204,7 @@ func (store dbStore) Bootstrap(state State) error {
 	}
 
 	batch := store.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	if height > 1 && !state.LastValidators.IsNilOrEmpty() {
 		if err := store.saveValidatorsInfo(height-1, height-1, state.LastValidators, batch); err != nil {
@@ -363,12 +363,12 @@ func (store dbStore) pruneFinalizeBlockResponses(height int64) error {
 
 // pruneRange is a generic function for deleting a range of keys in reverse order.
 // we keep filling up batches of at most 1000 keys, perform a deletion and continue until
-// we have gone through all of keys in the range. This avoids doing any writes whilst
+// we have gone through all the keys in the range. This avoids doing any writes whilst
 // iterating.
 func (store dbStore) pruneRange(start []byte, end []byte) error {
 	var err error
 	batch := store.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	end, err = store.reverseBatchDelete(batch, start, end)
 	if err != nil {
@@ -406,7 +406,7 @@ func (store dbStore) reverseBatchDelete(batch dbm.Batch, start, end []byte) ([]b
 	if err != nil {
 		return end, fmt.Errorf("iterator error: %w", err)
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	size := 0
 	for ; iter.Valid(); iter.Next() {
@@ -490,7 +490,7 @@ func (store dbStore) saveFinalizeBlockResponses(height int64, finalizeBlockRespo
 // it may encounter.
 func (store dbStore) SaveValidatorSets(lowerHeight, upperHeight int64, vals *types.ValidatorSet) error {
 	batch := store.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	// batch together all the validator sets from lowerHeight to upperHeight
 	for height := lowerHeight; height <= upperHeight; height++ {

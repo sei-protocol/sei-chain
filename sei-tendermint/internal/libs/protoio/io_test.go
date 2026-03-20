@@ -41,7 +41,7 @@ import (
 	"github.com/gogo/protobuf/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
 )
 
 func iotest(t *testing.T, writer protoio.WriteCloser, reader protoio.ReadCloser) error {

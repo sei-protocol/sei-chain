@@ -4,8 +4,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
 type IStoreTracer interface {
@@ -138,7 +138,7 @@ func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	defer func() {
 		if err := recover(); err != nil {
 			// if there is a panic, we close the iterator then reraise
-			gi.Close()
+			_ = gi.Close()
 			panic(err)
 		}
 	}()

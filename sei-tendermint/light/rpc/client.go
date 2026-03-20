@@ -10,16 +10,15 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/merkle"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	service "github.com/tendermint/tendermint/libs/service"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	service "github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // KeyPathFunc builds a merkle path out of the given path and key.
@@ -53,8 +52,6 @@ type Client struct {
 
 	closers []func()
 }
-
-var _ rpcclient.Client = (*Client)(nil)
 
 // Option allow you to tweak Client.
 type Option func(*Client)
@@ -90,13 +87,13 @@ func DefaultMerkleKeyPathFn() KeyPathFunc {
 }
 
 // NewClient returns a new client.
-func NewClient(logger log.Logger, next rpcclient.Client, lc LightClient, opts ...Option) *Client {
+func NewClient(next rpcclient.Client, lc LightClient, opts ...Option) *Client {
 	c := &Client{
 		next: next,
 		lc:   lc,
 		prt:  merkle.DefaultProofRuntime(),
 	}
-	c.BaseService = *service.NewBaseService(logger, "Client", c)
+	c.BaseService = *service.NewBaseService("Client", c)
 	for _, o := range opts {
 		o(c)
 	}
@@ -249,10 +246,6 @@ func (c *Client) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconf
 
 func (c *Client) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultCheckTx, error) {
 	return c.next.CheckTx(ctx, tx)
-}
-
-func (c *Client) RemoveTx(ctx context.Context, txKey types.TxKey) error {
-	return c.next.RemoveTx(ctx, txKey)
 }
 
 func (c *Client) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
@@ -470,7 +463,7 @@ func (c *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.Re
 	mh := merkle.HashFromByteSlices(append([][]byte{bbeBytes}, rs...))
 
 	// Verify block results.
-	if !bytes.Equal(mh, trustedBlock.LastResultsHash) {
+	if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(mh, trustedBlock.LastResultsHash) {
 		return nil, fmt.Errorf("last results %X does not match with trusted last results %X",
 			mh, trustedBlock.LastResultsHash)
 	}
@@ -504,9 +497,9 @@ func (c *Client) HeaderByHash(ctx context.Context, hash tmbytes.HexBytes) (*core
 		return nil, err
 	}
 
-	if !bytes.Equal(lb.Header.Hash(), res.Header.Hash()) {
+	if !bytes.Equal(lb.Hash(), res.Header.Hash()) {
 		return nil, fmt.Errorf("primary header hash does not match trusted header hash. (%X != %X)",
-			lb.Header.Hash(), res.Header.Hash())
+			lb.Hash(), res.Header.Hash())
 	}
 
 	return res, nil
@@ -590,7 +583,7 @@ func (c *Client) Validators(
 	}
 
 	skipCount := validateSkipCount(page, perPage)
-	v := l.ValidatorSet.Validators[skipCount : skipCount+tmmath.MinInt(int(perPage), totalCount-skipCount)]
+	v := l.ValidatorSet.Validators[skipCount : skipCount+tmmath.MinInt(int(perPage), totalCount-skipCount)] //nolint:gosec // perPage is bounded to maxPerPage (100); no overflow risk
 
 	return &coretypes.ResultValidators{
 		BlockHeight: l.Height,
@@ -647,6 +640,7 @@ func (c *Client) SubscribeWS(ctx context.Context, query string) (*coretypes.Resu
 	callInfo := rpctypes.GetCallInfo(ctx)
 	out, err := c.next.Subscribe(bctx, callInfo.RemoteAddr(), query) //nolint:staticcheck
 	if err != nil {
+		bcancel()
 		return nil, err
 	}
 
@@ -699,7 +693,7 @@ func validatePage(pagePtr *int, perPage uint, totalCount int) (int, error) {
 		return 1, nil
 	}
 
-	pages := ((totalCount - 1) / int(perPage)) + 1
+	pages := ((totalCount - 1) / int(perPage)) + 1 //nolint:gosec // perPage is bounded to maxPerPage (100); no overflow risk
 	if pages == 0 {
 		pages = 1 // one page (even if it's empty)
 	}
@@ -722,11 +716,11 @@ func validatePerPage(perPagePtr *int) uint {
 	} else if perPage > maxPerPage {
 		return maxPerPage
 	}
-	return uint(perPage)
+	return uint(perPage) //nolint:gosec // perPage is bounds-checked above to [1, maxPerPage]
 }
 
 func validateSkipCount(page int, perPage uint) int {
-	skipCount := (page - 1) * int(perPage)
+	skipCount := (page - 1) * int(perPage) //nolint:gosec // perPage is bounded to maxPerPage (100) and page is validated; no overflow risk
 	if skipCount < 0 {
 		return 0
 	}

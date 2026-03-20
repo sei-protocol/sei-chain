@@ -3,9 +3,8 @@ package ica_test
 import (
 	"testing"
 
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	ica "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts"
@@ -32,7 +31,7 @@ func (suite *InterchainAccountsTestSuite) SetupTest() {
 
 func (suite *InterchainAccountsTestSuite) TestInitModule() {
 	// setup and basic testing
-	app := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
+	app := simapp.NewSimApp(dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
 	appModule, ok := app.GetModuleManager().Modules[types.ModuleName].(ica.AppModule)
 	suite.Require().True(ok)
 
@@ -98,7 +97,7 @@ func (suite *InterchainAccountsTestSuite) TestInitModule() {
 			suite.SetupTest() // reset
 
 			// reset app state
-			app = simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
+			app = simapp.NewSimApp(dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
 			header := tmproto.Header{
 				ChainID: "testchain",
 				Height:  1,

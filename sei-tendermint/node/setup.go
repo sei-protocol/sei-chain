@@ -5,36 +5,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"strings"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	dbm "github.com/tendermint/tm-db"
-
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/blocksync"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/evidence"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/internal/p2p/pex"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/internal/statesync"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	tmstrings "github.com/tendermint/tendermint/libs/strings"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/privval"
-	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
-
-	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
+	"golang.org/x/time/rate"
 )
 
 type closer func() error
@@ -94,7 +92,7 @@ func initDBs(
 	return blockStore, stateDB, makeCloser(closers), nil
 }
 
-func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logger log.Logger, mode string) {
+func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], mode string) {
 	// Log the version info.
 	logger.Info("Version info",
 		"tmVersion", version.TMVersion,
@@ -115,7 +113,7 @@ func logNodeStartupInfo(state sm.State, pubKey utils.Option[crypto.PubKey], logg
 	case config.ModeFull:
 		logger.Info("This node is a fullnode")
 	case config.ModeValidator:
-		k := pubKey.OrPanic()
+		k := pubKey.OrPanic("validator node is missing key")
 		addr := k.Address()
 		// Log whether this node is a validator or an observer
 		if state.Validators.HasAddress(addr) {
@@ -145,17 +143,14 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 }
 
 func createMempoolReactor(
-	logger log.Logger,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
 ) (*mempool.Reactor, mempool.Mempool, error) {
-	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
-		logger,
 		cfg.Mempool,
 		appClient,
 		router,
@@ -165,7 +160,6 @@ func createMempoolReactor(
 	)
 
 	reactor, err := mempool.NewReactor(
-		logger,
 		cfg.Mempool,
 		mp,
 		router,
@@ -182,7 +176,6 @@ func createMempoolReactor(
 }
 
 func createEvidenceReactor(
-	logger log.Logger,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	store sm.Store,
@@ -196,10 +189,8 @@ func createEvidenceReactor(
 		return nil, nil, func() error { return nil }, fmt.Errorf("unable to initialize evidence db: %w", err)
 	}
 
-	logger = logger.With("module", "evidence")
-
-	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor, err := evidence.NewReactor(logger, router, evidencePool)
+	evidencePool := evidence.NewPool(evidenceDB, store, blockStore, metrics, eventBus)
+	evidenceReactor, err := evidence.NewReactor(router, evidencePool)
 	if err != nil {
 		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
 	}
@@ -207,12 +198,11 @@ func createEvidenceReactor(
 }
 
 func createRouter(
-	logger log.Logger,
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -222,7 +212,11 @@ func createRouter(
 	}
 	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
-	options.MaxConcurrentAccepts = utils.Some(int(cfg.P2P.MaxConnections))
+	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
+	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
+	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
+	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
+	options.PexOnHandshake = cfg.P2P.PexReactor
 	options.Connection = conn.DefaultMConnConfig()
 	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	options.Connection.SendRate = cfg.P2P.SendRate
@@ -240,17 +234,25 @@ func createRouter(
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
 	}
 
-	var maxConns int
-
-	switch {
-	case cfg.P2P.MaxConnections > 0:
-		maxConns = int(cfg.P2P.MaxConnections)
-	default:
-		maxConns = 64
+	// MaxConnections defaults to 64
+	maxConns := 64
+	if cfg.P2P.MaxConnections > 0 {
+		maxConns = utils.Clamp[int](cfg.P2P.MaxConnections)
 	}
-
-	options.MaxConnected = utils.Some(maxConns)
-	options.MaxPeers = utils.Some(2 * maxConns)
+	// MaxOutbound defaults to 20, unless MaxConnections<40,
+	// then it defaults to half of the maxConnections.
+	maxOutbound := min(20, (maxConns+1)/2)
+	if m := cfg.P2P.MaxOutboundConnections; m != nil {
+		maxOutbound = min(maxConns, utils.Clamp[int](*m))
+	}
+	// MaxInbound is simply MaxConnections - MaxOutbound,
+	// because now we have totally separate inbound and outbound connection pools.
+	// TODO(gprusak): eventually we should migrate configs to specify
+	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
+	maxInbound := maxConns - maxOutbound
+	options.MaxOutbound = utils.Some(maxOutbound)
+	options.MaxConcurrentAccepts = utils.Some(maxInbound)
+	options.MaxInbound = utils.Some(maxInbound)
 	options.PrivatePeers = privatePeerIDs
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
@@ -287,7 +289,6 @@ func createRouter(
 	}
 	closer = peerDB.Close
 	router, err := p2p.NewRouter(
-		logger.With("module", "p2p"),
 		p2pMetrics,
 		p2p.NodeSecretKey(nodeKey.PrivKey),
 		nodeInfoProducer,
@@ -391,10 +392,9 @@ func makeSeedNodeInfo(
 func createAndStartPrivValidatorSocketClient(
 	ctx context.Context,
 	listenAddr, chainID string,
-	logger log.Logger,
 ) (types.PrivValidator, error) {
 
-	pve, err := privval.NewSignerListener(listenAddr, logger)
+	pve, err := privval.NewSignerListener(listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("starting validator listener: %w", err)
 	}
@@ -424,13 +424,11 @@ func createAndStartPrivValidatorGRPCClient(
 	ctx context.Context,
 	cfg *config.Config,
 	chainID string,
-	logger log.Logger,
 ) (types.PrivValidator, error) {
 	pvsc, err := tmgrpc.DialRemoteSigner(
 		ctx,
 		cfg.PrivValidator,
 		chainID,
-		logger,
 		cfg.Instrumentation.Prometheus,
 	)
 	if err != nil {
@@ -446,26 +444,14 @@ func createAndStartPrivValidatorGRPCClient(
 	return pvsc, nil
 }
 
-func makeDefaultPrivval(conf *config.Config) (*privval.FilePV, error) {
-	if conf.Mode == config.ModeValidator {
-		pval, err := privval.LoadOrGenFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile())
-		if err != nil {
-			return nil, err
-		}
-		return pval, nil
-	}
-
-	return nil, nil
-}
-
-func createPrivval(ctx context.Context, logger log.Logger, conf *config.Config, genDoc *types.GenesisDoc, defaultPV *privval.FilePV) (types.PrivValidator, error) {
+func createPrivval(ctx context.Context, conf *config.Config, genDoc *types.GenesisDoc, defaultPV *privval.FilePV) (types.PrivValidator, error) {
 	if conf.PrivValidator.ListenAddr != "" {
 		protocol, _ := tmnet.ProtocolAndAddress(conf.PrivValidator.ListenAddr)
 		// FIXME: we should return un-started services and
 		// then start them later.
 		switch protocol {
 		case "grpc":
-			privValidator, err := createAndStartPrivValidatorGRPCClient(ctx, conf, genDoc.ChainID, logger)
+			privValidator, err := createAndStartPrivValidatorGRPCClient(ctx, conf, genDoc.ChainID)
 			if err != nil {
 				return nil, fmt.Errorf("error with private validator grpc client: %w", err)
 			}
@@ -475,7 +461,6 @@ func createPrivval(ctx context.Context, logger log.Logger, conf *config.Config, 
 				ctx,
 				conf.PrivValidator.ListenAddr,
 				genDoc.ChainID,
-				logger,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error with private validator socket client: %w", err)

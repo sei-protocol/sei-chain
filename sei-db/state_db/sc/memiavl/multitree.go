@@ -13,9 +13,10 @@ import (
 
 	"github.com/alitto/pond"
 	"golang.org/x/exp/slices"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -56,7 +57,6 @@ type MultiTree struct {
 	initialVersion atomic.Uint32
 
 	zeroCopy bool
-	logger   logger.Logger
 
 	trees          []NamedTree    // always ordered by tree name
 	treesByName    map[string]int // index of the trees by name
@@ -70,7 +70,6 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 	mt := &MultiTree{
 		treesByName: make(map[string]int),
 		zeroCopy:    true,
-		logger:      logger.NewNopLogger(),
 	}
 	mt.initialVersion.Store(initialVersion)
 	return mt
@@ -78,10 +77,6 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 
 func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
-	log := opts.Logger
-	if log == nil {
-		log = logger.NewNopLogger()
-	}
 	metadata, err := readMetadata(dir)
 	if err != nil {
 		return nil, err
@@ -113,10 +108,10 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
 	elapsed := time.Since(startTime)
-	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), elapsed.Seconds()))
+	logger.Info("all memIAVL trees loaded", "count", len(treeNames), "elapsed-sec", elapsed.Seconds())
 
 	if elapsed > slowLoadThreshold {
-		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
+		logger.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
 	}
 	slices.Sort(treeNames)
 
@@ -134,7 +129,6 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		lastCommitInfo: *metadata.CommitInfo,
 		metadata:       *metadata,
 		zeroCopy:       opts.ZeroCopy,
-		logger:         opts.Logger,
 	}
 	// initial version is necessary for rlog index conversion
 	mtree.setInitialVersion(metadata.InitialVersion)
@@ -202,7 +196,6 @@ func (t *MultiTree) Copy() *MultiTree {
 	}
 
 	clone := MultiTree{
-		logger:         t.logger,
 		zeroCopy:       t.zeroCopy,
 		lastCommitInfo: t.lastCommitInfo,
 		metadata:       t.metadata,
@@ -437,8 +430,9 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 		t.lastCommitInfo.Version = entry.Version
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
+		otelMetrics.CatchupReplayNumBlocks.Add(context.Background(), 1)
 		if replayCount%1000 == 0 {
-			t.logger.Info(fmt.Sprintf("Replayed %d changelog entries\n", replayCount))
+			logger.Info("Replayed changelog entries", "entries-count", replayCount)
 		}
 		return nil
 	})
@@ -454,27 +448,42 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 	if replayCount > 0 {
 		t.UpdateCommitInfo()
 		replayElapsed := time.Since(startTime).Seconds()
-		t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
-			replayCount, replayElapsed, float64(replayCount)/replayElapsed))
+		logger.Info("changelog replay complete", "entries", replayCount, "elapsed-sec", replayElapsed, "entries-per-sec", float64(replayCount)/replayElapsed)
 	}
 
 	return nil
 }
 
 func (t *MultiTree) WriteSnapshot(ctx context.Context, dir string, wp *pond.WorkerPool) error {
-	t.logger.Info("starting snapshot write", "trees", len(t.trees))
+	return t.WriteSnapshotWithRateLimit(ctx, dir, wp, 0)
+}
+
+// WriteSnapshotWithRateLimit writes snapshot with optional rate limiting.
+// rateMBps is the rate limit in MB/s. 0 means unlimited.
+// A single global limiter is shared across ALL trees and files to ensure
+// the total write rate is capped at the configured value.
+func (t *MultiTree) WriteSnapshotWithRateLimit(ctx context.Context, dir string, wp *pond.WorkerPool, rateMBps int) error {
+	logger.Info("starting snapshot write", "trees", len(t.trees), "rate_limit_mbps", rateMBps)
 
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
 		return err
 	}
 
+	// Create a single global limiter shared by all trees and files
+	// This ensures total write rate is capped regardless of parallelism
+	limiter := NewGlobalRateLimiter(rateMBps)
+	if limiter != nil {
+		logger.Info("global rate limiting enabled", "rate_mbps", rateMBps)
+	}
+
 	// Write EVM first to avoid disk I/O contention, then parallel
-	return t.writeSnapshotPriorityEVM(ctx, dir, wp)
+	return t.writeSnapshotPriorityEVM(ctx, dir, wp, limiter)
 }
 
 // writeSnapshotPriorityEVM writes EVM tree first, then others in parallel
 // Best strategy: reduces disk I/O contention for the largest tree
-func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+// limiter is a shared rate limiter. nil means unlimited.
+func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool, limiter *rate.Limiter) error {
 	startTime := time.Now()
 
 	// Phase 1: Write EVM tree first (if it exists)
@@ -483,7 +492,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	otherTrees := make([]NamedTree, 0, len(t.trees))
 
 	for _, entry := range t.trees {
-		if entry.Name == "evm" {
+		if entry.Name == commonevm.EVMStoreKey {
 			evmTree = entry.Tree
 			evmName = entry.Name
 		} else {
@@ -492,18 +501,18 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	}
 
 	if evmTree != nil {
-		t.logger.Info("writing evm tree", "phase", "1/2")
+		logger.Info("writing evm tree", "phase", "1/2")
 		evmStart := time.Now()
-		if err := evmTree.WriteSnapshot(ctx, filepath.Join(dir, evmName)); err != nil {
+		if err := evmTree.WriteSnapshotWithRateLimit(ctx, filepath.Join(dir, evmName), limiter); err != nil {
 			return err
 		}
 		evmElapsed := time.Since(evmStart).Seconds()
-		t.logger.Info("evm tree completed", "duration_sec", evmElapsed)
+		logger.Info("evm tree completed", "duration_sec", evmElapsed)
 	}
 
 	// Phase 2: Write all other trees in parallel
 	if len(otherTrees) > 0 {
-		t.logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
+		logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
 		phase2Start := time.Now()
 
 		// NOTE: We use explicit WaitGroup instead of pond.GroupContext because
@@ -521,7 +530,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 			wg.Add(1)
 			wp.Submit(func() {
 				defer wg.Done()
-				if err := entry.WriteSnapshot(ctx, filepath.Join(dir, entry.Name)); err != nil {
+				if err := entry.WriteSnapshotWithRateLimit(ctx, filepath.Join(dir, entry.Name), limiter); err != nil {
 					mu.Lock()
 					errs = append(errs, fmt.Errorf("tree %s: %w", entry.Name, err))
 					mu.Unlock()
@@ -535,11 +544,11 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 		}
 
 		phase2Elapsed := time.Since(phase2Start).Seconds()
-		t.logger.Info("remaining trees completed", "duration_sec", phase2Elapsed, "count", len(otherTrees))
+		logger.Info("remaining trees completed", "duration_sec", phase2Elapsed, "count", len(otherTrees))
 	}
 
 	elapsed := time.Since(startTime).Seconds()
-	t.logger.Info("all trees completed", "duration_sec", elapsed, "trees", len(t.trees))
+	logger.Info("all trees completed", "duration_sec", elapsed, "trees", len(t.trees))
 
 	// write commit info
 	metadata := proto.MultiTreeMetadata{

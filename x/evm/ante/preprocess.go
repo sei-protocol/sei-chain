@@ -2,23 +2,22 @@ package ante
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	accountkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
@@ -271,21 +270,21 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		}
 		acc := p.accountKeeper.GetAccount(ctx, signer)
 		if acc.GetPubKey() == nil {
-			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			logger.Error("missing pubkey for signer", "signer", signer)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
-			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			logger.Debug("failed to parse pubkey for account, likely due to the fact that it isn't on secp256k1 curve", "account", acc.GetPubKey(), "err", err)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			logger.Error("failed to get EVM address from pubkey", "err", err)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
@@ -296,7 +295,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.evmKeeper.BankKeeper(), p.accountKeeper)
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
+			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return ctx, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {

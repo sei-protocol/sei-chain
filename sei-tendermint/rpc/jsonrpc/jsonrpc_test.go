@@ -8,7 +8,7 @@ import (
 	"errors"
 	mrand "math/rand"
 	"net/http"
-	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,19 +16,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/rpc/jsonrpc/client"
-	"github.com/tendermint/tendermint/rpc/jsonrpc/server"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 )
 
 // Client and Server should work over tcp or unix sockets
 const (
-	tcpAddr = "tcp://127.0.0.1:47768"
-
-	unixSocket = "/tmp/rpc_test.sock"
-	unixAddr   = "unix://" + unixSocket
-
 	websocketEndpoint = "/websocket/endpoint"
 
 	testVal = "acbd"
@@ -96,45 +90,32 @@ func EchoDataBytesResult(ctx context.Context, v *RequestEchoDataBytes) (*ResultE
 }
 
 // launch unix and tcp servers
-func setup(ctx context.Context, t *testing.T, logger log.Logger) error {
-	cmd := exec.Command("rm", "-f", unixSocket)
-	err := cmd.Start()
-	if err != nil {
-		return err
-	}
-	if err = cmd.Wait(); err != nil {
-		return err
-	}
-
-	tcpLogger := logger.With("socket", "tcp")
+func setup(ctx context.Context, t *testing.T) (string, string) {
 	mux := http.NewServeMux()
-	server.RegisterRPCFuncs(mux, Routes, tcpLogger)
-	wm := server.NewWebsocketManager(tcpLogger, Routes, server.ReadWait(5*time.Second), server.PingPeriod(1*time.Second))
+	server.RegisterRPCFuncs(mux, Routes)
+	wm := server.NewWebsocketManager(Routes, server.ReadWait(5*time.Second), server.PingPeriod(1*time.Second))
 	mux.HandleFunc(websocketEndpoint, wm.WebsocketHandler)
 	config := server.DefaultConfig()
-	listener1, err := server.Listen(tcpAddr, config.MaxOpenConnections)
-	if err != nil {
-		return err
-	}
+	listener1, err := server.Listen("tcp://127.0.0.1:0", config.MaxOpenConnections)
+	require.NoError(t, err)
+	tcpAddr := "tcp://" + listener1.Addr().String()
 	go func() {
-		if err := server.Serve(ctx, listener1, mux, tcpLogger, config); err != nil {
+		if err := server.Serve(ctx, listener1, mux, config); err != nil {
 			if !errors.Is(err, http.ErrServerClosed) {
 				require.NoError(t, err)
 			}
 		}
 	}()
 
-	unixLogger := logger.With("socket", "unix")
 	mux2 := http.NewServeMux()
-	server.RegisterRPCFuncs(mux2, Routes, unixLogger)
-	wm = server.NewWebsocketManager(unixLogger, Routes)
+	server.RegisterRPCFuncs(mux2, Routes)
+	wm = server.NewWebsocketManager(Routes)
 	mux2.HandleFunc(websocketEndpoint, wm.WebsocketHandler)
+	unixAddr := "unix://" + filepath.Join(t.TempDir(), "rpc_test.sock")
 	listener2, err := server.Listen(unixAddr, config.MaxOpenConnections)
-	if err != nil {
-		return err
-	}
+	require.NoError(t, err)
 	go func() {
-		if err := server.Serve(ctx, listener2, mux2, unixLogger, config); err != nil {
+		if err := server.Serve(ctx, listener2, mux2, config); err != nil {
 			if !errors.Is(err, http.ErrServerClosed) {
 				require.NoError(t, err)
 			}
@@ -143,7 +124,7 @@ func setup(ctx context.Context, t *testing.T, logger log.Logger) error {
 
 	// wait for servers to start
 	time.Sleep(time.Second * 2)
-	return nil
+	return tcpAddr, unixAddr
 }
 
 func echoViaHTTP(ctx context.Context, cl client.Caller, val string) (string, error) {
@@ -272,18 +253,15 @@ func testWithWSClient(ctx context.Context, t *testing.T, cl *client.WSClient) {
 
 func TestRPC(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
 	t.Cleanup(leaktest.Check(t))
-	require.NoError(t, setup(ctx, t, logger))
+	tcpAddr, unixAddr := setup(ctx, t)
 	t.Run("ServersAndClientsBasic", func(t *testing.T) {
 		serverAddrs := [...]string{tcpAddr, unixAddr}
 		for _, addr := range serverAddrs {
 			t.Run(addr, func(t *testing.T) {
 				tctx, tcancel := context.WithCancel(ctx)
 				defer tcancel()
-
-				logger := log.NewNopLogger()
 
 				cl2, err := client.New(addr)
 				require.NoError(t, err)
@@ -292,7 +270,6 @@ func TestRPC(t *testing.T) {
 
 				cl3, err := client.NewWS(addr, websocketEndpoint)
 				require.NoError(t, err)
-				cl3.Logger = logger
 				err = cl3.Start(tctx)
 				require.NoError(t, err)
 				t.Logf("testing server with WS client")
@@ -305,7 +282,6 @@ func TestRPC(t *testing.T) {
 
 		cl, err := client.NewWS(tcpAddr, websocketEndpoint)
 		require.NoError(t, err)
-		cl.Logger = log.NewNopLogger()
 		tctx, tcancel := context.WithCancel(ctx)
 		defer tcancel()
 
@@ -345,7 +321,6 @@ func TestRPC(t *testing.T) {
 
 		cl, err := client.NewWS(tcpAddr, websocketEndpoint)
 		require.NoError(t, err)
-		cl.Logger = log.NewNopLogger()
 
 		tctx, tcancel := context.WithCancel(ctx)
 		defer tcancel()

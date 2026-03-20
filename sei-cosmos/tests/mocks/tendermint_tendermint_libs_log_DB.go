@@ -8,7 +8,6 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	log "github.com/tendermint/tendermint/libs/log"
 )
 
 // MockLogger is a mock of Logger interface.
@@ -85,20 +84,8 @@ func (mr *MockLoggerMockRecorder) Info(arg0 interface{}, arg1 ...interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Info", reflect.TypeOf((*MockLogger)(nil).Info), varargs...)
 }
 
-// With mocks base method.
-func (m *MockLogger) With(arg0 ...interface{}) log.Logger {
-	m.ctrl.T.Helper()
-	varargs := []interface{}{}
-	for _, a := range arg0 {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "With", varargs...)
-	ret0, _ := ret[0].(log.Logger)
-	return ret0
-}
-
 // With indicates an expected call of With.
 func (mr *MockLoggerMockRecorder) With(arg0 ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "With", reflect.TypeOf((*MockLogger)(nil).With), arg0...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "With", reflect.TypeOf((*MockLogger)(nil)), arg0...)
 }

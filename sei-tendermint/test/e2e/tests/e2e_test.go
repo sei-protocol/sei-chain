@@ -9,10 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	rpctypes "github.com/tendermint/tendermint/rpc/coretypes"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/types"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func init() {

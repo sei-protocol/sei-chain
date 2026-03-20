@@ -3,12 +3,12 @@ package legacytx
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
 
 // StdTxBuilder wraps StdTx to implement to the context.TxBuilder interface.
@@ -49,15 +49,15 @@ func (s *StdTxBuilder) SetSignatures(signatures ...signing.SignatureV2) error {
 }
 
 func (s *StdTxBuilder) SetFeeAmount(amount sdk.Coins) {
-	s.StdTx.Fee.Amount = amount
+	s.Fee.Amount = amount
 }
 
 func (s *StdTxBuilder) SetGasLimit(limit uint64) {
-	s.StdTx.Fee.Gas = limit
+	s.Fee.Gas = limit
 }
 
 func (s *StdTxBuilder) SetGasEstimate(estimate uint64) {
-	s.StdTx.GasEstimate = estimate
+	s.GasEstimate = estimate
 }
 
 // SetMemo implements TxBuilder.SetMemo
@@ -108,12 +108,12 @@ func (s StdTxConfig) TxDecoder() sdk.TxDecoder {
 
 func (s StdTxConfig) TxJSONEncoder() sdk.TxEncoder {
 	return func(tx sdk.Tx) ([]byte, error) {
-		return s.Cdc.MarshalJSON(tx)
+		return s.Cdc.MarshalAsJSON(tx)
 	}
 }
 
 func (s StdTxConfig) TxJSONDecoder() sdk.TxDecoder {
-	return mkDecoder(s.Cdc.UnmarshalJSON)
+	return mkDecoder(s.Cdc.UnmarshalAsJSON)
 }
 
 func (s StdTxConfig) MarshalSignatureJSON(sigs []signing.SignatureV2) ([]byte, error) {
@@ -126,12 +126,12 @@ func (s StdTxConfig) MarshalSignatureJSON(sigs []signing.SignatureV2) ([]byte, e
 
 		stdSigs[i] = stdSig
 	}
-	return s.Cdc.MarshalJSON(stdSigs)
+	return s.Cdc.MarshalAsJSON(stdSigs)
 }
 
 func (s StdTxConfig) UnmarshalSignatureJSON(bz []byte) ([]signing.SignatureV2, error) {
 	var stdSigs []StdSignature
-	err := s.Cdc.UnmarshalJSON(bz, &stdSigs)
+	err := s.Cdc.UnmarshalAsJSON(bz, &stdSigs)
 	if err != nil {
 		return nil, err
 	}

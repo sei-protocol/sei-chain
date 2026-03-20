@@ -36,8 +36,8 @@ func (s *Source) nextCounter() int64 {
 // Cursor produces a fresh cursor from s at the current time index and counter.
 func (s *Source) Cursor() Cursor {
 	return Cursor{
-		timestamp: uint64(s.timeIndex()),
-		sequence:  uint16(s.nextCounter() & 0xffff),
+		timestamp: uint64(s.timeIndex()),            //nolint:gosec // timeIndex returns a non-negative value
+		sequence:  uint16(s.nextCounter() & 0xffff), //nolint:gosec // masked
 	}
 }
 
@@ -55,7 +55,7 @@ func (c Cursor) Before(o Cursor) bool { return c.timestamp < o.timestamp }
 // Diff returns the time duration between c and o. The duration is negative if
 // c is before o in time order.
 func (c Cursor) Diff(o Cursor) time.Duration {
-	return time.Duration(c.timestamp) - time.Duration(o.timestamp)
+	return time.Duration(c.timestamp) - time.Duration(o.timestamp) //nolint:gosec // timestamps are ns since epoch; values within valid range for time.Duration
 }
 
 // IsZero reports whether c is the zero cursor.

@@ -7,10 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "privval")
 
 // SignerListenerEndpointOption sets an optional parameter on the SignerListenerEndpoint.
 type SignerListenerEndpointOption func(*SignerListenerEndpoint)
@@ -20,7 +22,7 @@ type SignerListenerEndpointOption func(*SignerListenerEndpoint)
 //
 // Default: 5s
 func SignerListenerEndpointTimeoutReadWrite(timeout time.Duration) SignerListenerEndpointOption {
-	return func(sl *SignerListenerEndpoint) { sl.signerEndpoint.timeoutReadWrite = timeout }
+	return func(sl *SignerListenerEndpoint) { sl.timeoutReadWrite = timeout }
 }
 
 // SignerListenerEndpoint listens for an external process to dial in and keeps
@@ -44,7 +46,6 @@ type SignerListenerEndpoint struct {
 
 // NewSignerListenerEndpoint returns an instance of SignerListenerEndpoint.
 func NewSignerListenerEndpoint(
-	logger log.Logger,
 	listener net.Listener,
 	options ...SignerListenerEndpointOption,
 ) *SignerListenerEndpoint {
@@ -53,9 +54,8 @@ func NewSignerListenerEndpoint(
 		timeoutAccept: defaultTimeoutAcceptSeconds * time.Second,
 	}
 
-	sl.signerEndpoint.logger = logger
-	sl.BaseService = *service.NewBaseService(logger, "SignerListenerEndpoint", sl)
-	sl.signerEndpoint.timeoutReadWrite = defaultTimeoutReadWriteSeconds * time.Second
+	sl.BaseService = *service.NewBaseService("SignerListenerEndpoint", sl)
+	sl.timeoutReadWrite = defaultTimeoutReadWriteSeconds * time.Second
 
 	for _, optionFunc := range options {
 		optionFunc(sl)
@@ -70,7 +70,7 @@ func (sl *SignerListenerEndpoint) OnStart(ctx context.Context) error {
 	sl.connectionAvailableCh = make(chan net.Conn)
 
 	// NOTE: ping timeout must be less than read/write timeout
-	sl.pingInterval = time.Duration(sl.signerEndpoint.timeoutReadWrite.Milliseconds()*2/3) * time.Millisecond
+	sl.pingInterval = time.Duration(sl.timeoutReadWrite.Milliseconds()*2/3) * time.Millisecond
 	sl.pingTimer = time.NewTicker(sl.pingInterval)
 
 	go sl.serviceLoop(ctx)
@@ -90,7 +90,7 @@ func (sl *SignerListenerEndpoint) OnStop() {
 	// Stop listening
 	if sl.listener != nil {
 		if err := sl.listener.Close(); err != nil {
-			sl.logger.Error("Closing Listener", "err", err)
+			logger.Error("Closing Listener", "err", err)
 			sl.listener = nil
 		}
 	}
@@ -142,7 +142,7 @@ func (sl *SignerListenerEndpoint) ensureConnection(ctx context.Context, maxWait 
 	}
 
 	// block until connected or timeout
-	sl.logger.Info("SignerListener: Blocking for connection")
+	logger.Info("SignerListener: Blocking for connection")
 	sl.triggerConnect()
 	return sl.WaitConnection(ctx, sl.connectionAvailableCh, maxWait)
 }
@@ -153,7 +153,7 @@ func (sl *SignerListenerEndpoint) acceptNewConnection() (net.Conn, error) {
 	}
 
 	// wait for a new conn
-	sl.logger.Info("SignerListener: Listening for new connection")
+	logger.Info("SignerListener: Listening for new connection")
 	conn, err := sl.listener.Accept()
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func (sl *SignerListenerEndpoint) serviceLoop(ctx context.Context) {
 			{
 				conn, err := sl.acceptNewConnection()
 				if err == nil {
-					sl.logger.Info("SignerListener: Connected")
+					logger.Info("SignerListener: Connected")
 
 					// We have a good connection, wait for someone that needs one otherwise cancellation
 					select {
@@ -209,7 +209,7 @@ func (sl *SignerListenerEndpoint) pingLoop(ctx context.Context) {
 			{
 				_, err := sl.SendRequest(ctx, mustWrapMsg(&privvalproto.PingRequest{}))
 				if err != nil {
-					sl.logger.Error("SignerListener: Ping timeout")
+					logger.Error("SignerListener: Ping timeout")
 					sl.triggerReconnect()
 				}
 			}

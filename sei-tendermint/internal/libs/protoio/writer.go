@@ -59,7 +59,7 @@ func (w *varintWriter) WriteMsg(msg proto.Message) (int, error) {
 			if n+binary.MaxVarintLen64 >= len(w.buffer) {
 				w.buffer = make([]byte, n+binary.MaxVarintLen64)
 			}
-			lenOff := binary.PutUvarint(w.buffer, uint64(n))
+			lenOff := binary.PutUvarint(w.buffer, uint64(n)) //nolint:gosec // n is a proto message size, always non-negative
 			_, err := m.MarshalTo(w.buffer[lenOff:])
 			if err != nil {
 				return 0, err
@@ -74,7 +74,7 @@ func (w *varintWriter) WriteMsg(msg proto.Message) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	length := uint64(len(data))
+	length := uint64(len(data)) //nolint:gosec // len() is always non-negative
 	n := binary.PutUvarint(w.lenBuf, length)
 	_, err = w.w.Write(w.lenBuf[:n])
 	if err != nil {
@@ -93,7 +93,7 @@ func (w *varintWriter) Close() error {
 
 func varintWrittenBytes(m marshaler, size int) ([]byte, error) {
 	buf := make([]byte, size+binary.MaxVarintLen64)
-	n := binary.PutUvarint(buf, uint64(size))
+	n := binary.PutUvarint(buf, uint64(size)) //nolint:gosec // size is a proto message size, always non-negative
 	nw, err := m.MarshalTo(buf[n:])
 	if err != nil {
 		return nil, err

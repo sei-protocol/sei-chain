@@ -3,7 +3,7 @@ package types
 import (
 	"testing"
 
-	// sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	// sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/stretchr/testify/require"
 )
 

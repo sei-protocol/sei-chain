@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -48,7 +47,6 @@ var errReadOnly = errors.New("db is read-only")
 type DB struct {
 	*MultiTree
 	dir      string
-	logger   logger.Logger
 	fileLock FileLock
 	readOnly bool
 	opts     Options
@@ -74,8 +72,11 @@ type DB struct {
 	// timestamp of the last successful snapshot creation
 	// Protected by db.mtx (only accessed in Commit call chain)
 	lastSnapshotTime time.Time
-	// make sure only one snapshot rewrite is running
+
+	// pruneSnapshotLock guards concurrent prune operations; use TryLock in pruneSnapshots
 	pruneSnapshotLock sync.Mutex
+	// closed guards against double Close(), protected by db.mtx
+	closed bool
 
 	// walIndexDelta is the difference: version - walIndex for any entry.
 	// Since both WAL indices and versions are strictly contiguous, this delta is constant.
@@ -106,7 +107,7 @@ const (
 //
 // NOTE: Relies on filesystem ModTime which may be inaccurate after backup/restore operations.
 // TODO: Consider storing timestamp in MultiTreeMetadata for reliability.
-func getSnapshotModTime(logger logger.Logger, dir string) time.Time {
+func getSnapshotModTime(dir string) time.Time {
 	// Read the "current" symlink to get the actual snapshot directory
 	currentLink := filepath.Clean(currentPath(dir))
 	snapshotName, err := os.Readlink(currentLink)
@@ -146,7 +147,7 @@ func getSnapshotModTime(logger logger.Logger, dir string) time.Time {
 	return info.ModTime()
 }
 
-func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
+func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.RestartLatency.Record(
@@ -163,7 +164,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
 	opts.FillDefaults()
-	opts.Logger = logger
 	if opts.CreateIfMissing {
 		if err := createDBIfNotExist(opts.Dir, opts.InitialVersion); err != nil {
 			return nil, fmt.Errorf("fail to load db: %w", err)
@@ -198,14 +198,11 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		return nil, err
 	}
 
-	for _, tree := range mtree.trees {
-		tree.snapshot.nodesMap.PrepareForRandomRead()
-		tree.snapshot.leavesMap.PrepareForRandomRead()
-	}
+	// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
 
 	// MemIAVL owns changelog lifecycle: always open the WAL here.
 	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
-	streamHandler, err := wal.NewChangelogWAL(logger, utils.GetChangelogPath(opts.Dir), wal.Config{
+	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
 		WriteBufferSize: opts.AsyncCommitBuffer,
 	})
 	if err != nil {
@@ -230,7 +227,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
 			return nil, err
 		}
-		logger.Info(fmt.Sprintf("Finished the replay and caught up to version %d", targetVersion))
+		logger.Info("finished replay and caught up to target version", "version", targetVersion)
 	}
 
 	if opts.LoadForOverwriting && targetVersion > 0 {
@@ -241,7 +238,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 		if snapshot != currentSnapshot {
 			// downgrade `"current"` link first
-			logger.Info("downgrade current link to %s", snapshot)
+			logger.Info("downgrade current link", "link", snapshot)
 			if err := updateCurrentSymlink(opts.Dir, snapshot); err != nil {
 				return nil, fmt.Errorf("fail to update current snapshot link: %w", err)
 			}
@@ -249,7 +246,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 		// truncate the rlog file (if WAL is provided and has entries)
 		if walHasEntries {
-			logger.Info("truncate rlog after version: %d", targetVersion)
+			logger.Info("truncate rlog after version", "version", targetVersion)
 			// Use O(1) conversion: walIndex = version - delta
 			truncateIndex := targetVersion - walIndexDelta
 			if truncateIndex > 0 {
@@ -266,9 +263,9 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 			}
 
 			if err := atomicRemoveDir(filepath.Join(opts.Dir, snapshotName(version))); err != nil {
-				logger.Error("fail to prune snapshot, version: %d", version)
+				logger.Error("fail to prune snapshot", "version", version)
 			} else {
-				logger.Info("prune snapshot, version: %d", version)
+				logger.Info("pruned snapshot", "version", version)
 			}
 			return false, nil
 		}); err != nil {
@@ -282,11 +279,10 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	// Initialize lastSnapshotTime from the current snapshot directory's modification time
 	// This ensures accurate time tracking even after restarts
 	// Read the "current" symlink to get the actual snapshot directory's ModTime
-	lastSnapshotTime := getSnapshotModTime(logger, opts.Dir)
+	lastSnapshotTime := getSnapshotModTime(opts.Dir)
 
 	db := &DB{
 		MultiTree:               mtree,
-		logger:                  logger,
 		dir:                     opts.Dir,
 		fileLock:                fileLock,
 		readOnly:                opts.ReadOnly,
@@ -294,7 +290,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		streamHandler:           streamHandler,
 		snapshotKeepRecent:      opts.SnapshotKeepRecent,
 		snapshotInterval:        opts.SnapshotInterval,
-		snapshotMinTimeInterval: opts.SnapshotMinTimeInterval,
+		snapshotMinTimeInterval: opts.SnapshotMinTimeDuration(),
 		lastSnapshotTime:        lastSnapshotTime,
 		snapshotWriterPool:      workerPool,
 		opts:                    opts,
@@ -463,12 +459,19 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 
 		if !ok {
 			// channel was closed without sending a result
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return errors.New("snapshot rewrite channel closed unexpectedly")
 		}
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
 			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
+		} else {
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		// wait for potential pending writes to finish, to make sure we catch up to latest state.
@@ -485,11 +488,15 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		}
 
 		// catchup the remaining entries in rlog
+		startTime := time.Now()
 		if wal := db.GetWAL(); wal != nil {
 			if err := result.mtree.Catchup(context.Background(), wal, db.walIndexDelta, 0); err != nil {
 				return fmt.Errorf("catchup failed: %w", err)
 			}
 		}
+		replayElapsedTime := time.Since(startTime).Seconds()
+		otelMetrics.CatchupBeforeReloadLatency.Record(context.Background(), replayElapsedTime)
+		logger.Info("successfully replayed and caught up before switching to new memiavl snapshot", "version", db.MultiTree.Version(), "latency_sec", replayElapsedTime)
 
 		// do the switch
 		if err := db.reloadMultiTree(result.mtree); err != nil {
@@ -498,8 +505,8 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		// reset memnode counter
 		TotalMemNodeSize.Store(0)
 		TotalNumOfMemNode.Store(0)
-		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
-		db.pruneSnapshots()
+		logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
+		go db.pruneSnapshots()
 
 	default:
 	}
@@ -510,13 +517,23 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 // pruneSnapshots prunes old snapshots, keeping only snapshotKeepRecent recent ones.
 // Note: WAL truncation is now handled by CommitStore after each commit.
 func (db *DB) pruneSnapshots() {
-	// wait until last prune finish
-	db.pruneSnapshotLock.Lock()
+	if !db.pruneSnapshotLock.TryLock() {
+		logger.Info("pruneSnapshots skipped, previous prune still in progress")
+		return
+	}
 	defer db.pruneSnapshotLock.Unlock()
+
+	logger.Info("pruneSnapshots started")
+	startTime := time.Now()
+	defer func() {
+		pruneLatency := time.Since(startTime).Seconds()
+		otelMetrics.SnapshotPruneLatency.Record(context.Background(), pruneLatency)
+		logger.Info("pruneSnapshots completed", "duration-sec", pruneLatency)
+	}()
 
 	currentVersion, err := currentVersion(db.dir)
 	if err != nil {
-		db.logger.Error("failed to read current snapshot version", "err", err)
+		logger.Error("failed to read current snapshot version", "err", err)
 		return
 	}
 
@@ -533,15 +550,19 @@ func (db *DB) pruneSnapshots() {
 		}
 
 		name := snapshotName(version)
-		db.logger.Info("prune snapshot", "name", name)
 
 		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
-			db.logger.Error("failed to prune snapshot", "err", err)
+			logger.Error("failed to prune snapshot", "err", err)
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
+		} else {
+			logger.Info("successfully pruned snapshot", "name", name)
+			otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
 		return false, nil
 	}); err != nil {
-		db.logger.Error("fail to prune snapshots", "err", err)
+		logger.Error("fail to prune snapshots", "err", err)
+		otelMetrics.NumSnapshotPruneAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		return
 	}
 }
@@ -643,6 +664,7 @@ func (db *DB) Commit() (version int64, _err error) {
 	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
 	db.tryTruncateWAL()
+	otelMetrics.CurrentSnapshotHeight.Record(context.Background(), db.SnapshotVersion())
 
 	return v, nil
 }
@@ -661,7 +683,7 @@ func (db *DB) tryTruncateWAL() {
 		return
 	}
 	if firstWALIndex > uint64(math.MaxInt64) {
-		db.logger.Error("WAL first offset overflows int64; skipping truncation", "firstWALIndex", firstWALIndex)
+		logger.Error("WAL first offset overflows int64; skipping truncation", "firstWALIndex", firstWALIndex)
 		return
 	}
 	walEarliestVersion := db.walIndexToVersion(firstWALIndex)
@@ -673,7 +695,7 @@ func (db *DB) tryTruncateWAL() {
 		return
 	}
 	if err := db.streamHandler.TruncateBefore(truncateIndex); err != nil {
-		db.logger.Error("failed to truncate changelog WAL", "err", err, "truncateIndex", truncateIndex)
+		logger.Error("failed to truncate changelog WAL", "err", err, "truncateIndex", truncateIndex)
 	}
 }
 
@@ -689,7 +711,6 @@ func (db *DB) copy() *DB {
 
 	return &DB{
 		MultiTree:          mtree,
-		logger:             db.logger,
 		dir:                db.dir,
 		snapshotWriterPool: db.snapshotWriterPool,
 		opts:               db.opts,
@@ -711,13 +732,13 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	// Check if snapshot already exists
 	if info, err := os.Stat(targetPath); err == nil {
 		if info.IsDir() {
-			db.logger.Info("snapshot already exists, skipping",
+			logger.Info("snapshot already exists, skipping",
 				"snapshot_dir", snapshotDir,
 				"version", db.lastCommitInfo.Version)
 			return nil
 		} else {
 			// targetPath exists but is not a directory - this is unexpected
-			db.logger.Error("snapshot path exists but is not a directory",
+			logger.Error("snapshot path exists but is not a directory",
 				"path", targetPath)
 			return fmt.Errorf("snapshot path exists but is not a directory: %s", targetPath)
 		}
@@ -727,46 +748,46 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	path := filepath.Clean(filepath.Join(db.dir, tmpDir))
 
 	writeStart := time.Now()
-	err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool)
+	err := db.WriteSnapshotWithRateLimit(ctx, path, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
-		db.logger.Error("snapshot write failed, cleaning up temporary directory",
+		logger.Error("snapshot write failed, cleaning up temporary directory",
 			"tmpDir", tmpDir,
 			"error", err,
 		)
 		cleanupErr := os.RemoveAll(path)
 		if cleanupErr != nil {
-			db.logger.Error("failed to clean up temporary snapshot directory",
+			logger.Error("failed to clean up temporary snapshot directory",
 				"tmpDir", tmpDir,
 				"cleanup_error", cleanupErr,
 			)
 		} else {
-			db.logger.Debug("temporary snapshot directory cleaned up successfully",
+			logger.Debug("temporary snapshot directory cleaned up successfully",
 				"tmpDir", tmpDir,
 			)
 		}
 		return errorutils.Join(err, cleanupErr)
 	}
 
-	db.logger.Info("snapshot rewrite completed", "duration_sec", writeElapsed)
+	logger.Info("snapshot rewrite completed", "duration_sec", writeElapsed)
 
 	// Rename temporary directory to final location
 	if err := os.Rename(path, targetPath); err != nil {
-		db.logger.Error("failed to rename snapshot directory, cleaning up",
+		logger.Error("failed to rename snapshot directory, cleaning up",
 			"tmpDir", tmpDir,
 			"targetDir", snapshotDir,
 			"error", err,
 		)
 		// Clean up temporary directory on rename failure
 		if cleanupErr := os.RemoveAll(path); cleanupErr != nil {
-			db.logger.Error("failed to clean up temporary snapshot directory after rename failure",
+			logger.Error("failed to clean up temporary snapshot directory after rename failure",
 				"tmpDir", tmpDir,
 				"cleanup_error", cleanupErr,
 			)
 			return errorutils.Join(err, cleanupErr)
 		}
-		db.logger.Info("temporary snapshot directory cleaned up after rename failure",
+		logger.Info("temporary snapshot directory cleaned up after rename failure",
 			"tmpDir", tmpDir,
 		)
 		return err
@@ -817,7 +838,7 @@ func (db *DB) rewriteIfApplicable(height int64) {
 		timeSinceLastSnapshot := time.Since(db.lastSnapshotTime)
 
 		if timeSinceLastSnapshot < db.snapshotMinTimeInterval {
-			db.logger.Debug("skipping snapshot (minimum time interval not reached)",
+			logger.Debug("skipping snapshot (minimum time interval not reached)",
 				"blocks_since_last", blocksSinceLastSnapshot,
 				"time_since_last", timeSinceLastSnapshot,
 				"min_time_interval", db.snapshotMinTimeInterval,
@@ -825,13 +846,14 @@ func (db *DB) rewriteIfApplicable(height int64) {
 			return
 		}
 
-		db.logger.Info("creating snapshot",
+		logger.Info("creating snapshot",
 			"blocks_since_last", blocksSinceLastSnapshot,
 			"time_since_last", timeSinceLastSnapshot,
 		)
 
 		if err := db.rewriteSnapshotBackground(); err != nil {
-			db.logger.Error("failed to rewrite snapshot in background", "err", err)
+			logger.Error("failed to rewrite snapshot in background", "err", err)
+			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
 		}
 	}
 }
@@ -872,15 +894,14 @@ func (db *DB) rewriteSnapshotBackground() error {
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
-		cloned.logger.Info("start rewriting snapshot", "version", cloned.Version())
-
+		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()
 		if err := cloned.RewriteSnapshot(ctx); err != nil {
-			cloned.logger.Error("failed to rewrite snapshot", "error", err, "elapsed", time.Since(rewriteStart).Seconds())
+			logger.Error("failed to rewrite snapshot", "error", err, "elapsed", time.Since(rewriteStart).Seconds())
 			ch <- snapshotResult{err: err}
 			return
 		}
-		cloned.logger.Info("finished rewriting snapshot", "version", cloned.Version(), "elapsed", time.Since(rewriteStart).Seconds())
+		logger.Info("finished rewriting snapshot", "version", cloned.Version(), "elapsed", time.Since(rewriteStart).Seconds())
 
 		loadStart := time.Now()
 
@@ -892,33 +913,38 @@ func (db *DB) rewriteSnapshotBackground() error {
 		// commits and evicts hot pages from the active snapshot still being used by main chain.
 		// Use cloned.opts instead of db.opts to avoid race condition with Close()
 		loadOpts := cloned.opts
-		loadOpts.PrefetchThreshold = 0
+		loadOpts.SnapshotPrefetchThreshold = 0
 
 		mtree, err := LoadMultiTree(ctx, currentPath(cloned.dir), loadOpts)
 		if err != nil {
-			cloned.logger.Error("failed to load multitree after snapshot", "error", err)
+			logger.Error("failed to load multitree after snapshot", "error", err)
 			ch <- snapshotResult{err: err}
 			return
 		}
-		cloned.logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
+
+		// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
+
+		logger.Info("loaded multitree after snapshot", "elapsed", time.Since(loadStart).Seconds())
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
 		if wal := db.GetWAL(); wal != nil {
 			catchupStart := time.Now()
 			if err := mtree.Catchup(ctx, wal, db.walIndexDelta, 0); err != nil {
-				cloned.logger.Error("failed to catchup after snapshot", "error", err)
+				logger.Error("failed to catchup after snapshot", "error", err)
 				ch <- snapshotResult{err: err}
 				return
 			}
-			cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version(), "elapsed", time.Since(catchupStart).Seconds())
+			catchupElapsed := time.Since(catchupStart).Seconds()
+			otelMetrics.CatchupAfterRewriteLatency.Record(context.Background(), catchupElapsed)
+			logger.Info("finished best-effort catchup after snapshot rewrite", "version", cloned.Version(), "latest", mtree.Version(), "elapsed", catchupElapsed)
 		}
 
 		ch <- snapshotResult{mtree: mtree}
-		totalElapsed := time.Since(startTime).Seconds()
-		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalElapsed, "duration_min", totalElapsed/60)
-		otelMetrics.SnapshotCreationLatency.Record(
+		totalRewriteElapsed := time.Since(startTime).Seconds()
+		logger.Info("snapshot rewrite process completed", "duration_sec", totalRewriteElapsed, "duration_min", totalRewriteElapsed/60)
+		otelMetrics.SnapshotRewriteLatency.Record(
 			context.Background(),
-			totalElapsed,
+			totalRewriteElapsed,
 		)
 	}()
 
@@ -926,26 +952,31 @@ func (db *DB) rewriteSnapshotBackground() error {
 }
 
 func (db *DB) Close() error {
-	db.logger.Info("Closing memiavl db...")
+	logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
-	errs := []error{}
+	if db.closed {
+		return nil
+	}
+	db.closed = true
+	// Wait for any ongoing prune to finish, then block new prunes
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
+	errs := []error{}
 
 	// Close rewrite channel first - must wait for background goroutine before closing WAL
-	db.logger.Info("Closing rewrite channel...")
+	logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
 		// Wait for goroutine to finish and send result
 		if result, ok := <-db.snapshotRewriteChan; ok {
 			if result.err != nil {
-				db.logger.Error("snapshot rewrite failed during close", "error", result.err)
+				logger.Error("snapshot rewrite failed during close", "error", result.err)
 			}
 			// Close the returned mtree to avoid resource leak
 			if result.mtree != nil {
 				if err := result.mtree.Close(); err != nil {
-					db.logger.Error("failed to close mtree from snapshot rewrite", "error", err)
+					logger.Error("failed to close mtree from snapshot rewrite", "error", err)
 					errs = append(errs, err)
 				}
 			}
@@ -969,13 +1000,13 @@ func (db *DB) Close() error {
 	}
 
 	// Close file lock
-	db.logger.Info("Closing file lock...")
+	logger.Info("Closing file lock...")
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
 		errs = append(errs, db.fileLock.Destroy())
 		db.fileLock = nil
 	}
-	db.logger.Info("Closed memiavl db.")
+	logger.Info("Closed memiavl db.")
 	return errorutils.Join(errs...)
 }
 
@@ -1038,7 +1069,7 @@ func (db *DB) WriteSnapshot(dir string) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	return db.MultiTree.WriteSnapshot(context.Background(), dir, db.snapshotWriterPool)
+	return db.WriteSnapshotWithRateLimit(context.Background(), dir, db.snapshotWriterPool, db.opts.SnapshotWriteRateMBps)
 }
 
 func snapshotName(version int64) string {

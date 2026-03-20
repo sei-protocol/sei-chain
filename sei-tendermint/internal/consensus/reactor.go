@@ -3,24 +3,24 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
-	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/tendermint/tendermint/config"
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -92,8 +92,7 @@ const (
 // Reactor defines a reactor for the consensus service.
 type Reactor struct {
 	service.BaseService
-	logger log.Logger
-	cfg    *config.Config
+	cfg *config.Config
 
 	state    *State
 	router   *p2p.Router
@@ -102,9 +101,8 @@ type Reactor struct {
 	Metrics  *Metrics
 
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
-	mtx         sync.RWMutex
-	rs          *cstypes.RoundState
-	readySignal chan struct{} // closed when the node is ready to start consensus
+	roundState  atomic.Pointer[cstypes.RoundState]
+	readySignal utils.AtomicSend[bool]
 }
 
 // NewReactor returns a reference to a new consensus reactor, which implements
@@ -112,7 +110,6 @@ type Reactor struct {
 // to relevant p2p Channels and a channel to listen for peer updates on. The
 // reactor will close all p2p Channels when stopping.
 func NewReactor(
-	logger log.Logger,
 	cs *State,
 	router *p2p.Router,
 	eventBus *eventbus.EventBus,
@@ -137,14 +134,12 @@ func NewReactor(
 		return nil, err
 	}
 	r := &Reactor{
-		logger:      logger,
 		state:       cs,
-		rs:          cs.GetRoundState(),
 		peers:       utils.NewRWMutex(map[types.NodeID]*PeerState{}),
 		eventBus:    eventBus,
 		Metrics:     metrics,
 		router:      router,
-		readySignal: make(chan struct{}),
+		readySignal: utils.NewAtomicSend(!waitSync),
 		channels: channelBundle{
 			state:  stateCh,
 			data:   dataCh,
@@ -153,14 +148,11 @@ func NewReactor(
 		},
 		cfg: cfg,
 	}
+	r.roundState.Store(cs.GetRoundState())
 	cs.eventNewRoundStep = r.broadcastNewRoundStepMessage
-	cs.eventValidBlock = r.broadcastNewValidBlockMessage
 	cs.eventVote = r.broadcastHasVoteMessage
 	cs.eventMsg = r.recordPeerMsg
-	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
-	if !waitSync {
-		close(r.readySignal)
-	}
+	r.BaseService = *service.NewBaseService("Consensus", r)
 
 	return r, nil
 }
@@ -177,7 +169,7 @@ type channelBundle struct {
 // messages on that p2p channel accordingly. The caller must be sure to execute
 // OnStop to ensure the outbound p2p Channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	r.logger.Debug("consensus wait sync", "wait_sync", r.WaitSync())
+	logger.Debug("consensus wait sync", "wait_sync", r.WaitSync())
 
 	if err := r.state.updateStateFromStore(); err != nil {
 		return err
@@ -190,10 +182,11 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	r.SpawnCritical("processVoteCh", r.processVoteCh)
 	r.SpawnCritical("processVoteSetBitsCh", r.processVoteSetBitsCh)
 	r.SpawnCritical("state.Run", func(ctx context.Context) error {
-		if _, _, err := utils.RecvOrClosed(ctx, r.readySignal); err != nil {
+		if _, err := r.readySignal.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
 			return err
 		}
 		r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
+		r.SpawnCritical("broadcastValidBlock", r.broadcastValidBlockRoutine)
 		return r.state.Run(ctx)
 	})
 	return nil
@@ -206,22 +199,17 @@ func (r *Reactor) OnStop() {}
 
 // WaitSync returns whether the consensus reactor is waiting for state/block sync.
 func (r *Reactor) WaitSync() bool {
-	select {
-	case <-r.readySignal:
-		return false
-	default:
-		return true
-	}
+	return !r.readySignal.Load()
 }
 
 // SwitchToConsensus switches from block-sync mode to consensus mode. It resets
 // the state, turns off block-sync, and starts the consensus state-machine.
 func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL bool) {
-	r.logger.Info("switching to consensus")
+	logger.Info("switching to consensus")
 
 	d := types.EventDataBlockSyncStatus{Complete: true, Height: state.LastBlockHeight}
 	if err := r.eventBus.PublishEventBlockSyncStatus(d); err != nil {
-		r.logger.Error("failed to emit the blocksync complete event", "err", err)
+		logger.Error("failed to emit the blocksync complete event", "err", err)
 	}
 	r.Metrics.BlockSyncing.Set(0)
 	r.Metrics.StateSyncing.Set(0)
@@ -237,9 +225,7 @@ func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL
 	}
 	r.state.mtx.Unlock()
 
-	r.mtx.Lock()
-	close(r.readySignal)
-	r.mtx.Unlock()
+	r.readySignal.Store(true)
 }
 
 // String returns a string representation of the Reactor.
@@ -260,15 +246,34 @@ func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState) {
 	r.channels.state.Broadcast(MsgToProto(makeRoundStepMessage(rs)))
 }
 
-func (r *Reactor) broadcastNewValidBlockMessage(rs *cstypes.RoundState) {
-	psHeader := rs.ProposalBlockParts.Header()
-	r.channels.state.Broadcast(MsgToProto(&NewValidBlockMessage{
-		Height:             rs.Height,
-		Round:              rs.Round,
-		BlockPartSetHeader: psHeader,
-		BlockParts:         rs.ProposalBlockParts.BitArray(),
-		IsCommit:           rs.Step == cstypes.RoundStepCommit,
-	}))
+// Broadcasts NewValidBlockMessage whenever new valid block is reported.
+// It rebroadcasts the NewValidBlockMessage periodically to ensure that peers know which parts
+// we are missing. It is critical in case we have small number of peers (for example just 1),
+// and they are overloaded (they drop messages a lot).
+func (r *Reactor) broadcastValidBlockRoutine(ctx context.Context) error {
+	// Rebroadcasting is a fallback mechanism, no need to expose the frequency as
+	// a config parameter.
+	const interval = time.Second
+	return r.state.eventValidBlock.Iter(ctx, func(ctx context.Context, mrs utils.Option[*cstypes.RoundState]) error {
+		rs, ok := mrs.Get()
+		if !ok || rs.ProposalBlockParts == nil {
+			return nil
+		}
+		for {
+			r.channels.state.Broadcast(MsgToProto(&NewValidBlockMessage{
+				Height:             rs.Height,
+				Round:              rs.Round,
+				BlockPartSetHeader: rs.ProposalBlockParts.Header(),
+				// Block parts bit array might be updated between iterations,
+				// so we need to reconstruct the message each time.
+				BlockParts: rs.ProposalBlockParts.BitArray(),
+				IsCommit:   rs.Step == cstypes.RoundStepCommit,
+			}))
+			if err := utils.Sleep(ctx, interval); err != nil {
+				return err
+			}
+		}
+	})
 }
 
 func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote) {
@@ -289,7 +294,7 @@ func makeRoundStepMessage(rs *cstypes.RoundState) *NewRoundStepMessage {
 }
 
 func (r *Reactor) sendNewRoundStepMessage(peerID types.NodeID) {
-	r.channels.state.Send(MsgToProto(makeRoundStepMessage(r.getRoundState())), peerID)
+	r.channels.state.Send(MsgToProto(makeRoundStepMessage(r.roundState.Load())), peerID)
 }
 
 func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
@@ -298,21 +303,12 @@ func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
 		if _, err := utils.Recv(ctx, t.C); err != nil {
 			return err
 		}
-		rs := r.state.GetRoundState()
-		r.mtx.Lock()
-		r.rs = rs
-		r.mtx.Unlock()
+		r.roundState.Store(r.state.GetRoundState())
 	}
 }
 
-func (r *Reactor) getRoundState() *cstypes.RoundState {
-	r.mtx.RLock()
-	defer r.mtx.RUnlock()
-	return r.rs
-}
-
 func (r *Reactor) gossipDataForCatchup(rs *cstypes.RoundState, prs *cstypes.PeerRoundState, ps *PeerState) {
-	logger := r.logger.With("height", prs.Height).With("peer", ps.peerID)
+	logger := logger.With("height", prs.Height).With("peer", ps.peerID)
 
 	if index, ok := prs.ProposalBlockParts.Not().PickRandom(); ok {
 		// ensure that the peer's PartSetHeader is correct
@@ -365,7 +361,7 @@ func (r *Reactor) gossipDataForCatchup(rs *cstypes.RoundState, prs *cstypes.Peer
 
 func (r *Reactor) gossipDataRoutine(ctx context.Context, ps *PeerState) error {
 	dataCh := r.channels.data
-	logger := r.logger.With("peer", ps.peerID)
+	logger := logger.With("peer", ps.peerID)
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -377,7 +373,7 @@ OUTER_LOOP:
 			return err
 		}
 
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		// Send proposal Block parts?
@@ -398,15 +394,15 @@ OUTER_LOOP:
 		// if the peer is on a previous height that we have, help catch up
 		blockStoreBase := r.state.blockStore.Base()
 		if blockStoreBase > 0 && 0 < prs.Height && prs.Height < rs.Height && prs.Height >= blockStoreBase {
-			heightLogger := logger.With("height", prs.Height)
 
 			// If we never received the commit message from the peer, the block parts
 			// will not be initialized.
 			if prs.ProposalBlockParts == nil {
 				blockMeta := r.state.blockStore.LoadBlockMeta(prs.Height)
 				if blockMeta == nil {
-					heightLogger.Error(
+					logger.Error(
 						"failed to load block meta",
+						"height", prs.Height,
 						"blockstoreBase", blockStoreBase,
 						"blockstoreHeight", r.state.blockStore.Height(),
 					)
@@ -465,12 +461,12 @@ func (r *Reactor) pickSendVote(ps *PeerState, votes types.VoteSetReader) bool {
 		return false
 	}
 
-	if r.cfg.BaseConfig.LogLevel == log.LogLevelDebug {
+	if logger.Enabled(context.Background(), slog.LevelDebug) {
 		psJson, err := ps.ToJSON() // expensive, so we only want to call if debug is on
 		if err != nil {
 			panic(fmt.Errorf("ps.ToJSON(): %w", err))
 		}
-		r.logger.Debug("sending vote message", "ps", string(psJson), "vote", vote)
+		logger.Debug("sending vote message", "ps", string(psJson), "vote", vote)
 	}
 	r.channels.vote.Send(MsgToProto(&VoteMessage{Vote: vote}), ps.peerID)
 
@@ -486,7 +482,7 @@ func (r *Reactor) gossipVotesForHeight(
 	prs *cstypes.PeerRoundState,
 	ps *PeerState,
 ) bool {
-	logger := r.logger.With("height", prs.Height).With("peer", ps.peerID)
+	logger := logger.With("height", prs.Height, "peer", ps.peerID)
 
 	// if there are lastCommits to send...
 	if prs.Step == cstypes.RoundStepNewHeight {
@@ -544,13 +540,13 @@ func (r *Reactor) gossipVotesForHeight(
 }
 
 func (r *Reactor) gossipVotesRoutine(ctx context.Context, ps *PeerState) error {
-	logger := r.logger.With("peer", ps.peerID)
+	logger := logger.With("peer", ps.peerID)
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
 	for ctx.Err() == nil {
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		// if height matches, then send LastCommit, Prevotes, and Precommits
@@ -601,7 +597,7 @@ func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 	for {
 		// TODO create more reliable copies of these
 		// structures so the following go routines don't race
-		rs := r.getRoundState()
+		rs := r.roundState.Load()
 		prs := ps.GetRoundState()
 
 		if rs.Height == prs.Height {
@@ -667,7 +663,7 @@ func (r *Reactor) handleStateMessage(m p2p.RecvMsg[*tmcons.Message]) (err error)
 	defer r.recoverToErr(&err)
 	ps, ok := r.GetPeerState(m.From)
 	if !ok {
-		r.logger.Debug("failed to find peer state", "peer", m.From, "ch_id", "StateChannel")
+		logger.Debug("failed to find peer state", "peer", m.From, "ch_id", "StateChannel")
 		return nil
 	}
 
@@ -739,11 +735,11 @@ func (r *Reactor) handleStateMessage(m p2p.RecvMsg[*tmcons.Message]) (err error)
 // removed.
 func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.Message]) (err error) {
 	defer r.recoverToErr(&err)
-	logger := r.logger.With("peer", m.From, "ch_id", "DataChannel")
+	logger := logger.With("peer", m.From, "ch_id", "DataChannel")
 
 	ps, ok := r.GetPeerState(m.From)
 	if !ok || ps == nil {
-		r.logger.Debug("failed to find peer state")
+		logger.Debug("failed to find peer state")
 		return nil
 	}
 
@@ -778,11 +774,11 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 // removed.
 func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.Message]) (err error) {
 	defer r.recoverToErr(&err)
-	logger := r.logger.With("peer", m.From, "ch_id", "VoteChannel")
+	logger := logger.With("peer", m.From, "ch_id", "VoteChannel")
 
 	ps, ok := r.GetPeerState(m.From)
 	if !ok {
-		r.logger.Debug("failed to find peer state")
+		logger.Debug("failed to find peer state")
 		return nil
 	}
 
@@ -821,11 +817,11 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 // after the peer is removed.
 func (r *Reactor) handleVoteSetBitsMessage(m p2p.RecvMsg[*tmcons.Message]) (err error) {
 	defer r.recoverToErr(&err)
-	logger := r.logger.With("peer", m.From, "ch_id", "VoteSetBitsChannel")
+	logger := logger.With("peer", m.From, "ch_id", "VoteSetBitsChannel")
 
 	ps, ok := r.GetPeerState(m.From)
 	if !ok || ps == nil {
-		r.logger.Debug("failed to find peer state")
+		logger.Debug("failed to find peer state")
 		return nil
 	}
 
@@ -870,7 +866,7 @@ func (r *Reactor) handleVoteSetBitsMessage(m p2p.RecvMsg[*tmcons.Message]) (err 
 func (r *Reactor) recoverToErr(err *error) {
 	if e := recover(); e != nil {
 		*err = fmt.Errorf("panic in processing message: %v", e)
-		r.logger.Error(
+		logger.Error(
 			"recovering from processing message panic",
 			"err", *err,
 			"stack", string(debug.Stack()),
@@ -967,7 +963,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 					if _, ok := peers[update.NodeID]; ok {
 						continue
 					}
-					ps := NewPeerState(r.logger, update.NodeID)
+					ps := NewPeerState(update.NodeID)
 					peerCtx, cancel := context.WithCancel(ctx)
 					ps.cancel = cancel
 					peers[update.NodeID] = ps

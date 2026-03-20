@@ -3,7 +3,7 @@ package transfer_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"

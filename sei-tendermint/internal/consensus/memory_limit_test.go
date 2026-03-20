@@ -4,12 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
 )
 
 var testKey = ed25519.TestSecretKey([]byte("test"))
@@ -19,7 +18,7 @@ func makeSig(data string) crypto.Sig {
 }
 
 func TestPeerStateMemoryLimits(t *testing.T) {
-	logger := log.NewTestingLogger(t)
+
 	peerID := types.NodeID("test-peer")
 
 	testCases := []struct {
@@ -37,7 +36,7 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 	t.Run("SetHasProposal", func(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				ps := NewPeerState(logger, peerID)
+				ps := NewPeerState(peerID)
 				ps.PRS.Height = 1
 				ps.PRS.Round = 0
 				blockID := types.BlockID{
@@ -71,7 +70,7 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 	t.Run("InitProposalBlockParts", func(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				ps := NewPeerState(logger, peerID)
+				ps := NewPeerState(peerID)
 				header := types.PartSetHeader{
 					Total: tc.total,
 					Hash:  make([]byte, 32),

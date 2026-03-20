@@ -121,7 +121,7 @@ func processDir(r *regexp.Regexp, root string) error {
 
 func processFile(r *regexp.Regexp, path string) error {
 	log.Printf("Processing file %q", path)
-	input, err := os.ReadFile(path)
+	input, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return err
 	}

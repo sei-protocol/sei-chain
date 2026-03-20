@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )
 
 const ProofOpValue = "simple:v"
@@ -84,8 +84,12 @@ func (op ValueOp) Run(args [][]byte) ([][]byte, error) {
 
 	bz := new(bytes.Buffer)
 	// Wrap <op.Key, vhash> to hash the KVPair.
-	encodeByteSlice(bz, op.key)   //nolint: errcheck // does not error
-	encodeByteSlice(bz, vhash[:]) //nolint: errcheck // does not error
+	if err := encodeByteSlice(bz, op.key); err != nil {
+		return nil, err
+	}
+	if err := encodeByteSlice(bz, vhash[:]); err != nil {
+		return nil, err
+	}
 	kvhash := leafHash(bz.Bytes())
 
 	if !bytes.Equal(kvhash, op.Proof.LeafHash) {

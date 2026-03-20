@@ -157,7 +157,9 @@ func TestGCRandom(t *testing.T) {
 		el := els[i]
 		l.Remove(el)
 		_ = el.Next()
+		els[i] = nil // Clear reference to allow GC
 	}
+	els = nil // Clear the slice to allow GC of all elements
 
 	tickerQuitCh := make(chan struct{})
 	tickerDoneCh := make(chan struct{})

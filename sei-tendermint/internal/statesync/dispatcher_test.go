@@ -12,14 +12,14 @@ import (
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type dispatcherTestSuite struct {
@@ -34,7 +34,6 @@ func dispatcherSetup(t *testing.T) *dispatcherTestSuite {
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     utils.Some(100),
 			MaxConnected: utils.Some(100),
 		},
 	})
@@ -60,7 +59,6 @@ type DispatcherNode struct {
 
 func (ts *dispatcherTestSuite) AddPeer(t *testing.T) *DispatcherNode {
 	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
 	blockCh, err := p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())
@@ -233,6 +231,23 @@ func TestPeerListBasic(t *testing.T) {
 	peerList.Append(peerSet[half])
 	peerList.Append(peerSet[half+1])
 	assert.Equal(t, half, peerList.Len())
+}
+
+func TestPeerListAllReturnsSnapshot(t *testing.T) {
+	peerList := NewPeerList()
+	peerSet := createPeerSet(2)
+	for _, peer := range peerSet {
+		peerList.Append(peer)
+	}
+
+	peers := peerList.All()
+	require.Len(t, peers, 2)
+
+	// Mutating the returned list must not mutate the internal peer list.
+	peers[0] = peerSet[1]
+	peers = peerList.All()
+	require.Equal(t, peerSet[0], peers[0])
+	require.Equal(t, peerSet[1], peers[1])
 }
 
 func TestPeerListBlocksWhenEmpty(t *testing.T) {

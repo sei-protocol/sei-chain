@@ -1,9 +1,9 @@
 package export
 
 import (
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 )
 
 type Query = query.Query

@@ -8,15 +8,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/params/client/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/client/utils"
 
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -557,7 +557,7 @@ func TestUpdateParamsProposal(t *testing.T) {
 			t.Log(string(bz))
 
 			var jsonProposal utils.ParamChangeProposalJSON
-			require.NoError(t, legacyAmino.UnmarshalJSON(bz, &jsonProposal))
+			require.NoError(t, legacyAmino.UnmarshalAsJSON(bz, &jsonProposal))
 			proposal := proposal.ParameterChangeProposal{
 				Title:       jsonProposal.Title,
 				Description: jsonProposal.Description,

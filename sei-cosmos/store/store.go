@@ -1,20 +1,19 @@
 package store
 
 import (
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cache"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cache"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func NewCommitMultiStore(db dbm.DB) types.CommitMultiStore {
-	return rootmulti.NewStore(db, log.NewNopLogger())
+	return rootmulti.NewStore(db)
 }
 
 func NewCommitMultiStoreWithArchival(db dbm.DB, archivalDb dbm.DB, archivalVersion int64) types.CommitMultiStore {
-	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion, log.NewNopLogger())
+	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion)
 }
 
 func NewCommitKVStoreCacheManager() types.MultiStorePersistentCache {

@@ -20,7 +20,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 		{
 			"success",
 			func() {
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -31,7 +31,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.Address = ""
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -49,7 +49,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.Encoding = "invalid-encoding-format"
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -60,7 +60,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.TxType = "invalid-tx-type"
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -71,7 +71,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.ControllerConnectionId = "connection-10"
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -82,7 +82,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.HostConnectionId = "connection-10"
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},
@@ -93,7 +93,7 @@ func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
 			func() {
 				metadata.Version = "invalid version"
 
-				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := types.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 				previousVersion = string(versionBytes)
 			},

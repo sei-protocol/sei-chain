@@ -6,10 +6,10 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 // QueryBalancesRequestHandlerFn returns a REST handler that queries for all
@@ -45,7 +45,7 @@ func QueryBalancesRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			route = fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryBalance)
 		}
 
-		bz, err := ctx.LegacyAmino.MarshalJSON(params)
+		bz, err := ctx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -74,7 +74,7 @@ func totalSupplyHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryTotalSupplyParams(page, limit)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 
 		if rest.CheckBadRequestError(w, err) {
 			return
@@ -101,7 +101,7 @@ func supplyOfHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQuerySupplyOfParams(denom)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 
 		if rest.CheckBadRequestError(w, err) {
 			return

@@ -8,24 +8,21 @@ import (
 	"strings"
 	"time"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/pex"
-	"github.com/tendermint/tendermint/internal/proxy"
-	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer/sink"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type seedNodeImpl struct {
 	service.BaseService
-	logger log.Logger
 
 	// config
 	config     *config.Config
@@ -46,19 +43,12 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
-	ctx context.Context,
-	logger log.Logger,
 	cfg *config.Config,
-	restartCh chan struct{},
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
-	client abciclient.Client,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -78,34 +68,19 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
 			peerCloser)
 	}
-	// Register a listener to restart router if signalled to do so
-	go func() {
-		for range restartCh {
-			logger.Info("Received signal to restart router, restarting...")
-			router.OnStop()
-			router.Wait()
-			logger.Info("Router successfully stopped. Restarting...")
-			// Start the transport.
-			if err := router.Start(ctx); err != nil {
-				logger.Error("Unable to start router, retrying...", err)
-			}
-		}
-	}()
 
-	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
+	pexReactor, err := pex.NewReactor(router, pex.DefaultSendInterval)
 	if err != nil {
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
-
-	closers := []closer{convertCancelCloser(cancel)}
+	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(err, dbCloser)
@@ -116,13 +91,12 @@ func makeSeedNode(
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
-	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+	eventBus := eventbus.NewDefault()
 
 	stateStore := sm.NewStore(stateDB)
 
 	node := &seedNodeImpl{
 		config:     cfg,
-		logger:     logger,
 		genesisDoc: genDoc,
 
 		nodeKey: nodeKey,
@@ -132,22 +106,21 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			ProxyApp: abci.NewBaseApplication(),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
 
-			PeerManager: router,
+			Router: router,
 
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
-			Logger:     logger.With("module", "rpc"),
 			Config:     *cfg.RPC,
 		},
 		nodeInfo: nodeInfo,
 	}
-	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
+	node.BaseService = *service.NewBaseService("SeedNode", node)
 
 	return node, nil
 }
@@ -157,7 +130,11 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 
 	if n.config.RPC.PprofListenAddress != "" {
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
-		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
+		srv := &http.Server{
+			Addr:              n.config.RPC.PprofListenAddress,
+			Handler:           nil,
+			ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
+		}
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -169,10 +146,10 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 		}()
 
 		go func() {
-			n.logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
+			logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
 
 			if err := srv.ListenAndServe(); err != nil {
-				n.logger.Error("pprof server error", "err", err)
+				logger.Error("pprof server error", "err", err)
 				rpcCancel()
 			}
 		}()
@@ -181,7 +158,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 	now := tmtime.Now()
 	genTime := n.genesisDoc.GenesisTime
 	if genTime.After(now) {
-		n.logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
+		logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
 		time.Sleep(genTime.Sub(now))
 	}
 
@@ -202,7 +179,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 
 // OnStop stops the Seed Node. It implements service.Service.
 func (n *seedNodeImpl) OnStop() {
-	n.logger.Info("Stopping Node")
+	logger.Info("Stopping Node")
 
 	n.pexReactor.Wait()
 	n.router.Wait()
@@ -210,7 +187,7 @@ func (n *seedNodeImpl) OnStop() {
 
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {
-			n.logger.Error("problem shutting down additional services", "err", err)
+			logger.Error("problem shutting down additional services", "err", err)
 		}
 	}
 }

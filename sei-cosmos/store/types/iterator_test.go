@@ -5,16 +5,15 @@ import (
 
 	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func newMemTestKVStore(t *testing.T) types.KVStore {
 	db := dbm.NewMemDB()
-	store, err := iavl.LoadStore(db, log.NewNopLogger(), types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
+	store, err := iavl.LoadStore(db, types.NewKVStoreKey("test"), types.CommitID{}, false, iavl.DefaultIAVLCacheSize, false, &iavltree.Options{})
 	require.NoError(t, err)
 	return store
 }
@@ -91,7 +90,7 @@ func TestPaginatedIterator(t *testing.T) {
 			} else {
 				iter = types.KVStorePrefixIteratorPaginated(kvs, nil, tc.page, tc.limit)
 			}
-			defer iter.Close()
+			defer func() { _ = iter.Close() }()
 
 			result := [][]byte{}
 			for ; iter.Valid(); iter.Next() {
@@ -108,14 +107,14 @@ func TestPaginatedIteratorPanicIfInvalid(t *testing.T) {
 	kvs := newMemTestKVStore(t)
 
 	iter := types.KVStorePrefixIteratorPaginated(kvs, nil, 1, 1)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	require.False(t, iter.Valid())
 	require.Panics(t, func() { iter.Next() }) // "iterator is empty"
 
 	kvs.Set([]byte{1}, []byte{})
 
 	iter = types.KVStorePrefixIteratorPaginated(kvs, nil, 1, 0)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	require.False(t, iter.Valid())
 	require.Panics(t, func() { iter.Next() }) // "not empty but limit is zero"
 }

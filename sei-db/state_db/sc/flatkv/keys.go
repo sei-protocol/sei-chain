@@ -4,16 +4,48 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
+
+const metaKeyPrefix = "_meta/"
+
+const (
+	metaVersion = metaKeyPrefix + "version"
+	metaLtHash  = metaKeyPrefix + "hash"
+)
+
+var (
+	metaKeyPrefixBytes = []byte(metaKeyPrefix)
+	metaVersionKey     = []byte(metaVersion)
+	metaLtHashKey      = []byte(metaLtHash)
+)
+
+// isMetaKey reports whether key is a per-DB internal metadata key (not user data).
+//
+// Safety: _meta/ keys are 10–13 bytes; the shortest user key is 20 bytes
+// (an EVM address). Prefix collision would require an address starting with
+// 0x5F6D657461 ("_meta") — probability ~2^-48 for random addresses and
+// negligible even under CREATE2 brute-force. Legacy DB keys must not use
+// the _meta/ prefix.
+func isMetaKey(key []byte) bool {
+	return bytes.HasPrefix(key, metaKeyPrefixBytes)
+}
 
 const (
 	AddressLen  = 20
 	CodeHashLen = 32
 	SlotLen     = 32
 	BalanceLen  = 32
-
-	NonceLen = 8
+	NonceLen    = 8
 )
+
+// LocalMeta stores per-DB version tracking metadata.
+// Version is stored at _meta/version, LtHash at _meta/hash.
+type LocalMeta struct {
+	CommittedVersion int64          // Current committed version in this DB
+	LtHash           *lthash.LtHash // nil for old format (version-only)
+}
 
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
@@ -36,15 +68,6 @@ func AddressFromBytes(b []byte) (Address, bool) {
 	return a, true
 }
 
-func CodeHashFromBytes(b []byte) (CodeHash, bool) {
-	if len(b) != CodeHashLen {
-		return CodeHash{}, false
-	}
-	var h CodeHash
-	copy(h[:], b)
-	return h, true
-}
-
 func SlotFromBytes(b []byte) (Slot, bool) {
 	if len(b) != SlotLen {
 		return Slot{}, false
@@ -54,52 +77,23 @@ func SlotFromBytes(b []byte) (Slot, bool) {
 	return s, true
 }
 
-// AccountKey is a type-safe account DB key.
-type AccountKey struct{ b []byte }
+// =============================================================================
+// DB Key Builders
+// =============================================================================
 
-func (k AccountKey) isZero() bool  { return len(k.b) == 0 }
-func (k AccountKey) bytes() []byte { return k.b }
-
-// AccountKeyFor returns the account DB key for addr.
-func AccountKeyFor(addr Address) AccountKey {
-	b := make([]byte, AddressLen)
-	copy(b, addr[:])
-	return AccountKey{b: b}
+// AccountKey returns the accountDB key for addr.
+// Key format: addr(20)
+func AccountKey(addr Address) []byte {
+	return addr[:]
 }
 
-// CodeKey is a type-safe code DB key.
-type CodeKey struct{ b []byte }
-
-func (k CodeKey) isZero() bool  { return len(k.b) == 0 }
-func (k CodeKey) bytes() []byte { return k.b }
-
-// CodeKeyFor returns the code DB key for codeHash.
-func CodeKeyFor(codeHash CodeHash) CodeKey {
-	b := make([]byte, CodeHashLen)
-	copy(b, codeHash[:])
-	return CodeKey{b: b}
-}
-
-// StorageKey is a type-safe storage DB key (or prefix).
-// Encodes: nil (unbounded), addr (prefix), or addr||slot (full key).
-type StorageKey struct{ b []byte }
-
-func (k StorageKey) isZero() bool  { return len(k.b) == 0 }
-func (k StorageKey) bytes() []byte { return k.b }
-
-// StoragePrefix returns the storage DB prefix key for addr.
-func StoragePrefix(addr Address) StorageKey {
-	b := make([]byte, AddressLen)
-	copy(b, addr[:])
-	return StorageKey{b: b}
-}
-
-// StorageKeyFor returns the storage DB key for (addr, slot).
-func StorageKeyFor(addr Address, slot Slot) StorageKey {
-	b := make([]byte, 0, AddressLen+SlotLen)
-	b = append(b, addr[:]...)
-	b = append(b, slot[:]...)
-	return StorageKey{b: b}
+// StorageKey returns the storageDB key for (addr, slot).
+// Key format: addr(20) || slot(32) = 52 bytes
+func StorageKey(addr Address, slot Slot) []byte {
+	key := make([]byte, AddressLen+SlotLen)
+	copy(key[:AddressLen], addr[:])
+	copy(key[AddressLen:], slot[:])
+	return key
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).
@@ -142,6 +136,40 @@ const (
 // HasCode returns true if the account has code (is a contract).
 func (v AccountValue) HasCode() bool {
 	return v.CodeHash != CodeHash{}
+}
+
+// NonceBytes returns the nonce as big-endian bytes.
+// Always returns (bytes, true) — zero is a valid nonce for existing accounts.
+func (v AccountValue) NonceBytes() ([]byte, bool) {
+	b := make([]byte, NonceLen)
+	binary.BigEndian.PutUint64(b, v.Nonce)
+	return b, true
+}
+
+// CodeHashBytes returns the codehash if the account has code.
+// Returns (nil, false) when CodeHash is all zeros (EOA / no code).
+func (v AccountValue) CodeHashBytes() ([]byte, bool) {
+	if v.CodeHash == (CodeHash{}) {
+		return nil, false
+	}
+	return v.CodeHash[:], true
+}
+
+// ClearNonce resets the nonce to zero.
+// The accountDB row persists — this is a logical field reset, not a row delete.
+func (v *AccountValue) ClearNonce() {
+	v.Nonce = 0
+}
+
+// ClearCodeHash resets the codehash to all zeros, marking the account as EOA.
+// The accountDB row persists — this is a logical field reset, not a row delete.
+func (v *AccountValue) ClearCodeHash() {
+	v.CodeHash = CodeHash{}
+}
+
+// Encode encodes the AccountValue to bytes.
+func (v AccountValue) Encode() []byte {
+	return EncodeAccountValue(v)
 }
 
 // EncodeAccountValue encodes v into a variable-length slice.

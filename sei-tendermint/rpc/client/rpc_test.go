@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -12,28 +11,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/mempool"
-	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/rpc/client"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	rpclocal "github.com/tendermint/tendermint/rpc/client/local"
-	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
+	rpclocal "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func getHTTPClient(t *testing.T, logger log.Logger, conf *config.Config) *rpchttp.HTTP {
+func getHTTPClient(t *testing.T, conf *config.Config) *rpchttp.HTTP {
 	t.Helper()
 
 	rpcAddr := conf.RPC.ListenAddress
@@ -42,7 +41,6 @@ func getHTTPClient(t *testing.T, logger log.Logger, conf *config.Config) *rpchtt
 	ctx := t.Context()
 	require.NoError(t, c.Start(ctx))
 
-	c.Logger = logger
 	t.Cleanup(func() {
 		require.NoError(t, c.Stop())
 	})
@@ -50,7 +48,7 @@ func getHTTPClient(t *testing.T, logger log.Logger, conf *config.Config) *rpchtt
 	return c
 }
 
-func getHTTPClientWithTimeout(t *testing.T, logger log.Logger, conf *config.Config, timeout time.Duration) *rpchttp.HTTP {
+func getHTTPClientWithTimeout(t *testing.T, conf *config.Config, timeout time.Duration) *rpchttp.HTTP {
 	t.Helper()
 
 	rpcAddr := conf.RPC.ListenAddress
@@ -61,7 +59,6 @@ func getHTTPClientWithTimeout(t *testing.T, logger log.Logger, conf *config.Conf
 	ctx := t.Context()
 	require.NoError(t, c.Start(ctx))
 
-	c.Logger = logger
 	t.Cleanup(func() {
 		require.NoError(t, c.Stop())
 	})
@@ -76,22 +73,19 @@ func GetClients(t *testing.T, ns service.Service, conf *config.Config) []client.
 	node, ok := ns.(rpclocal.NodeService)
 	require.True(t, ok)
 
-	logger := log.NewTestingLogger(t)
-	ncl, err := rpclocal.New(logger, node)
+	ncl, err := rpclocal.New(node)
 	require.NoError(t, err)
 
 	return []client.Client{
 		ncl,
-		getHTTPClient(t, logger, conf),
+		getHTTPClient(t, conf),
 	}
 }
 
 func TestClientOperations(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewTestingLogger(t)
-
-	_, conf := NodeSuite(ctx, t, logger)
+	_, conf := NodeSuite(ctx, t)
 
 	t.Run("NilCustomHTTPClient", func(t *testing.T) {
 		_, err := rpchttp.NewWithClient("http://example.com", nil)
@@ -129,16 +123,15 @@ func TestClientOperations(t *testing.T) {
 	})
 	t.Run("Batching", func(t *testing.T) {
 		t.Run("JSONRPCCalls", func(t *testing.T) {
-			logger := log.NewTestingLogger(t)
-			c := getHTTPClient(t, logger, conf)
+
+			c := getHTTPClient(t, conf)
 			testBatchedJSONRPCCalls(ctx, c)
 		})
 		t.Run("JSONRPCCallsCancellation", func(t *testing.T) {
 			_, _, tx1 := MakeTxKV()
 			_, _, tx2 := MakeTxKV()
 
-			logger := log.NewTestingLogger(t)
-			c := getHTTPClient(t, logger, conf)
+			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			_, err := batch.BroadcastTxCommit(ctx, tx1)
 			require.NoError(t, err)
@@ -152,25 +145,22 @@ func TestClientOperations(t *testing.T) {
 			require.Equal(t, 0, batch.Count())
 		})
 		t.Run("SendingEmptyRequest", func(t *testing.T) {
-			logger := log.NewTestingLogger(t)
 
-			c := getHTTPClient(t, logger, conf)
+			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			_, err := batch.Send(ctx)
 			require.Error(t, err, "sending an empty batch of JSON RPC requests should result in an error")
 		})
 		t.Run("ClearingEmptyRequest", func(t *testing.T) {
-			logger := log.NewTestingLogger(t)
 
-			c := getHTTPClient(t, logger, conf)
+			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			require.Zero(t, batch.Clear(), "clearing an empty batch of JSON RPC requests should result in a 0 result")
 		})
 		t.Run("ConcurrentJSONRPC", func(t *testing.T) {
-			logger := log.NewTestingLogger(t)
 
 			var wg sync.WaitGroup
-			c := getHTTPClient(t, logger, conf)
+			c := getHTTPClient(t, conf)
 			for range 50 {
 				wg.Add(1)
 				go func() {
@@ -185,9 +175,8 @@ func TestClientOperations(t *testing.T) {
 
 // Make sure info is correct (we connect properly)
 func TestClientMethodCalls(t *testing.T) {
-	logger := log.NewTestingLogger(t)
 
-	n, conf := NodeSuite(t.Context(), t, logger)
+	n, conf := NodeSuite(t.Context(), t)
 
 	// for broadcast tx tests
 	pool := getMempool(t, n)
@@ -554,7 +543,7 @@ func TestClientMethodCalls(t *testing.T) {
 					require.True(t, qres.IsOK())
 
 					var v abci.ValidatorUpdate
-					err = abci.ReadMessage(bytes.NewReader(qres.Value), &v)
+					err = proto.Unmarshal(qres.Value, &v)
 					require.NoError(t, err, "Error reading query result, value %v", qres.Value)
 
 					pk, err := crypto.PubKeyFromProto(v.PubKey)
@@ -594,9 +583,7 @@ func getMempool(t *testing.T, srv service.Service) mempool.Mempool {
 func TestClientMethodCallsAdvanced(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewTestingLogger(t)
-
-	n, conf := NodeSuite(ctx, t, logger)
+	n, conf := NodeSuite(ctx, t)
 	pool := getMempool(t, n)
 
 	t.Run("UnconfirmedTxs", func(t *testing.T) {
@@ -674,9 +661,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 		pool.Flush()
 	})
 	t.Run("Tx", func(t *testing.T) {
-		logger := log.NewTestingLogger(t)
 
-		c := getHTTPClient(t, logger, conf)
+		c := getHTTPClient(t, conf)
 
 		// first we broadcast a tx
 		_, _, tx := MakeTxKV()
@@ -733,9 +719,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 		}
 	})
 	t.Run("TxSearchWithTimeout", func(t *testing.T) {
-		logger := log.NewTestingLogger(t)
 
-		timeoutClient := getHTTPClientWithTimeout(t, logger, conf, 10*time.Second)
+		timeoutClient := getHTTPClientWithTimeout(t, conf, 10*time.Second)
 
 		_, _, tx := MakeTxKV()
 		_, err := timeoutClient.BroadcastTxCommit(ctx, tx)
@@ -748,9 +733,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 	})
 	t.Run("TxSearch", func(t *testing.T) {
 		t.Skip("Test Asserts Non-Deterministic Results")
-		logger := log.NewTestingLogger(t)
 
-		c := getHTTPClient(t, logger, conf)
+		c := getHTTPClient(t, conf)
 
 		// first we broadcast a few txs
 		for range 10 {

@@ -7,10 +7,10 @@ import (
 	proto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
 
 func TestSanitize(t *testing.T) {
@@ -62,7 +62,7 @@ func TestGenesisAccountIterator(t *testing.T) {
 	authGenState.Accounts = accounts
 
 	appGenesis := make(map[string]json.RawMessage)
-	authGenStateBz, err := appCodec.MarshalJSON(authGenState)
+	authGenStateBz, err := appCodec.MarshalAsJSON(authGenState)
 	require.NoError(t, err)
 
 	appGenesis[types.ModuleName] = authGenStateBz

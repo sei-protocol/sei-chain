@@ -2,9 +2,11 @@ package im
 
 import (
 	"cmp"
-	"github.com/benbjohnson/immutable"
 	"hash/maphash"
 	"iter"
+
+	"github.com/benbjohnson/immutable"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type Map[K comparable, V any] struct{ m *immutable.Map[K, V] }
@@ -12,7 +14,7 @@ type Map[K comparable, V any] struct{ m *immutable.Map[K, V] }
 type hasher[K comparable] struct{ seed maphash.Seed }
 
 func (h hasher[K]) Hash(key K) uint32 {
-	return uint32(maphash.Comparable(h.seed, key))
+	return uint32(maphash.Comparable(h.seed, key)) //nolint:gosec // intentional truncation; only lower 32 bits needed for hash bucketing
 }
 
 func (h hasher[K]) Equal(a, b K) bool {
@@ -27,8 +29,25 @@ func (m Map[K, V]) Get(key K) (V, bool) {
 	return m.m.Get(key)
 }
 
+// GetOpt returns the value under key, or None, if key is missing.
+func (m Map[K, V]) GetOpt(key K) utils.Option[V] {
+	if v, ok := m.Get(key); ok {
+		return utils.Some(v)
+	}
+	return utils.None[V]()
+}
+
 func (m Map[K, V]) Set(key K, value V) Map[K, V] {
 	return Map[K, V]{m.m.Set(key, value)}
+}
+
+// SetOpt sets key to the given value, or deletes the key if mvalue is None.
+func (m Map[K, V]) SetOpt(key K, mvalue utils.Option[V]) Map[K, V] {
+	if value, ok := mvalue.Get(); ok {
+		return m.Set(key, value)
+	} else {
+		return m.Delete(key)
+	}
 }
 
 func (m Map[K, V]) Delete(key K) Map[K, V] {

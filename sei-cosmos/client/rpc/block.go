@@ -9,10 +9,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
 )
 
 // BlockCommand returns the verified block data for a given heights
@@ -70,7 +70,7 @@ func getBlock(clientCtx client.Context, height *int64) ([]byte, error) {
 		return nil, err
 	}
 
-	return legacy.Cdc.MarshalJSON(res)
+	return legacy.Cdc.MarshalAsJSON(res)
 }
 
 // get the current blockchain height

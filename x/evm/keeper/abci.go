@@ -1,23 +1,22 @@
 package keeper
 
 import (
-	"fmt"
 	"math"
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 func (k *Keeper) BeginBlock(ctx sdk.Context) {
@@ -67,14 +66,14 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
 	if ctx.BlockHeight()%LegacyReceiptMigrationInterval == 0 {
 		if migrated, err := k.MigrateLegacyReceiptsBatch(ctx, LegacyReceiptMigrationBatchSize); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed migrating legacy receipts: %s", err))
+			logger.Error("failed migrating legacy receipts", "err", err)
 		} else if migrated > 0 {
-			ctx.Logger().Info(fmt.Sprintf("migrated %d legacy EVM receipts to receipt.db", migrated))
+			logger.Info("migrated legacy EVM receipts to receipt.db", "count", migrated)
 		}
 	}
 
 	if scanned, deleted := k.PruneZeroStorageSlots(ctx, ZeroStorageCleanupBatchSize); deleted > 0 {
-		ctx.Logger().Info(fmt.Sprintf("pruned %d zero-value contract storage slots while scanning %d keys", deleted, scanned))
+		logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
 	}
 
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
@@ -101,6 +100,9 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		txHash := common.BytesToHash(deferredInfo.TxHash)
 		if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
+			if !k.GetNonceBumped(ctx, deferredInfo.TxIndex) {
+				continue
+			}
 			_ = k.SetTransientReceipt(ctx, txHash, &types.Receipt{
 				TxHashHex:        txHash.Hex(),
 				TransactionIndex: deferredInfo.TxIndex,
@@ -117,7 +119,7 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		weiBalance := k.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
 			if err := k.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
+				logger.Error("failed to send usei surplus to coinbase account", "from", coinbaseAddress, "err", err)
 			}
 		}
 		surplus = surplus.Add(deferredInfo.Surplus)
@@ -126,12 +128,12 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
 		if surplusUsei.GT(sdk.ZeroInt()) {
 			if err := k.BankKeeper().AddCoins(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
-				ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+				logger.Error("failed to send usei surplus to EVM module account", "surplus", surplusUsei)
 			}
 		}
 		if surplusWei.GT(sdk.ZeroInt()) {
 			if err := k.BankKeeper().AddWei(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
-				ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+				logger.Error("failed to send wei surplus to EVM module account", "surplus", surplusWei)
 			}
 		}
 	}

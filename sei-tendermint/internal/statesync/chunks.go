@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // errDone is returned by chunkQueue.Next() when all chunks have been returned.
@@ -115,7 +115,7 @@ func (q *chunkQueue) Allocate() (uint32, error) {
 		return 0, errDone
 	}
 
-	if uint32(len(q.chunkAllocated)) >= q.snapshot.Chunks {
+	if uint32(len(q.chunkAllocated)) >= q.snapshot.Chunks { //nolint:gosec // map length bounded by snapshot.Chunks which is uint32
 		return 0, errDone
 	}
 
@@ -228,7 +228,7 @@ func (q *chunkQueue) load(index uint32) (*chunk, error) {
 		return nil, nil
 	}
 
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load chunk %v: %w", index, err)
 	}

@@ -1,10 +1,10 @@
 package keeper_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
@@ -13,7 +13,7 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 	authKeeper.SetModuleAccount(ctx, multiPermAcc)
 	app := suite.app
-	app.GigaBankKeeper = keeper
+	app.GigaBankKeeper = &keeper
 
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)

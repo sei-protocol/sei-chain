@@ -14,11 +14,11 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	helpers "github.com/sei-protocol/sei-chain/utils/helpers/legacy/v575"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v575"
 	"github.com/sei-protocol/sei-chain/utils/metrics"

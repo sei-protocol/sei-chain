@@ -1,56 +1,64 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-	"github.com/cosmos/cosmos-sdk/store/mem"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/transient"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/storev2/commitment"
-	"github.com/cosmos/cosmos-sdk/storev2/state"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/seilog"
+	"golang.org/x/time/rate"
+
 	protoio "github.com/gogo/protobuf/io"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
 var (
+	logger = seilog.NewLogger("cosmos", "storev2", "rootmulti")
+
 	_ types.CommitMultiStore = (*Store)(nil)
 	_ types.Queryable        = (*Store)(nil)
 )
 
 type Store struct {
-	logger         log.Logger
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
-	ssStore        sstypes.StateStore
+	ssStore        seidbtypes.StateStore
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
 	pruningManager *pruning.Manager
+
+	histProofSem     chan struct{}
+	histProofLimiter *rate.Limiter
 }
 
 type VersionedChangesets struct {
@@ -60,30 +68,52 @@ type VersionedChangesets struct {
 
 func NewStore(
 	homeDir string,
-	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
-	migrateIavl bool,
 	gigaKeys []string,
 ) *Store {
-	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
+	// Use custom directory if specified, otherwise use homeDir
+	scDir := homeDir
+	if scConfig.Directory != "" {
+		scDir = scConfig.Directory
+	}
+	maxInFlight := scConfig.HistoricalProofMaxInFlight
+	if maxInFlight <= 0 {
+		maxInFlight = 1
+	}
+
+	burst := scConfig.HistoricalProofBurst
+	if burst <= 0 {
+		burst = 1
+	}
+
+	var limiter *rate.Limiter
+	if scConfig.HistoricalProofRateLimit > 0 {
+		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
+	}
+	ctx := context.Background()
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	if err := scStore.CleanupCrashArtifacts(); err != nil {
+		panic(err)
+	}
 	store := &Store{
-		logger:       logger,
-		scStore:      scStore,
-		storesParams: make(map[types.StoreKey]storeParams),
-		storeKeys:    make(map[string]types.StoreKey),
-		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:     gigaKeys,
+		scStore:          scStore,
+		storesParams:     make(map[types.StoreKey]storeParams),
+		storeKeys:        make(map[string]types.StoreKey),
+		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:         gigaKeys,
+		histProofSem:     make(chan struct{}, maxInFlight),
+		histProofLimiter: limiter,
 	}
 	if ssConfig.Enable {
-		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
+		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
 		scVersion, _ := scStore.GetLatestVersion()
-		if ssVersion <= 0 && scVersion > 0 && !migrateIavl {
+		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
@@ -149,7 +179,7 @@ func (rs *Store) flush() error {
 			}
 		}
 	}
-	if changeSets != nil && len(changeSets) > 0 {
+	if len(changeSets) > 0 {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})
@@ -207,7 +237,7 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // GetStateStore returns the ssStore instance
-func (rs *Store) GetStateStore() sstypes.StateStore {
+func (rs *Store) GetStateStore() seidbtypes.StateStore {
 	return rs.ssStore
 }
 
@@ -225,17 +255,21 @@ func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
+	return rs.cacheMultiStoreLocked()
+}
+
+// cacheMultiStoreLocked must be called with rs.mtx held (at least RLock).
+func (rs *Store) cacheMultiStoreLocked() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range rs.ckvStores {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.gigaKeys))
+	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
-		key := rs.storeKeys[k]
-		gigaStores[key] = rs.ckvStores[key]
+		gigaKeys = append(gigaKeys, rs.storeKeys[k])
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaStores, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -253,16 +287,15 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
 				stores[k] = store
-			}
-		}
-		for k, store := range rs.ckvStores {
-			if store.GetStoreType() == types.StoreTypeIAVL {
+			} else {
 				stores[k] = state.NewStore(rs.ssStore, k, version)
 			}
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		// Only serve from SC when query latest version and SS not enabled
-		return rs.CacheMultiStore(), nil
+		return rs.cacheMultiStoreLocked(), nil
+	} else {
+		return nil, fmt.Errorf("unable to load historical state with SS disabled for version: %d", version)
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
@@ -287,8 +320,8 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	}
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
-			tree := scStore.GetModuleByName(k.Name())
-			stores[k] = commitment.NewStore(tree, rs.logger)
+			tree := scStore.GetChildStoreByName(k.Name())
+			stores[k] = commitment.NewStore(tree)
 		}
 	}
 	rs.mtx.RUnlock()
@@ -451,11 +484,11 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 	case types.StoreTypeMulti:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeIAVL:
-		tree := rs.scStore.GetModuleByName(key.Name())
+		tree := rs.scStore.GetChildStoreByName(key.Name())
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
-		return types.CommitKVStore(commitment.NewStore(tree, rs.logger)), nil
+		return types.CommitKVStore(commitment.NewStore(tree)), nil
 	case types.StoreTypeDB:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeTransient:
@@ -544,43 +577,104 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	if version <= 0 || version > rs.lastCommitInfo.Version {
 		version = rs.scStore.Version()
 	}
-	path := req.Path
-	storeName, subPath, err := parsePath(path)
+
+	storeName, subPath, err := parsePath(req.Path)
 	if err != nil {
 		return sdkerrors.QueryResult(err)
 	}
-	var store types.Queryable
-	var commitInfo *types.CommitInfo
+	req.Path = subPath
+	req.Height = version // keep downstream store.Query height consistent
 
-	if !req.Prove && rs.ssStore != nil {
-		// Serve abci query from ss store if no proofs needed
-		store = types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
+	needProof := req.Prove && rootmulti.RequireProof(subPath)
+	latest := version == rs.scStore.Version()
+
+	// Fast path: no proof + SS enabled
+	if !needProof && rs.ssStore != nil {
+		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
+		return store.Query(req)
+	}
+
+	var (
+		store      types.Queryable
+		commitInfo *types.CommitInfo
+	)
+	if latest {
+		// latest never needs historical LoadVersion clone
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName)))
+		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
-		// Serve abci query from historical sc store if proofs needed
+		// historical path (this is where RPC pressure happens)
+		if err := rs.tryAcquireHistProofPermit(); err != nil {
+			logger.Debug("Failed to acquire historical proof permit", "err", err)
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "false"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
+				})
+			return sdkerrors.QueryResult(err)
+		} else {
+			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("success", "true"),
+					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
+				})
+		}
+		defer rs.releaseHistProofPermit()
+
 		scStore, err := rs.scStore.LoadVersion(version, true)
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
-		defer scStore.Close()
-		store = types.Queryable(commitment.NewStore(scStore.GetModuleByName(storeName), rs.logger))
+		defer func() { _ = scStore.Close() }()
+
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
+
 	}
 
-	// trim the path and execute the query
-	req.Path = subPath
 	res := store.Query(req)
 
-	if !req.Prove || !rootmulti.RequireProof(subPath) {
+	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
+	if res.Code != 0 || !needProof {
 		return res
-	} else if commitInfo != nil {
-		// Restore origin path and append proof op.
+	}
+
+	emptyProofError := sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	if res.ProofOps == nil {
+		return emptyProofError
+	}
+	// Must have proof ops from underlying store query before appending commit proof.
+	if commitInfo != nil {
 		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
-	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
+	if len(res.ProofOps.Ops) == 0 {
+		return emptyProofError
 	}
+
 	return res
+}
+
+func (rs *Store) tryAcquireHistProofPermit() error {
+	if rs.histProofLimiter != nil && !rs.histProofLimiter.Allow() {
+		return errors.Wrap(sdkerrors.ErrConflict, "historical proof rate limited")
+	}
+	select {
+	case rs.histProofSem <- struct{}{}:
+		return nil
+	default:
+		return errors.Wrap(sdkerrors.ErrConflict, "historical proof busy")
+	}
+}
+
+func (rs *Store) releaseHistProofPermit() {
+	select {
+	case <-rs.histProofSem:
+	default:
+	}
 }
 
 // parsePath expects a format like /<storeName>[/<subpath>]
@@ -681,12 +775,15 @@ func (rs *Store) ResetEvents() {
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
+	if height > uint64(math.MaxInt64) {
+		return snapshottypes.SnapshotItem{}, fmt.Errorf("snapshot height %d exceeds max int64", height)
+	}
 	if rs.scStore != nil {
 		if err := rs.scStore.Close(); err != nil {
 			return snapshottypes.SnapshotItem{}, fmt.Errorf("failed to close db: %w", err)
 		}
 	}
-	item, err := rs.restore(int64(height), protoReader)
+	item, err := rs.restore(int64(height), protoReader) //nolint:gosec // bounds checked above
 	if err != nil {
 		return snapshottypes.SnapshotItem{}, err
 	}
@@ -696,7 +793,7 @@ func (rs *Store) Restore(
 
 func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	var (
-		ssImporter   chan sstypes.SnapshotNode
+		ssImporter   chan seidbtypes.SnapshotNode
 		snapshotItem snapshottypes.SnapshotItem
 		storeKey     string
 		restoreErr   error
@@ -706,7 +803,7 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 		return snapshottypes.SnapshotItem{}, err
 	}
 	if rs.ssStore != nil {
-		ssImporter = make(chan sstypes.SnapshotNode, 10000)
+		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
 		go func() {
 			err := rs.ssStore.Import(height, ssImporter)
 			if err != nil {
@@ -728,11 +825,11 @@ loop:
 		switch item := snapshotItem.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
 			storeKey = item.Store.Name
-			if err = scImporter.AddTree(storeKey); err != nil {
+			if err = scImporter.AddModule(storeKey); err != nil {
 				restoreErr = err
 				break loop
 			}
-			rs.logger.Info(fmt.Sprintf("Start restoring store: %s", storeKey))
+			logger.Info("Start restoring store", "key", storeKey)
 		case *snapshottypes.SnapshotItem_IAVL:
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
@@ -742,7 +839,7 @@ loop:
 			node := &sctypes.SnapshotNode{
 				Key:     item.IAVL.Key,
 				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height),
+				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against math.MaxInt8
 				Version: item.IAVL.Version,
 			}
 			// Protobuf does not differentiate between []byte{} as nil, but fortunately IAVL does
@@ -757,7 +854,7 @@ loop:
 
 			// Check if we should also import to SS store
 			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- sstypes.SnapshotNode{
+				ssImporter <- seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
@@ -780,7 +877,7 @@ loop:
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
-			rs.logger.Error("Failed to set earliest version during DB restore", "err", err)
+			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
 
 	}
@@ -798,7 +895,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer exporter.Close()
+	defer func() { _ = exporter.Close() }()
 	keySizePerStore := map[string]int64{}
 	valueSizePerStore := map[string]int64{}
 	numKeysPerStore := map[string]int64{}
@@ -849,6 +946,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			keySizePerStore[currentStoreName] += int64(len(item.Key))
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
+			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{
@@ -875,7 +973,7 @@ func (*Store) SetKVStores(handler func(key types.StoreKey, s types.KVStore) type
 
 // StoreKeys implements types.CommitMultiStore.
 func (rs *Store) StoreKeys() []types.StoreKey {
-	res := make([]types.StoreKey, len(rs.storeKeys))
+	res := make([]types.StoreKey, 0, len(rs.storeKeys))
 	for _, sk := range rs.storeKeys {
 		res = append(res, sk)
 	}

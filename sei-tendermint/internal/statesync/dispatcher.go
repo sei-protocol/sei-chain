@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"slices"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/light/provider"
-	pb "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -73,6 +73,9 @@ func (d *Dispatcher) LightBlock(ctx context.Context, height int64, peer types.No
 // dispatch takes a peer and allocates it a channel so long as it's not already
 // busy and the receiving channel is still running. It then dispatches the message
 func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int64) (chan *types.LightBlock, error) {
+	if height < 0 {
+		return nil, fmt.Errorf("invalid height: %d", height)
+	}
 	for calls := range d.calls.Lock() {
 		if ctx.Err() != nil {
 			return nil, ErrDisconnected
@@ -87,7 +90,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 		calls[peer] = ch
 
 		// send request
-		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer)
+		d.requestCh.Send(wrap(&pb.LightBlockRequest{Height: uint64(height)}), peer) //nolint:gosec // height is a validated positive block height
 		return ch, nil
 	}
 	panic("unreachable")
@@ -208,90 +211,64 @@ func (p *BlockProvider) ID() string { return string(p.peer) }
 
 //----------------------------------------------------------------
 
+type peerListInner struct {
+	peers []types.NodeID
+}
+
 // peerList is a rolling list of peers. This is used to distribute the load of
 // retrieving blocks over all the peers the reactor is connected to
 type PeerList struct {
-	mtx     sync.Mutex
-	peers   []types.NodeID
-	waiting []chan types.NodeID
+	inner utils.Watch[*peerListInner]
 }
 
 func NewPeerList() *PeerList {
-	return &PeerList{
-		peers:   make([]types.NodeID, 0),
-		waiting: make([]chan types.NodeID, 0),
-	}
+	return &PeerList{inner: utils.NewWatch(&peerListInner{
+		peers: make([]types.NodeID, 0),
+	})}
 }
 
 func (l *PeerList) Len() int {
-	l.mtx.Lock()
-	defer l.mtx.Unlock()
-	return len(l.peers)
+	for inner := range l.inner.Lock() {
+		return len(inner.peers)
+	}
+	panic("unreachable")
 }
 
 func (l *PeerList) Pop(ctx context.Context) types.NodeID {
-	l.mtx.Lock()
-	if len(l.peers) == 0 {
-		// if we don't have any peers in the list we block until a peer is
-		// appended
-		wait := make(chan types.NodeID, 1)
-		l.waiting = append(l.waiting, wait)
-		// unlock whilst waiting so that the list can be appended to
-		l.mtx.Unlock()
-		select {
-		case peer := <-wait:
-			return peer
-
-		case <-ctx.Done():
+	for inner, ctrl := range l.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return len(inner.peers) > 0 }); err != nil {
 			return ""
 		}
+		peer := inner.peers[0]
+		inner.peers = inner.peers[1:]
+		return peer
 	}
-
-	peer := l.peers[0]
-	l.peers = l.peers[1:]
-	l.mtx.Unlock()
-	return peer
+	panic("unreachable")
 }
 
 func (l *PeerList) Append(peer types.NodeID) {
-	l.mtx.Lock()
-	defer l.mtx.Unlock()
-	if len(l.waiting) > 0 {
-		wait := l.waiting[0]
-		l.waiting = l.waiting[1:]
-		wait <- peer
-		close(wait)
-	} else {
-		l.peers = append(l.peers, peer)
+	for inner, ctrl := range l.inner.Lock() {
+		inner.peers = append(inner.peers, peer)
+		ctrl.Updated()
 	}
 }
 
 func (l *PeerList) Remove(peer types.NodeID) {
-	l.mtx.Lock()
-	defer l.mtx.Unlock()
-	for i, p := range l.peers {
-		if p == peer {
-			l.peers = append(l.peers[:i], l.peers[i+1:]...)
-			return
-		}
+	for inner := range l.inner.Lock() {
+		inner.peers = slices.DeleteFunc(inner.peers, func(v types.NodeID) bool { return v == peer })
 	}
 }
 
 func (l *PeerList) All() []types.NodeID {
-	l.mtx.Lock()
-	defer l.mtx.Unlock()
-	return l.peers
+	for inner := range l.inner.Lock() {
+		return slices.Clone(inner.peers)
+	}
+	panic("unreachable")
 }
 
-func (l *PeerList) Contains(id types.NodeID) bool {
-	l.mtx.Lock()
-	defer l.mtx.Unlock()
-
-	for _, p := range l.peers {
-		if id == p {
-			return true
-		}
+func (l *PeerList) WaitUntilContains(ctx context.Context, id types.NodeID) error {
+	for inner, ctrl := range l.inner.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool { return slices.Index(inner.peers, id) != -1 })
 	}
-
-	return false
+	panic("unreachable")
 }

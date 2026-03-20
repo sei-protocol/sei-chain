@@ -1,7 +1,7 @@
 package connection
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/keeper"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"

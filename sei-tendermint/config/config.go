@@ -4,16 +4,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/types"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -117,7 +117,7 @@ func TestConfig() *Config {
 
 // SetRoot sets the RootDir for all Config structs
 func (cfg *Config) SetRoot(root string) *Config {
-	cfg.BaseConfig.RootDir = root
+	cfg.RootDir = root
 	cfg.RPC.RootDir = root
 	cfg.P2P.RootDir = root
 	cfg.Mempool.RootDir = root
@@ -161,7 +161,7 @@ func (cfg *Config) DeprecatedFieldWarning() error {
 // BaseConfig
 
 // BaseConfig defines the base configuration for a Tendermint node
-type BaseConfig struct { //nolint: maligned
+type BaseConfig struct {
 	// chainID is unexposed and immutable but here for convenience
 	chainID string
 
@@ -244,7 +244,7 @@ func DefaultBaseConfig() BaseConfig {
 		ProxyApp:    "tcp://127.0.0.1:26658",
 		ABCI:        "socket",
 		LogLevel:    DefaultLogLevel,
-		LogFormat:   log.LogFormatPlain,
+		LogFormat:   "text",
 		FilterPeers: false,
 		DBBackend:   "goleveldb",
 		DBPath:      "data",
@@ -319,7 +319,7 @@ func (cfg BaseConfig) DBDir() string {
 // returns an error if any check fails.
 func (cfg BaseConfig) ValidateBasic() error {
 	switch cfg.LogFormat {
-	case log.LogFormatJSON, log.LogFormatText, log.LogFormatPlain:
+	case "json", "text", "plain":
 	default:
 		return errors.New("unknown log format (must be 'plain', 'text' or 'json')")
 	}
@@ -623,7 +623,7 @@ func (cfg RPCConfig) IsTLSEnabled() bool {
 // P2PConfig
 
 // P2PConfig defines the configuration options for the Tendermint peer-to-peer networking layer
-type P2PConfig struct { //nolint: maligned
+type P2PConfig struct {
 	RootDir string `mapstructure:"home"`
 
 	// Address to listen for incoming connections
@@ -646,9 +646,13 @@ type P2PConfig struct { //nolint: maligned
 	// UPNP port forwarding. UNUSED
 	UPNP bool `mapstructure:"upnp"`
 
-	// MaxConnections defines the maximum number of connected peers (inbound and
-	// outbound).
-	MaxConnections uint16 `mapstructure:"max-connections"`
+	// MaxConnections limits the number of connected peers (inbound and outbound).
+	MaxConnections uint `mapstructure:"max-connections"`
+
+	// MaxOutboundConnections limits the number of outbound connections to regular (non-persistent) peers.
+	// It should be significantly lower than MaxConnections, unless
+	// the node is supposed to have a small number of connections altogether.
+	MaxOutboundConnections *uint `mapstructure:"max-outbound-connections"`
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address.
@@ -680,6 +684,9 @@ type P2PConfig struct { //nolint: maligned
 	HandshakeTimeout time.Duration `mapstructure:"handshake-timeout"`
 	DialTimeout      time.Duration `mapstructure:"dial-timeout"`
 
+	// How often node should dial a new peer.
+	DialInterval time.Duration `mapstructure:"dial-interval"`
+
 	// Testing params.
 	// Force dial to fail
 	TestDialFail bool `mapstructure:"test-dial-fail"`
@@ -689,7 +696,7 @@ type P2PConfig struct { //nolint: maligned
 	// with the default being "priority".
 	QueueType string `mapstructure:"queue-type"`
 
-	// List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
+	// List of node IDs, from which a connection will be accepted regardless of the connection limits.
 	UnconditionalPeerIDs string `mapstructure:"unconditional-peer-ids"`
 }
 
@@ -709,6 +716,7 @@ func DefaultP2PConfig() *P2PConfig {
 		AllowDuplicateIP:              false,
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
+		DialInterval:                  10 * time.Second,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}
@@ -912,9 +920,7 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 	if cfg.TTLNumBlocks < 0 {
 		return errors.New("ttl-num-blocks can't be negative")
 	}
-	if cfg.TxNotifyThreshold < 0 {
-		return errors.New("tx-notify-threshold can't be negative")
-	}
+	// cfg.TxNotifyThreshold is a uint64; no need to check for less than zero.
 	if cfg.CheckTxErrorThreshold < 0 {
 		return errors.New("check-tx-error-threshold can't be negative")
 	}
@@ -1392,7 +1398,7 @@ type SelfRemediationConfig struct {
 	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
 
 	// How often to check if node is behind in seconds
-	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval"`
 
 	// Cooldown between each restart
 	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
@@ -1418,5 +1424,23 @@ func TestSelfRemediationConfig() *SelfRemediationConfig {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *SelfRemediationConfig) ValidateBasic() error {
+	if cfg == nil {
+		return nil
+	}
+	if cfg.P2pNoPeersRestarWindowSeconds > math.MaxInt64 {
+		return errors.New("p2p-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.StatesyncNoPeersRestartWindowSeconds > math.MaxInt64 {
+		return errors.New("statesync-no-peers-available-window-seconds exceeds max int64")
+	}
+	if cfg.BlocksBehindThreshold > math.MaxInt64 {
+		return errors.New("blocks-behind-threshold exceeds max int64")
+	}
+	if cfg.BlocksBehindCheckIntervalSeconds > math.MaxInt64 {
+		return errors.New("blocks-behind-check-interval exceeds max int64")
+	}
+	if cfg.RestartCooldownSeconds > math.MaxInt64 {
+		return errors.New("restart-cooldown-seconds exceeds max int64")
+	}
 	return nil
 }

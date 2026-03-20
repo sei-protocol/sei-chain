@@ -11,9 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
 )
 
 type testPeer struct {
@@ -110,7 +109,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
 
 	if err := pool.Start(ctx); err != nil {
 		t.Error(err)
@@ -165,7 +164,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
 	err := pool.Start(ctx)
 	if err != nil {
 		t.Error(err)
@@ -214,7 +213,7 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 	requestsCh := make(chan BlockRequest)
 	errorsCh := make(chan peerError)
 
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
 	err := pool.Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { pool.Wait() })
@@ -251,7 +250,7 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	errorsCh := make(chan peerError, 3)
 	requestsCh := make(chan BlockRequest)
 
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
 	// add peers
 	for peerID, peer := range peers {
 		pool.SetPeerRange(peerID, peer.base, peer.height)

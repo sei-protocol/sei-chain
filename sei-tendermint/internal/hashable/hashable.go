@@ -114,27 +114,27 @@ func (b builder) Value(kind protoreflect.Kind, value protoreflect.Value) builder
 		}
 		return b.Varint(v)
 	case protoreflect.EnumKind:
-		return b.Varint(uint64(value.Enum()))
+		return b.Varint(uint64(value.Enum())) //nolint:gosec // protobuf enum values fit in uint64
 	case protoreflect.Int32Kind:
-		return b.Varint(uint64(uint32(value.Int())))
+		return b.Varint(uint64(uint32(value.Int()))) //nolint:gosec // intentional truncation to 32-bit per protobuf wire format
 	case protoreflect.Int64Kind:
-		return b.Varint(uint64(value.Int()))
+		return b.Varint(uint64(value.Int())) //nolint:gosec // reinterpret signed as unsigned per protobuf varint encoding
 	case protoreflect.Sint32Kind:
-		return b.Varint(protowire.EncodeZigZag(int64(int32(value.Int()))))
+		return b.Varint(protowire.EncodeZigZag(int64(int32(value.Int())))) //nolint:gosec // intentional truncation to 32-bit per protobuf zigzag encoding
 	case protoreflect.Sint64Kind:
 		return b.Varint(protowire.EncodeZigZag(value.Int()))
 	case protoreflect.Uint32Kind:
-		return b.Varint(uint64(uint32(value.Uint())))
+		return b.Varint(uint64(uint32(value.Uint()))) //nolint:gosec // intentional truncation to 32-bit per protobuf wire format
 	case protoreflect.Uint64Kind:
 		return b.Varint(value.Uint())
 	case protoreflect.Fixed32Kind:
-		return b.Fixed32(uint32(value.Uint()))
+		return b.Fixed32(uint32(value.Uint())) //nolint:gosec // intentional truncation to 32-bit per protobuf fixed32
 	case protoreflect.Fixed64Kind:
 		return b.Fixed64(value.Uint())
 	case protoreflect.Sfixed32Kind:
-		return b.Fixed32(uint32(int32(value.Int())))
+		return b.Fixed32(uint32(int32(value.Int()))) //nolint:gosec // intentional truncation to 32-bit per protobuf sfixed32
 	case protoreflect.Sfixed64Kind:
-		return b.Fixed64(uint64(value.Int()))
+		return b.Fixed64(uint64(value.Int())) //nolint:gosec // reinterpret signed as unsigned per protobuf fixed64 encoding
 	case protoreflect.BytesKind:
 		return b.Bytes(value.Bytes())
 	case protoreflect.StringKind:

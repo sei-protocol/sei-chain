@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -14,23 +16,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/debug"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"github.com/tendermint/tendermint/cmd/tendermint/commands"
-	"github.com/tendermint/tendermint/cmd/tendermint/commands/debug"
-	tmcfg "github.com/tendermint/tendermint/config"
-	tmlog "github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // DONTCOVER
@@ -39,14 +39,15 @@ import (
 // a command's Context.
 const ServerContextKey = sdk.ContextKey("server.context")
 
-// Error code reserved for signalled
-const RestartErrorCode = 100
+var (
+	ErrShouldRestart = errors.New("node should be restarted")
+	logger           = seilog.NewLogger("cosmos", "server")
+)
 
 // server context
 type Context struct {
 	Viper  *viper.Viper
 	Config *tmcfg.Config
-	Logger tmlog.Logger
 }
 
 // ErrorCode contains the exit code for server exit.
@@ -62,17 +63,16 @@ func NewDefaultContext() *Context {
 	return NewContext(
 		viper.New(),
 		tmcfg.DefaultConfig(),
-		ZeroLogWrapper{log.Logger},
 	)
 }
 
-func NewContext(v *viper.Viper, config *tmcfg.Config, logger tmlog.Logger) *Context {
-	return &Context{v, config, logger}
+func NewContext(v *viper.Viper, config *tmcfg.Config) *Context {
+	return &Context{Viper: v, Config: config}
 }
 
 func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) {
 	defer func() {
-		recover()
+		_ = recover() //handled by named return value.
 	}()
 
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -115,8 +115,12 @@ func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
 	basename := path.Base(executableName)
 
 	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+	if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+		return nil, err
+	}
+	if err := serverCtx.Viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return nil, err
+	}
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -135,7 +139,7 @@ func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
 // is used to read and parse the application configuration. Command handlers can
 // fetch the server Context to get the Tendermint configuration or to get access
 // to Viper.
-func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig interface{}) error {
+func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	serverCtx := NewDefaultContext()
 
 	// Get the executable name and configure the viper instance so that environmental
@@ -149,8 +153,13 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 	basename := path.Base(executableName)
 
 	// Configure the viper instance
-	serverCtx.Viper.BindPFlags(cmd.Flags())
-	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+
+	if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+		return err
+	}
+	if err := serverCtx.Viper.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return err
+	}
 	serverCtx.Viper.SetEnvPrefix(basename)
 	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	serverCtx.Viper.AutomaticEnv()
@@ -167,27 +176,46 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 		return err
 	}
 
-	var logWriter io.Writer
 	logLvlFormat := serverCtx.Viper.GetString(flags.FlagLogFormat)
-	if logLvlFormat == "" {
-		logLvlFormat = serverCtx.Config.LogFormat
-	}
-	if strings.ToLower(logLvlFormat) == tmlog.LogFormatPlain {
-		logWriter = zerolog.ConsoleWriter{Out: os.Stderr}
-	} else {
-		logWriter = os.Stderr
+	if logLvlFormat != "" {
+		// For logging efficiency, seilog takes the log format at the time of
+		// initialization and intentionally does not provide the ability to dynamically
+		// alter log format at runtime. This means seilog can operate with
+		// zero-allocations during logging operation.
+		logger.Warn("log_format flag is deprecated, please use SEI_LOG_FORMAT and SEI_LOG_OUTPUT environment variables instead.")
 	}
 
 	logLvlStr := serverCtx.Viper.GetString(flags.FlagLogLevel)
-	if logLvlStr == "" {
+
+	// The order of extrapolation priority for log level is:
+	// 1. explicit flag
+	// 2. env var
+	// 3. seid config
+	//
+	// Here, we check if flag is explicitly set first, if so override all log levels to it.
+	// If not, check if env var is set in which case it is already picked up by seilog; nothing to do.
+	// Otherwise, make sure to set the log level to what's configured in the config files.
+	var overrideLogLevel bool
+	switch {
+	case logLvlStr != "":
+		// CLI flag set; take presence.
+		overrideLogLevel = true
+	case os.Getenv("SEI_LOG_LEVEL") == "":
+		// No CLI flag and no env var; fall back to config
 		logLvlStr = serverCtx.Config.LogLevel
-	}
-	logLvl, err := zerolog.ParseLevel(logLvlStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse log level (%s): %w", logLvlStr, err)
+		overrideLogLevel = true
+	default:
+		// Do nothing, since flag was not set but env var was non-empty, which gets
+		// handled by seilog init.
 	}
 
-	serverCtx.Logger = ZeroLogWrapper{zerolog.New(logWriter).Level(logLvl).With().Timestamp().Logger()}
+	if overrideLogLevel {
+		var lvl slog.Level
+		if err := lvl.UnmarshalText([]byte(logLvlStr)); err != nil {
+			return fmt.Errorf("failed to parse log level (%s): %w", logLvlStr, err)
+		}
+		seilog.SetDefaultLevel(lvl, true)
+	}
 
 	return SetCmdServerContext(cmd, serverCtx)
 }
@@ -221,7 +249,7 @@ func SetCmdServerContext(cmd *cobra.Command, serverCtx *Context) error {
 // configuration file. The Tendermint configuration file is parsed given a root
 // Viper object, whereas the application is parsed with the private package-aware
 // viperCfg object.
-func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig interface{}) (*tmcfg.Config, error) {
+func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customConfig any) (*tmcfg.Config, error) {
 	rootDir := rootViper.GetString(flags.FlagHome)
 	configPath := filepath.Join(rootDir, "config")
 	tmCfgFile := filepath.Join(configPath, "config.toml")
@@ -317,24 +345,20 @@ func AddCommands(
 		panic(err)
 	}
 
-	logger, err := tmlog.NewDefaultLogger(conf.LogFormat, conf.LogLevel)
-	if err != nil {
-		panic(err)
-	}
 	tendermintCmd.AddCommand(
 		ShowNodeIDCmd(),
 		ShowValidatorCmd(),
 		ShowAddressCmd(),
 		VersionCmd(),
 		commands.MakeGenValidatorCommand(),
-		commands.MakeReindexEventCommand(conf, logger),
-		commands.MakeLightCommand(conf, logger),
-		commands.MakeResetCommand(conf, logger),
-		commands.MakeUnsafeResetAllCommand(conf, logger),
+		commands.MakeReindexEventCommand(conf),
+		commands.MakeLightCommand(conf),
+		commands.MakeResetCommand(conf),
+		commands.MakeUnsafeResetAllCommand(conf),
 		commands.GenNodeKeyCmd,
-		commands.MakeInspectCommand(conf, logger),
-		commands.MakeKeyMigrateCommand(conf, logger),
-		debug.GetDebugCommand(logger),
+		commands.MakeInspectCommand(conf),
+		commands.MakeKeyMigrateCommand(conf),
+		debug.GetDebugCommand(),
 		commands.NewCompletionCmd(tendermintCmd, true),
 	)
 
@@ -408,26 +432,14 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(ctx *Context, restartCh chan struct{}, canRestartAfter time.Time) ErrorCode {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	if restartCh != nil {
-		for {
-			select {
-			case sig := <-sigs:
-				return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
-			case <-restartCh:
-				// If it's in the restart cooldown period
-				if time.Now().Before(canRestartAfter) {
-					ctx.Logger.Info("Restarting too frequently, can only restart after %s", canRestartAfter)
-					continue
-				}
-				return ErrorCode{Code: RestartErrorCode}
-			}
-		}
-	} else {
-		sig := <-sigs
-		return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
+func WaitForQuitSignals(ctx context.Context, restartCh chan struct{}) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-restartCh: // blocks forever on a nil channel
+		return ErrShouldRestart
 	}
 }
 
@@ -468,9 +480,10 @@ func openTraceWriter(traceWriterFile string) (w io.Writer, err error) {
 	if traceWriterFile == "" {
 		return
 	}
+	traceWriterFile = filepath.Clean(traceWriterFile)
 	return os.OpenFile(
 		traceWriterFile,
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE,
-		0666,
+		0600,
 	)
 }

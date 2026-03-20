@@ -9,18 +9,20 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
+
+var logger = seilog.NewLogger("cosmos", "store", "iavl")
 
 const (
 	DefaultIAVLCacheSize = 500000
@@ -43,15 +45,15 @@ type Store struct {
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
 // store's version (id) from the provided DB. An error is returned if the version
 // fails to load, or if called with a positive version on an empty tree.
-func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
-	return LoadStoreWithInitialVersion(db, logger, key, id, lazyLoading, 0, cacheSize, disableFastNode, orphanConfig)
+func LoadStore(db dbm.DB, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
+	return LoadStoreWithInitialVersion(db, key, id, lazyLoading, 0, cacheSize, disableFastNode, orphanConfig)
 }
 
 // LoadStoreWithInitialVersion returns an IAVL Store as a CommitKVStore setting its initialVersion
 // to the one given. Internally, it will load the store's version (id) from the
 // provided DB. An error is returned if the version fails to load, or if called with a positive
 // version on an empty tree.
-func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
+func LoadStoreWithInitialVersion(db dbm.DB, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool, orphanConfig *iavl.Options) (types.CommitKVStore, error) {
 	opts := iavl.Options{
 		InitialVersion: initialVersion,
 		Sync:           false,
@@ -226,7 +228,7 @@ func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc typ
 func (st *Store) Set(key, value []byte) {
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
-	st.tree.Set(key, value)
+	_, _ = st.tree.Set(key, value)
 }
 
 // Implements types.KVStore.
@@ -252,7 +254,7 @@ func (st *Store) Has(key []byte) (exists bool) {
 // Implements types.KVStore.
 func (st *Store) Delete(key []byte) {
 	defer telemetry.MeasureSince(time.Now(), "store", "iavl", "delete")
-	st.tree.Remove(key)
+	_, _, _ = st.tree.Remove(key) //nolint:dogsled
 }
 
 // DeleteVersions deletes a series of versions from the MutableTree. An error
@@ -273,7 +275,7 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, true)
 	if err != nil {
 		if iterator != nil {
-			iterator.Close()
+			_ = iterator.Close()
 		}
 		panic(err)
 	}
@@ -285,7 +287,7 @@ func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, false)
 	if err != nil {
 		if iterator != nil {
-			iterator.Close()
+			_ = iterator.Close()
 		}
 		panic(err)
 	}
@@ -295,7 +297,10 @@ func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 // SetInitialVersion sets the initial version of the IAVL tree. It is used when
 // starting a new chain at an arbitrary height.
 func (st *Store) SetInitialVersion(version int64) {
-	st.tree.SetInitialVersion(uint64(version))
+	if version < 0 {
+		panic(fmt.Sprintf("negative initial version not allowed: %d", version))
+	}
+	st.tree.SetInitialVersion(uint64(version)) //#nosec G115 -- bounds checked above
 }
 
 // Exports the IAVL store at the given version, returning an iavl.Exporter for the tree.
@@ -401,7 +406,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		for ; iterator.Valid(); iterator.Next() {
 			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
 		}
-		iterator.Close()
+		_ = iterator.Close()
 
 		bz, err := pairs.Marshal()
 		if err != nil {
@@ -423,7 +428,10 @@ func (st *Store) DeleteAll(start, end []byte) error {
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
 	for _, key := range keys {
 		st.Delete(key)
 	}
@@ -432,7 +440,7 @@ func (st *Store) DeleteAll(start, end []byte) error {
 
 func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := st.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}

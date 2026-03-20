@@ -3,8 +3,8 @@ package crypto
 import (
 	"crypto/sha256"
 
-	ed25519 "github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/bytes"
+	ed25519 "github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
 const (

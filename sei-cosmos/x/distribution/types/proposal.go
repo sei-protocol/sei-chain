@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 const (
@@ -22,8 +22,6 @@ func init() {
 }
 
 // NewCommunityPoolSpendProposal creates a new community pool spned proposal.
-//
-//nolint:interfacer
 func NewCommunityPoolSpendProposal(title, description string, recipient sdk.AccAddress, amount sdk.Coins) *CommunityPoolSpendProposal {
 	return &CommunityPoolSpendProposal{title, description, recipient.String(), amount}
 }

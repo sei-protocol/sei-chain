@@ -6,7 +6,7 @@ import "gogoproto/gogo.proto";
 import "tendermint/libs/bits/types.proto";
 import "tendermint/types/types.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/consensus";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus";
 
 // NewRoundStep is sent for every step taken in the ConsensusState.
 // For every height/round/step transition

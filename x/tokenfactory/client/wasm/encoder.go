@@ -3,7 +3,7 @@ package wasm
 import (
 	"encoding/json"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )

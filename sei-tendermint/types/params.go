@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	tmstrings "github.com/tendermint/tendermint/libs/strings"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (

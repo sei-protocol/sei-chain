@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 )
 
 type AccountInfo struct {
@@ -128,39 +128,48 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	return privKey
 }
 
-func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
-	valKeys := []cryptotypes.PrivKey{}
-	userHomeDir, _ := os.UserHomeDir()
+func (sc *SignerClient) GetValKeys() ([]cryptotypes.PrivKey, error) {
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("os.UserHomeDir: %w", err)
+	}
 	valKeysFilePath := filepath.Join(userHomeDir, "exported_keys")
-	files, _ := os.ReadDir(valKeysFilePath)
+	files, err := os.ReadDir(valKeysFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("os.ReadDir(%s): %w", valKeysFilePath, err)
+	}
+
+	valKeys := make([]cryptotypes.PrivKey, 0, len(files))
 	for _, fn := range files {
+		if fn.IsDir() {
+			continue
+		}
 		// we dont expect subdirectories, so we can just handle files
 		valKeyFile := filepath.Join(valKeysFilePath, fn.Name())
 		privKeyBz, err := os.ReadFile(filepath.Clean(valKeyFile))
 		if err != nil {
-			panic(err)
+			return nil, fmt.Errorf("os.ReadFile(%s): %w", valKeyFile, err)
 		}
 
-		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "12345678")
+		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "12345678") //nolint:gosec // used for testing only
 		if err != nil {
-			panic(err)
+			return nil, fmt.Errorf("UnarmorDecryptPrivKey: %w", err)
 		}
 
 		if algo != string(hd.Secp256k1Type) {
-			panic("unsupported validator key type: " + algo)
+			return nil, fmt.Errorf("unsupported validator key type: %s", algo)
 		}
 		privKey, err := legacy.PrivKeyFromBytes(privKeyBytes)
 		if err != nil {
-			panic(err)
+			return nil, fmt.Errorf("PrivKeyFromBytes: %w", err)
 		}
 
 		valKeys = append(valKeys, privKey)
 	}
-	return valKeys
+	return valKeys, nil
 }
 
-func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {
-	var sigsV2 []signing.SignatureV2
+func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) error {
 	signerInfo := sc.GetAccountNumberSequenceNumber(privKey)
 	accountNum := signerInfo.AccountNumber
 	seqNum := signerInfo.SequenceNumber
@@ -174,15 +183,15 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 		},
 		Sequence: seqNum,
 	}
-	sigsV2 = append(sigsV2, sigV2)
-	_ = (*txBuilder).SetSignatures(sigsV2...)
-	sigsV2 = []signing.SignatureV2{}
+	if err := (*txBuilder).SetSignatures(sigV2); err != nil {
+		return fmt.Errorf("SetSignatures (placeholder): %w", err)
+	}
 	signerData := xauthsigning.SignerData{
 		ChainID:       chainID,
 		AccountNumber: accountNum,
 		Sequence:      seqNum,
 	}
-	sigV2, _ = clienttx.SignWithPrivKey(
+	sigV2, err := clienttx.SignWithPrivKey(
 		TestConfig.TxConfig.SignModeHandler().DefaultMode(),
 		signerData,
 		*txBuilder,
@@ -190,8 +199,13 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 		TestConfig.TxConfig,
 		seqNum,
 	)
-	sigsV2 = append(sigsV2, sigV2)
-	_ = (*txBuilder).SetSignatures(sigsV2...)
+	if err != nil {
+		return fmt.Errorf("signWithPrivKey: %w", err)
+	}
+	if err := (*txBuilder).SetSignatures(sigV2); err != nil {
+		return fmt.Errorf("setSignatures (final): %w", err)
+	}
+	return nil
 }
 
 func (sc *SignerClient) GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) SignerInfo {

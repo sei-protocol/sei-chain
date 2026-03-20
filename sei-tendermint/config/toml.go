@@ -3,14 +3,15 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
 // defaultDirPerm is the default permissions used when creating directories.

@@ -14,7 +14,7 @@ message DeferredInfo {
   bytes tx_hash = 2;
   bytes tx_bloom = 3;
   string surplus = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.nullable) = false
   ];
   string error = 5;

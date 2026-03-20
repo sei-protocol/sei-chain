@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -13,18 +14,18 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/codec"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/tasks"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
-	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/proto"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -179,7 +180,7 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
 	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
 	if err != nil {
-		ctx.Logger().Error("error while processing scheduler", "err", err)
+		logger.Error("error while processing scheduler", "err", err)
 		panic(err)
 	}
 	for _, tx := range txRes {
@@ -207,7 +208,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -218,8 +219,8 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	}
 
 	res = abci.ResponseDeliverTx{
-		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
+		GasWanted: int64(gInfo.GasWanted), //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
+		GasUsed:   int64(gInfo.GasUsed),   //nolint:gosec // gas values are practically bounded; TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
@@ -280,7 +281,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic("no state to commit")
 	}
 	header := app.stateToCommit.ctx.BlockHeader()
-	retainHeight := app.GetBlockRetentionHeight(header.Height)
+	retainHeight, err := app.GetBlockRetentionHeight(header.Height)
+	if err != nil {
+		return nil, fmt.Errorf("getting block retention height: %w", err)
+	}
 
 	if app.preCommitHandler != nil {
 		if err := app.preCommitHandler(app.stateToCommit.ctx); err != nil {
@@ -304,10 +308,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	var halt bool
 
 	switch {
-	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight:
+	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight: //nolint:gosec // block heights are always non-negative
 		halt = true
 
-	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime):
+	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime): //nolint:gosec // haltTime is a small config value, won't overflow int64
 		halt = true
 	}
 
@@ -319,7 +323,10 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		app.halt()
 	}
 
-	app.SnapshotIfApplicable(uint64(header.Height))
+	if header.Height < 0 {
+		panic(fmt.Sprintf("negative block height: %d", header.Height))
+	}
+	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -328,14 +335,18 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 func (app *BaseApp) SnapshotIfApplicable(height uint64) {
 	if app.snapshotInterval > 0 && height%app.snapshotInterval == 0 {
-		go app.Snapshot(int64(height))
+		if height > uint64(math.MaxInt64) {
+			logger.Error("snapshot height exceeds max int64", "height", height)
+			return
+		}
+		go app.Snapshot(int64(height)) //nolint:gosec // bounds checked above
 	}
 }
 
 // halt attempts to gracefully shutdown the node via SIGINT and SIGTERM falling
 // back on os.Exit if both fail.
 func (app *BaseApp) halt() {
-	app.logger.Info("halting node per configuration", "height", app.haltHeight, "time", app.haltTime)
+	logger.Info("halting node per configuration", "height", app.haltHeight, "time", app.haltTime)
 
 	p, err := os.FindProcess(os.Getpid())
 	if err == nil {
@@ -350,37 +361,42 @@ func (app *BaseApp) halt() {
 
 	// Resort to exiting immediately if the process could not be found or killed
 	// via SIGINT/SIGTERM signals.
-	app.logger.Info("failed to send SIGINT/SIGTERM; exiting...")
+	logger.Info("failed to send SIGINT/SIGTERM; exiting...")
 	os.Exit(0)
 }
 
 // Snapshot takes a snapshot of the current state and prunes any old snapshottypes.
 func (app *BaseApp) Snapshot(height int64) {
 	if app.snapshotManager == nil {
-		app.logger.Info("snapshot manager not configured")
+		logger.Info("snapshot manager not configured")
 		return
 	}
 
-	app.logger.Info("creating state snapshot", "height", height)
+	if height < 0 {
+		logger.Error("cannot create snapshot for negative height", "height", height)
+		return
+	}
 
-	snapshot, err := app.snapshotManager.Create(uint64(height))
+	logger.Info("creating state snapshot", "height", height)
+
+	snapshot, err := app.snapshotManager.Create(uint64(height)) //nolint:gosec // bounds checked above
 	if err != nil {
-		app.logger.Error("failed to create state snapshot", "height", height, "err", err)
+		logger.Error("failed to create state snapshot", "height", height, "err", err)
 		return
 	}
 
-	app.logger.Info("completed state snapshot", "height", height, "format", snapshot.Format)
+	logger.Info("completed state snapshot", "height", height, "format", snapshot.Format)
 
 	if app.snapshotKeepRecent > 0 {
-		app.logger.Debug("pruning state snapshots")
+		logger.Debug("pruning state snapshots")
 
 		pruned, err := app.snapshotManager.Prune(app.snapshotKeepRecent)
 		if err != nil {
-			app.logger.Error("Failed to prune state snapshots", "err", err)
+			logger.Error("Failed to prune state snapshots", "err", err)
 			return
 		}
 
-		app.logger.Debug("pruned state snapshots", "pruned", pruned)
+		logger.Debug("pruned state snapshots", "pruned", pruned)
 	}
 }
 
@@ -446,14 +462,14 @@ func (app *BaseApp) ListSnapshots(context context.Context, req *abci.RequestList
 
 	snapshots, err := app.snapshotManager.List()
 	if err != nil {
-		app.logger.Error("failed to list snapshots", "err", err)
+		logger.Error("failed to list snapshots", "err", err)
 		return resp, nil
 	}
 
 	for _, snapshot := range snapshots {
 		abciSnapshot, err := snapshot.ToABCI()
 		if err != nil {
-			app.logger.Error("failed to list snapshots", "err", err)
+			logger.Error("failed to list snapshots", "err", err)
 			return resp, nil
 		}
 		resp.Snapshots = append(resp.Snapshots, &abciSnapshot)
@@ -469,7 +485,7 @@ func (app *BaseApp) LoadSnapshotChunk(context context.Context, req *abci.Request
 	}
 	chunk, err := app.snapshotManager.LoadChunk(req.Height, req.Format, req.Chunk)
 	if err != nil {
-		app.logger.Error(
+		logger.Error(
 			"failed to load snapshot chunk",
 			"height", req.Height,
 			"format", req.Format,
@@ -484,18 +500,18 @@ func (app *BaseApp) LoadSnapshotChunk(context context.Context, req *abci.Request
 // OfferSnapshot implements the ABCI interface. It delegates to app.snapshotManager if set.
 func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOfferSnapshot) (*abci.ResponseOfferSnapshot, error) {
 	if app.snapshotManager == nil {
-		app.logger.Error("snapshot manager not configured")
+		logger.Error("snapshot manager not configured")
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ABORT}, nil
 	}
 
 	if req.Snapshot == nil {
-		app.logger.Error("received nil snapshot")
+		logger.Error("received nil snapshot")
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 	}
 
 	snapshot, err := snapshottypes.SnapshotFromABCI(req.Snapshot)
 	if err != nil {
-		app.logger.Error("failed to decode snapshot metadata", "err", err)
+		logger.Error("failed to decode snapshot metadata", "err", err)
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 	}
 
@@ -508,7 +524,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT_FORMAT}, nil
 
 	case errors.Is(err, snapshottypes.ErrInvalidMetadata):
-		app.logger.Error(
+		logger.Error(
 			"rejecting invalid snapshot",
 			"height", req.Snapshot.Height,
 			"format", req.Snapshot.Format,
@@ -517,7 +533,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 		return &abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_REJECT}, nil
 
 	default:
-		app.logger.Error(
+		logger.Error(
 			"failed to restore snapshot",
 			"height", req.Snapshot.Height,
 			"format", req.Snapshot.Format,
@@ -533,7 +549,7 @@ func (app *BaseApp) OfferSnapshot(context context.Context, req *abci.RequestOffe
 // ApplySnapshotChunk implements the ABCI interface. It delegates to app.snapshotManager if set.
 func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 	if app.snapshotManager == nil {
-		app.logger.Error("snapshot manager not configured")
+		logger.Error("snapshot manager not configured")
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 
@@ -548,7 +564,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 
 	case errors.Is(err, snapshottypes.ErrChunkHashMismatch):
-		app.logger.Error(
+		logger.Error(
 			"chunk checksum mismatch; rejecting sender and requesting refetch",
 			"chunk", req.Index,
 			"sender", req.Sender,
@@ -561,7 +577,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 		}, nil
 
 	default:
-		app.logger.Error("failed to restore snapshot", "err", err)
+		logger.Error("failed to restore snapshot", "err", err)
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 }
@@ -661,7 +677,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 	checkStateCtx := app.checkState.Context()
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
-		cacheMS, checkStateCtx.BlockHeader(), true, app.logger,
+		cacheMS, checkStateCtx.BlockHeader(), true,
 	).WithMinGasPrices(app.minGasPrices).WithBlockHeight(height)
 
 	return ctx, nil
@@ -688,10 +704,10 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 // all blocks, e.g. via a local config option min-retain-blocks. There may also
 // be a need to vary retention for other nodes, e.g. sentry nodes which do not
 // need historical blocks.
-func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
+func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) (int64, error) {
 	// pruning is disabled if minRetainBlocks is zero
 	if app.minRetainBlocks == 0 {
-		return 0
+		return 0, nil
 	}
 
 	minNonZero := func(x, y int64) int64 {
@@ -724,7 +740,11 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 
 	// Define the state pruning offset, i.e. the block offset at which the
 	// underlying logical database is persisted to disk.
-	statePruningOffset := int64(app.cms.GetPruning().KeepEvery)
+	keepEvery := app.cms.GetPruning().KeepEvery
+	if keepEvery > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("KeepEvery %d exceeds max int64", keepEvery)
+	}
+	statePruningOffset := int64(keepEvery) //nolint:gosec // bounds checked above
 	if statePruningOffset > 0 {
 		if commitHeight > statePruningOffset {
 			v := commitHeight - (commitHeight % statePruningOffset)
@@ -734,34 +754,44 @@ func (app *BaseApp) GetBlockRetentionHeight(commitHeight int64) int64 {
 			// a height in which we persist state, so we return zero regardless of other
 			// conditions. Otherwise, we could end up pruning blocks without having
 			// any state committed to disk.
-			return 0
+			return 0, nil
 		}
 	}
 
 	if app.snapshotInterval > 0 && app.snapshotKeepRecent > 0 {
-		v := commitHeight - int64((app.snapshotInterval * uint64(app.snapshotKeepRecent)))
+		snapshotRetain := app.snapshotInterval * uint64(app.snapshotKeepRecent) //nolint:gosec // snapshotKeepRecent is a small config value
+		if snapshotRetain/app.snapshotInterval != uint64(app.snapshotKeepRecent) {
+			return 0, fmt.Errorf("snapshot retention calculation overflowed")
+		}
+		if snapshotRetain > uint64(math.MaxInt64) {
+			return 0, fmt.Errorf("snapshot retention %d exceeds max int64", snapshotRetain)
+		}
+		v := commitHeight - int64(snapshotRetain) //nolint:gosec // bounds checked above
 		retentionHeight = minNonZero(retentionHeight, v)
 	}
 
-	v := commitHeight - int64(app.minRetainBlocks)
+	if app.minRetainBlocks > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("minRetainBlocks %d exceeds max int64", app.minRetainBlocks)
+	}
+	v := commitHeight - int64(app.minRetainBlocks) //nolint:gosec // bounds checked above
 	retentionHeight = minNonZero(retentionHeight, v)
 
 	if retentionHeight <= 0 {
 		// prune nothing in the case of a non-positive height
-		return 0
+		return 0, nil
 	}
 
-	return retentionHeight
+	return retentionHeight, nil
 }
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
+	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	ctx, _ = ctx.CacheContext()
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
 	return gasInfo, result, err
 }
 
@@ -920,6 +950,10 @@ func splitPath(requestPath string) (path []string) {
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
+	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
+		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
+	}
+
 	header := tmproto.Header{
 		ChainID:            app.ChainID,
 		Height:             req.Height,
@@ -936,7 +970,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 		LastBlockId: tmproto.BlockID{
 			Hash: req.LastBlockHash,
 			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
+				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
 				Hash:  req.LastBlockPartSetHash,
 			},
 		},
@@ -953,7 +987,7 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 
 	defer func() {
 		if err := recover(); err != nil {
-			app.logger.Error(
+			logger.Error(
 				"panic recovered in PrepareProposal",
 				"height", req.Height,
 				"time", req.Time,
@@ -986,34 +1020,15 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
-
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
+	if app.ChainID != req.Header.ChainID {
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.processProposalState == nil {
-		app.setProcessProposalState(header)
+		app.setProcessProposalState(*req.Header)
 	} else {
 		// In the first block, app.processProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.setProcessProposalHeader(header)
+		app.setProcessProposalHeader(*req.Header)
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
@@ -1022,10 +1037,10 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 	defer func() {
 		if err := recover(); err != nil {
-			app.logger.Error(
+			logger.Error(
 				"panic recovered in ProcessProposal",
-				"height", req.Height,
-				"time", req.Time,
+				"height", req.Header.Height,
+				"time", req.Header.Time,
 				"hash", fmt.Sprintf("%X", req.Hash),
 				"panic", err,
 			)
@@ -1055,40 +1070,18 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(
-			map[string]interface{}{"blockHeight": req.Height},
+			map[string]interface{}{"blockHeight": req.Header.Height},
 		))
 	}
-
-	// Initialize the DeliverTx state. If this is the first block, it should
-	// already be initialized in InitChain. Otherwise app.deliverState will be
-	// nil, since it is reset on Commit.
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal),
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
+	if app.ChainID != req.Header.ChainID {
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.deliverState == nil {
-		app.setDeliverState(header)
+		app.setDeliverState(*req.Header)
 	} else {
 		// In the first block, app.deliverState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.setDeliverStateHeader(header)
+		app.setDeliverStateHeader(*req.Header)
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
@@ -1107,9 +1100,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 			return nil, err
 		}
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
-		// set the signed validators for addition to context in deliverTx
-		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
-
 		return res, nil
 	} else {
 		return nil, errors.New("finalize block handler not set")
@@ -1123,7 +1113,7 @@ func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxP
 			// vectors where a malicious actor crafts a transaction that panics the
 			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
 			// back to zero priority in this case and log the panic for monitoring purposes.
-			app.logger.Error("tx prioritizer base app panicked. Falling back on no priority", "error", r)
+			logger.Error("tx prioritizer base app panicked. Falling back on no priority", "error", r)
 			if _err == nil {
 				_resp = &abci.ResponseGetTxPriorityHint{Priority: 0}
 			}

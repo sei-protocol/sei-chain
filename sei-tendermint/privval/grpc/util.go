@@ -5,20 +5,24 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"os"
+	"path/filepath"
 	"time"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/sei-protocol/seilog"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 )
+
+var logger = seilog.NewLogger("tendermint", "privval", "grpc")
 
 // DefaultDialOptions constructs a list of grpc dial options
 func DefaultDialOptions(
@@ -39,7 +43,8 @@ func DefaultDialOptions(
 		grpc_retry.WithBackoff(grpc_retry.BackoffExponential(timeout)),
 	}
 
-	dialOpts := []grpc.DialOption{
+	dialOpts := make([]grpc.DialOption, 0, 3+len(extraOpts))
+	dialOpts = append(dialOpts,
 		grpc.WithKeepaliveParams(kacp),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxCallRecvMsgSize),
@@ -48,33 +53,33 @@ func DefaultDialOptions(
 		grpc.WithUnaryInterceptor(
 			grpc_retry.UnaryClientInterceptor(opts...),
 		),
-	}
+	)
 
 	dialOpts = append(dialOpts, extraOpts...)
 
 	return dialOpts
 }
 
-func GenerateTLS(certPath, keyPath, ca string, log log.Logger) grpc.DialOption {
+func GenerateTLS(certPath, keyPath, ca string) grpc.DialOption {
 	certificate, err := tls.LoadX509KeyPair(
 		certPath,
 		keyPath,
 	)
 	if err != nil {
-		log.Error("error", err)
+		logger.Error("Failed to generate TLS", "err", err)
 		os.Exit(1)
 	}
 
 	certPool := x509.NewCertPool()
-	bs, err := os.ReadFile(ca)
+	bs, err := os.ReadFile(filepath.Clean(ca))
 	if err != nil {
-		log.Error("failed to read ca cert:", "error", err)
+		logger.Error("failed to read ca cert:", "error", err)
 		os.Exit(1)
 	}
 
 	ok := certPool.AppendCertsFromPEM(bs)
 	if !ok {
-		log.Error("failed to append certs")
+		logger.Error("failed to append certs")
 		os.Exit(1)
 	}
 
@@ -92,15 +97,14 @@ func DialRemoteSigner(
 	ctx context.Context,
 	cfg *config.PrivValidatorConfig,
 	chainID string,
-	logger log.Logger,
 	usePrometheus bool,
 ) (*SignerClient, error) {
 	var transportSecurity grpc.DialOption
 	if cfg.AreSecurityOptionsPresent() {
 		transportSecurity = GenerateTLS(cfg.ClientCertificateFile(),
-			cfg.ClientKeyFile(), cfg.RootCAFile(), logger)
+			cfg.ClientKeyFile(), cfg.RootCAFile())
 	} else {
-		transportSecurity = grpc.WithInsecure()
+		transportSecurity = grpc.WithTransportCredentials(insecure.NewCredentials())
 		logger.Info("Using an insecure gRPC connection!")
 	}
 
@@ -118,5 +122,5 @@ func DialRemoteSigner(
 		logger.Error("unable to connect to server", "target", address, "err", err)
 	}
 
-	return NewSignerClient(conn, chainID, logger)
+	return NewSignerClient(conn, chainID)
 }

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestEpochKeeper(t *testing.T) {

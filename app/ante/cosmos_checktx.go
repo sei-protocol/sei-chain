@@ -7,31 +7,31 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/cosmos/cosmos-sdk/client"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	feegrantkeeper "github.com/cosmos/cosmos-sdk/x/feegrant/keeper"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
+	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
+	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const maxNestedMsgs = 5
@@ -491,21 +491,21 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 			continue
 		}
 		if acc.GetPubKey() == nil {
-			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			logger.Error("missing pubkey for signer", "signer", signer)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
-			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			logger.Debug("failed to parse pubkey, likely due to the fact that it isn't on secp256k1 curve", "pub-key", acc.GetPubKey(), "err", err)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			logger.Error("failed to get EVM address from pubkey", "err", err)
 			events = append(events, sdk.NewEvent(evmtypes.EventTypeSigner,
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
@@ -516,7 +516,7 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		associationHelper := helpers.NewAssociationHelper(evmKeeper, evmKeeper.BankKeeper(), accountKeeper)
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
+			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return nil, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {

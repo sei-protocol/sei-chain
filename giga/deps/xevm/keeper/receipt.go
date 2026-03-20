@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -184,7 +184,7 @@ func (k *Keeper) WriteReceipt(
 
 	if perr := stateDB.GetPrecompileError(); perr != nil {
 		if receipt.Status > 0 {
-			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+			logger.Error("Transaction succeeded in execution but has precompile error", "tx", receipt.TxHashHex, "err", perr)
 		} else {
 			// append precompile error to VM error
 			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())

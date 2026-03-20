@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -478,7 +478,7 @@ func (c *sendEmulatedIBCTransferContract) IBCPacketTimeout(codeID wasmvm.Checksu
 	packet := msg.Packet
 
 	var data ibctransfertypes.FungibleTokenPacketData
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(packet.Data, &data); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(packet.Data, &data); err != nil {
 		return nil, 0, err
 	}
 	if err := data.ValidateBasic(); err != nil {
@@ -526,7 +526,7 @@ func (c *ackReceiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env wasmv
 	packet := msg.Packet
 
 	var src ibctransfertypes.FungibleTokenPacketData
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(packet.Data, &src); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(packet.Data, &src); err != nil {
 		return nil, 0, err
 	}
 	require.NoError(c.t, src.ValidateBasic())
@@ -546,13 +546,13 @@ func (c *ackReceiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env wasmv
 
 func (c *ackReceiverContract) IBCPacketAck(codeID wasmvm.Checksum, env wasmvmtypes.Env, msg wasmvmtypes.IBCPacketAckMsg, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) (*wasmvmtypes.IBCBasicResponse, uint64, error) {
 	var data ibctransfertypes.FungibleTokenPacketData
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(msg.OriginalPacket.Data, &data); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(msg.OriginalPacket.Data, &data); err != nil {
 		return nil, 0, err
 	}
 	// call original ibctransfer keeper to not copy all code into this
 
 	var ack channeltypes.Acknowledgement
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(msg.Acknowledgement.Data, &ack); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(msg.Acknowledgement.Data, &ack); err != nil {
 		return nil, 0, err
 	}
 
@@ -577,7 +577,7 @@ func (c *nackReceiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env wasm
 	packet := msg.Packet
 
 	var src ibctransfertypes.FungibleTokenPacketData
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(packet.Data, &src); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(packet.Data, &src); err != nil {
 		return nil, 0, err
 	}
 	require.NoError(c.t, src.ValidateBasic())
@@ -594,7 +594,7 @@ func (c *errorReceiverContract) IBCPacketReceive(codeID wasmvm.Checksum, env was
 	packet := msg.Packet
 
 	var src ibctransfertypes.FungibleTokenPacketData
-	if err := ibctransfertypes.ModuleCdc.UnmarshalJSON(packet.Data, &src); err != nil {
+	if err := ibctransfertypes.ModuleCdc.UnmarshalAsJSON(packet.Data, &src); err != nil {
 		return nil, 0, err
 	}
 	require.NoError(c.t, src.ValidateBasic())

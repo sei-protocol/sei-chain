@@ -1,4 +1,5 @@
 name: UCI
+run-name: UCI / Stale Check
 
 on:
   workflow_dispatch:
@@ -18,6 +19,6 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    uses: sei-protocol/uci/.github/workflows/stale-check.yml@v0.0.3
+    uses: sei-protocol/uci/.github/workflows/stale-check.yml@v0.0.6
     with: 
       days-before-pr-stale: 28

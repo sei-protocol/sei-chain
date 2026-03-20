@@ -1,8 +1,8 @@
 package ante
 
 import (
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
 type TxBody interface {

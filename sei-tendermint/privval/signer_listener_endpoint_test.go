@@ -10,11 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	tmnet "github.com/tendermint/tendermint/libs/net"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var (
@@ -44,8 +43,6 @@ func TestSignerRemoteRetryTCPOnly(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
@@ -68,7 +65,7 @@ func TestSignerRemoteRetryTCPOnly(t *testing.T) {
 		}
 	}(ln, attemptCh)
 
-	dialerEndpoint := NewSignerDialerEndpoint(logger,
+	dialerEndpoint := NewSignerDialerEndpoint(
 		DialTCPFn(ln.Addr().String(), testTimeoutReadWrite, ed25519.GenerateSecretKey()),
 	)
 	SignerDialerEndpointTimeoutReadWrite(time.Millisecond)(dialerEndpoint)
@@ -95,20 +92,17 @@ func TestRetryConnToRemoteSigner(t *testing.T) {
 
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
 	for _, tc := range getDialerTestCases(t) {
 		var (
 			chainID          = tmrand.Str(12)
 			mockPV           = types.NewMockPV()
 			endpointIsOpenCh = make(chan struct{})
 			thisConnTimeout  = testTimeoutReadWrite
-			listenerEndpoint = newSignerListenerEndpoint(t, logger, tc.addr, thisConnTimeout)
+			listenerEndpoint = newSignerListenerEndpoint(t, tc.addr, thisConnTimeout)
 		)
 		t.Cleanup(listenerEndpoint.Wait)
 
 		dialerEndpoint := NewSignerDialerEndpoint(
-			logger,
 			tc.dialer,
 		)
 		SignerDialerEndpointTimeoutReadWrite(testTimeoutReadWrite)(dialerEndpoint)
@@ -126,7 +120,6 @@ func TestRetryConnToRemoteSigner(t *testing.T) {
 		signerServer.Stop()
 
 		dialerEndpoint2 := NewSignerDialerEndpoint(
-			logger,
 			tc.dialer,
 		)
 		signerServer2 := NewSignerServer(dialerEndpoint2, chainID, mockPV)
@@ -146,7 +139,7 @@ func TestRetryConnToRemoteSigner(t *testing.T) {
 	}
 }
 
-func newSignerListenerEndpoint(t *testing.T, logger log.Logger, addr string, timeoutReadWrite time.Duration) *SignerListenerEndpoint {
+func newSignerListenerEndpoint(t *testing.T, addr string, timeoutReadWrite time.Duration) *SignerListenerEndpoint {
 	proto, address := tmnet.ProtocolAndAddress(addr)
 
 	ln, err := net.Listen(proto, address)
@@ -167,7 +160,6 @@ func newSignerListenerEndpoint(t *testing.T, logger log.Logger, addr string, tim
 	}
 
 	return NewSignerListenerEndpoint(
-		logger,
 		listener,
 		SignerListenerEndpointTimeoutReadWrite(testTimeoutReadWrite),
 	)
@@ -191,7 +183,6 @@ func startListenerEndpointAsync(
 func getMockEndpoints(
 	ctx context.Context,
 	t *testing.T,
-	logger log.Logger,
 	addr string,
 	socketDialer SocketDialer,
 ) (*SignerListenerEndpoint, *SignerDialerEndpoint) {
@@ -200,11 +191,10 @@ func getMockEndpoints(
 		endpointIsOpenCh = make(chan struct{})
 
 		dialerEndpoint = NewSignerDialerEndpoint(
-			logger,
 			socketDialer,
 		)
 
-		listenerEndpoint = newSignerListenerEndpoint(t, logger, addr, testTimeoutReadWrite)
+		listenerEndpoint = newSignerListenerEndpoint(t, addr, testTimeoutReadWrite)
 	)
 
 	SignerDialerEndpointTimeoutReadWrite(testTimeoutReadWrite)(dialerEndpoint)

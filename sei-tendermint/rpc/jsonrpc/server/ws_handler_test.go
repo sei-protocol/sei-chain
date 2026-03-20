@@ -11,14 +11,12 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 func TestWebsocketManagerHandler(t *testing.T) {
-	logger := log.NewNopLogger()
 
-	s := newWSServer(t, logger)
+	s := newWSServer(t)
 	defer s.Close()
 
 	t.Cleanup(leaktest.Check(t))
@@ -44,7 +42,7 @@ func TestWebsocketManagerHandler(t *testing.T) {
 	dialResp.Body.Close()
 }
 
-func newWSServer(t *testing.T, logger log.Logger) *httptest.Server {
+func newWSServer(t *testing.T) *httptest.Server {
 	type args struct {
 		S string      `json:"s"`
 		I json.Number `json:"i"`
@@ -52,7 +50,7 @@ func newWSServer(t *testing.T, logger log.Logger) *httptest.Server {
 	funcMap := map[string]*RPCFunc{
 		"c": NewWSRPCFunc(func(context.Context, *args) (string, error) { return "foo", nil }),
 	}
-	wm := NewWebsocketManager(logger, funcMap)
+	wm := NewWebsocketManager(funcMap)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/websocket", wm.WebsocketHandler)

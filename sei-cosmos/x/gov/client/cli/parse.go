@@ -3,16 +3,20 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/pflag"
 
-	govutils "github.com/cosmos/cosmos-sdk/x/gov/client/utils"
+	govutils "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/client/utils"
 )
 
 func parseSubmitProposalFlags(fs *pflag.FlagSet) (*proposal, error) {
 	proposal := &proposal{}
-	proposalFile, _ := fs.GetString(FlagProposal)
+	proposalFile, err := fs.GetString(FlagProposal)
+	if err != nil {
+		return nil, err
+	}
 
 	if proposalFile == "" {
 		proposalType, _ := fs.GetString(FlagProposalType)
@@ -30,8 +34,8 @@ func parseSubmitProposalFlags(fs *pflag.FlagSet) (*proposal, error) {
 			return nil, fmt.Errorf("--%s flag provided alongside --proposal, which is a noop", flag)
 		}
 	}
-
-	contents, err := ioutil.ReadFile(proposalFile)
+	proposalFile = filepath.Clean(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return nil, err
 	}

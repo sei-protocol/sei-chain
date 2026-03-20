@@ -3,11 +3,11 @@ package multiversion_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/multiversion"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/multiversion"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	scheduler "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -327,7 +327,7 @@ func TestIterator(t *testing.T) {
 	require.Equal(t, []byte("key5"), end)
 
 	vals := []string{}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		vals = append(vals, string(iter.Value()))
 	}
@@ -424,7 +424,7 @@ func TestIteratorReadsetRace(t *testing.T) {
 	require.Equal(t, []byte("value4NEW"), val)
 
 	vals := []string{}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		vals = append(vals, string(iter.Value()))
 	}

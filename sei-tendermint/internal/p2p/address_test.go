@@ -4,10 +4,10 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestNewNodeID(t *testing.T) {

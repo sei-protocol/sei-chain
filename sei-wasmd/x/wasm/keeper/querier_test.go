@@ -12,15 +12,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkErrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/query"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkErrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -164,7 +163,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 		CodeID:  1,
 		Created: types.NewAbsoluteTxPosition(ctx),
 	})
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost)).WithLogger(log.TestingLogger())
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost))
 
 	specs := map[string]struct {
 		doInContract func()
@@ -184,7 +183,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 		},
 	}
 	for msg, spec := range specs {
-		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost)).WithLogger(log.TestingLogger())
+		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost))
 		t.Run(msg, func(t *testing.T) {
 			keepers.WasmKeeper.wasmVM = &wasmtesting.MockWasmer{QueryFn: func(checksum wasmvm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error) {
 				spec.doInContract()

@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
-	rpctypes "github.com/tendermint/tendermint/rpc/coretypes"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 )
 
 // Perturbs a running testnet.
-func Perturb(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error {
+func Perturb(ctx context.Context, testnet *e2e.Testnet) error {
 	timer := time.NewTimer(0) // first tick fires immediately; reset below
 	defer timer.Stop()
 
@@ -21,7 +20,7 @@ func Perturb(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-timer.C:
-				_, err := PerturbNode(ctx, logger, node, perturbation)
+				_, err := PerturbNode(ctx, node, perturbation)
 				if err != nil {
 					return err
 				}
@@ -36,11 +35,11 @@ func Perturb(ctx context.Context, logger log.Logger, testnet *e2e.Testnet) error
 
 // PerturbNode perturbs a node with a given perturbation, returning its status
 // after recovering.
-func PerturbNode(ctx context.Context, logger log.Logger, node *e2e.Node, perturbation e2e.Perturbation) (*rpctypes.ResultStatus, error) {
+func PerturbNode(ctx context.Context, node *e2e.Node, perturbation e2e.Perturbation) (*rpctypes.ResultStatus, error) {
 	testnet := node.Testnet
 	switch perturbation {
 	case e2e.PerturbationDisconnect:
-		logger.Info(fmt.Sprintf("Disconnecting node %v...", node.Name))
+		logger.Info("disconnecting node", "node", node.Name)
 		if err := execDocker("network", "disconnect", testnet.Name+"_"+testnet.Name, node.Name); err != nil {
 			return nil, err
 		}
@@ -50,7 +49,7 @@ func PerturbNode(ctx context.Context, logger log.Logger, node *e2e.Node, perturb
 		}
 
 	case e2e.PerturbationKill:
-		logger.Info(fmt.Sprintf("Killing node %v...", node.Name))
+		logger.Info("killing node", "node", node.Name)
 		if err := execCompose(testnet.Dir, "kill", "-s", "SIGKILL", node.Name); err != nil {
 			return nil, err
 		}
@@ -60,7 +59,7 @@ func PerturbNode(ctx context.Context, logger log.Logger, node *e2e.Node, perturb
 		}
 
 	case e2e.PerturbationPause:
-		logger.Info(fmt.Sprintf("Pausing node %v...", node.Name))
+		logger.Info("pausing node", "node", node.Name)
 		if err := execCompose(testnet.Dir, "pause", node.Name); err != nil {
 			return nil, err
 		}
@@ -70,7 +69,7 @@ func PerturbNode(ctx context.Context, logger log.Logger, node *e2e.Node, perturb
 		}
 
 	case e2e.PerturbationRestart:
-		logger.Info(fmt.Sprintf("Restarting node %v...", node.Name))
+		logger.Info("restarting node", "node", node.Name)
 		if err := execCompose(testnet.Dir, "kill", "-s", "SIGTERM", node.Name); err != nil {
 			return nil, err
 		}
@@ -91,10 +90,10 @@ func PerturbNode(ctx context.Context, logger log.Logger, node *e2e.Node, perturb
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	status, err := waitForNode(ctx, logger, node, 0)
+	status, err := waitForNode(ctx, node, 0)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info(fmt.Sprintf("Node %v recovered at height %v", node.Name, status.SyncInfo.LatestBlockHeight))
+	logger.Info("node recovered", "node", node.Name, "height", status.SyncInfo.LatestBlockHeight)
 	return status, nil
 }

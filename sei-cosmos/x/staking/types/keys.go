@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/address"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 )
 
 const (
@@ -83,8 +83,11 @@ func GetValidatorsByPowerIndexKey(validator Validator, powerReduction sdk.Int) [
 	// NOTE the larger values are of higher value
 
 	consensusPower := sdk.TokensToConsensusPower(validator.Tokens, powerReduction)
+	if consensusPower < 0 {
+		panic(fmt.Sprintf("negative consensus power: %d", consensusPower))
+	}
 	consensusPowerBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(consensusPowerBytes, uint64(consensusPower))
+	binary.BigEndian.PutUint64(consensusPowerBytes, uint64(consensusPower)) //nolint:gosec // bounds checked above
 
 	powerBytes := consensusPowerBytes
 	powerBytesLen := len(powerBytes) // 8
@@ -105,7 +108,7 @@ func GetValidatorsByPowerIndexKey(validator Validator, powerReduction sdk.Int) [
 
 	key[0] = ValidatorsByPowerIndexKey[0]
 	copy(key[1:powerBytesLen+1], powerBytes)
-	key[powerBytesLen+1] = byte(addrLen)
+	key[powerBytesLen+1] = byte(addrLen) //nolint:gosec // address length is always <= 255 bytes per address.MaxAddrLen
 	copy(key[powerBytesLen+2:], operAddrInvr)
 
 	return key
@@ -133,7 +136,10 @@ func ParseValidatorPowerRankKey(key []byte) (operAddr []byte) {
 // GetValidatorQueueKey returns the prefix key used for getting a set of unbonding
 // validators whose unbonding completion occurs at the given time and height.
 func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
-	heightBz := sdk.Uint64ToBigEndian(uint64(height))
+	if height < 0 {
+		panic(fmt.Sprintf("negative height not allowed: %d", height))
+	}
+	heightBz := sdk.Uint64ToBigEndian(uint64(height)) //nolint:gosec // bounds checked above
 	timeBz := sdk.FormatTimeBytes(timestamp)
 	timeBzL := len(timeBz)
 	prefixL := len(ValidatorQueueKey)
@@ -144,7 +150,7 @@ func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
 	copy(bz[:prefixL], ValidatorQueueKey)
 
 	// copy the encoded time bytes length
-	copy(bz[prefixL:prefixL+8], sdk.Uint64ToBigEndian(uint64(timeBzL)))
+	copy(bz[prefixL:prefixL+8], sdk.Uint64ToBigEndian(uint64(timeBzL))) //nolint:gosec // len() is always non-negative
 
 	// copy the encoded time bytes
 	copy(bz[prefixL+8:prefixL+8+timeBzL], timeBz)
@@ -159,19 +165,26 @@ func GetValidatorQueueKey(timestamp time.Time, height int64) []byte {
 // from GetValidatorQueueKey.
 func ParseValidatorQueueKey(bz []byte) (time.Time, int64, error) {
 	prefixL := len(ValidatorQueueKey)
+	if len(bz) < prefixL+8 {
+		return time.Time{}, 0, fmt.Errorf("key too short; expected at least %d bytes, got %d", prefixL+8, len(bz))
+	}
 	if prefix := bz[:prefixL]; !bytes.Equal(prefix, ValidatorQueueKey) {
 		return time.Time{}, 0, fmt.Errorf("invalid prefix; expected: %X, got: %X", ValidatorQueueKey, prefix)
 	}
 
 	timeBzL := sdk.BigEndianToUint64(bz[prefixL : prefixL+8])
-	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)])
+	remaining := len(bz) - prefixL - 8
+	if remaining < 0 || timeBzL > uint64(remaining) { //nolint:gosec // remaining is validated non-negative
+		return time.Time{}, 0, fmt.Errorf("invalid time bytes length %d exceeds remaining key length", timeBzL)
+	}
+	ts, err := sdk.ParseTimeBytes(bz[prefixL+8 : prefixL+8+int(timeBzL)]) //nolint:gosec // timeBzL bounds checked above
 	if err != nil {
 		return time.Time{}, 0, err
 	}
 
-	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):])
+	height := sdk.BigEndianToUint64(bz[prefixL+8+int(timeBzL):]) //nolint:gosec // timeBzL bounds checked above
 
-	return ts, int64(height), nil
+	return ts, int64(height), nil //nolint:gosec // height from trusted store data
 }
 
 // GetDelegationKey creates the key for delegator bond with validator

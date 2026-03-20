@@ -16,10 +16,10 @@ package wal
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"os"
 
-	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"golang.org/x/sys/unix"
 )
 
 const headerSize int64 = 8
@@ -50,7 +50,7 @@ func openLockFile(headPath string) (*os.File, error) {
 		return nil, err
 	}
 	if err := unix.Flock(int(guard.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		guard.Close()
+		_ = guard.Close()
 		return nil, fmt.Errorf("unix.Flock(): %w", err)
 	}
 	return guard, nil
@@ -130,7 +130,7 @@ func (i *logInner) Size() (int64, error) {
 func (i *logInner) Close() {
 	_ = i.writer.Sync() // Best effort syncing at close. No guarantees.
 	i.writer.Close()
-	i.lockFile.Close()
+	_ = i.lockFile.Close()
 }
 
 // non-threadsafe WAL.
@@ -147,12 +147,12 @@ func OpenLog(headPath string, cfg *Config) (*Log, error) {
 	}
 	view, err := loadLogView(headPath)
 	if err != nil {
-		lockFile.Close()
+		_ = lockFile.Close()
 		return nil, fmt.Errorf("loadLogView(): %w", err)
 	}
 	writer, err := openLogWriter(headPath)
 	if err != nil {
-		lockFile.Close()
+		_ = lockFile.Close()
 		return nil, fmt.Errorf("openLogWriter(): %w", err)
 	}
 	return &Log{

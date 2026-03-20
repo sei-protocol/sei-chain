@@ -1,12 +1,10 @@
 package keeper
 
 import (
-	"fmt"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	abci "github.com/tendermint/tendermint/abci/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 // AllocateTokens handles distribution of the collected fees
@@ -16,8 +14,6 @@ func (k Keeper) AllocateTokens(
 	ctx sdk.Context, sumPreviousPrecommitPower, totalPreviousPower int64,
 	previousProposer sdk.ConsAddress, bondedVotes []abci.VoteInfo,
 ) {
-
-	logger := k.Logger(ctx)
 
 	// fetch and clear the collected fees for distribution, since this is
 	// called in BeginBlock, collected fees will be from the previous block
@@ -70,12 +66,11 @@ func (k Keeper) AllocateTokens(
 		// e.g. a validator undelegates at block X, it's removed entirely by
 		// block X+1's endblock, then X+2 we need to refer to the previous
 		// proposer for X+1, but we've forgotten about them.
-		logger.Error(fmt.Sprintf(
-			"WARNING: Attempt to allocate proposer rewards to unknown proposer %s. "+
-				"This should happen only if the proposer unbonded completely within a single block, "+
-				"which generally should not happen except in exceptional circumstances (or fuzz testing). "+
-				"We recommend you investigate immediately.",
-			previousProposer.String()))
+		logger.Error("attempt to allocate proposer rewards to unknown proposer; "+
+			"this should happen only if the proposer unbonded completely within a single block, "+
+			"which generally should not happen except in exceptional circumstances (or fuzz testing); "+
+			"we recommend you investigate immediately",
+			"proposer", previousProposer)
 	}
 
 	// calculate fraction allocated to validators

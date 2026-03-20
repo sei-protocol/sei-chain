@@ -7,12 +7,13 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 type call struct {
@@ -34,8 +35,8 @@ func (c Conn) Read(ctx context.Context, data []byte) error {
 	}
 	ok, err := utils.Recv(ctx, done)
 	if err != nil {
-		c.conn.CloseRead() // close the read half.
-		<-done             // wait for data ownership to be returned.
+		_ = c.conn.CloseRead() // close the read half.
+		<-done                 // wait for data ownership to be returned.
 		return err
 	}
 	if !ok {
@@ -52,8 +53,8 @@ func (c Conn) Write(ctx context.Context, data []byte) error {
 	}
 	ok, err := utils.Recv(ctx, done)
 	if err != nil {
-		c.conn.CloseWrite() // close the write half.
-		<-done              // wait for data ownership to be returned.
+		_ = c.conn.CloseWrite() // close the write half.
+		<-done                  // wait for data ownership to be returned.
 		return err
 	}
 	if !ok {
@@ -68,7 +69,7 @@ func (c Conn) Flush(_ context.Context) error { return nil }
 func (c Conn) Close()                        { _ = c.conn.Close() }
 
 func (c Conn) Run(ctx context.Context) error {
-	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			for {
 				call, err := utils.Recv(ctx, c.writes)
@@ -101,9 +102,9 @@ func (c Conn) Run(ctx context.Context) error {
 		})
 		<-ctx.Done()
 		s.Cancel(ctx.Err())
-		c.conn.Close()
+		_ = c.conn.Close()
 		return nil
-	}))
+	})
 }
 
 func (c Conn) LocalAddr() netip.AddrPort {
@@ -135,6 +136,43 @@ func Dial(ctx context.Context, addr netip.AddrPort) (Conn, error) {
 		writes: make(chan call),
 		reads:  make(chan call),
 	}, nil
+}
+
+type HostPort struct {
+	Hostname string
+	Port     uint16
+}
+
+func (hp HostPort) String() string {
+	return net.JoinHostPort(hp.Hostname, strconv.FormatInt(int64(hp.Port), 10))
+}
+
+func ParseHostPort(hp string) (HostPort, error) {
+	h, p, err := net.SplitHostPort(hp)
+	if err != nil {
+		return HostPort{}, err
+	}
+	port, err := strconv.ParseUint(p, 10, 16)
+	if err != nil {
+		return HostPort{}, err
+	}
+	return HostPort{h, uint16(port)}, nil
+}
+
+func (hp HostPort) Resolve(ctx context.Context) ([]netip.AddrPort, error) {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hp.Hostname)
+	if err != nil {
+		return nil, err
+	}
+	addrs := make([]netip.AddrPort, len(ips))
+	for i, ip := range ips {
+		ip, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return nil, fmt.Errorf("LookupIP() returned invalid ip address")
+		}
+		addrs[i] = netip.AddrPortFrom(ip, hp.Port)
+	}
+	return addrs, nil
 }
 
 type Listener struct {
@@ -211,7 +249,7 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (Conn, error) {
 				return nil
 			}
 			s.Cancel(ctx.Err())
-			l.Close()
+			_ = l.Close()
 			return nil
 		})
 		conn, err := l.inner.AcceptTCP()
@@ -231,9 +269,9 @@ func (l *Listener) AcceptOrClose(ctx context.Context) (Conn, error) {
 		}, nil
 	}
 	// Otherwise close the listener (for consistency), and close the connection (if established).
-	l.Close()
+	_ = l.Close()
 	if conn := res.Load(); conn != nil {
-		conn.Close()
+		_ = conn.Close()
 	}
 	return Conn{}, err
 }
@@ -262,7 +300,7 @@ func Listen(addr netip.AddrPort) (*Listener, error) {
 				return nil, fmt.Errorf("net.FileListener(): %w", err)
 			}
 			// net.FileListener duplicates fd.
-			f.Close()
+			_ = f.Close()
 			l := &Listener{inner: fl.(*net.TCPListener)}
 			l.reserved.Store(&addr)
 			return l, nil
@@ -295,9 +333,9 @@ func TestReservePort(ip netip.Addr) netip.AddrPort {
 	}
 	var port uint16
 	if ip.Is4() {
-		port = uint16(addrRaw.(*unix.SockaddrInet4).Port)
+		port = uint16(addrRaw.(*unix.SockaddrInet4).Port) //nolint:gosec // OS-assigned port is always in valid uint16 range [0, 65535]
 	} else {
-		port = uint16(addrRaw.(*unix.SockaddrInet6).Port)
+		port = uint16(addrRaw.(*unix.SockaddrInet6).Port) //nolint:gosec // OS-assigned port is always in valid uint16 range [0, 65535]
 	}
 	addr := netip.AddrPortFrom(ip, port)
 	for addrs := range reservedAddrs.Lock() {
@@ -312,10 +350,10 @@ func TestPipe() (Conn, Conn) {
 	if err != nil {
 		panic(err)
 	}
-	defer listen.Close()
+	defer func() { _ = listen.Close() }()
 	var c1, c2 Conn
 	ctx := context.Background()
-	scope.Parallel(func(s scope.ParallelScope) error {
+	err = scope.Parallel(func(s scope.ParallelScope) error {
 		s.Spawn(func() error {
 			var err error
 			if c1, err = listen.AcceptOrClose(ctx); err != nil {
@@ -332,5 +370,8 @@ func TestPipe() (Conn, Conn) {
 		})
 		return nil
 	})
+	if err != nil {
+		panic(err)
+	}
 	return c1, c2
 }

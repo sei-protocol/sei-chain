@@ -9,28 +9,28 @@ import (
 	"time"
 
 	"github.com/rs/cors"
+	"github.com/sei-protocol/seilog"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/blocksync"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/eventlog"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/internal/p2p"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	"github.com/tendermint/tendermint/internal/statesync"
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/strings"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -47,6 +47,8 @@ const (
 	genesisChunkSize = 16 * 1024 * 1024 // 16
 )
 
+var logger = seilog.NewLogger("tendermint", "internal", "rpc", "core")
+
 //----------------------------------------------
 // These interfaces are used by RPC and must be thread safe
 
@@ -58,18 +60,12 @@ type consensusState interface {
 	GetRoundStateSimpleJSON() ([]byte, error)
 }
 
-type peerManager interface {
-	Peers() []types.NodeID
-	State(types.NodeID) string
-	Addresses(types.NodeID) []p2p.NodeAddress
-}
-
 // ----------------------------------------------
 // Environment contains objects and interfaces used by the RPC. It is expected
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	ProxyApp abciclient.Client
+	ProxyApp abci.Application
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -83,8 +79,7 @@ type Environment struct {
 	Listeners   []string
 	NodeInfo    types.NodeInfo
 
-	// interfaces for new p2p interfaces
-	PeerManager peerManager
+	Router *p2p.Router
 
 	// objects
 	PubKey            utils.Option[crypto.PubKey]
@@ -94,8 +89,6 @@ type Environment struct {
 	EventLog          *eventlog.Log
 	Mempool           mempool.Mempool
 	StateSyncMetricer statesync.Metricer
-
-	Logger log.Logger
 
 	Config config.RPCConfig
 
@@ -265,11 +258,11 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		}
 		go func() {
 			// N.B. Use background for unsubscribe, ctx is already terminated.
-			defer env.EventBus.UnsubscribeAll(context.Background(), subscriberID) // nolint:errcheck
+			defer func() { _ = env.EventBus.UnsubscribeAll(context.Background(), subscriberID) }()
 			for {
 				msg, err := sub.Next(ctx)
 				if err != nil {
-					env.Logger.Error("Subscription terminated", "err", err)
+					logger.Error("Subscription terminated", "err", err)
 					return
 				}
 				etype, ok := eventlog.FindType(msg.Events())
@@ -279,27 +272,25 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			}
 		}()
 
-		env.Logger.Info("Event log subscription enabled")
+		logger.Info("Event log subscription enabled")
 	}
 
 	// We may expose the RPC over both TCP and a Unix-domain socket.
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
 		mux := http.NewServeMux()
-		rpcLogger := env.Logger.With("module", "rpc-server")
-		rpcserver.RegisterRPCFuncs(mux, routes, rpcLogger)
+		rpcserver.RegisterRPCFuncs(mux, routes)
 
 		if conf.RPC.ExperimentalDisableWebsocket {
-			rpcLogger.Info("Disabling websocket endpoints (experimental-disable-websocket=true)")
+			logger.Info("Disabling websocket endpoints (experimental-disable-websocket=true)", "module", "rpc-server")
 		} else {
-			rpcLogger.Info("WARNING: Websocket RPC access is deprecated and will be removed " +
-				"in Tendermint v0.37. See https://tinyurl.com/adr075 for more information.")
-			wmLogger := rpcLogger.With("protocol", "websocket")
-			wm := rpcserver.NewWebsocketManager(wmLogger, routes,
+			logger.Info("WARNING: Websocket RPC access is deprecated and will be removed "+
+				"in Tendermint v0.37. See https://tinyurl.com/adr075 for more information.", "module", "rpc-server")
+			wm := rpcserver.NewWebsocketManager(routes,
 				rpcserver.OnDisconnect(func(remoteAddr string) {
 					err := env.EventBus.UnsubscribeAll(context.Background(), remoteAddr)
 					if err != nil && err != tmpubsub.ErrSubscriptionNotFound {
-						wmLogger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "err", err)
+						logger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "protocol", "websocket", "err", err)
 					}
 				}),
 				rpcserver.ReadLimit(cfg.MaxBodyBytes),
@@ -332,10 +323,9 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 					rootHandler,
 					conf.RPC.CertFile(),
 					conf.RPC.KeyFile(),
-					rpcLogger,
 					cfg,
 				); err != nil {
-					env.Logger.Error("error serving server with TLS", "err", err)
+					logger.Error("error serving server with TLS", "err", err)
 				}
 			}()
 		} else {
@@ -344,10 +334,9 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 					ctx,
 					listener,
 					rootHandler,
-					rpcLogger,
 					cfg,
 				); err != nil {
-					env.Logger.Error("error serving server", "err", err)
+					logger.Error("error serving server", "err", err)
 				}
 			}()
 		}

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	//nolint:gosec
 	_ "net/http/pprof"
-	"os"
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
@@ -12,14 +11,13 @@ import (
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/cosmos/cosmos-sdk/store"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -36,10 +34,10 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 			go func() {
-				serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+				logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
 				err := http.ListenAndServe(":6060", nil)
 				if err != nil {
-					serverCtx.Logger.Error("Error from profiling server", "error", err)
+					logger.Error("Error from profiling server", "error", err)
 				}
 			}()
 
@@ -49,12 +47,10 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
 			a := app.New(
-				logger,
 				db,
 				nil,
 				true,

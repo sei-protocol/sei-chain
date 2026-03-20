@@ -7,7 +7,7 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Periods stores all vesting periods passed as part of a PeriodicVestingAccount
@@ -50,7 +50,7 @@ func (p Periods) TotalAmount() sdk.Coins {
 
 // String implements the fmt.Stringer interface
 func (p Periods) String() string {
-	periodsListString := make([]string, len(p))
+	periodsListString := make([]string, 0, len(p))
 	for _, period := range p {
 		periodsListString = append(periodsListString, period.String())
 	}

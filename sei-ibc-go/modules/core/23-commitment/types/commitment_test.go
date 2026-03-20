@@ -3,11 +3,10 @@ package types_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/stretchr/testify/suite"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -21,7 +20,7 @@ type MerkleTestSuite struct {
 
 func (suite *MerkleTestSuite) SetupTest() {
 	db := dbm.NewMemDB()
-	suite.store = rootmulti.NewStore(db, log.NewNopLogger())
+	suite.store = rootmulti.NewStore(db)
 
 	suite.storeKey = storetypes.NewKVStoreKey("iavlStoreKey")
 

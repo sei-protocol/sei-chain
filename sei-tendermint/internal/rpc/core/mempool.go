@@ -7,11 +7,11 @@ import (
 	"math/rand"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/mempool"
-	"github.com/tendermint/tendermint/internal/state/indexer"
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 //-----------------------------------------------------------------------------
@@ -114,7 +114,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 			count++
 			select {
 			case <-ctx.Done():
-				env.Logger.Error("error on broadcastTxCommit",
+				logger.Error("error on broadcastTxCommit",
 					"duration", time.Since(startAt),
 					"err", err)
 				return &coretypes.ResultBroadcastTxCommit{
@@ -189,8 +189,4 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 		return nil, err
 	}
 	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
-}
-
-func (env *Environment) RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error {
-	return env.Mempool.RemoveTxByKey(req.TxKey)
 }

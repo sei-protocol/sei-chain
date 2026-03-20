@@ -3,9 +3,9 @@ package client_test
 import (
 	"testing"
 
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	client "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"

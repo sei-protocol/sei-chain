@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
@@ -230,7 +230,7 @@ func NewBurnCoinMessageHandler(burner types.Burner) MessageHandlerFunc {
 			if err := burner.BurnCoins(ctx, types.ModuleName, coins); err != nil {
 				return nil, nil, sdkerrors.Wrap(err, "burn coins")
 			}
-			moduleLogger(ctx).Info("Burned", "amount", coins)
+			logger.Info("Burned", "amount", coins)
 			return nil, nil, nil
 		}
 		return nil, nil, types.ErrUnknownMsg

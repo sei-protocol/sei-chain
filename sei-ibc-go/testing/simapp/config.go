@@ -3,7 +3,7 @@ package simapp
 import (
 	"flag"
 
-	"github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 )
 
 // List of available flags for the simulator

@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	db "github.com/tendermint/tm-db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
 // DefaultLimit is the default `limit` for queries
@@ -25,8 +24,8 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	limit = DefaultLimit
 
 	if pageReq != nil {
-		offset = int(pageReq.Offset)
-		limit = int(pageReq.Limit)
+		offset = int(pageReq.Offset) // #nosec G115 -- overflow checked below
+		limit = int(pageReq.Limit)   // #nosec G115 -- overflow checked below
 	}
 	if offset < 0 {
 		return 1, 0, status.Error(codes.InvalidArgument, "offset must greater than 0")
@@ -75,7 +74,7 @@ func Paginate(
 
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		var count uint64
 		var nextKey []byte
@@ -103,7 +102,7 @@ func Paginate(
 	}
 
 	iterator := getIterator(prefixStore, nil, reverse)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	end := offset + limit
 
@@ -146,7 +145,7 @@ func getIterator(prefixStore types.KVStore, start []byte, reverse bool) db.Itera
 		var end []byte
 		if start != nil {
 			itr := prefixStore.Iterator(start, nil)
-			defer itr.Close()
+			defer func() { _ = itr.Close() }()
 			if itr.Valid() {
 				itr.Next()
 				end = itr.Key()

@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/verify"

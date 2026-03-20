@@ -7,16 +7,16 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server/grpc/gogoreflection"
-	reflection "github.com/cosmos/cosmos-sdk/server/grpc/reflection/v2alpha1"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc/gogoreflection"
+	reflection "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc/reflection/v2alpha1"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // StartGRPCServer starts a gRPC server on the given address.
 func StartGRPCServer(clientCtx client.Context, app types.Application, address string) (*grpc.Server, error) {
-	grpcSrv := grpc.NewServer()
+	grpcSrv := grpc.NewServer(grpc.MaxConcurrentStreams(100))
 	app.RegisterGRPCServer(grpcSrv)
 	// reflection allows consumers to build dynamic clients that can write
 	// to any cosmos-sdk application without relying on application packages at compile time

@@ -6,8 +6,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type ChannelID = conn.ChannelID
@@ -68,6 +68,7 @@ func newChannel(desc conn.ChannelDescriptor) *channel {
 }
 
 func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
+	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "out").Add(1.)
 	m := sendMsg{msg, ch.desc.ID}
 	size := proto.Size(msg)
 	for _, q := range queues {
@@ -78,12 +79,12 @@ func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
 }
 
 func (ch *Channel[T]) Send(msg T, to types.NodeID) {
-	c, ok := ch.router.peerManager.Conns().Get(to)
+	c, ok := GetAny(ch.router.peerManager.Conns(), to)
 	if !ok {
-		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
+		logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
 		return
 	}
-	if _, contains := c.peerChannels[ch.desc.ID]; !contains {
+	if _, contains := c.Channels[ch.desc.ID]; !contains {
 		// reactor tried to send a message across a channel that the
 		// peer doesn't have available. This is a known issue due to
 		// how peer subscriptions work:
@@ -97,7 +98,7 @@ func (ch *Channel[T]) Send(msg T, to types.NodeID) {
 func (ch *Channel[T]) Broadcast(msg T) {
 	var queues []*Queue[sendMsg]
 	for _, c := range ch.router.peerManager.Conns().All() {
-		if _, ok := c.peerChannels[ch.desc.ID]; ok {
+		if _, ok := c.Channels[ch.desc.ID]; ok {
 			queues = append(queues, c.sendQueue)
 		}
 	}
@@ -116,5 +117,6 @@ func (ch *Channel[T]) Recv(ctx context.Context) (RecvMsg[T], error) {
 	if err != nil {
 		return RecvMsg[T]{}, err
 	}
+	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "in").Add(1.)
 	return RecvMsg[T]{Message: recv.Message.(T), From: recv.From}, nil
 }

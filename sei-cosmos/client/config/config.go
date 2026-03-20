@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 // Default constants

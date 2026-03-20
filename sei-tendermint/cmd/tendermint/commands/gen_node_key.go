@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	tmjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/types"
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // GenNodeKeyCmd allows the generation of a node key. It prints JSON-encoded

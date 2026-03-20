@@ -135,11 +135,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Parsing file: %v", err)
 	}
-	out := filepath.Join(*dir, "metrics.gen.go")
+	out := filepath.Clean(filepath.Join(*dir, "metrics.gen.go"))
 	f, err := os.Create(out)
 	if err != nil {
 		log.Fatalf("Opening file: %v", err)
 	}
+	defer func() { _ = f.Close() }()
 	err = GenerateMetricsFile(f, td)
 	if err != nil {
 		log.Fatalf("Generating code: %v", err)
@@ -167,7 +168,7 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 
 	// Grab the package name.
 	var pkgName string
-	var pkg *ast.Package
+	var pkg *ast.Package // nolint:staticcheck // SA1019: will replace all metrics gen with OTEL and not worth fixing.
 	for pkgName, pkg = range d {
 	}
 	td := TemplateData{
@@ -289,8 +290,9 @@ func extractLabels(bl *ast.BasicLit) string {
 	if bl != nil {
 		t := reflect.StructTag(strings.Trim(bl.Value, "`"))
 		if v := t.Get(labelsTag); v != "" {
-			var res []string
-			for _, s := range strings.Split(v, ",") {
+			parts := strings.Split(v, ",")
+			res := make([]string, 0, len(parts))
+			for _, s := range parts {
 				res = append(res, strconv.Quote(strings.TrimSpace(s)))
 			}
 			return strings.Join(res, ",")

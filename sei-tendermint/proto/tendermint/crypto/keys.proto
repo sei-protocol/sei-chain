@@ -4,7 +4,7 @@ package tendermint.crypto;
 
 import "gogoproto/gogo.proto";
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/crypto";
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto";
 
 // PublicKey defines the keys available for use with Tendermint Validators
 message PublicKey {

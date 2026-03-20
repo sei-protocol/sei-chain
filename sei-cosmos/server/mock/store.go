@@ -3,11 +3,11 @@ package mock
 import (
 	"io"
 
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	protoio "github.com/gogo/protobuf/io"
-	abci "github.com/tendermint/tendermint/abci/types"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
 

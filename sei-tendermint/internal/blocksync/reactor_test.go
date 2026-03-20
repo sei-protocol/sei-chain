@@ -2,11 +2,10 @@ package blocksync
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
@@ -14,29 +13,25 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/internal/consensus"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	mpmocks "github.com/tendermint/tendermint/internal/mempool/mocks"
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/proxy"
-	sm "github.com/tendermint/tendermint/internal/state"
-	sf "github.com/tendermint/tendermint/internal/state/test/factory"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
-	logger  log.Logger
 	nodes   []types.NodeID
 
 	reactors map[types.NodeID]*Reactor
-	app      map[types.NodeID]abciclient.Client
 }
 
 func setup(
@@ -55,13 +50,10 @@ func setup(
 	require.True(t, numNodes >= 1,
 		"must specify at least one block height (nodes)")
 
-	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:   logger.With("module", "block_sync", "testCase", t.Name()),
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		nodes:    make([]types.NodeID, 0, numNodes),
 		reactors: make(map[types.NodeID]*Reactor, numNodes),
-		app:      make(map[types.NodeID]abciclient.Client, numNodes),
 	}
 
 	for i, nodeID := range rts.network.NodeIDs() {
@@ -73,7 +65,6 @@ func setup(
 		for _, nodeID := range rts.nodes {
 			if rts.reactors[nodeID].IsRunning() {
 				rts.reactors[nodeID].Wait()
-				rts.app[nodeID].Wait()
 
 				require.False(t, rts.reactors[nodeID].IsRunning())
 			}
@@ -89,14 +80,11 @@ func makeReactor(
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
-	restartChan chan struct{},
+	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
-	logger := log.NewNopLogger()
-
-	app := proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
-	require.NoError(t, app.Start(ctx))
+	app := abci.NewBaseApplication()
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
@@ -109,7 +97,6 @@ func makeReactor(
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -120,12 +107,11 @@ func makeReactor(
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(&mempool.TxStore{})
 
-	eventbus := eventbus.NewDefault(logger)
+	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
 		app,
 		mp,
 		sm.EmptyEvidencePool{},
@@ -135,7 +121,6 @@ func makeReactor(
 	)
 
 	r, err := NewReactor(
-		logger,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -144,7 +129,7 @@ func makeReactor(
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
-		restartChan,
+		restartEvent,
 		selfRemediationConfig,
 	)
 	if err != nil {
@@ -163,13 +148,8 @@ func (rts *reactorTestSuite) addNode(
 ) {
 	t.Helper()
 
-	logger := log.NewNopLogger()
-
 	rts.nodes = append(rts.nodes, nodeID)
-	rts.app[nodeID] = proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
-	require.NoError(t, rts.app[nodeID].Start(ctx))
 
-	restartChan := make(chan struct{})
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
 
@@ -178,7 +158,7 @@ func (rts *reactorTestSuite) addNode(
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
-		restartChan,
+		func() {},
 		config.DefaultSelfRemediationConfig(),
 	)
 	lastCommit := &types.Commit{}
@@ -243,7 +223,6 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
@@ -278,7 +257,6 @@ func TestReactor_SyncTime(t *testing.T) {
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
@@ -366,32 +344,29 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			mockBlockStore.On("Height").Return(tt.selfHeight)
 
 			blockPool := &BlockPool{
-				logger:        log.TestingLogger(),
 				height:        tt.selfHeight,
 				maxPeerHeight: tt.maxPeerHeight,
 			}
 
-			restartChan := make(chan struct{}, 1)
+			restart := utils.NewAtomicSend(false)
 			r := &Reactor{
-				logger:                    log.TestingLogger(),
 				store:                     mockBlockStore,
 				pool:                      blockPool,
 				blocksBehindThreshold:     tt.blocksBehindThreshold,
 				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
-				restartCh:                 restartChan,
+				restartEvent:              func() { restart.Store(true) },
 				blockSync:                 newAtomicBool(tt.isBlockSync),
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-			defer cancel()
-
-			go r.autoRestartIfBehind(ctx)
-
-			select {
-			case <-restartChan:
-				assert.True(t, tt.restartExpected, "Unexpected restart")
-			case <-time.After(50 * time.Millisecond):
-				assert.False(t, tt.restartExpected, "Expected restart but did not occur")
+			ctx := t.Context()
+			if tt.restartExpected {
+				r.autoRestartIfBehind(ctx)
+				assert.True(t, restart.Load(), "Expected restart but did not occur")
+			} else {
+				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+				defer cancel()
+				r.autoRestartIfBehind(ctx)
+				assert.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
 	}

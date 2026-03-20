@@ -3,9 +3,9 @@ package keeper
 import (
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"

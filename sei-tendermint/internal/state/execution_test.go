@@ -11,25 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	abciclientmocks "github.com/tendermint/tendermint/abci/client/mocks"
-	abci "github.com/tendermint/tendermint/abci/types"
-	abcimocks "github.com/tendermint/tendermint/abci/types/mocks"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	mpmocks "github.com/tendermint/tendermint/internal/mempool/mocks"
-	"github.com/tendermint/tendermint/internal/proxy"
-	"github.com/tendermint/tendermint/internal/pubsub"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/state/mocks"
-	sf "github.com/tendermint/tendermint/internal/state/test/factory"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var (
@@ -39,15 +35,10 @@ var (
 
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
-	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
 
 	ctx := t.Context()
 
-	require.NoError(t, proxyApp.Start(ctx))
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, _ := makeState(t, 1, 1)
@@ -56,7 +47,6 @@ func TestApplyBlock(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -66,7 +56,7 @@ func TestApplyBlock(t *testing.T) {
 		mock.Anything,
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(nil)
-	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -87,13 +77,7 @@ func TestApplyBlock(t *testing.T) {
 func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	app := &testApp{}
-	cc := abciclient.NewLocalClient(logger, app)
-	appClient := proxy.New(cc, logger, proxy.NopMetrics())
-
-	err := appClient.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 7, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -118,7 +102,6 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			mp := &mpmocks.Mempool{}
 			mp.On("Lock").Return()
 			mp.On("Unlock").Return()
-			mp.On("FlushAppConn", mock.Anything).Return(nil)
 			mp.On("Update",
 				mock.Anything,
 				mock.Anything,
@@ -129,10 +112,10 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 				mock.Anything).Return(nil)
 			mp.On("TxStore").Return(nil)
 
-			eventBus := eventbus.NewDefault(logger)
+			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), appClient, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -163,11 +146,6 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -245,7 +223,6 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -256,12 +233,12 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 		mock.Anything).Return(nil)
 	mp.On("TxStore").Return(nil)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -284,25 +261,19 @@ func TestProcessProposal(t *testing.T) {
 	ctx := t.Context()
 
 	app := abcimocks.NewApplication(t)
-	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	mp := &mpmocks.Mempool{}
 	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -342,25 +313,12 @@ func TestProcessProposal(t *testing.T) {
 	expectedRpp := &abci.RequestProcessProposal{
 		Txs:                 block1.Txs.ToSliceOfBytes(),
 		Hash:                block1.Hash(),
-		Height:              block1.Header.Height,
-		Time:                block1.Header.Time,
 		ByzantineValidators: block1.Evidence.ToABCI(),
 		ProposedLastCommit: abci.CommitInfo{
 			Round: 0,
 			Votes: voteInfos,
 		},
-		NextValidatorsHash:    block1.NextValidatorsHash,
-		ProposerAddress:       block1.ProposerAddress,
-		AppHash:               block1.AppHash,
-		ValidatorsHash:        block1.ValidatorsHash,
-		ConsensusHash:         block1.ConsensusHash,
-		DataHash:              block1.DataHash,
-		EvidenceHash:          block1.EvidenceHash,
-		LastBlockHash:         block1.LastBlockID.Hash,
-		LastBlockPartSetTotal: int64(block1.LastBlockID.PartSetHeader.Total),
-		LastBlockPartSetHash:  block1.LastBlockID.Hash,
-		LastCommitHash:        block1.LastCommitHash,
-		LastResultsHash:       block1.LastResultsHash,
+		Header: block1.Header.ToProto(),
 	}
 
 	app.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil)
@@ -500,11 +458,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
@@ -512,7 +465,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -524,13 +476,12 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
 	mp.On("TxStore").Return(nil)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -584,13 +535,8 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	ctx := t.Context()
 
 	app := &testApp{}
-	logger := log.NewNopLogger()
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, _ := makeState(t, 1, 1)
@@ -600,8 +546,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		log.NewNopLogger(),
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -628,25 +573,19 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 func TestEmptyPrepareProposal(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
-	logger := log.NewNopLogger()
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	app := abcimocks.NewApplication(t)
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
 
 	state, stateDB, privVals := makeState(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
 	mp := &mpmocks.Mempool{}
 	mp.On("Lock").Return()
 	mp.On("Unlock").Return()
-	mp.On("FlushAppConn", mock.Anything).Return(nil)
 	mp.On("Update",
 		mock.Anything,
 		mock.Anything,
@@ -660,8 +599,7 @@ func TestEmptyPrepareProposal(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		nil,
@@ -682,8 +620,7 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -708,15 +645,9 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	}
 	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(rpp, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -737,9 +668,9 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 func TestPrepareProposalReorderTxs(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -761,15 +692,9 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -793,9 +718,9 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -820,15 +745,9 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 		TxRecords: trs,
 	}, nil)
 
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
-
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -849,9 +768,9 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	const height = 2
 	ctx := t.Context()
+	var err error
 
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	state, stateDB, privVals := makeState(t, 1, height)
@@ -864,22 +783,11 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	mp := &mpmocks.Mempool{}
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs(txs))
 
-	cm := &abciclientmocks.Client{}
-	cm.On("IsRunning").Return(true)
-	cm.On("Error").Return(nil)
-	cm.On("Start", mock.Anything).Return(nil).Once()
-	cm.On("Wait").Return(nil).Once()
-	cm.On("Stop").Return(nil).Once()
-	cm.On("PrepareProposal", mock.Anything, mock.Anything).Return(nil, errors.New("an injected error")).Once()
-
-	proxyApp := proxy.New(cm, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
+	app := &failingPrepareProposalApp{}
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		evpool,
 		nil,
@@ -893,6 +801,14 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	require.ErrorContains(t, err, "an injected error")
 
 	mp.AssertExpectations(t)
+}
+
+type failingPrepareProposalApp struct {
+	abci.BaseApplication
+}
+
+func (f failingPrepareProposalApp) PrepareProposal(context.Context, *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	return nil, errors.New("an injected error")
 }
 
 func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) types.BlockID {
@@ -943,20 +859,15 @@ func (app *panicApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeB
 // TestCreateProposalBlockPanicRecovery tests that panics are recovered and converted to errors
 func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	ctx := context.Background()
-	logger := log.NewNopLogger()
 
 	// Create the panicking app
 	app := &panicApp{}
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
-	defer proxyApp.Stop()
 
 	// Create test state and executor
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 	defer eventBus.Stop()
 
@@ -966,8 +877,7 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		logger,
-		proxyApp,
+		app,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

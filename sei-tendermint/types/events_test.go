@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/jsontypes"
 )
 
 // Verify that the event data types satisfy their shared interface.

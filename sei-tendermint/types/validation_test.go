@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/require"
 
-	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func matchErr[E error](err error) error {
@@ -156,6 +156,30 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 				assert.NoError(t, err, "VerifyCommitLightTrusting")
 			}
 		})
+	}
+}
+
+func TestValidatorSet_VerifyCommit_CheckValidatorAddresses(t *testing.T) {
+	const chainID = "test_chain_id"
+	const height = int64(5)
+	blockID := makeBlockIDRandom()
+	ctx := t.Context()
+
+	voteSet, valSet, vals := randVoteSet(ctx, t, height, 0, tmproto.PrecommitType, 3, 10)
+	commit := utils.OrPanic1(MakeCommit(ctx, blockID, height, 0, voteSet, vals, time.Now()))
+	// Set mismatching validator address on some signature.
+	otherVal, _, err := randValidator(ctx, false, 123)
+	require.NoError(t, err)
+	commit.Signatures[1].ValidatorAddress = otherVal.Address
+	// Check that this is detected.
+	ignore := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagAbsent }
+	count := func(c CommitSig) bool { return c.BlockIDFlag == BlockIDFlagCommit }
+	powerNeeded := valSet.TotalVotingPower() - 1
+	for _, countAllSigs := range []bool{true, false} {
+		for _, lookupByIndex := range []bool{true, false} {
+			require.Error(t, verifyCommitSingle(chainID, valSet, commit, powerNeeded, ignore, count, countAllSigs, lookupByIndex))
+			require.Error(t, verifyCommitBatch(chainID, valSet, commit, powerNeeded, ignore, count, countAllSigs, lookupByIndex))
+		}
 	}
 }
 

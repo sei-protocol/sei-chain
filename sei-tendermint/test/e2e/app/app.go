@@ -12,14 +12,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/abci/example/code"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "test", "e2e", "app")
 
 // Application is an ABCI application for use by end-to-end tests. It is a
 // simple key/value store for strings, storing data in memory and persisting
@@ -27,7 +29,6 @@ import (
 type Application struct {
 	abci.BaseApplication
 	mu              sync.Mutex
-	logger          log.Logger
 	state           *State
 	snapshots       *SnapshotStore
 	cfg             *Config
@@ -101,13 +102,8 @@ func NewApplication(cfg *Config) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		return nil, err
-	}
 
 	return &Application{
-		logger:    logger,
 		state:     state,
 		snapshots: snapshots,
 		cfg:       cfg,
@@ -122,7 +118,7 @@ func (app *Application) Info(_ context.Context, req *abci.RequestInfo) (*abci.Re
 	return &abci.ResponseInfo{
 		Version:          version.ABCIVersion,
 		AppVersion:       1,
-		LastBlockHeight:  int64(app.state.Height),
+		LastBlockHeight:  int64(app.state.Height), //nolint:gosec // Height is a non-negative block height
 		LastBlockAppHash: app.state.Hash,
 	}, nil
 }
@@ -133,7 +129,7 @@ func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain)
 	defer app.mu.Unlock()
 
 	var err error
-	app.state.initialHeight = uint64(req.InitialHeight)
+	app.state.initialHeight = uint64(req.InitialHeight) //nolint:gosec // InitialHeight is a validated non-negative value
 	if len(req.AppStateBytes) > 0 {
 		err = app.state.Import(0, req.AppStateBytes)
 		if err != nil {
@@ -167,7 +163,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 	}
 
 	if app.cfg.CheckTxDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.CheckTxDelayMS) * time.Millisecond)
+		time.Sleep(time.Duration(app.cfg.CheckTxDelayMS) * time.Millisecond) //nolint:gosec // CheckTxDelayMS is a small test config value
 	}
 
 	return &abci.ResponseCheckTxV2{
@@ -192,13 +188,13 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 		txs[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 	}
 
-	valUpdates, err := app.validatorUpdates(uint64(req.Height))
+	valUpdates, err := app.validatorUpdates(uint64(req.Header.Height)) //nolint:gosec // Height is a non-negative block height
 	if err != nil {
 		panic(err)
 	}
 
 	if app.cfg.FinalizeBlockDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.FinalizeBlockDelayMS) * time.Millisecond)
+		time.Sleep(time.Duration(app.cfg.FinalizeBlockDelayMS) * time.Millisecond) //nolint:gosec // FinalizeBlockDelayMS is a small config value
 	}
 
 	return &abci.ResponseFinalizeBlock{
@@ -215,7 +211,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 					},
 					{
 						Key:   []byte("height"),
-						Value: []byte(strconv.Itoa(int(req.Height))),
+						Value: []byte(strconv.FormatInt(req.Header.Height, 10)),
 					},
 				},
 			},
@@ -237,15 +233,15 @@ func (app *Application) Commit(_ context.Context) (*abci.ResponseCommit, error) 
 		if err != nil {
 			panic(err)
 		}
-		app.logger.Info("created state sync snapshot", "height", snapshot.Height)
+		logger.Info("created state sync snapshot", "height", snapshot.Height)
 		err = app.snapshots.Prune(maxSnapshotCount)
 		if err != nil {
-			app.logger.Error("failed to prune snapshots", "err", err)
+			logger.Error("failed to prune snapshots", "err", err)
 		}
 	}
 	retainHeight := int64(0)
 	if app.cfg.RetainBlocks > 0 {
-		retainHeight = int64(height - app.cfg.RetainBlocks + 1)
+		retainHeight = int64(height - app.cfg.RetainBlocks + 1) //nolint:gosec // height > RetainBlocks when RetainBlocks > 0 in steady state
 	}
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -258,7 +254,7 @@ func (app *Application) Query(_ context.Context, req *abci.RequestQuery) (*abci.
 	defer app.mu.Unlock()
 
 	return &abci.ResponseQuery{
-		Height: int64(app.state.Height),
+		Height: int64(app.state.Height), //nolint:gosec // Height is a non-negative block height
 		Key:    req.Data,
 		Value:  []byte(app.state.Get(string(req.Data))),
 	}, nil
@@ -310,8 +306,12 @@ func (app *Application) ApplySnapshotChunk(_ context.Context, req *abci.RequestA
 		panic("No restore in progress")
 	}
 	app.restoreChunks = append(app.restoreChunks, req.Chunk)
-	if len(app.restoreChunks) == int(app.restoreSnapshot.Chunks) {
-		bz := []byte{}
+	if len(app.restoreChunks) == int(app.restoreSnapshot.Chunks) { //nolint:gosec // Chunks is a small snapshot chunk count
+		var totalSize int
+		for _, chunk := range app.restoreChunks {
+			totalSize += len(chunk)
+		}
+		bz := make([]byte, 0, totalSize)
 		for _, chunk := range app.restoreChunks {
 			bz = append(bz, chunk...)
 		}
@@ -334,7 +334,7 @@ func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrep
 	trs := make([]*abci.TxRecord, 0, len(req.Txs))
 	var totalBytes int64
 	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx))
+		totalBytes += int64(len(tx)) //nolint:gosec // tx length fits in int64
 		if totalBytes > req.MaxTxBytes {
 			break
 		}
@@ -345,7 +345,7 @@ func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrep
 	}
 
 	if app.cfg.PrepareProposalDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.PrepareProposalDelayMS) * time.Millisecond)
+		time.Sleep(time.Duration(app.cfg.PrepareProposalDelayMS) * time.Millisecond) //nolint:gosec // PrepareProposalDelayMS is a small test config value
 	}
 
 	return &abci.ResponsePrepareProposal{TxRecords: trs}, nil
@@ -357,22 +357,28 @@ func (app *Application) ProcessProposal(_ context.Context, req *abci.RequestProc
 	for _, tx := range req.Txs {
 		_, _, err := parseTx(tx)
 		if err != nil {
-			app.logger.Error("malformed transaction in ProcessProposal", "tx", tx, "err", err)
+			logger.Error("malformed transaction in ProcessProposal", "len-bytes", len(tx), "err", err)
+			logger.Debug("malformed transaction in ProcessProposal", "tx", tx, "err", err)
 			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
 		}
 	}
 
 	if app.cfg.ProcessProposalDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.ProcessProposalDelayMS) * time.Millisecond)
+		time.Sleep(time.Duration(app.cfg.ProcessProposalDelayMS) * time.Millisecond) //nolint:gosec // ProcessProposalDelayMS is a small test config value
 	}
 
 	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 }
 
+func (app *Application) CanRollback() bool {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	return app.state.CanRollback()
+}
+
 func (app *Application) Rollback() error {
 	app.mu.Lock()
 	defer app.mu.Unlock()
-
 	return app.state.Rollback()
 }
 

@@ -3,7 +3,7 @@ package types
 import (
 	"encoding/json"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // IsJSONObjectWithTopLevelKey checks if the given bytes are a valid JSON object

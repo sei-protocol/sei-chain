@@ -3,29 +3,33 @@ package app
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
-	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
-	seidb "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
 	"github.com/spf13/cast"
-	"github.com/tendermint/tendermint/libs/log"
+
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 const (
 	// SC Store configs
-	FlagSCEnable                           = "state-commit.sc-enable"
-	FlagSCDirectory                        = "state-commit.sc-directory"
-	FlagSCAsyncCommitBuffer                = "state-commit.sc-async-commit-buffer"
-	FlagSCZeroCopy                         = "state-commit.sc-zero-copy"
-	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
-	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
-	FlagSCSnapshotMinTimeInterval          = "state-commit.sc-snapshot-min-time-interval"
-	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
-	FlagSCSnapshotPrefetchThreshold        = "state-commit.sc-snapshot-prefetch-threshold"
-	FlagSCCacheSize                        = "state-commit.sc-cache-size"
-	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
+	FlagSCEnable                     = "state-commit.sc-enable"
+	FlagSCDirectory                  = "state-commit.sc-directory"
+	FlagSCAsyncCommitBuffer          = "state-commit.sc-async-commit-buffer"
+	FlagSCSnapshotKeepRecent         = "state-commit.sc-keep-recent"
+	FlagSCSnapshotInterval           = "state-commit.sc-snapshot-interval"
+	FlagSCSnapshotMinTimeInterval    = "state-commit.sc-snapshot-min-time-interval"
+	FlagSCSnapshotWriterLimit        = "state-commit.sc-snapshot-writer-limit"
+	FlagSCSnapshotPrefetchThreshold  = "state-commit.sc-snapshot-prefetch-threshold"
+	FlagSCSnapshotWriteRateMBps      = "state-commit.sc-snapshot-write-rate-mbps"
+	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
+	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
+	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCWriteMode                  = "state-commit.sc-write-mode"
+	FlagSCReadMode                   = "state-commit.sc-read-mode"
+	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -36,16 +40,18 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
+	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
+	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
+	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode  = "state-store.evm-ss-read-mode"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
-	FlagMigrateIAVL      = "migrate-iavl"
-	FlagMigrateHeight    = "migrate-height"
 )
 
 var GigaKeys = []string{"evm", "bank"}
 
 func SetupSeiDB(
-	logger log.Logger,
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
@@ -55,11 +61,15 @@ func SetupSeiDB(
 		logger.Info("SeiDB is disabled, falling back to IAVL")
 		return baseAppOptions, nil
 	}
-	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
+	logger.Info("SeiDB SC is enabled", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
-		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
+		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
+	}
+	if ssConfig.EVMEnabled() {
+		logger.Info("SeiDB EVM StateStore optimization is enabled",
+			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
 	}
 	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
@@ -72,16 +82,9 @@ func SetupSeiDB(
 	}
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")), gigaStoreKeys)
-	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
-	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
+	cms := rootmulti.NewStore(homePath, scConfig, ssConfig, gigaStoreKeys)
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
-			if migrationEnabled || migrationHeight > 0 {
-				originalCMS := baseApp.CommitMultiStore()
-				baseApp.SetQueryMultiStore(originalCMS)
-				baseApp.SetMigrationHeight(migrationHeight)
-			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
@@ -93,14 +96,41 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
-	scConfig.ZeroCopy = cast.ToBool(appOpts.Get(FlagSCZeroCopy))
-	scConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
-	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
-	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
-	scConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
-	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
-	scConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
-	scConfig.OnlyAllowExportOnSnapshotVersion = cast.ToBool(appOpts.Get(FlagSCOnlyAllowExportOnSnapshotVersion))
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
+	scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
+	scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
+	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
+	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+
+	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		scConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagSCReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		scConfig.ReadMode = parsedRM
+	}
+
+	scConfig.EnableLatticeHash = cast.ToBool(appOpts.Get(FlagSCEnableLatticeHash))
+
+	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
+		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCHistoricalProofRateLimit); v != nil {
+		scConfig.HistoricalProofRateLimit = cast.ToFloat64(v)
+	}
+	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
+		scConfig.HistoricalProofBurst = cast.ToInt(v)
+	}
+
 	return scConfig
 }
 
@@ -113,6 +143,23 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+
+	// EVM optimization fields (embedded in SS config)
+	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
+	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
+		parsedWM, err := config.ParseWriteMode(wm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+		}
+		ssConfig.WriteMode = parsedWM
+	}
+	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
+		parsedRM, err := config.ParseReadMode(rm)
+		if err != nil {
+			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
+		}
+		ssConfig.ReadMode = parsedRM
+	}
 	return ssConfig
 }
 

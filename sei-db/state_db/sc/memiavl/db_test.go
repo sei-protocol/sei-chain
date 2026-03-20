@@ -14,14 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func TestRewriteSnapshot(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             t.TempDir(),
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -57,11 +56,11 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
 		t.Fatalf("Failed to create dummy snapshot directory: %v", err)
 	}
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                dbDir,
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotKeepRecent: 0,
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotKeepRecent: 0},
+		Dir:             dbDir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -72,7 +71,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	err = os.MkdirAll(tmpDir, os.ModePerm)
 	require.NoError(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{
+	_, err = OpenDB(0, Options{
 		Dir:      dbDir,
 		ReadOnly: true,
 	})
@@ -81,7 +80,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	_, err = os.Stat(tmpDir)
 	require.False(t, os.IsNotExist(err))
 
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err = OpenDB(0, Options{
 		Dir: dbDir,
 	})
 	require.NoError(t, err)
@@ -93,11 +92,11 @@ func TestRemoveSnapshotDir(t *testing.T) {
 }
 
 func TestRewriteSnapshotBackground(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                t.TempDir(),
-		CreateIfMissing:    true,
-		InitialStores:      []string{"test"},
-		SnapshotKeepRecent: 0, // only a single snapshot is kept
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotKeepRecent: 0}, // only a single snapshot is kept
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Ensure DB cleanup and goroutine termination
@@ -153,14 +152,13 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	close(stopCh)
 	wg.Wait()
 
-	db.pruneSnapshotLock.Lock()
-	defer db.pruneSnapshotLock.Unlock()
-
-	entries, err := os.ReadDir(db.dir)
-	require.NoError(t, err)
-
+	// Wait for async prune to finish by checking the actual directory state.
+	// After prune completes, only 4 entries should remain:
 	// snapshot, current link, LOCK, changelog WAL dir
-	require.Equal(t, 4, len(entries))
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(db.dir)
+		return err == nil && len(entries) == 4
+	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 4 entries")
 	// stopCh is closed by defer above
 }
 
@@ -180,13 +178,15 @@ func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 // exceeds the configured snapshot interval (strictly greater).
 func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        5,
-		SnapshotKeepRecent:      0,
-		SnapshotMinTimeInterval: 1 * time.Second, // 1 second minimum time interval for testing
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:        5,
+			SnapshotKeepRecent:      0,
+			SnapshotMinTimeInterval: 1, // 1 second minimum time interval for testing
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 
@@ -202,7 +202,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 			return db.snapshotRewriteChan != nil
 		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
-		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
+		require.EqualValues(t, 0, db.SnapshotVersion())
 	}
 
 	// Wait for minimum time interval to elapse (1 second + buffer)
@@ -222,7 +222,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// After completion, snapshot version should be 5
-	require.EqualValues(t, 5, db.MultiTree.SnapshotVersion())
+	require.EqualValues(t, 5, db.SnapshotVersion())
 
 	require.NoError(t, db.Close())
 }
@@ -231,7 +231,7 @@ func TestRlog(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "delete"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -269,7 +269,7 @@ func TestRlog(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Reopen (MemIAVL will open the changelog from disk)
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
+	db, err = OpenDB(0, Options{Dir: dir, InitialStores: initialStores})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 
@@ -302,7 +302,7 @@ func TestInitialVersion(t *testing.T) {
 		dir := t.TempDir()
 		initialStores := []string{name}
 
-		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		db, err := OpenDB(0, Options{
 			Dir:             dir,
 			CreateIfMissing: true,
 			InitialStores:   initialStores,
@@ -335,7 +335,7 @@ func TestInitialVersion(t *testing.T) {
 		require.NoError(t, db.Close())
 
 		// Reopen (MemIAVL will open the changelog from disk)
-		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
+		db, err = OpenDB(0, Options{Dir: dir, InitialStores: initialStores})
 		require.NoError(t, err)
 		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
@@ -388,7 +388,7 @@ func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -418,7 +418,7 @@ func TestLoadVersion(t *testing.T) {
 			continue
 		}
 		// Read-only loads use the same WAL to replay
-		tmp, err := OpenDB(logger.NewNopLogger(), int64(v), Options{
+		tmp, err := OpenDB(int64(v), Options{
 			Dir:           dir,
 			ReadOnly:      true,
 			InitialStores: initialStores,
@@ -431,7 +431,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 func TestZeroCopy(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             t.TempDir(),
 		InitialStores:   []string{"test", "test2"},
 		CreateIfMissing: true,
@@ -538,7 +538,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			initialStores := []string{"test"}
 
 			// Open DB with initial version
-			db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			db, err := OpenDB(0, Options{
 				Dir:             dir,
 				CreateIfMissing: true,
 				InitialStores:   initialStores,
@@ -574,7 +574,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, db.Close())
 
 			// Reopen to verify delta is computed correctly from WAL entries
-			dbReopen, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			dbReopen, err := OpenDB(0, Options{
 				Dir:           dir,
 				InitialStores: initialStores,
 			})
@@ -606,7 +606,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, dbReopen.Close())
 
 			// Now test rollback with LoadForOverwriting
-			db2, err := OpenDB(logger.NewNopLogger(), tc.rollbackTo, Options{
+			db2, err := OpenDB(tc.rollbackTo, Options{
 				Dir:                dir,
 				InitialStores:      initialStores,
 				LoadForOverwriting: true,
@@ -625,7 +625,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, db2.Close())
 
 			// Reopen without LoadForOverwriting to verify persistence
-			db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			db3, err := OpenDB(0, Options{
 				Dir:           dir,
 				InitialStores: initialStores,
 			})
@@ -645,7 +645,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	initialStores := []string{"test"}
 
 	// Create DB with default initial version (0, so versions start at 1)
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -676,7 +676,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Rollback to version 3
-	db2, err := OpenDB(logger.NewNopLogger(), 3, Options{
+	db2, err := OpenDB(3, Options{
 		Dir:                dir,
 		InitialStores:      initialStores,
 		LoadForOverwriting: true,
@@ -694,7 +694,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.NoError(t, db2.Close())
 
 	// Verify rollback persisted after reopen
-	db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db3, err := OpenDB(0, Options{
 		Dir:           dir,
 		InitialStores: initialStores,
 	})
@@ -708,7 +708,7 @@ func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		InitialStores:   initialStores,
 		CreateIfMissing: true,
@@ -741,7 +741,7 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Reopen (MemIAVL will open the changelog from disk)
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
+	db, err = OpenDB(0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 	require.Equal(t, version, db.Version())
@@ -750,51 +750,53 @@ func TestEmptyValue(t *testing.T) {
 func TestInvalidOptions(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err := OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
 	require.Error(t, err)
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
+	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, LoadForOverwriting: true, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, LoadForOverwriting: true, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 }
 
 func TestExclusiveLock(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
+	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+	_, err = OpenDB(0, Options{Dir: dir})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+	_, err = OpenDB(0, Options{Dir: dir})
 	require.NoError(t, err)
 }
 
 func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        3,
-		AsyncCommitBuffer:       10,
-		SnapshotMinTimeInterval: 1 * time.Second, // 1 second for testing
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:        3,
+			AsyncCommitBuffer:       10,
+			SnapshotMinTimeInterval: 1, // 1 second for testing
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 	initialSnapshotTime := db.lastSnapshotTime
@@ -828,12 +830,14 @@ func TestFastCommit(t *testing.T) {
 }
 
 func TestRepeatedApplyChangeSet(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:               t.TempDir(),
-		CreateIfMissing:   true,
-		InitialStores:     []string{"test1", "test2"},
-		SnapshotInterval:  3,
-		AsyncCommitBuffer: 10,
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:  3,
+			AsyncCommitBuffer: 10,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"test1", "test2"},
 	})
 	require.NoError(t, err)
 
@@ -897,7 +901,7 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 	// Create a DB with some data first
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -922,7 +926,6 @@ func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 	_, err = LoadMultiTree(ctx, filepath.Join(dir, "current"), Options{
 		Dir:      dir,
 		ZeroCopy: true,
-		Logger:   logger.NewNopLogger(),
 	})
 	require.Error(t, err)
 	require.Equal(t, context.Canceled, err)
@@ -933,7 +936,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -963,7 +966,6 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	mtree, err := LoadMultiTree(context.Background(), filepath.Join(dir, "current"), Options{
 		Dir:      dir,
 		ZeroCopy: true,
-		Logger:   logger.NewNopLogger(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
@@ -981,11 +983,11 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:              dir,
-		CreateIfMissing:  true,
-		InitialStores:    []string{"test"},
-		SnapshotInterval: 1, // Trigger snapshot on every commit
+	db, err := OpenDB(0, Options{
+		Config:          Config{SnapshotInterval: 1}, // Trigger snapshot on every commit
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 
@@ -1005,12 +1007,14 @@ func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 
 func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
-		Dir:                     dir,
-		CreateIfMissing:         true,
-		InitialStores:           []string{"test"},
-		SnapshotInterval:        0, // Disable auto snapshot
-		SnapshotMinTimeInterval: 0,
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:        0, // Disable auto snapshot
+			SnapshotMinTimeInterval: 0,
+		},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
 	})
 	require.NoError(t, err)
 

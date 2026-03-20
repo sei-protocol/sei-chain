@@ -7,10 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/internal/libs/protoio"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/protoio"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	privvalproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/privval"
 )
 
 const (
@@ -19,7 +18,6 @@ const (
 
 type signerEndpoint struct {
 	service.BaseService
-	logger log.Logger
 
 	connMtx sync.Mutex
 	conn    net.Conn
@@ -109,7 +107,7 @@ func (se *signerEndpoint) ReadMessage() (msg privvalproto.Message, err error) {
 			err = fmt.Errorf("empty error: %w", ErrReadTimeout)
 		}
 
-		se.logger.Debug("Dropping [read]", "obj", se)
+		logger.Debug("Dropping [read]", "obj", se)
 		se.dropConnection()
 	}
 
@@ -154,7 +152,7 @@ func (se *signerEndpoint) isConnected() bool {
 func (se *signerEndpoint) dropConnection() {
 	if se.conn != nil {
 		if err := se.conn.Close(); err != nil {
-			se.logger.Error("signerEndpoint::dropConnection", "err", err)
+			logger.Error("signerEndpoint::dropConnection", "err", err)
 		}
 		se.conn = nil
 	}

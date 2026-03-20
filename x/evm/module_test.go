@@ -7,19 +7,20 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
-	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
+	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -27,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 func TestModuleName(t *testing.T) {
@@ -119,6 +119,7 @@ func TestABCI(t *testing.T) {
 	msg := mockEVMTransactionMessage(t)
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
+	k.SetNonceBumped(ctx.WithTxIndex(0))
 	k.EndBlock(ctx, 0, 0)
 	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)

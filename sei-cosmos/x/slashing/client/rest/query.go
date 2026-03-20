@@ -6,10 +6,10 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/types/bech32/legacybech32" //nolint:staticcheck
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/bech32/legacybech32" //nolint:staticcheck
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -45,7 +45,7 @@ func signingInfoHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.QuerySigningInfoRequest{ConsAddress: pk.Address().String()}
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -75,7 +75,7 @@ func signingInfoHandlerListFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQuerySigningInfosParams(page, limit)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -6,12 +6,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -93,7 +92,7 @@ func TestCountTxDecorator(t *testing.T) {
 			ctx := sdk.NewContext(ms.CacheMultiStore(), tmproto.Header{
 				Height: myCurrentBlockHeight,
 				Time:   time.Date(2021, time.September, 27, 12, 0, 0, 0, time.UTC),
-			}, false, log.NewNopLogger())
+			}, false)
 
 			spec.setupDB(t, ctx)
 			var anyTx sdk.Tx

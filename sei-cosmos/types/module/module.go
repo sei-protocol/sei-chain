@@ -34,19 +34,22 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 )
+
+var logger = seilog.NewLogger("cosmos", "types", "module")
 
 // AppModuleBasic is the standard form for basic non-dependant elements of an application module.
 type AppModuleBasic interface {
@@ -557,7 +560,7 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 			}
 
 			moduleValUpdates := module.InitGenesis(ctx, cfgtor.cdc, module.DefaultGenesis(cfgtor.cdc))
-			ctx.Logger().Info(fmt.Sprintf("adding a new module: %s", moduleName))
+			logger.Info("adding a new module", "moduile", moduleName)
 			// The module manager assumes only one module will update the
 			// validator set, and that it will not be by a new module.
 			if len(moduleValUpdates) > 0 {

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	v100 "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/legacy/v100"
@@ -147,7 +147,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisSolomachine() {
 		}
 	}
 
-	bz, err := clientCtx.Codec.MarshalJSON(&expectedClientGenState)
+	bz, err := clientCtx.Codec.MarshalAsJSON(&expectedClientGenState)
 	suite.Require().NoError(err)
 
 	// Indent the JSON bz correctly.
@@ -157,7 +157,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisSolomachine() {
 	expectedIndentedBz, err := json.MarshalIndent(jsonObj, "", "\t")
 	suite.Require().NoError(err)
 
-	bz, err = clientCtx.Codec.MarshalJSON(migrated)
+	bz, err = clientCtx.Codec.MarshalAsJSON(migrated)
 	suite.Require().NoError(err)
 
 	// Indent the JSON bz correctly.
@@ -285,7 +285,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisTendermint() {
 			}
 		}
 	}
-	bz, err := clientCtx.Codec.MarshalJSON(&expectedClientGenState)
+	bz, err := clientCtx.Codec.MarshalAsJSON(&expectedClientGenState)
 	suite.Require().NoError(err)
 
 	// Indent the JSON bz correctly.
@@ -295,7 +295,7 @@ func (suite *LegacyTestSuite) TestMigrateGenesisTendermint() {
 	expectedIndentedBz, err := json.MarshalIndent(jsonObj, "", "\t")
 	suite.Require().NoError(err)
 
-	bz, err = clientCtx.Codec.MarshalJSON(migrated)
+	bz, err = clientCtx.Codec.MarshalAsJSON(migrated)
 	suite.Require().NoError(err)
 
 	// Indent the JSON bz correctly.

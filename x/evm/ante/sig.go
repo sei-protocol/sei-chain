@@ -3,16 +3,19 @@ package ante
 import (
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+var logger = seilog.NewLogger("x", "evm", "ante")
 
 type EVMSigVerifyDecorator struct {
 	evmKeeper       *evmkeeper.Keeper
@@ -53,13 +56,13 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	case ethtypes.LegacyTxType:
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
 			return ctx, sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
 			return ctx, sdkerrors.ErrInvalidChainID
 		}
 	}

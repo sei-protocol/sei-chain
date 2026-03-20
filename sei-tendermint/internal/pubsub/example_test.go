@@ -5,16 +5,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/internal/pubsub/query"
-	"github.com/tendermint/tendermint/libs/log"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 )
 
 func TestExample(t *testing.T) {
 	ctx := t.Context()
 
-	s := newTestServer(ctx, t, log.NewNopLogger())
+	s := newTestServer(ctx, t)
 
 	sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: "example-client",

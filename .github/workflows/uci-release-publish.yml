@@ -1,4 +1,5 @@
 name: UCI
+run-name: UCI / Release Publish
 
 on:
   push:
@@ -15,4 +16,4 @@ concurrency:
 jobs:
   releaser:
     name: Release
-    uses: sei-protocol/uci/.github/workflows/release-publish.yml@v0.0.2
+    uses: sei-protocol/uci/.github/workflows/release-publish.yml@v0.0.6

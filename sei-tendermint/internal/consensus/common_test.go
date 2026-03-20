@@ -17,26 +17,24 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
-	"github.com/tendermint/tendermint/internal/eventbus"
-	"github.com/tendermint/tendermint/internal/mempool"
-	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
-	sm "github.com/tendermint/tendermint/internal/state"
-	"github.com/tendermint/tendermint/internal/store"
-	"github.com/tendermint/tendermint/internal/test/factory"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
-	tmtime "github.com/tendermint/tendermint/libs/time"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/privval"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -430,7 +428,6 @@ func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr
 func newState(
 	ctx context.Context,
 	t *testing.T,
-	logger log.Logger,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
@@ -440,23 +437,21 @@ func newState(
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
 	require.NoError(t, err)
 
-	return newStateWithConfig(ctx, logger, cfg, state, pv, app)
+	return newStateWithConfig(ctx, cfg, state, pv, app)
 }
 
 func newStateWithConfig(
 	ctx context.Context,
-	logger log.Logger,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 ) *State {
-	return newStateWithConfigAndBlockStore(ctx, logger, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
+	return newStateWithConfigAndBlockStore(ctx, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
 func newStateWithConfigAndBlockStore(
 	ctx context.Context,
-	logger log.Logger,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
@@ -464,13 +459,12 @@ func newStateWithConfigAndBlockStore(
 	blockStore *store.BlockStore,
 ) *State {
 	// one for mempool, one for consensus
-	proxyAppConnMem := abciclient.NewLocalClient(logger, app)
-	proxyAppConnCon := abciclient.NewLocalClient(logger, app)
+	proxyAppConnMem := app
+	proxyAppConnCon := app
 
 	// Make Mempool
 
 	mempool := mempool.NewTxMempool(
-		logger.With("module", "mempool"),
 		thisConfig.Mempool,
 		proxyAppConnMem,
 		nil,
@@ -489,13 +483,13 @@ func newStateWithConfigAndBlockStore(
 		panic(fmt.Errorf("stateStore.Save(): %w", err))
 	}
 
-	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+	eventBus := eventbus.NewDefault()
 	if err := eventBus.Start(ctx); err != nil {
 		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
-	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-	cs, err := NewState(logger.With("module", "consensus"),
+	blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+	cs, err := NewState(
 		thisConfig.Consensus,
 		stateStore,
 		blockExec,
@@ -531,7 +525,6 @@ func loadPrivValidator(cfg *config.Config) *privval.FilePV {
 type makeStateArgs struct {
 	config          *config.Config
 	consensusParams *types.ConsensusParams
-	logger          log.Logger
 	validators      int
 	application     abci.Application
 }
@@ -551,9 +544,6 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 	if args.config == nil {
 		args.config = configSetup(t)
 	}
-	if args.logger == nil {
-		args.logger = log.NewNopLogger()
-	}
 	c := factory.ConsensusParams()
 	if args.consensusParams != nil {
 		c = args.consensusParams
@@ -566,7 +556,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 
 	vss := make([]*validatorStub, validators)
 
-	cs := newState(ctx, t, args.logger, state, privVals[0], app)
+	cs := newState(ctx, t, state, privVals[0], app)
 
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
@@ -782,15 +772,6 @@ func ensureMessageBeforeTimeout(t *testing.T, ch <-chan tmpubsub.Message, to tim
 	panic("unreachable")
 }
 
-//-------------------------------------------------------------------------------
-// consensus nets
-
-// consensusLogger is a TestingLogger which uses a different
-// color for each validator ("validator" key must exist).
-func consensusLogger() log.Logger {
-	return log.NewNopLogger().With("module", "consensus")
-}
-
 func makeConsensusState(
 	ctx context.Context,
 	t *testing.T,
@@ -806,7 +787,6 @@ func makeConsensusState(
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	css := make([]*State, nValidators)
-	logger := consensusLogger()
 
 	closeFuncs := make([]func() error, 0, nValidators)
 
@@ -835,8 +815,7 @@ func makeConsensusState(
 		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
 		require.NoError(t, err)
 
-		l := logger.With("validator", i, "module", "consensus")
-		css[i] = newStateWithConfigAndBlockStore(ctx, l, thisConfig, state, privVals[i], app, blockStore)
+		css[i] = newStateWithConfigAndBlockStore(ctx, thisConfig, state, privVals[i], app, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -858,14 +837,13 @@ func randConsensusNetWithPeers(
 	nValidators int,
 	nPeers int,
 	tickerFunc func() TimeoutTicker,
-	appFunc func(log.Logger, string) abci.Application,
+	appFunc func(string) abci.Application,
 ) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
 	t.Helper()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	css := make([]*State, nPeers)
-	logger := consensusLogger()
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
@@ -893,7 +871,7 @@ func randConsensusNetWithPeers(
 			require.NoError(t, err)
 		}
 
-		app := appFunc(logger, filepath.Join(cfg.DBDir(), fmt.Sprintf("%s_%d", t.Name(), i)))
+		app := appFunc(filepath.Join(cfg.DBDir(), fmt.Sprintf("%s_%d", t.Name(), i)))
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		switch app.(type) {
 		// simulate handshake, receive app version. If don't do this, replay test will fail
@@ -904,7 +882,7 @@ func randConsensusNetWithPeers(
 		require.NoError(t, err)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(ctx, logger.With("validator", i, "module", "consensus"), thisConfig, state, privVal, app)
+		css[i] = newStateWithConfig(ctx, thisConfig, state, privVal, app)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {
@@ -979,7 +957,7 @@ func (m *mockTicker) Chan() <-chan timeoutInfo {
 	return m.c
 }
 
-func newEpehemeralKVStore(_ log.Logger, _ string) abci.Application {
+func newEpehemeralKVStore(_ string) abci.Application {
 	return kvstore.NewApplication()
 }
 

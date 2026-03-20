@@ -6,16 +6,16 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/gov"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/staking"
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 )
 
 func TestTickExpiredDepositPeriod(t *testing.T) {
@@ -23,7 +23,7 @@ func TestTickExpiredDepositPeriod(t *testing.T) {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	govHandler := gov.NewHandler(app.GovKeeper)
 
@@ -74,7 +74,7 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	govHandler := gov.NewHandler(app.GovKeeper)
 
@@ -150,7 +150,7 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	govHandler := gov.NewHandler(app.GovKeeper)
 
@@ -208,7 +208,7 @@ func TestTickPassedVotingPeriod(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	govHandler := gov.NewHandler(app.GovKeeper)
 
@@ -573,7 +573,7 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	SortAddresses(addrs)
 
 	stakingHandler := staking.NewHandler(app.StakingKeeper)
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	valAddr := sdk.ValAddress(addrs[0])
 

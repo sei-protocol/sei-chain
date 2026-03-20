@@ -23,12 +23,10 @@ implementation.
 import (
 	"context"
 
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	"github.com/tendermint/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-//go:generate ../../scripts/mockery_generate.sh Client
 
 // Client describes the interface of Tendermint RPC client implementations.
 type Client interface {
@@ -167,7 +165,6 @@ type MempoolClient interface {
 	UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error)
 	NumUnconfirmedTxs(context.Context) (*coretypes.ResultUnconfirmedTxs, error)
 	CheckTx(context.Context, types.Tx) (*coretypes.ResultCheckTx, error)
-	RemoveTx(context.Context, types.TxKey) error
 }
 
 // EvidenceClient is used for submitting an evidence of the malicious

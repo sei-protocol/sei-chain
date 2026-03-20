@@ -7,14 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	rpctest "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/test"
 )
 
-func NodeSuite(ctx context.Context, t *testing.T, logger log.Logger) (service.Service, *config.Config) {
+func NodeSuite(ctx context.Context, t *testing.T) (service.Service, *config.Config) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(ctx)

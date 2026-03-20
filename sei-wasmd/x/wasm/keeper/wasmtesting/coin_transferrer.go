@@ -1,6 +1,6 @@
 package wasmtesting
 
-import sdk "github.com/cosmos/cosmos-sdk/types"
+import sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 type MockCoinTransferrer struct {
 	TransferCoinsFn func(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error

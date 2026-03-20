@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("cosmos", "x", "capability", "keeper")
 
 type (
 	// Keeper defines the capability module's keeper. It is responsible for provisioning,
@@ -117,7 +118,7 @@ func (k *Keeper) InitMemStore(ctx sdk.Context) {
 		iterator := sdk.KVStorePrefixIterator(prefixStore, nil)
 
 		// initialize the in-memory store for all persisted capabilities
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		for ; iterator.Valid(); iterator.Next() {
 			index := types.IndexFromKey(iterator.Key())
@@ -259,7 +260,7 @@ func (sk ScopedKeeper) NewCapability(ctx sdk.Context, name string) (*types.Capab
 	// Set the mapping from index from index to in-memory capability in the go map
 	sk.capMap[index] = cap
 
-	logger(ctx).Info("created new capability", "module", sk.module, "name", name)
+	logger.Info("created new capability", "module", sk.module, "name", name)
 
 	return cap, nil
 }
@@ -308,7 +309,7 @@ func (sk ScopedKeeper) ClaimCapability(ctx sdk.Context, cap *types.Capability, n
 	// and retrieve the in-memory pointer to the capability from our map
 	memStore.Set(types.RevCapabilityKey(sk.module, name), sdk.Uint64ToBigEndian(cap.GetIndex()))
 
-	logger(ctx).Info("claimed capability", "module", sk.module, "name", name, "capability", cap.GetIndex())
+	logger.Info("claimed capability", "module", sk.module, "name", name, "capability", cap.GetIndex())
 
 	return nil
 }
@@ -479,8 +480,4 @@ func (sk ScopedKeeper) getOwners(ctx sdk.Context, cap *types.Capability) *types.
 	var capOwners types.CapabilityOwners
 	sk.cdc.MustUnmarshal(bz, &capOwners)
 	return &capOwners
-}
-
-func logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }

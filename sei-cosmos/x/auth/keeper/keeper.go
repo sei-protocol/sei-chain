@@ -4,14 +4,12 @@ import (
 	"fmt"
 
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 // AccountKeeperI is the interface contract that x/auth's keeper implements.
@@ -89,11 +87,6 @@ func NewAccountKeeper(
 		paramSubspace: paramstore,
 		permAddrs:     permAddrs,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (ak AccountKeeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // GetPubKey Returns the PubKey of the account at address
@@ -223,7 +216,7 @@ func (ak AccountKeeper) decodeAccount(bz []byte) types.AccountI {
 }
 
 // MarshalAccount protobuf serializes an Account interface
-func (ak AccountKeeper) MarshalAccount(accountI types.AccountI) ([]byte, error) { // nolint:interfacer
+func (ak AccountKeeper) MarshalAccount(accountI types.AccountI) ([]byte, error) {
 	return ak.cdc.MarshalInterface(accountI)
 }
 

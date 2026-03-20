@@ -7,16 +7,16 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoAPI {
@@ -178,6 +178,41 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	// Mimic request sending and handle the response
 	resObj := sendRequestGood(t, "maxPriorityFeePerGas")
 	assert.Equal(t, "0x3b9aca00", resObj["result"])
+}
+
+func TestBlobBaseFee(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "blobBaseFee")
+	require.Contains(t, resObj, "error", "blobBaseFee should return error (blobs not supported)")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeBlobsNotSupported), errObj["code"], "error code should be ErrCodeServerError")
+	require.Equal(t, "blobs not supported on this chain", errObj["message"])
+}
+
+func TestBlobBaseFee_Direct(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx.WithBlockHeight(MockHeight8)
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
+	fee, err := api.BlobBaseFee(context.Background())
+	require.Error(t, err)
+	require.Nil(t, fee)
+	var errWithCode *evmrpc.ErrEVMNotSupported
+	require.True(t, errors.As(err, &errWithCode))
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, errWithCode.ErrorCode())
+	require.Contains(t, err.Error(), "blobs not supported")
+}
+
+func TestSyncingNotSupported(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "syncing")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_syncing")
 }
 
 func TestGasPriceLogic(t *testing.T) {

@@ -3,8 +3,8 @@ package keeper_test
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"

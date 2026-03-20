@@ -7,12 +7,10 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // NewVote creates a new Vote instance
-//
-//nolint:interfacer
 func NewVote(proposalID uint64, voter sdk.AccAddress, options WeightedVoteOptions) Vote {
 	return Vote{ProposalId: proposalID, Voter: voter.String(), Options: options}
 }
@@ -143,8 +141,8 @@ func (vo *VoteOption) Unmarshal(data []byte) error {
 func (vo VoteOption) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(vo.String()))
+		_, _ = s.Write([]byte(vo.String()))
 	default:
-		s.Write([]byte(fmt.Sprintf("%v", byte(vo))))
+		_, _ = fmt.Fprintf(s, "%v", byte(vo))
 	}
 }

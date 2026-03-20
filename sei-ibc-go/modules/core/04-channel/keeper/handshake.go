@@ -3,10 +3,11 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
+	"github.com/sei-protocol/seilog"
 
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -14,6 +15,8 @@ import (
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
+
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "04-channel", "keeper")
 
 // ErrInboundDisabledHandshake is the error for when inbound is disabled during channel handshake
 var ErrInboundDisabledHandshake = sdkerrors.Register("ibc-channel-handshake", 101, "ibc inbound disabled")
@@ -94,7 +97,7 @@ func (k Keeper) WriteOpenInitChannel(
 	k.SetNextSequenceRecv(ctx, portID, channelID, 1)
 	k.SetNextSequenceAck(ctx, portID, channelID, 1)
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "NONE", "new-state", "INIT")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "NONE", "new-state", "INIT")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "open-init")
@@ -257,7 +260,7 @@ func (k Keeper) WriteOpenTryChannel(
 
 	k.SetChannel(ctx, portID, channelID, channel)
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", previousChannel.State.String(), "new-state", "TRYOPEN")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", previousChannel.State.String(), "new-state", "TRYOPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "open-try")
@@ -345,7 +348,7 @@ func (k Keeper) WriteOpenAckChannel(
 	channel.Counterparty.ChannelId = counterpartyChannelID
 	k.SetChannel(ctx, portID, channelID, channel)
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "OPEN")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "OPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "open-ack")
@@ -425,7 +428,7 @@ func (k Keeper) WriteOpenConfirmChannel(
 
 	channel.State = types.OPEN
 	k.SetChannel(ctx, portID, channelID, channel)
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "TRYOPEN", "new-state", "OPEN")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "TRYOPEN", "new-state", "OPEN")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "open-confirm")
@@ -472,7 +475,7 @@ func (k Keeper) ChanCloseInit(
 		)
 	}
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "close-init")
@@ -537,7 +540,7 @@ func (k Keeper) ChanCloseConfirm(
 		return err
 	}
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
+	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
 
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "close-confirm")

@@ -1,13 +1,13 @@
 package app
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
-	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
