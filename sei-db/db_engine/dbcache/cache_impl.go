@@ -624,10 +624,6 @@ func (c *cache) lifecycleRunner() {
 			}
 
 			c.versionLock.Lock()
-
-			fmt.Printf("\nunretiredVersions: %d, total versions: %d\n",
-				c.unretiredVersions,
-				len(c.versionMap)) // TODO remove
 			hasWork := c.unretiredVersions > 0
 			c.versionLock.Unlock()
 			if !hasWork {
