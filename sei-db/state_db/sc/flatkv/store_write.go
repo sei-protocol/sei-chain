@@ -586,55 +586,54 @@ func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
 // Protocol: WAL -> per-DB LocalMeta (all DBs including metadata) -> done.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (int64, error) {
-	// Drain all in-flight hash work so that workingLtHash / perDBWorkingLtHash
-	// are up to date before commitBatches reads them.
-	s.hashWG.Wait()
-	s.phaseTimer.SetPhase("commit_preamble")
-	if s.readOnly {
-		return 0, errReadOnly
-	}
-	version := s.committedVersion + 1
+	// TODO before merge: fix this!
 
-	// Step 1: Write Changelog (WAL) - source of truth (always sync)
-	s.phaseTimer.SetPhase("commit_write_changelog")
-	changelogEntry := proto.ChangelogEntry{
-		Version:    version,
-		Changesets: s.pendingChangeSets,
-	}
-	if err := s.changelog.Write(changelogEntry); err != nil {
-		return 0, fmt.Errorf("changelog write: %w", err)
-	}
+	// s.phaseTimer.SetPhase("commit_preamble")
+	// if s.readOnly {
+	// 	return 0, errReadOnly
+	// }
+	// version := s.committedVersion + 1
 
-	// Step 2: Commit LocalMeta to each DB (data DBs + metadata DB)
-	if err := s.commitBatches(version); err != nil {
-		return 0, fmt.Errorf("db commit: %w", err)
-	}
+	// // Step 1: Write Changelog (WAL) - source of truth (always sync)
+	// s.phaseTimer.SetPhase("commit_write_changelog")
+	// changelogEntry := proto.ChangelogEntry{
+	// 	Version:    version,
+	// 	Changesets: s.pendingChangeSets,
+	// }
+	// if err := s.changelog.Write(changelogEntry); err != nil {
+	// 	return 0, fmt.Errorf("changelog write: %w", err)
+	// }
 
-	// Step 3: Update in-memory committed state
-	s.phaseTimer.SetPhase("commit_update_lt_hash")
-	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
+	// // Step 2: Commit LocalMeta to each DB (data DBs + metadata DB)
+	// if err := s.commitBatches(version); err != nil {
+	// 	return 0, fmt.Errorf("db commit: %w", err)
+	// }
 
-	// Step 4: Clear pending buffers
-	s.phaseTimer.SetPhase("commit_clear_pending_writes")
-	s.clearPendingWrites()
+	// // Step 3: Update in-memory committed state
+	// s.phaseTimer.SetPhase("commit_update_lt_hash")
+	// s.committedVersion = version
+	// s.committedLtHash = s.workingLtHash.Clone()
 
-	// Periodic snapshot so WAL stays bounded and restarts are fast.
-	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
-		s.phaseTimer.SetPhase("commit_write_snapshot")
-		if err := s.WriteSnapshot(""); err != nil {
-			logger.Error("auto snapshot failed", "version", version, "err", err)
-		}
-	}
+	// // Step 4: Clear pending buffers
+	// s.phaseTimer.SetPhase("commit_clear_pending_writes")
+	// s.clearPendingWrites()
 
-	// Best-effort WAL truncation, throttled to amortize ReadDir cost.
-	if version%1000 == 0 {
-		s.tryTruncateWAL()
-	}
+	// // Periodic snapshot so WAL stays bounded and restarts are fast.
+	// if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
+	// 	s.phaseTimer.SetPhase("commit_write_snapshot")
+	// 	if err := s.WriteSnapshot(""); err != nil {
+	// 		logger.Error("auto snapshot failed", "version", version, "err", err)
+	// 	}
+	// }
 
-	s.phaseTimer.SetPhase("commit_done")
-	logger.Info("Committed version", "version", version)
-	return version, nil
+	// // Best-effort WAL truncation, throttled to amortize ReadDir cost.
+	// if version%1000 == 0 {
+	// 	s.tryTruncateWAL()
+	// }
+
+	// s.phaseTimer.SetPhase("commit_done")
+	// logger.Info("Committed version", "version", version)
+	// return version, nil
 }
 
 // commitBatches writes LocalMeta (version + LtHash) to every DB.
