@@ -9,7 +9,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -153,7 +152,6 @@ func EncodeTxForApp(signedTx *ethtypes.Transaction) ([]byte, error) {
 		return nil, err
 	}
 	txBuilder.SetGasLimit(10000000000)
-	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	if err != nil {
