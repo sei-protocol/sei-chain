@@ -1,8 +1,93 @@
 package types
 
 import (
+	"time"
+
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
+
+type RequestEcho struct {
+	Message string
+}
+
+type RequestFlush struct{}
+
+type RequestInfo struct {
+	Version      string
+	BlockVersion uint64
+	P2PVersion   uint64
+	AbciVersion  string
+}
+
+// RequestInitChain carries the genesis-time initialization inputs passed from
+// consensus into the application when bootstrapping a chain.
+type RequestInitChain struct {
+	Time            time.Time
+	ChainId         string
+	ConsensusParams *tmproto.ConsensusParams
+	Validators      []ValidatorUpdate
+	AppStateBytes   []byte
+	InitialHeight   int64
+}
+
+type RequestQuery struct {
+	Data   []byte
+	Path   string
+	Height int64
+	Prove  bool
+}
+
+type RequestCommit struct{}
+
+type RequestPrepareProposal struct {
+	MaxTxBytes          int64
+	Txs                 [][]byte
+	ByzantineValidators []Misbehavior
+	LocalLastCommitInfo CommitInfo
+
+	Header *tmproto.Header
+}
+
+type RequestBeginBlock struct {
+	Hash                []byte
+	Header              tmproto.Header
+	LastCommitInfo      LastCommitInfo
+	ByzantineValidators []Evidence
+	Simulate            bool
+}
+
+type RequestEndBlock struct {
+	Height       int64
+	BlockGasUsed int64
+}
+
+type ResponseException struct {
+	Error string
+}
+
+type ResponseEcho struct {
+	Message string
+}
+
+type ResponseFlush struct{}
+
+type ResponseInitChain struct {
+	ConsensusParams *tmproto.ConsensusParams
+	Validators      []ValidatorUpdate
+	AppHash         []byte
+}
+
+type ResponsePrepareProposal struct {
+	TxRecords             []*TxRecord
+	AppHash               []byte
+	TxResults             []*ExecTxResult
+	ValidatorUpdates      []ValidatorUpdate
+	ConsensusParamUpdates *tmproto.ConsensusParams
+}
+
+type ResponseGetTxPriorityHint struct {
+	Priority int64
+}
 
 // RequestListSnapshots is emitted at the start of state sync to ask the application
 // which previously committed snapshots are available for peers to download.
@@ -174,4 +259,411 @@ type RequestFinalizeBlock struct {
 	Hash                []byte
 
 	Header *tmproto.Header
+}
+
+type CommitInfo struct {
+	Round int32
+	Votes []VoteInfo
+}
+
+type LastCommitInfo struct {
+	Round int32
+	Votes []VoteInfo
+}
+
+type Validator struct {
+	Address []byte
+	Power   int64
+}
+
+type VoteInfo struct {
+	Validator       Validator
+	SignedLastBlock bool
+}
+
+type Misbehavior struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
+}
+
+type Evidence struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
+}
+
+type TxRecord struct {
+	Action TxRecord_TxAction
+	Tx     []byte
+}
+
+type TxRecord_TxAction int32
+
+const (
+	TxRecord_UNMODIFIED TxRecord_TxAction = iota
+)
+
+func (a TxRecord_TxAction) String() string {
+	switch a {
+	case TxRecord_UNMODIFIED:
+		return "UNMODIFIED"
+	default:
+		return "UNMODIFIED"
+	}
+}
+
+type Snapshot struct {
+	Height   uint64
+	Format   uint32
+	Chunks   uint32
+	Hash     []byte
+	Metadata []byte
+}
+
+func (m *RequestEcho) GetMessage() string {
+	if m != nil {
+		return m.Message
+	}
+	return ""
+}
+
+func (m *RequestInfo) GetVersion() string {
+	if m != nil {
+		return m.Version
+	}
+	return ""
+}
+
+func (m *RequestInitChain) GetTime() time.Time {
+	if m != nil {
+		return m.Time
+	}
+	return time.Time{}
+}
+
+func (m *RequestInitChain) GetChainId() string {
+	if m != nil {
+		return m.ChainId
+	}
+	return ""
+}
+
+func (m *RequestInitChain) GetConsensusParams() *tmproto.ConsensusParams {
+	if m != nil {
+		return m.ConsensusParams
+	}
+	return nil
+}
+
+func (m *RequestInitChain) GetValidators() []ValidatorUpdate {
+	if m != nil {
+		return m.Validators
+	}
+	return nil
+}
+
+func (m *RequestInitChain) GetInitialHeight() int64 {
+	if m != nil {
+		return m.InitialHeight
+	}
+	return 0
+}
+
+func (m *RequestQuery) GetData() []byte {
+	if m != nil {
+		return m.Data
+	}
+	return nil
+}
+
+func (m *RequestQuery) GetPath() string {
+	if m != nil {
+		return m.Path
+	}
+	return ""
+}
+
+func (m *RequestQuery) GetHeight() int64 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *RequestPrepareProposal) GetTxs() [][]byte {
+	if m != nil {
+		return m.Txs
+	}
+	return nil
+}
+
+func (m *RequestPrepareProposal) GetByzantineValidators() []Misbehavior {
+	if m != nil {
+		return m.ByzantineValidators
+	}
+	return nil
+}
+
+func (m *RequestBeginBlock) GetHash() []byte {
+	if m != nil {
+		return m.Hash
+	}
+	return nil
+}
+
+func (m *RequestBeginBlock) GetByzantineValidators() []Evidence {
+	if m != nil {
+		return m.ByzantineValidators
+	}
+	return nil
+}
+
+func (m *RequestEndBlock) GetHeight() int64 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *ResponseException) GetError() string {
+	if m != nil {
+		return m.Error
+	}
+	return ""
+}
+
+func (m *ResponseEcho) GetMessage() string {
+	if m != nil {
+		return m.Message
+	}
+	return ""
+}
+
+func (m *ResponseInitChain) GetConsensusParams() *tmproto.ConsensusParams {
+	if m != nil {
+		return m.ConsensusParams
+	}
+	return nil
+}
+
+func (m *ResponseInitChain) GetValidators() []ValidatorUpdate {
+	if m != nil {
+		return m.Validators
+	}
+	return nil
+}
+
+func (m *ResponseInitChain) GetAppHash() []byte {
+	if m != nil {
+		return m.AppHash
+	}
+	return nil
+}
+
+func (m *ResponsePrepareProposal) GetAppHash() []byte {
+	if m != nil {
+		return m.AppHash
+	}
+	return nil
+}
+
+func (m *ResponsePrepareProposal) GetTxResults() []*ExecTxResult {
+	if m != nil {
+		return m.TxResults
+	}
+	return nil
+}
+
+func (m *ResponsePrepareProposal) GetValidatorUpdates() []ValidatorUpdate {
+	if m != nil {
+		return m.ValidatorUpdates
+	}
+	return nil
+}
+
+func (m *ResponsePrepareProposal) GetConsensusParamUpdates() *tmproto.ConsensusParams {
+	if m != nil {
+		return m.ConsensusParamUpdates
+	}
+	return nil
+}
+
+func (m *ResponseGetTxPriorityHint) GetPriority() int64 {
+	if m != nil {
+		return m.Priority
+	}
+	return 0
+}
+
+func (m *CommitInfo) GetRound() int32 {
+	if m != nil {
+		return m.Round
+	}
+	return 0
+}
+
+func (m *CommitInfo) GetVotes() []VoteInfo {
+	if m != nil {
+		return m.Votes
+	}
+	return nil
+}
+
+func (m *LastCommitInfo) GetRound() int32 {
+	if m != nil {
+		return m.Round
+	}
+	return 0
+}
+
+func (m *LastCommitInfo) GetVotes() []VoteInfo {
+	if m != nil {
+		return m.Votes
+	}
+	return nil
+}
+
+func (m *Validator) GetAddress() []byte {
+	if m != nil {
+		return m.Address
+	}
+	return nil
+}
+
+func (m *Validator) GetPower() int64 {
+	if m != nil {
+		return m.Power
+	}
+	return 0
+}
+
+func (m *VoteInfo) GetValidator() Validator {
+	if m != nil {
+		return m.Validator
+	}
+	return Validator{}
+}
+
+func (m *Misbehavior) GetType() MisbehaviorType {
+	if m != nil {
+		return m.Type
+	}
+	return MisbehaviorType_UNKNOWN
+}
+
+func (m *Misbehavior) GetValidator() Validator {
+	if m != nil {
+		return m.Validator
+	}
+	return Validator{}
+}
+
+func (m *Misbehavior) GetHeight() int64 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *Misbehavior) GetTime() time.Time {
+	if m != nil {
+		return m.Time
+	}
+	return time.Time{}
+}
+
+func (m *Misbehavior) GetTotalVotingPower() int64 {
+	if m != nil {
+		return m.TotalVotingPower
+	}
+	return 0
+}
+
+func (m *Evidence) GetType() MisbehaviorType {
+	if m != nil {
+		return m.Type
+	}
+	return MisbehaviorType_UNKNOWN
+}
+
+func (m *Evidence) GetValidator() Validator {
+	if m != nil {
+		return m.Validator
+	}
+	return Validator{}
+}
+
+func (m *Evidence) GetHeight() int64 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *Evidence) GetTime() time.Time {
+	if m != nil {
+		return m.Time
+	}
+	return time.Time{}
+}
+
+func (m *Evidence) GetTotalVotingPower() int64 {
+	if m != nil {
+		return m.TotalVotingPower
+	}
+	return 0
+}
+
+func (m *TxRecord) GetAction() TxRecord_TxAction {
+	if m != nil {
+		return m.Action
+	}
+	return TxRecord_UNMODIFIED
+}
+
+func (m *TxRecord) GetTx() []byte {
+	if m != nil {
+		return m.Tx
+	}
+	return nil
+}
+
+func (m *Snapshot) GetHeight() uint64 {
+	if m != nil {
+		return m.Height
+	}
+	return 0
+}
+
+func (m *Snapshot) GetFormat() uint32 {
+	if m != nil {
+		return m.Format
+	}
+	return 0
+}
+
+func (m *Snapshot) GetChunks() uint32 {
+	if m != nil {
+		return m.Chunks
+	}
+	return 0
+}
+
+func (m *Snapshot) GetHash() []byte {
+	if m != nil {
+		return m.Hash
+	}
+	return nil
+}
+
+func (m *Snapshot) GetMetadata() []byte {
+	if m != nil {
+		return m.Metadata
+	}
+	return nil
 }
