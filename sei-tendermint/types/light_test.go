@@ -88,8 +88,8 @@ func TestLightBlockProtobuf(t *testing.T) {
 	}{
 		{"valid light block", sh, vals, false, false},
 		{"empty signed header", &SignedHeader{}, vals, false, false},
-		{"empty validator set", sh, &ValidatorSet{}, false, true},
-		{"empty light block", &SignedHeader{}, &ValidatorSet{}, false, true},
+		{"empty validator set", sh, &ValidatorSet{}, true, true},
+		{"empty light block", &SignedHeader{}, &ValidatorSet{}, true, true},
 	}
 
 	for _, tc := range testCases {

@@ -811,7 +811,7 @@ func (valz ValidatorsByAddress) Swap(i, j int) {
 // ToProto converts ValidatorSet to protobuf
 func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 	if vals.IsNilOrEmpty() {
-		return &tmproto.ValidatorSet{}, nil // validator set should never be nil
+		return nil, nil
 	}
 
 	vp := new(tmproto.ValidatorSet)
