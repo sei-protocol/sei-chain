@@ -588,6 +588,7 @@ func mapValues(m map[string]dbcache.CacheUpdate) []dbcache.CacheUpdate {
 func (s *CommitStore) Commit() (int64, error) {
 	// TODO before merge: fix this!
 
+	return 0, nil
 	// s.phaseTimer.SetPhase("commit_preamble")
 	// if s.readOnly {
 	// 	return 0, errReadOnly
