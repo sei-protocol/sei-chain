@@ -661,11 +661,19 @@ func addressBytesFromHexString(address string) ([]byte, error) {
 }
 
 // cacheBech32Addr is not concurrency safe. Concurrent access to cache causes race condition.
-func cacheBech32Addr(prefix string, addr []byte, cache *simplelru.LRU[string, string], cacheKey string) string {
+func cacheBech32Addr(prefix string, addr []byte, cache *simplelru.LRU[string, string], _ string) string {
 	bech32Addr, err := bech32.ConvertAndEncode(prefix, addr)
 	if err != nil {
 		panic(err)
 	}
-	cache.Add(cacheKey, bech32Addr)
+	// Use string(addr) instead of the caller-provided cacheKey to guarantee the
+	// map key is backed by heap-allocated memory.  Callers create cacheKey via
+	// UnsafeBytesToStr, which shares the backing array of addr.  When addr
+	// originates from a MemIAVL zero-copy read the backing memory is mmap'd;
+	// after a snapshot rotation the region is munmap'd, turning any map key that
+	// still points there into a dangling pointer and causing SIGSEGV during
+	// subsequent lookups.  string(addr) always copies, so the cache key survives
+	// independently of the original slice's lifetime.
+	cache.Add(string(addr), bech32Addr)
 	return bech32Addr
 }
