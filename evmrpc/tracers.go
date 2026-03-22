@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
@@ -364,6 +365,30 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
+}
+
+func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawHeader", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawBlock(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawBlock", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ []hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawReceipts", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
+}
+
+func (api *DebugAPI) GetRawTransaction(ctx context.Context, hash common.Hash) (_ hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("debug_getRawTransaction", api.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 
 type StateAccessResponse struct {

@@ -14,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -228,19 +229,33 @@ func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 			panic(err)
 		}
 
-		tBuilder := tx.WrapTx(&txtype.Tx{
-			Body: &txtype.TxBody{
-				Messages: []*codectypes.Any{a},
-			},
-			AuthInfo: &txtype.AuthInfo{
-				Fee: &txtype.Fee{
-					Amount:   Funds(10000000000),
-					GasLimit: 10000000000,
-					Payer:    testCtx.TestAccounts[0].AccountAddress.String(),
-					Granter:  testCtx.TestAccounts[0].AccountAddress.String(),
+		var tBuilder client.TxBuilder
+		if tm.IsEVM {
+			tBuilder = tx.WrapTx(&txtype.Tx{
+				Body: &txtype.TxBody{
+					Messages: []*codectypes.Any{a},
 				},
-			},
-		})
+				AuthInfo: &txtype.AuthInfo{
+					Fee: &txtype.Fee{
+						GasLimit: 10000000000,
+					},
+				},
+			})
+		} else {
+			tBuilder = tx.WrapTx(&txtype.Tx{
+				Body: &txtype.TxBody{
+					Messages: []*codectypes.Any{a},
+				},
+				AuthInfo: &txtype.AuthInfo{
+					Fee: &txtype.Fee{
+						Amount:   Funds(10000000000),
+						GasLimit: 10000000000,
+						Payer:    testCtx.TestAccounts[0].AccountAddress.String(),
+						Granter:  testCtx.TestAccounts[0].AccountAddress.String(),
+					},
+				},
+			})
+		}
 
 		if tm.IsEVM {
 			amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
@@ -318,12 +333,8 @@ func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []
 func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
-	req := &types.RequestFinalizeBlock{
-		Txs:    txs,
-		Height: testCtx.Ctx.BlockHeader().Height,
-	}
-
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false)
 }
 
 // ProcessBlockDirect calls ProcessBlock directly with pre-prepared transaction bytes.
@@ -331,12 +342,8 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 // excluding the overhead of transaction encoding, signing, and state preparation.
 func ProcessBlockDirect(testCtx *TestContext, txs [][]byte, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
-	req := &types.RequestFinalizeBlock{
-		Txs:    txs,
-		Height: testCtx.Ctx.BlockHeader().Height,
-	}
-
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false)
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {

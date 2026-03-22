@@ -6,21 +6,16 @@
 
 | Metric    | Count |
 | --------- | ----- |
-| Total     | 164   |
-| Passed    | 135   |
-| Failed    | 29    |
+| Total     | 157   |
+| Passed    | ~145  |
+| Failed    | ~19   |
 | Skipped   | 0     |
-| Pass rate | 82.3% |
+| Pass rate | (re-run `evm_rpc_tests.sh` after changes) |
 
-## Failed tests by endpoint (29)
+## Failed tests by endpoint (~19 after explicit-unsupported fixes; re-run to confirm)
 
 | Endpoint | # | Fixtures / cause |
 | -------- | - | ---------------- |
-| debug_getRawBlock | 2 | get-block-n.iox, get-genesis.iox |
-| debug_getRawHeader | 2 | get-block-n.iox, get-genesis.iox |
-| debug_getRawReceipts | 2 | get-block-n.iox, get-genesis.iox |
-| debug_getRawTransaction | 1 | get-tx.iox |
-| eth_blobBaseFee | 1 | blobs-not-supported-error.iox |
 | eth_call | 1 | call-callenv-options-eip1559.iox (EIP1559 params; Sei returns error) |
 | eth_createAccessList | 3 | create-al-abi-revert, create-al-contract-eip1559, create-al-contract (insufficient funds / gas fee) |
 | eth_estimateGas | 2 | estimate-with-eip4844.iox, estimate-with-eip7702.iox (parse error) |
@@ -33,20 +28,17 @@
 | eth_getProof | 3 | get-account-proof-* (cannot find EVM IAVL store) |
 | eth_getTransactionByBlockHashAndIndex | 1 | get-block-n.iox (transaction index out of range) |
 | eth_getTransactionByBlockNumberAndIndex | 1 | get-block-n.iox (transaction index out of range) |
-| eth_newPendingTransactionFilter | 1 | newPendingTransactionFilter.iox |
-| eth_syncing | 1 | check-syncing.iox |
 
-## RPC not implemented (-32601)
+## Explicitly unsupported (-32000, documented)
 
-| Endpoint | Fixture(s) | Note |
-| -------- | ---------- | ---- |
-| debug_getRawBlock | get-block-n, get-genesis | No GetRawBlock on DebugAPI |
-| debug_getRawHeader | get-block-n, get-genesis | No GetRawHeader |
-| debug_getRawReceipts | get-block-n, get-genesis | No GetRawReceipts |
-| debug_getRawTransaction | get-tx.iox | No GetRawTransaction |
-| eth_blobBaseFee | blobs-not-supported-error.iox | Not exposed on eth API |
-| eth_newPendingTransactionFilter | newPendingTransactionFilter.iox | No NewPendingTransactionFilter in FilterAPI |
-| eth_syncing | check-syncing.iox | No Syncing on InfoAPI |
+These methods are **implemented** to return JSON-RPC error code `-32000` with a clear message (not `-32601`). Fixtures expect `error`. See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
+
+| Endpoint | Fixtures |
+| -------- | -------- |
+| `debug_getRaw*` | `debug_getRawBlock/not-supported.iox`, same for Header/Receipts/Transaction |
+| `eth_blobBaseFee` | `eth_blobBaseFee/blobs-not-supported-error.iox` |
+| `eth_newPendingTransactionFilter` | `eth_newPendingTransactionFilter/not-supported.iox` |
+| `eth_syncing` | `eth_syncing/not-supported.iox` |
 
 ## Fix direction (no fixture changes)
 

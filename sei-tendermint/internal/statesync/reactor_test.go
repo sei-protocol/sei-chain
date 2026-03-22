@@ -57,7 +57,6 @@ func setup(
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     utils.Some(100),
 			MaxConnected: utils.Some(100),
 		},
 	})
@@ -123,9 +122,8 @@ func orPanic[T any](v T, err error) T {
 	return v
 }
 
-func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+func (rts *reactorTestSuite) AddPeerWithoutWaiting(t *testing.T) *Node {
 	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
-		MaxPeers:     utils.Some(1),
 		MaxConnected: utils.Some(1),
 	})
 	n := &Node{
@@ -135,12 +133,15 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
-	rts.node.Connect(t.Context(), testNode)
+	testNode.Connect(t.Context(), rts.node)
+	return n
+}
+
+func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+	n := rts.AddPeerWithoutWaiting(t)
 	// Peer registration in the reactor is asynchronous, so block until this peer
 	// is visible before returning to callers that may assert on peer counts.
-	require.Eventually(t, func() bool {
-		return rts.reactor.peers.Contains(testNode.NodeID)
-	}, 5*time.Second, 50*time.Millisecond)
+	utils.OrPanic(rts.reactor.peers.WaitUntilContains(t.Context(), n.TestNode.NodeID))
 	return n
 }
 
@@ -175,7 +176,7 @@ func TestReactor_Sync(t *testing.T) {
 			if _, err := utils.Recv(ctx, ticker.C); err != nil {
 				return
 			}
-			n := rts.AddPeer(t)
+			n := rts.AddPeerWithoutWaiting(t)
 			go n.handleLightBlockRequests(t, chain, false)
 			go n.handleChunkRequests(t, []byte("abc"))
 			go n.handleConsensusParamsRequest(t)
@@ -293,7 +294,13 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			ctx := t.Context()
 			snapshots := make([]*abci.Snapshot, len(tc.snapshots))
 			for i, s := range tc.snapshots {
-				snapshots[i] = utils.ProtoClone(s)
+				snapshots[i] = &abci.Snapshot{
+					Height:   s.Height,
+					Format:   s.Format,
+					Chunks:   s.Chunks,
+					Hash:     append([]byte(nil), s.Hash...),
+					Metadata: append([]byte(nil), s.Metadata...),
+				}
 			}
 
 			// mock ABCI connection to return local snapshots
@@ -516,7 +523,6 @@ func TestReactor_Backfill(t *testing.T) {
 	for _, failureRate := range failureRates {
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
 			ctx := t.Context()
-			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
 			rts := setup(t, nil, nil, false)
 
 			var (

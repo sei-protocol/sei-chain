@@ -240,7 +240,7 @@ func verifyCommitBatch(
 
 	// attempt to verify the batch.
 	if err := bv.Verify(); err != nil {
-		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic()
+		err := utils.ErrorAs[crypto.ErrBadSig](err).OrPanic("unexpected error type")
 		// go back from the batch index to the commit.Signatures index
 		idx := batchSigIdxs[err.Idx]
 		sig := commit.Signatures[idx]

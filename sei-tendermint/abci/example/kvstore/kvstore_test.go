@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (
@@ -111,7 +112,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	// make and apply block
 	height = int64(1)
 	hash := []byte("foo")
-	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Height: height}); err != nil {
+	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Header: &tmproto.Header{Height: height}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,7 +205,7 @@ func makeApplyBlock(ctx context.Context, t *testing.T, kvstore types.Application
 	hash := []byte("foo")
 	resFinalizeBlock, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{
 		Hash:   hash,
-		Height: height,
+		Header: &tmproto.Header{Height: height},
 		Txs:    txs,
 	})
 	if err != nil {

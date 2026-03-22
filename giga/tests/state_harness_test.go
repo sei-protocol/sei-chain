@@ -202,12 +202,13 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
 	app.EnableOCC = stc.Mode == ModeV2withOCC || stc.Mode == ModeGigaOCC
 
+	header := stc.Ctx.BlockHeader()
 	req := &abci.RequestFinalizeBlock{
 		Txs:    txs,
-		Height: stc.Ctx.BlockHeader().Height,
+		Header: &header,
 	}
 
-	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, req, req.DecidedLastCommit, false)
+	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false)
 	return events, results, err
 }
 

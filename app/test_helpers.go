@@ -392,6 +392,7 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -461,6 +462,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -509,6 +511,7 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -610,6 +613,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -737,6 +741,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -744,9 +749,12 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// commit genesis changes
 	_, _ = app.Commit(context.Background())
 	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Height:             app.LastBlockHeight() + 1,
-		Hash:               app.LastCommitID().Hash,
-		NextValidatorsHash: valSet.Hash(),
+		Hash: app.LastCommitID().Hash,
+		Header: &tmproto.Header{
+			ChainID:            "sei-test",
+			Height:             app.LastBlockHeight() + 1,
+			NextValidatorsHash: valSet.Hash(),
+		},
 	})
 
 	return app
@@ -776,12 +784,13 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
 }
@@ -960,15 +969,16 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 
 func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
-	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
+	require.NotEmpty(t, header.ChainID)
 
 	tx, err := GenTx(
 		txCfg,
 		msgs,
 		sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
 		DefaultGenTxGas,
-		chainID,
+		header.ChainID,
 		accNums,
 		accSeqs,
 		priv...,
@@ -987,23 +997,27 @@ func SignCheckDeliver(
 		require.Error(t, err)
 		require.Nil(t, res)
 	}
-
-	// Simulate a sending a transaction and committing a block
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	gInfo, res, deliverErr := app.Deliver(txCfg.TxEncoder(), tx)
+	if deliverErr == nil && res == nil {
+		deliverErr = fmt.Errorf("deliver tx returned no result")
+	}
 
 	if expPass {
-		require.NoError(t, err)
+		require.NoError(t, deliverErr)
 		require.NotNil(t, res)
 	} else {
-		require.Error(t, err)
+		require.Error(t, deliverErr)
 		require.Nil(t, res)
 	}
 
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	_, _ = app.Commit(context.Background())
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
-	return gInfo, res, err
+	return gInfo, res, deliverErr
 }
 
 func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {

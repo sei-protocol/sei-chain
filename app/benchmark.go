@@ -42,7 +42,7 @@ func (app *App) PrepareProposalBenchmarkHandler(_ sdk.Context, req *abci.Request
 		if proposal == nil || !ok {
 			return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
 		}
-		app.benchmarkManager.Logger.Increment(int64(len(proposal.TxRecords)), req.Time, req.Height)
+		app.benchmarkManager.Logger.Increment(int64(len(proposal.TxRecords)), req.Header.Time, req.Header.Height)
 		return proposal, nil
 	default:
 		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
