@@ -145,7 +145,10 @@ func NewRecieptStoreSimulator(
 	go r.mainLoop()
 
 	if config.ReceiptReadConcurrency > 0 && config.ReceiptReadsPerSecond > 0 {
-		r.startReaders()
+		r.startReceiptReaders()
+	}
+	if config.LogFilterReadConcurrency > 0 && config.LogFilterReadsPerSecond > 0 {
+		r.startLogFilterReaders()
 	}
 
 	return r, nil
@@ -232,8 +235,8 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	}
 }
 
-// startReaders launches concurrent reader goroutines that simulate RPC receipt lookups.
-func (r *RecieptStoreSimulator) startReaders() {
+// startReceiptReaders launches dedicated goroutines for receipt-by-hash lookups.
+func (r *RecieptStoreSimulator) startReceiptReaders() {
 	readerCount := r.config.ReceiptReadConcurrency
 	totalReadsPerSec := r.config.ReceiptReadsPerSecond
 	if totalReadsPerSec <= 0 {
@@ -248,14 +251,37 @@ func (r *RecieptStoreSimulator) startReaders() {
 	for i := 0; i < readerCount; i++ {
 		//nolint:gosec // deterministic per-reader seed for benchmarks
 		readerRng := rand.New(rand.NewSource(r.config.Seed + int64(i) + 100))
-		go r.readerLoop(readsPerReader, readerRng)
+		go r.tickerLoop(readsPerReader, readerRng, r.executeReceiptRead)
 	}
 
 	fmt.Printf("Started %d receipt reader goroutines (%d reads/sec each)\n",
 		readerCount, readsPerReader)
 }
 
-func (r *RecieptStoreSimulator) readerLoop(readsPerSecond int, rng *rand.Rand) {
+// startLogFilterReaders launches dedicated goroutines for log filter (eth_getLogs) queries.
+func (r *RecieptStoreSimulator) startLogFilterReaders() {
+	readerCount := r.config.LogFilterReadConcurrency
+	totalReadsPerSec := r.config.LogFilterReadsPerSecond
+	if totalReadsPerSec <= 0 {
+		totalReadsPerSec = 100
+	}
+
+	readsPerReader := totalReadsPerSec / readerCount
+	if readsPerReader < 1 {
+		readsPerReader = 1
+	}
+
+	for i := 0; i < readerCount; i++ {
+		//nolint:gosec // deterministic per-reader seed, offset from receipt readers
+		readerRng := rand.New(rand.NewSource(r.config.Seed + int64(i) + 200))
+		go r.tickerLoop(readsPerReader, readerRng, r.executeLogFilterRead)
+	}
+
+	fmt.Printf("Started %d log filter reader goroutines (%d reads/sec each)\n",
+		readerCount, readsPerReader)
+}
+
+func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, rng *rand.Rand, fn func(*rand.Rand)) {
 	interval := time.Second / time.Duration(readsPerSecond)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -265,19 +291,9 @@ func (r *RecieptStoreSimulator) readerLoop(readsPerSecond int, rng *rand.Rand) {
 		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
-			r.executeRead(rng)
+			fn(rng)
 		}
 	}
-}
-
-// executeRead picks a read type: receipt-by-hash (via SyntheticTxHash) or log filter
-// (via the ring buffer for contract addresses), weighted by ReceiptLogFilterRatio.
-func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
-	if r.config.ReceiptLogFilterRatio > 0 && rng.Float64() < r.config.ReceiptLogFilterRatio {
-		r.executeLogFilterRead(rng)
-		return
-	}
-	r.executeReceiptRead(rng)
 }
 
 // executeReceiptRead reconstructs a tx hash from a sampled (block, txIndex) pair and queries it.
