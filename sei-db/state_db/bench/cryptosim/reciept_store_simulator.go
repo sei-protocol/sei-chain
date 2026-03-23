@@ -363,12 +363,12 @@ func selectReceiptReadBlock(
 		return sampleRecencyBiasedBlock(rng, earliestBlock, latestBlock, exponent)
 	}
 
-	coldLatest := latestBlock - int64(cacheWindowBlocks)
+	coldLatest := latestBlock - int64(cacheWindowBlocks) //nolint:gosec // G115: window sizes are small config values, overflow is impossible
 	if coldReadRatio > 0 && coldLatest >= earliestBlock && rng.Float64() < coldReadRatio {
 		return sampleRecencyBiasedBlock(rng, earliestBlock, coldLatest, exponent)
 	}
 
-	hotEarliest := latestBlock - int64(hotWindowBlocks) + 1
+	hotEarliest := latestBlock - int64(hotWindowBlocks) + 1 //nolint:gosec // G115: window sizes are small config values, overflow is impossible
 	if hotEarliest < earliestBlock {
 		hotEarliest = earliestBlock
 	}
