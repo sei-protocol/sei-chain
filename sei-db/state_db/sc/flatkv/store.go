@@ -58,12 +58,15 @@ type pendingKVWrite struct {
 // pendingAccountWrite tracks a buffered account write.
 // Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
 //
-// Account-field deletes (KVPair.Delete for nonce or codehash) are field resets
-// within AccountValue, not physical row deletions. The accountDB row always
-// persists; there is no row-level tombstone for accounts.
+// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
+// individual field within value. When all fields become zero after resets,
+// isDelete is set to true and the accountDB row is physically deleted at
+// commit time. Any subsequent write to the same address within the same
+// block clears isDelete back to false (row is recreated).
 type pendingAccountWrite struct {
-	addr  Address
-	value AccountValue
+	addr     Address
+	value    AccountValue
+	isDelete bool // true = row will be physically deleted (all fields zero)
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
