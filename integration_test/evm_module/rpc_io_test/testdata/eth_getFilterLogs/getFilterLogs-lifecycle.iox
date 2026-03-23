@@ -1,5 +1,6 @@
 // Data-dependent: create filter, bind filterId, then getFilterLogs(filterId). Run evm_rpc_tests.sh when local.
->> {"jsonrpc":"2.0","id":1,"method":"eth_newFilter","params":[{"fromBlock":"0x1","toBlock":"latest"}]}
+// latest->latest keeps span <= max_blocks_for_log; 0x1->latest fails once chain height exceeds the limit.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_newFilter","params":[{"fromBlock":"latest","toBlock":"latest"}]}
 << {"jsonrpc":"2.0","id":1,"result":"0x"}
 @ bind filterId = result
 >> {"jsonrpc":"2.0","id":2,"method":"eth_getFilterLogs","params":["${filterId}"]}
