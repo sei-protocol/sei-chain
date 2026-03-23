@@ -377,6 +377,14 @@ func sampleRecencyBiasedBlock(rng *rand.Rand, earliestBlock, latestBlock int64, 
 // executeLogFilterRead simulates an eth_getLogs query filtering by contract address
 // over a small block range, which is the typical RPC pattern. Contract addresses
 // come from the ring buffer since they aren't deterministically derivable from a tx ID.
+//
+// LogFilterColdReadRatio controls the hot/cold split:
+//   - Hot reads (1 - ratio): pick a random fromBlock explicitly within the
+//     in-memory cache window so the query is guaranteed to hit the ledger cache.
+//   - Cold reads (ratio): pick a random fromBlock older than the cache window,
+//     forcing a DuckDB query on closed parquet files.
+//
+// Default ratio 0.1 yields ~90% cache hits.
 func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
 	entry := r.txRing.RandomEntry(rng)
 	if entry == nil {
@@ -388,12 +396,43 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
 		return
 	}
 
-	// Query a range of 10-100 blocks around the entry's block number.
 	rangeSize := uint64(10) + (rng.Uint64() % 91)
-	fromBlock := entry.blockNumber
-	toBlock := fromBlock + rangeSize
-	if toBlock > uint64(latestVersion) { //nolint:gosec
-		toBlock = uint64(latestVersion) //nolint:gosec
+	var fromBlock, toBlock uint64
+
+	coldRatio := r.config.LogFilterColdReadRatio
+	latest := uint64(latestVersion) //nolint:gosec
+	cacheWindow := r.receiptCacheWindowBlocks
+
+	if coldRatio > 0 && cacheWindow > 0 && latest > cacheWindow && rng.Float64() < coldRatio {
+		// Cold: random block range entirely before the cache window.
+		coldLatest := latest - cacheWindow
+		earliestBlock := uint64(1)
+		if r.config.ReceiptKeepRecent > 0 && latest > uint64(r.config.ReceiptKeepRecent) { //nolint:gosec
+			earliestBlock = latest - uint64(r.config.ReceiptKeepRecent) + 1 //nolint:gosec
+		}
+		if coldLatest > earliestBlock {
+			fromBlock = earliestBlock + (rng.Uint64() % (coldLatest - earliestBlock))
+			toBlock = fromBlock + rangeSize
+			if toBlock > coldLatest {
+				toBlock = coldLatest
+			}
+		} else {
+			fromBlock = entry.blockNumber
+			toBlock = fromBlock + rangeSize
+		}
+	} else {
+		// Hot: random block range within the cache window.
+		hotEarliest := latest - cacheWindow + 1
+		if hotEarliest < 1 {
+			hotEarliest = 1
+		}
+		hotRange := latest - hotEarliest + 1
+		fromBlock = hotEarliest + (rng.Uint64() % hotRange)
+		toBlock = fromBlock + rangeSize
+	}
+
+	if toBlock > latest {
+		toBlock = latest
 	}
 
 	crit := filters.FilterCriteria{

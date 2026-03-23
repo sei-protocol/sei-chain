@@ -7,5 +7,6 @@
     "MinimumNumberOfDormantAccounts": 1000000,
     "GenerateReceipts": true,
 	"ReceiptReadConcurrency": 4,
-	"ReceiptColdReadRatio": 0.1
+	"ReceiptColdReadRatio": 0.1,
+	"LogFilterColdReadRatio": 0.1
 }

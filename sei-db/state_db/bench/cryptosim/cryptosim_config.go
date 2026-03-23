@@ -174,6 +174,13 @@ type CryptoSimConfig struct {
 	// Log filter queries scan a block range by contract address and are more expensive than receipt lookups.
 	ReceiptLogFilterRatio float64
 
+	// Fraction of log filter reads that intentionally target blocks older than
+	// the in-memory cache window (0.0-1.0). These cold reads miss the cache
+	// and fall through to DuckDB on closed parquet files. The remaining
+	// (1 - LogFilterColdReadRatio) reads target recent blocks likely in cache.
+	// Default 0.1 yields ~90% cache hit ratio.
+	LogFilterColdReadRatio float64
+
 	// Exponent controlling the recency bias within the chosen hot/cold read range.
 	// 1.0 = uniform within that range; higher values skew reads toward the newest
 	// blocks in the selected bucket.
@@ -240,6 +247,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadsPerSecond:             100,
 		ReceiptColdReadRatio:              0.1,
 		ReceiptLogFilterRatio:             0.05,
+		LogFilterColdReadRatio:            0.1,
 		ReceiptReadRecencyExponent:        3.0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
@@ -333,6 +341,9 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptLogFilterRatio < 0 || c.ReceiptLogFilterRatio > 1 {
 		return fmt.Errorf("ReceiptLogFilterRatio must be in [0, 1] (got %f)", c.ReceiptLogFilterRatio)
+	}
+	if c.LogFilterColdReadRatio < 0 || c.LogFilterColdReadRatio > 1 {
+		return fmt.Errorf("LogFilterColdReadRatio must be in [0, 1] (got %f)", c.LogFilterColdReadRatio)
 	}
 	if c.ReceiptReadConcurrency < 0 {
 		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
