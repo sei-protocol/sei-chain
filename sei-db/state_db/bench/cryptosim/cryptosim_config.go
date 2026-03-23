@@ -165,20 +165,18 @@ type CryptoSimConfig struct {
 	// Reads are distributed evenly across readers.
 	ReceiptReadsPerSecond int
 
-	// Fraction of reads that bypass the cache and go directly to DuckDB (0.0-1.0).
-	// This simulates reads for older transactions not in the ledger cache.
+	// Fraction of single-receipt reads that intentionally target blocks older
+	// than the in-memory receipt-cache window (0.0-1.0).
+	// These reads should mostly miss cache and fall through to DuckDB.
 	ReceiptColdReadRatio float64
 
 	// Fraction of reads that are eth_getLogs filter queries instead of single receipt lookups (0.0-1.0).
 	// Log filter queries scan a block range by contract address and are more expensive than receipt lookups.
 	ReceiptLogFilterRatio float64
 
-	// Exponent controlling the recency bias of receipt reads (power-law distribution).
-	// 1.0 = uniform across the unpruned range; higher values skew reads toward recent blocks.
-	// With 3.0, ~50% of reads target the most recent 20% of blocks.
-	// With 5.0, ~50% of reads target the most recent 13% of blocks.
-	// This models real-world traffic where block explorers and dApps poll recent transactions
-	// far more often than old ones.
+	// Exponent controlling the recency bias within the chosen hot/cold read range.
+	// 1.0 = uniform within that range; higher values skew reads toward the newest
+	// blocks in the selected bucket.
 	ReceiptReadRecencyExponent float64
 
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.

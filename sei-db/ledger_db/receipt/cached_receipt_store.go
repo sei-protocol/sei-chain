@@ -53,6 +53,26 @@ func newCachedReceiptStore(backend ReceiptStore, observer ReceiptReadObserver) R
 	return store
 }
 
+// StableReceiptCacheWindowBlocks returns the near-tip block window that is
+// guaranteed to stay in the active write chunk until the next rotation.
+func StableReceiptCacheWindowBlocks(store ReceiptStore) uint64 {
+	cached, ok := store.(*cachedReceiptStore)
+	if !ok || cached.cacheRotateInterval == 0 {
+		return 0
+	}
+	return cached.cacheRotateInterval
+}
+
+// EstimatedReceiptCacheWindowBlocks returns the approximate recent block window
+// normally served by the in-memory receipt cache (current chunk + previous one).
+func EstimatedReceiptCacheWindowBlocks(store ReceiptStore) uint64 {
+	hotWindow := StableReceiptCacheWindowBlocks(store)
+	if hotWindow == 0 {
+		return 0
+	}
+	return hotWindow * uint64(numCacheChunks-1)
+}
+
 func (s *cachedReceiptStore) LatestVersion() int64 {
 	return s.backend.LatestVersion()
 }

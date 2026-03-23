@@ -85,10 +85,12 @@ type RecieptStoreSimulator struct {
 
 	recieptsChan chan *block
 
-	store   receipt.ReceiptStore
-	crand   *CannedRandom
-	txRing  *txHashRing
-	metrics *CryptosimMetrics
+	store                        receipt.ReceiptStore
+	crand                        *CannedRandom
+	txRing                       *txHashRing
+	metrics                      *CryptosimMetrics
+	receiptStableHotWindowBlocks uint64
+	receiptCacheWindowBlocks     uint64
 }
 
 // Creates a new receipt store simulator backed by the production ReceiptStore
@@ -129,14 +131,16 @@ func NewRecieptStoreSimulator(
 	txRing := newTxHashRing(defaultTxHashRingSize)
 
 	r := &RecieptStoreSimulator{
-		ctx:          derivedCtx,
-		cancel:       cancel,
-		config:       config,
-		recieptsChan: recieptsChan,
-		store:        store,
-		crand:        crand,
-		txRing:       txRing,
-		metrics:      metrics,
+		ctx:                          derivedCtx,
+		cancel:                       cancel,
+		config:                       config,
+		recieptsChan:                 recieptsChan,
+		store:                        store,
+		crand:                        crand,
+		txRing:                       txRing,
+		metrics:                      metrics,
+		receiptStableHotWindowBlocks: receipt.StableReceiptCacheWindowBlocks(store),
+		receiptCacheWindowBlocks:     receipt.EstimatedReceiptCacheWindowBlocks(store),
 	}
 	go r.mainLoop()
 
@@ -276,20 +280,14 @@ func (r *RecieptStoreSimulator) executeRead(rng *rand.Rand) {
 	r.executeReceiptRead(rng)
 }
 
-// executeReceiptRead reconstructs a tx hash from a random (block, txIndex) pair and queries it.
+// executeReceiptRead reconstructs a tx hash from a sampled (block, txIndex) pair and queries it.
 //
-// Block selection uses a power-law recency bias controlled by ReceiptReadRecencyExponent:
+// ReceiptColdReadRatio explicitly splits reads between:
+//   - hot reads in the stable near-tip cache chunk
+//   - cold reads older than the estimated cache window
 //
-//	offset = u^exponent * blockRange,  where u ~ Uniform[0, 1)
-//
-// The exponent skews u toward 0, so most offsets are small (recent blocks).
-// With exponent=1.0 this degenerates to uniform; with 3.0, ~50% of reads land in the
-// most recent 20% of blocks — matching real-world traffic where block explorers and
-// dApps query recent transactions far more than old ones. Cache-hit rates and DuckDB
-// query latency both depend heavily on this distribution.
-//
-// No ring buffer or hash storage is needed because SyntheticTxHash can recompute any
-// hash from its (block, txIndex) coordinates alone (see receipt.go).
+// Within the chosen range, ReceiptReadRecencyExponent still applies a power-law
+// recency bias so reads cluster toward the newest blocks in that range.
 func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 	latestBlock := r.store.LatestVersion()
 	if latestBlock <= 0 {
@@ -301,16 +299,18 @@ func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 		earliestBlock = latestBlock - r.config.ReceiptKeepRecent + 1
 	}
 
-	blockRange := latestBlock - earliestBlock + 1
-
-	// Power-law recency bias: u^exponent maps uniform [0,1) toward 0 (recent).
-	// offset=0 means latestBlock; offset=blockRange-1 means earliestBlock.
-	u := rng.Float64()
-	offset := int64(math.Pow(u, r.config.ReceiptReadRecencyExponent) * float64(blockRange))
-	if offset >= blockRange {
-		offset = blockRange - 1
+	randomBlock := selectReceiptReadBlock(
+		rng,
+		earliestBlock,
+		latestBlock,
+		r.receiptStableHotWindowBlocks,
+		r.receiptCacheWindowBlocks,
+		r.config.ReceiptColdReadRatio,
+		r.config.ReceiptReadRecencyExponent,
+	)
+	if randomBlock <= 0 {
+		return
 	}
-	randomBlock := latestBlock - offset
 	randomTxIdx := rng.Intn(r.config.TransactionsPerBlock)
 
 	hashBytes := SyntheticTxHash(r.crand, uint64(randomBlock), uint32(randomTxIdx)) //nolint:gosec
@@ -332,6 +332,46 @@ func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
 		return
 	}
 	r.metrics.ReportReceiptReadNotFound()
+}
+
+func selectReceiptReadBlock(
+	rng *rand.Rand,
+	earliestBlock, latestBlock int64,
+	hotWindowBlocks, cacheWindowBlocks uint64,
+	coldReadRatio, exponent float64,
+) int64 {
+	if latestBlock < earliestBlock {
+		return 0
+	}
+	if hotWindowBlocks == 0 || cacheWindowBlocks == 0 {
+		return sampleRecencyBiasedBlock(rng, earliestBlock, latestBlock, exponent)
+	}
+
+	coldLatest := latestBlock - int64(cacheWindowBlocks)
+	if coldReadRatio > 0 && coldLatest >= earliestBlock && rng.Float64() < coldReadRatio {
+		return sampleRecencyBiasedBlock(rng, earliestBlock, coldLatest, exponent)
+	}
+
+	hotEarliest := latestBlock - int64(hotWindowBlocks) + 1
+	if hotEarliest < earliestBlock {
+		hotEarliest = earliestBlock
+	}
+	return sampleRecencyBiasedBlock(rng, hotEarliest, latestBlock, exponent)
+}
+
+func sampleRecencyBiasedBlock(rng *rand.Rand, earliestBlock, latestBlock int64, exponent float64) int64 {
+	if latestBlock < earliestBlock {
+		return 0
+	}
+	blockRange := latestBlock - earliestBlock + 1
+
+	// Power-law recency bias: u^exponent maps uniform [0,1) toward newer blocks.
+	u := rng.Float64()
+	offset := int64(math.Pow(u, exponent) * float64(blockRange))
+	if offset >= blockRange {
+		offset = blockRange - 1
+	}
+	return latestBlock - offset
 }
 
 // executeLogFilterRead simulates an eth_getLogs query filtering by contract address
