@@ -42,12 +42,11 @@ const (
 
 	readOnlyDirPrefix = "readonly-"
 
-	// Metadata DB keys
-	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
-	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
-
 	flatkvMeterName = "seidb_flatkv"
 )
+
+// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
+var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
 type pendingKVWrite struct {
@@ -59,12 +58,15 @@ type pendingKVWrite struct {
 // pendingAccountWrite tracks a buffered account write.
 // Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
 //
-// Account-field deletes (KVPair.Delete for nonce or codehash) are field resets
-// within AccountValue, not physical row deletions. The accountDB row always
-// persists; there is no row-level tombstone for accounts.
+// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
+// individual field within value. When all fields become zero after resets,
+// isDelete is set to true and the accountDB row is physically deleted at
+// commit time. Any subsequent write to the same address within the same
+// block clears isDelete back to false (row is recreated).
 type pendingAccountWrite struct {
-	addr  Address
-	value AccountValue
+	addr     Address
+	value    AccountValue
+	isDelete bool // true = row will be physically deleted (all fields zero)
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
@@ -88,6 +90,11 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
+
+	// Per-DB working LTHash tracking. Authoritative copies live in each
+	// DB's LocalMeta (atomically committed with data). On startup the
+	// working hashes are loaded from LocalMeta.
+	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
@@ -123,18 +130,19 @@ func NewCommitStore(
 	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
-		ctx:               ctx,
-		config:            cfg,
-		dbDir:             dbDir,
-		localMeta:         make(map[string]*LocalMeta),
-		accountWrites:     make(map[string]*pendingAccountWrite),
-		codeWrites:        make(map[string]*pendingKVWrite),
-		storageWrites:     make(map[string]*pendingKVWrite),
-		legacyWrites:      make(map[string]*pendingKVWrite),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		ctx:                ctx,
+		config:             cfg,
+		dbDir:              dbDir,
+		localMeta:          make(map[string]*LocalMeta),
+		accountWrites:      make(map[string]*pendingAccountWrite),
+		codeWrites:         make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*pendingKVWrite),
+		legacyWrites:       make(map[string]*pendingKVWrite),
+		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
+		committedLtHash:    lthash.New(),
+		workingLtHash:      lthash.New(),
+		perDBWorkingLtHash: newPerDBLtHashMap(),
+		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -497,6 +505,26 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
+
+	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// If any DB's version is behind the global version (partial commit or
+	// corruption), lower committedVersion so catchup replays from there.
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta != nil && meta.LtHash != nil {
+			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+		} else {
+			s.perDBWorkingLtHash[dbDir] = lthash.New()
+		}
+		if meta != nil && meta.CommittedVersion < s.committedVersion {
+			logger.Warn("DB LocalMeta version behind global version, will catchup",
+				"db", dbDir,
+				"localVersion", meta.CommittedVersion,
+				"globalVersion", s.committedVersion)
+			s.committedVersion = meta.CommittedVersion
+		}
+	}
+
 	return nil
 }
 

@@ -177,7 +177,6 @@ func CreateEVMTransferTxs(t testing.TB, tCtx *GigaTestContext, transfers []EVMTr
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -223,12 +222,13 @@ func RunBlock(t testing.TB, tCtx *GigaTestContext, txs [][]byte) ([]abci.Event, 
 	// Set global OCC flag based on mode (both GethOCC and GigaOCC use OCC)
 	app.EnableOCC = tCtx.Mode == ModeV2withOCC || tCtx.Mode == ModeGigaOCC
 
+	header := tCtx.Ctx.BlockHeader()
 	req := &abci.RequestFinalizeBlock{
 		Txs:    txs,
-		Height: tCtx.Ctx.BlockHeader().Height,
+		Header: &header,
 	}
 
-	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	events, results, _, err := tCtx.TestApp.ProcessBlock(tCtx.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false)
 	return events, results, err
 }
 
@@ -665,7 +665,6 @@ func CreateContractDeployTxs(t testing.TB, tCtx *GigaTestContext, deploys []EVMC
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -726,7 +725,6 @@ func CreateContractCallTxs(t testing.TB, tCtx *GigaTestContext, calls []EVMContr
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -1732,7 +1730,6 @@ func createCustomEVMTx(
 	err = txBuilder.SetMsgs(msg)
 	require.NoError(t, err)
 	txBuilder.SetGasLimit(10000000000)
-	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)

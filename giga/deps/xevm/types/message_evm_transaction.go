@@ -42,9 +42,24 @@ func (msg *MsgEVMTransaction) GetSignBytes() []byte {
 }
 
 func (msg *MsgEVMTransaction) ValidateBasic() error {
+	if msg.Derived != nil && msg.Derived.PubKey == nil {
+		return sdkerrors.ErrInvalidPubKey
+	}
+	txData, err := UnpackTxData(msg.Data)
+	if err != nil {
+		return err
+	}
+	if _, ok := txData.(*ethtx.AssociateTx); !ok {
+		if err := txData.Validate(); err != nil {
+			return err
+		}
+	}
 	amsg, isAssociate := msg.GetAssociateTx()
-	if isAssociate && len(amsg.CustomMessage) > MaxAssociateCustomMessageLength {
-		return sdkerrors.Wrapf(sdkerrors.ErrTxTooLarge, "custom message can have at most 64 characters")
+	if isAssociate {
+		if len(amsg.CustomMessage) > MaxAssociateCustomMessageLength {
+			return sdkerrors.Wrapf(sdkerrors.ErrTxTooLarge, "custom message can have at most 64 characters")
+		}
+		return amsg.Validate()
 	}
 	return nil
 }

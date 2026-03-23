@@ -1224,7 +1224,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// by recording the decoding results and avoid decoding again later on.
 
 	if !app.checkTotalBlockGas(ctx, req.Txs) {
-		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
+		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
@@ -1235,7 +1235,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	if shouldStartOptimisticProcessing {
 		completionSignal := make(chan struct{}, 1)
 		app.optimisticProcessingInfo = OptimisticProcessingInfo{
-			Height:     req.Height,
+			Height:     req.Header.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
@@ -1255,7 +1255,13 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			go func() {
 				// ProcessBlock has panic recovery and returns error for any processing failures
 				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
-				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
+				bpreq := &BlockProcessRequest{
+					Hash:                req.Hash,
+					ByzantineValidators: req.ByzantineValidators,
+					Height:              req.Header.Height,
+					Time:                req.Header.Time,
+				}
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false)
 
 				app.optimisticProcessingInfoMutex.Lock()
 				if processErr != nil {
@@ -1333,7 +1339,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	logger.Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	bpreq := &BlockProcessRequest{
+		Hash:                req.Hash,
+		ByzantineValidators: req.ByzantineValidators,
+		Height:              req.Header.Height,
+		Time:                req.Header.Time,
+	}
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, false)
 	if processErr != nil {
 		logger.Error("ProcessBlock failed in FinalizeBlocker", "err", processErr)
 		return nil, processErr
@@ -1716,7 +1728,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
@@ -1750,10 +1762,10 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
 	defer blockSpan.End()
-	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	blockSpan.SetAttributes(attribute.Int64("height", req.Height))
 	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
 
-	beginBlockResp := app.BeginBlock(ctx, req.GetHeight(), lastCommit.Votes, req.GetByzantineValidators(), true)
+	beginBlockResp := app.BeginBlock(ctx, req.Height, lastCommit.Votes, req.ByzantineValidators, true)
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
@@ -1766,7 +1778,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// Execute all transactions
 	txResults, ctx = app.ExecuteTxsConcurrently(ctx, txs, typedTxs)
 
-	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
+	midBlockEvents := app.MidBlock(ctx, req.Height)
 	events = append(events, midBlockEvents...)
 
 	// Flush giga stores so WriteDeferredBalances (which uses the standard BankKeeper)
@@ -1790,7 +1802,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp = app.EndBlock(ctx, req.GetHeight(), evmTotalGasUsed)
+	endBlockResp = app.EndBlock(ctx, req.Height, evmTotalGasUsed)
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil

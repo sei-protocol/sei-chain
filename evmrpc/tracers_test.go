@@ -5,9 +5,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDebugGetRawMethodsNotSupported(t *testing.T) {
+	for _, method := range []string{"getRawBlock", "getRawHeader", "getRawReceipts"} {
+		m := method
+		t.Run(m, func(t *testing.T) {
+			resObj := sendRequestGoodWithNamespace(t, "debug", m, "latest")
+			require.Contains(t, resObj, "error", m)
+			errObj := resObj["error"].(map[string]interface{})
+			require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"], m)
+			require.Contains(t, errObj["message"].(string), "debug_"+m)
+		})
+	}
+	t.Run("getRawTransaction", func(t *testing.T) {
+		resObj := sendRequestGoodWithNamespace(t, "debug", "getRawTransaction", DebugTraceHashHex)
+		require.Contains(t, resObj, "error")
+		errObj := resObj["error"].(map[string]interface{})
+		require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+		require.Contains(t, errObj["message"].(string), "debug_getRawTransaction")
+	})
+}
 
 func TestTraceTransaction(t *testing.T) {
 	args := map[string]interface{}{}
