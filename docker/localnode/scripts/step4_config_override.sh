@@ -3,6 +3,7 @@
 NODE_ID=${ID:-0}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
+RECEIPT_STORE_BACKEND=${RECEIPT_STORE_BACKEND:-}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -42,5 +43,18 @@ if [ "$GIGA_EXECUTOR" = "true" ]; then
   else
     echo "Disabling OCC for Giga Executor (sequential mode) on node $NODE_ID..."
     sed -i 's/occ_enabled = true/occ_enabled = false/' ~/.sei/config/app.toml
+  fi
+fi
+
+# Override receipt store backend when requested.
+if [ -n "$RECEIPT_STORE_BACKEND" ]; then
+  if grep -q "^\[receipt-store\]" ~/.sei/config/app.toml; then
+    sed -i.bak -E "s|^rs-backend *=.*|rs-backend = \"$RECEIPT_STORE_BACKEND\"|" ~/.sei/config/app.toml
+  else
+    {
+      echo ""
+      echo "[receipt-store]"
+      echo "rs-backend = \"$RECEIPT_STORE_BACKEND\""
+    } >> ~/.sei/config/app.toml
   fi
 fi
