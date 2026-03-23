@@ -24,7 +24,7 @@ func NewCommitStore(homeDir string, config Config) *CommitStore {
 		Config:          config, // Embed the config directly
 		Dir:             commitDBPath,
 		CreateIfMissing: true,
-		ZeroCopy:        true,
+		ZeroCopy:        false, // Disable zero copy to avoid segfault during historical read
 	}
 	commitStore := &CommitStore{
 		opts:    opts,
