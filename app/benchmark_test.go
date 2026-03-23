@@ -29,8 +29,10 @@ func TestPrepareProposalBenchmarkHandler(t *testing.T) {
 	// Test handler with nil manager (should return empty proposal)
 	ctx := createTestContext()
 	req := &abci.RequestPrepareProposal{
-		Height: 1,
-		Time:   time.Now(),
+		Header: &tmtypes.Header{
+			Height: 1,
+			Time:   time.Now(),
+		},
 	}
 	resp, err := app.PrepareProposalBenchmarkHandler(ctx, req)
 	require.NoError(t, err)

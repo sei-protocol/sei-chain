@@ -28,7 +28,7 @@ func TestNewCommitStore(t *testing.T) {
 	cfg.SnapshotInterval = 10
 	cs := NewCommitStore(dir, cfg)
 	require.NotNil(t, cs)
-	require.True(t, cs.opts.ZeroCopy)
+	require.False(t, cs.opts.ZeroCopy)
 	require.Equal(t, uint32(10), cs.opts.SnapshotInterval)
 	require.True(t, cs.opts.CreateIfMissing)
 }

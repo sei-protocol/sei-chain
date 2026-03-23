@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
@@ -60,14 +60,13 @@ func TestUnknownFields(t *testing.T) {
 			shouldErr: false,
 		},
 		{
-			name: "non-critical fields in TxBody should not error on decode, but should error with amino",
+			name: "non-critical fields in TxBody should error on decode due to bloat rejection",
 			body: &testdata.TestUpdatedTxBody{
 				Memo:                         "foo",
 				SomeNewFieldNonCriticalField: "blah",
 			},
-			authInfo:       &testdata.TestUpdatedAuthInfo{},
-			shouldErr:      false,
-			shouldAminoErr: fmt.Sprintf("%s: %s", aminoNonCriticalFieldsError, sdkerrors.ErrInvalidRequest.Error()),
+			authInfo:  &testdata.TestUpdatedAuthInfo{},
+			shouldErr: true,
 		},
 		{
 			name: "critical fields in TxBody should error on decode",
