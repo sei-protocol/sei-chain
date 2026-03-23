@@ -349,7 +349,7 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
 	}
 
 	// Query a range of 10-100 blocks around the entry's block number.
-	rangeSize := uint64(10 + rng.Intn(91))
+	rangeSize := uint64(10) + (rng.Uint64() % 91)
 	fromBlock := entry.blockNumber
 	toBlock := fromBlock + rangeSize
 	if toBlock > uint64(latestVersion) { //nolint:gosec
