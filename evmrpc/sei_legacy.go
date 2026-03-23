@@ -156,7 +156,9 @@ func seiLegacyGateError(method string, allowlist map[string]struct{}) error {
 	}
 	canon := canonicalizeSeiLegacyMethodName(method)
 	if canon == "" {
-		return nil
+		// Fail closed: sei_* / sei2_* names not in seiLegacyGatedMethods must not bypass the allowlist
+		// (e.g. future handlers or typos would otherwise reach the inner server).
+		return &errSeiLegacyNotEnabled{method: strings.TrimSpace(method)}
 	}
 	if _, ok := allowlist[canon]; ok {
 		return nil

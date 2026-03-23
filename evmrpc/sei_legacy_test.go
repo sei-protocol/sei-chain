@@ -65,6 +65,21 @@ func TestSeiLegacyGateError_AllowedWhenListed(t *testing.T) {
 	}
 }
 
+func TestSeiLegacyGateError_UnknownSeiNamespaceFailsClosed(t *testing.T) {
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	err := seiLegacyGateError("sei_notARealRegisteredMethod", enabled)
+	if err == nil {
+		t.Fatal("expected error for unknown sei_* method when allowlist is active")
+	}
+	var withData rpc.DataError
+	if !errors.As(err, &withData) {
+		t.Fatalf("want rpc.DataError, got %T", err)
+	}
+	if withData.ErrorData() != "legacy_sei_deprecated" {
+		t.Fatalf("error data: %v", withData.ErrorData())
+	}
+}
+
 func TestSeiLegacyGateError_Sei2BlockedUnlessListed(t *testing.T) {
 	err := seiLegacyGateError("sei2_getBlockByNumber", BuildSeiLegacyEnabledSet(nil))
 	if err == nil {
@@ -90,6 +105,30 @@ func TestSeiLegacyGateError_NilAllowlistUngated(t *testing.T) {
 	err := seiLegacyGateError("sei_getBlockByNumber", nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWrapSeiLegacyHTTP_UnknownSeiMethodBlocked(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not run for unknown sei_* method")
+	})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	h := wrapSeiLegacyHTTP(inner, enabled)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
+		`{"jsonrpc":"2.0","id":1,"method":"sei_futureHypotheticalMethod","params":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] == nil {
+		t.Fatalf("expected error, got %s", rec.Body.String())
+	}
+	errObj, _ := resp["error"].(map[string]interface{})
+	if errObj["data"] != "legacy_sei_deprecated" {
+		t.Fatalf("error data: %v", errObj)
 	}
 }
 
