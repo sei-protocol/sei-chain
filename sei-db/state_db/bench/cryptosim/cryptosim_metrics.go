@@ -68,6 +68,7 @@ type CryptosimMetrics struct {
 	receiptLogFilterDuration       metric.Float64Histogram
 	receiptLogFilterCacheHitsTotal metric.Int64Counter
 	receiptLogFilterCacheMissTotal metric.Int64Counter
+	receiptLogFilterLogsReturned   metric.Int64Histogram
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -240,6 +241,12 @@ func NewCryptosimMetrics(
 		metric.WithDescription("Log filter queries served entirely from the backend (cache contributed nothing)"),
 		metric.WithUnit("{count}"),
 	)
+	receiptLogFilterLogsReturned, _ := meter.Int64Histogram(
+		"cryptosim_receipt_log_filter_logs_returned",
+		metric.WithDescription("Number of log entries returned per FilterLogs query"),
+		metric.WithExplicitBucketBoundaries(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000),
+		metric.WithUnit("{count}"),
+	)
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
@@ -279,6 +286,7 @@ func NewCryptosimMetrics(
 		receiptLogFilterDuration:       receiptLogFilterDuration,
 		receiptLogFilterCacheHitsTotal: receiptLogFilterCacheHitsTotal,
 		receiptLogFilterCacheMissTotal: receiptLogFilterCacheMissTotal,
+		receiptLogFilterLogsReturned:   receiptLogFilterLogsReturned,
 		mainThreadPhase:                mainThreadPhase,
 		transactionPhaseTimerFactory:   transactionPhaseTimerFactory,
 	}
@@ -615,6 +623,13 @@ func (m *CryptosimMetrics) ReportLogFilterCacheMiss() {
 		return
 	}
 	m.receiptLogFilterCacheMissTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordLogFilterLogsReturned(count int64) {
+	if m == nil || m.receiptLogFilterLogsReturned == nil {
+		return
+	}
+	m.receiptLogFilterLogsReturned.Record(context.Background(), count)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

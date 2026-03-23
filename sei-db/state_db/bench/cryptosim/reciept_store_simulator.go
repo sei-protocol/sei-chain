@@ -441,8 +441,9 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
 
 	sdkCtx := sdk.NewContext(nil, tmproto.Header{}, false)
 	start := time.Now()
-	_, err := r.store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
+	logs, err := r.store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
 	r.metrics.RecordReceiptLogFilterDuration(time.Since(start).Seconds())
+	r.metrics.RecordLogFilterLogsReturned(int64(len(logs)))
 
 	if err != nil {
 		r.metrics.ReportReceiptError()
