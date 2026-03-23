@@ -19,8 +19,10 @@ type fakeReceiptBackend struct {
 }
 
 type fakeReceiptReadObserver struct {
-	cacheHits   int
-	cacheMisses int
+	cacheHits            int
+	cacheMisses          int
+	logFilterCacheHits   int
+	logFilterCacheMisses int
 }
 
 func (f *fakeReceiptReadObserver) ReportReceiptCacheHit() {
@@ -29,6 +31,14 @@ func (f *fakeReceiptReadObserver) ReportReceiptCacheHit() {
 
 func (f *fakeReceiptReadObserver) ReportReceiptCacheMiss() {
 	f.cacheMisses++
+}
+
+func (f *fakeReceiptReadObserver) ReportLogFilterCacheHit() {
+	f.logFilterCacheHits++
+}
+
+func (f *fakeReceiptReadObserver) ReportLogFilterCacheMiss() {
+	f.logFilterCacheMisses++
 }
 
 func newFakeReceiptBackend() *fakeReceiptBackend {

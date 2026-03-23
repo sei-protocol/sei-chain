@@ -55,17 +55,19 @@ type CryptosimMetrics struct {
 	uptimeSeconds              metric.Float64Gauge
 
 	// Receipt metrics
-	receiptBlockWriteDuration metric.Float64Histogram
-	receiptChannelDepth       metric.Int64Gauge
-	receiptsWrittenTotal      metric.Int64Counter
-	receiptErrorsTotal        metric.Int64Counter
-	receiptReadDuration       metric.Float64Histogram
-	receiptReadsTotal         metric.Int64Counter
-	receiptCacheHitsTotal     metric.Int64Counter
-	receiptCacheMissesTotal   metric.Int64Counter
-	receiptReadsFoundTotal    metric.Int64Counter
-	receiptReadsNotFoundTotal metric.Int64Counter
-	receiptLogFilterDuration  metric.Float64Histogram
+	receiptBlockWriteDuration      metric.Float64Histogram
+	receiptChannelDepth            metric.Int64Gauge
+	receiptsWrittenTotal           metric.Int64Counter
+	receiptErrorsTotal             metric.Int64Counter
+	receiptReadDuration            metric.Float64Histogram
+	receiptReadsTotal              metric.Int64Counter
+	receiptCacheHitsTotal          metric.Int64Counter
+	receiptCacheMissesTotal        metric.Int64Counter
+	receiptReadsFoundTotal         metric.Int64Counter
+	receiptReadsNotFoundTotal      metric.Int64Counter
+	receiptLogFilterDuration       metric.Float64Histogram
+	receiptLogFilterCacheHitsTotal metric.Int64Counter
+	receiptLogFilterCacheMissTotal metric.Int64Counter
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -228,6 +230,16 @@ func NewCryptosimMetrics(
 		metric.WithDescription("DuckDB eth_getLogs filter query latency"),
 		metric.WithUnit("s"),
 	)
+	receiptLogFilterCacheHitsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_log_filter_cache_hits_total",
+		metric.WithDescription("Log filter queries where the in-memory cache contributed results"),
+		metric.WithUnit("{count}"),
+	)
+	receiptLogFilterCacheMissTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_log_filter_cache_miss_total",
+		metric.WithDescription("Log filter queries served entirely from the backend (cache contributed nothing)"),
+		metric.WithUnit("{count}"),
+	)
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
@@ -237,36 +249,38 @@ func NewCryptosimMetrics(
 	transactionPhaseTimerFactory := metrics.NewPhaseTimerFactory(meter, "transaction")
 
 	m := &CryptosimMetrics{
-		ctx:                          ctx,
-		blocksFinalizedTotal:         blocksFinalizedTotal,
-		transactionsProcessedTotal:   transactionsProcessedTotal,
-		totalAccounts:                totalAccounts,
-		hotAccounts:                  hotAccounts,
-		coldAccounts:                 coldAccounts,
-		dormantAccounts:              dormantAccounts,
-		totalErc20Contracts:          totalErc20Contracts,
-		dbCommitsTotal:               dbCommitsTotal,
-		dataDirSizeBytes:             dataDirSizeBytes,
-		dataDirAvailableBytes:        dataDirAvailableBytes,
-		logDirSizeBytes:              logDirSizeBytes,
-		processReadBytesTotal:        processReadBytesTotal,
-		processWriteBytesTotal:       processWriteBytesTotal,
-		processReadCountTotal:        processReadCountTotal,
-		processWriteCountTotal:       processWriteCountTotal,
-		uptimeSeconds:                uptimeSeconds,
-		receiptBlockWriteDuration:    receiptBlockWriteDuration,
-		receiptChannelDepth:          receiptChannelDepth,
-		receiptsWrittenTotal:         receiptsWrittenTotal,
-		receiptErrorsTotal:           receiptErrorsTotal,
-		receiptReadDuration:          receiptReadDuration,
-		receiptReadsTotal:            receiptReadsTotal,
-		receiptCacheHitsTotal:        receiptCacheHitsTotal,
-		receiptCacheMissesTotal:      receiptCacheMissesTotal,
-		receiptReadsFoundTotal:       receiptReadsFoundTotal,
-		receiptReadsNotFoundTotal:    receiptReadsNotFoundTotal,
-		receiptLogFilterDuration:     receiptLogFilterDuration,
-		mainThreadPhase:              mainThreadPhase,
-		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
+		ctx:                            ctx,
+		blocksFinalizedTotal:           blocksFinalizedTotal,
+		transactionsProcessedTotal:     transactionsProcessedTotal,
+		totalAccounts:                  totalAccounts,
+		hotAccounts:                    hotAccounts,
+		coldAccounts:                   coldAccounts,
+		dormantAccounts:                dormantAccounts,
+		totalErc20Contracts:            totalErc20Contracts,
+		dbCommitsTotal:                 dbCommitsTotal,
+		dataDirSizeBytes:               dataDirSizeBytes,
+		dataDirAvailableBytes:          dataDirAvailableBytes,
+		logDirSizeBytes:                logDirSizeBytes,
+		processReadBytesTotal:          processReadBytesTotal,
+		processWriteBytesTotal:         processWriteBytesTotal,
+		processReadCountTotal:          processReadCountTotal,
+		processWriteCountTotal:         processWriteCountTotal,
+		uptimeSeconds:                  uptimeSeconds,
+		receiptBlockWriteDuration:      receiptBlockWriteDuration,
+		receiptChannelDepth:            receiptChannelDepth,
+		receiptsWrittenTotal:           receiptsWrittenTotal,
+		receiptErrorsTotal:             receiptErrorsTotal,
+		receiptReadDuration:            receiptReadDuration,
+		receiptReadsTotal:              receiptReadsTotal,
+		receiptCacheHitsTotal:          receiptCacheHitsTotal,
+		receiptCacheMissesTotal:        receiptCacheMissesTotal,
+		receiptReadsFoundTotal:         receiptReadsFoundTotal,
+		receiptReadsNotFoundTotal:      receiptReadsNotFoundTotal,
+		receiptLogFilterDuration:       receiptLogFilterDuration,
+		receiptLogFilterCacheHitsTotal: receiptLogFilterCacheHitsTotal,
+		receiptLogFilterCacheMissTotal: receiptLogFilterCacheMissTotal,
+		mainThreadPhase:                mainThreadPhase,
+		transactionPhaseTimerFactory:   transactionPhaseTimerFactory,
 	}
 
 	if config.BackgroundMetricsScrapeInterval > 0 {
@@ -587,6 +601,20 @@ func (m *CryptosimMetrics) RecordReceiptLogFilterDuration(seconds float64) {
 		return
 	}
 	m.receiptLogFilterDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) ReportLogFilterCacheHit() {
+	if m == nil || m.receiptLogFilterCacheHitsTotal == nil {
+		return
+	}
+	m.receiptLogFilterCacheHitsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportLogFilterCacheMiss() {
+	if m == nil || m.receiptLogFilterCacheMissTotal == nil {
+		return
+	}
+	m.receiptLogFilterCacheMissTotal.Add(context.Background(), 1)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

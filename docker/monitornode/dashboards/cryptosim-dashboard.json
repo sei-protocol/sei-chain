@@ -3398,6 +3398,8 @@
                 }
               },
               "mappings": [],
+              "max": 1,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -3410,7 +3412,8 @@
                     "value": 80
                   }
                 ]
-              }
+              },
+              "unit": "percentunit"
             },
             "overrides": []
           },
@@ -3420,7 +3423,7 @@
             "x": 12,
             "y": 24
           },
-          "id": 285,
+          "id": 288,
           "options": {
             "legend": {
               "calcs": [],
@@ -3442,8 +3445,8 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(cryptosim_receipt_reads_found_total[$__rate_interval])",
-              "legendFormat": "found",
+              "expr": "rate(cryptosim_receipt_log_filter_cache_hits_total[$__rate_interval]) / (rate(cryptosim_receipt_log_filter_cache_hits_total[$__rate_interval]) + rate(cryptosim_receipt_log_filter_cache_miss_total[$__rate_interval]))",
+              "legendFormat": "cache hit %",
               "range": true,
               "refId": "A"
             },
@@ -3453,14 +3456,14 @@
                 "uid": "PBFA97CFB590B2093"
               },
               "editorMode": "code",
-              "expr": "rate(cryptosim_receipt_reads_not_found_total[$__rate_interval])",
+              "expr": "rate(cryptosim_receipt_log_filter_cache_miss_total[$__rate_interval]) / (rate(cryptosim_receipt_log_filter_cache_hits_total[$__rate_interval]) + rate(cryptosim_receipt_log_filter_cache_miss_total[$__rate_interval]))",
               "instant": false,
-              "legendFormat": "not found",
+              "legendFormat": "cache miss %",
               "range": true,
               "refId": "B"
             }
           ],
-          "title": "Receipt Read Found/Not Found",
+          "title": "Log Filter Cache Hit/Miss %",
           "type": "timeseries"
         },
         {
@@ -3592,6 +3595,104 @@
             }
           ],
           "title": "Log Filter Latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 32
+          },
+          "id": 287,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "rate(cryptosim_receipt_log_filter_duration_seconds_count[$__rate_interval])",
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Log Reads/sec",
           "type": "timeseries"
         }
       ],

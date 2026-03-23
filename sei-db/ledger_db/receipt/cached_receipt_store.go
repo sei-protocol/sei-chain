@@ -125,8 +125,10 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 
 	// Merge results, avoiding duplicates by tracking seen (blockNum, txIndex, logIndex)
 	if len(cacheLogs) == 0 {
+		s.reportLogFilterCacheMiss()
 		return backendLogs, nil
 	}
+	s.reportLogFilterCacheHit()
 	if len(backendLogs) == 0 {
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
@@ -256,5 +258,17 @@ func (s *cachedReceiptStore) reportCacheHit() {
 func (s *cachedReceiptStore) reportCacheMiss() {
 	if s.readObserver != nil {
 		s.readObserver.ReportReceiptCacheMiss()
+	}
+}
+
+func (s *cachedReceiptStore) reportLogFilterCacheHit() {
+	if s.readObserver != nil {
+		s.readObserver.ReportLogFilterCacheHit()
+	}
+}
+
+func (s *cachedReceiptStore) reportLogFilterCacheMiss() {
+	if s.readObserver != nil {
+		s.readObserver.ReportLogFilterCacheMiss()
 	}
 }

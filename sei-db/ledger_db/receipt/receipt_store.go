@@ -58,6 +58,8 @@ type ReceiptRecord struct {
 type ReceiptReadObserver interface {
 	ReportReceiptCacheHit()
 	ReportReceiptCacheMiss()
+	ReportLogFilterCacheHit()
+	ReportLogFilterCacheMiss()
 }
 
 type receiptStore struct {

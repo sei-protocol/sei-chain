@@ -237,7 +237,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DisableTransactionExecution:       false,
 		MaxTPS:                            0,
 		ReceiptReadConcurrency:            0,
-		ReceiptReadsPerSecond:             1000,
+		ReceiptReadsPerSecond:             100,
 		ReceiptColdReadRatio:              0.1,
 		ReceiptLogFilterRatio:             0.05,
 		ReceiptReadRecencyExponent:        3.0,
