@@ -600,13 +600,13 @@ func (s *CommitStore) resetForImport() error {
 		}
 	}
 
-	if err := os.RemoveAll(filepath.Join(dir, workingDirName)); err != nil {
+	if err := atomicRemoveDir(filepath.Join(dir, workingDirName)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("resetForImport: remove %s: %w", workingDirName, err)
 	}
 
 	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		p := filepath.Join(dir, snapshotName(v))
-		if err := os.RemoveAll(p); err != nil {
+		if err := atomicRemoveDir(p); err != nil {
 			return false, fmt.Errorf("remove snapshot %s: %w", p, err)
 		}
 		return false, nil
@@ -618,7 +618,7 @@ func (s *CommitStore) resetForImport() error {
 		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
 	}
 
-	if err := os.RemoveAll(filepath.Join(dir, changelogDir)); err != nil {
+	if err := atomicRemoveDir(filepath.Join(dir, changelogDir)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("resetForImport: remove %s: %w", changelogDir, err)
 	}
 
