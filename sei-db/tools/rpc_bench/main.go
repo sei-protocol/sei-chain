@@ -25,6 +25,11 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+var (
+	stdoutWriter io.Writer = os.Stdout
+	stderrWriter io.Writer = os.Stderr
+)
+
 type RPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
@@ -54,7 +59,7 @@ type LatencyStats struct {
 
 func (s *LatencyStats) Report() {
 	if s.Total == 0 {
-		fmt.Printf("  %-35s  no requests\n", s.Method)
+		outf("  %-35s  no requests\n", s.Method)
 		return
 	}
 	sort.Slice(s.Latencies, func(i, j int) bool { return s.Latencies[i] < s.Latencies[j] })
@@ -66,8 +71,36 @@ func (s *LatencyStats) Report() {
 		return s.Latencies[idx]
 	}
 	rps := float64(s.Total) / s.Duration.Seconds()
-	fmt.Printf("  %-35s  reqs=%-6d errs=%-4d rps=%-8.1f p50=%-10s p95=%-10s p99=%-10s\n",
+	outf("  %-35s  reqs=%-6d errs=%-4d rps=%-8.1f p50=%-10s p95=%-10s p99=%-10s\n",
 		s.Method, s.Total, s.Errors, rps, p(0.50), p(0.95), p(0.99))
+}
+
+func outf(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(stdoutWriter, format, args...)
+}
+
+func errf(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(stderrWriter, format, args...)
+}
+
+func configureOutput(outputFile string) (func() error, error) {
+	if outputFile == "" {
+		return func() error { return nil }, nil
+	}
+
+	cleanPath := filepath.Clean(outputFile)
+	if err := os.MkdirAll(filepath.Dir(cleanPath), 0o750); err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+
+	stdoutWriter = io.MultiWriter(os.Stdout, file)
+	stderrWriter = io.MultiWriter(os.Stderr, file)
+	return file.Close, nil
 }
 
 var httpClient = &http.Client{
@@ -302,7 +335,7 @@ func runConcurrent(concurrency, total int, workFn func(i int) (string, time.Dura
 }
 
 func printStats(title string, stats map[string]*LatencyStats) {
-	fmt.Printf("\n%s\n%s\n", title, strings.Repeat("=", len(title)))
+	outf("\n%s\n%s\n", title, strings.Repeat("=", len(title)))
 
 	keys := make([]string, 0, len(stats))
 	for k := range stats {
@@ -321,8 +354,44 @@ func printStats(title string, stats map[string]*LatencyStats) {
 		}
 	}
 	rps := float64(totalReqs) / totalDuration.Seconds()
-	fmt.Printf("  %-35s  reqs=%-6d errs=%-4d rps=%-8.1f duration=%s\n",
+	outf("  %-35s  reqs=%-6d errs=%-4d rps=%-8.1f duration=%s\n",
 		"TOTAL", totalReqs, totalErrs, rps, totalDuration.Round(time.Millisecond))
+}
+
+func buildBlockNumbers(latestBlock int64, blockCount int, startBlock, endBlock int64) ([]int64, error) {
+	if startBlock > 0 || endBlock > 0 {
+		if startBlock <= 0 {
+			return nil, fmt.Errorf("start-block is required when selecting an explicit block range")
+		}
+		if endBlock == 0 {
+			endBlock = startBlock
+		}
+		if startBlock > endBlock {
+			return nil, fmt.Errorf("start-block (%d) cannot be greater than end-block (%d)", startBlock, endBlock)
+		}
+		if startBlock < 1 {
+			return nil, fmt.Errorf("start-block must be >= 1")
+		}
+		if endBlock > latestBlock {
+			return nil, fmt.Errorf("end-block (%d) cannot exceed latest block (%d)", endBlock, latestBlock)
+		}
+
+		blockNums := make([]int64, 0, endBlock-startBlock+1)
+		for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
+			blockNums = append(blockNums, blockNum)
+		}
+		return blockNums, nil
+	}
+
+	blockNums := make([]int64, 0, blockCount)
+	for i := 0; i < blockCount; i++ {
+		blockNum := latestBlock - int64(i)
+		if blockNum < 1 {
+			break
+		}
+		blockNums = append(blockNums, blockNum)
+	}
+	return blockNums, nil
 }
 
 func writeLabel(img *image.RGBA, x, y int, text string, col color.Color) {
@@ -551,55 +620,84 @@ func main() {
 		endpoint      string
 		concurrency   int
 		blockCount    int
+		startBlock    int64
+		endBlock      int64
 		requestsPer   int
 		methodsFlag   string
 		traceDiscover int
 		plotDir       string
+		outputFile    string
 	)
 	flag.StringVar(&endpoint, "endpoint", "", "RPC endpoint URL (required)")
 	flag.IntVar(&concurrency, "concurrency", 16, "number of concurrent workers")
 	flag.IntVar(&blockCount, "blocks", 20, "number of recent blocks to sample")
+	flag.Int64Var(&startBlock, "start-block", 0, "explicit starting block number to benchmark (inclusive)")
+	flag.Int64Var(&endBlock, "end-block", 0, "explicit ending block number to benchmark (inclusive); defaults to start-block when omitted")
 	flag.IntVar(&requestsPer, "requests", 100, "requests per method per phase")
 	flag.StringVar(&methodsFlag, "methods", "", "comma-separated methods to run (default: all)")
 	flag.IntVar(&traceDiscover, "trace-discover", 5, "txs to trace for storage slot discovery (0 to disable)")
 	flag.StringVar(&plotDir, "plot-dir", "", "directory to write per-block trace PNG charts (empty disables plots)")
+	flag.StringVar(&outputFile, "output-file", "", "file to write benchmark output to in addition to stdout")
 	flag.Parse()
 
 	if endpoint == "" {
-		fmt.Fprintf(os.Stderr, "Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-requests 100] [-methods debug_traceBlockByNumber,eth_getLogs]\n")
+		errf("Usage: go run main.go -endpoint <rpc-url> [-concurrency 16] [-blocks 20] [-start-block 100 -end-block 200] [-requests 100] [-methods debug_traceBlockByNumber,eth_getLogs] [-output-file bench.txt]\n")
 		os.Exit(1)
 	}
+	closeOutput, err := configureOutput(outputFile)
+	if err != nil {
+		errf("Failed to configure output file: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := closeOutput(); err != nil {
+			errf("Failed to close output file: %v\n", err)
+		}
+	}()
 
 	// =========================================================================
 	// Discover recent blocks, transactions, and addresses
 	// =========================================================================
-	fmt.Printf("RPC Read Benchmark\n")
-	fmt.Printf("  endpoint:    %s\n", endpoint)
-	fmt.Printf("  concurrency: %d\n", concurrency)
-	fmt.Printf("  blocks:      %d\n", blockCount)
-	fmt.Printf("  requests:    %d per method per phase\n", requestsPer)
+	outf("RPC Read Benchmark\n")
+	outf("  endpoint:    %s\n", endpoint)
+	outf("  concurrency: %d\n", concurrency)
+	if startBlock > 0 || endBlock > 0 {
+		effectiveEndBlock := endBlock
+		if effectiveEndBlock == 0 {
+			effectiveEndBlock = startBlock
+		}
+		outf("  range:       %d-%d\n", startBlock, effectiveEndBlock)
+	} else {
+		outf("  blocks:      %d recent blocks\n", blockCount)
+	}
+	outf("  requests:    %d per method per phase\n", requestsPer)
+	if outputFile != "" {
+		outf("  output file: %s\n", filepath.Clean(outputFile))
+	}
 
-	fmt.Printf("\n--- Discovering recent blocks ---\n")
+	outf("\n--- Discovering blocks ---\n")
 	latestBlock, err := getLatestBlockNumber(endpoint)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get latest block: %v\n", err)
+		errf("Failed to get latest block: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Latest block: %d\n", latestBlock)
+	outf("Latest block: %d\n", latestBlock)
+
+	blockNums, err := buildBlockNumbers(latestBlock, blockCount, startBlock, endBlock)
+	if err != nil {
+		errf("Invalid block selection: %v\n", err)
+		os.Exit(1)
+	}
 
 	var blocks []*BlockInfo
 	var allTxHashes []string
 	var allAddresses []string
 	addrSeen := make(map[string]bool)
 
-	for i := 0; i < blockCount; i++ {
-		blockNum := latestBlock - int64(i)
-		if blockNum < 1 {
-			break
-		}
+	for _, blockNum := range blockNums {
 		info, err := getBlockInfo(endpoint, blockNum)
 		if err != nil {
-			fmt.Printf("  block %d: error %v\n", blockNum, err)
+			outf("  block %d: error %v\n", blockNum, err)
 			continue
 		}
 		blocks = append(blocks, info)
@@ -614,19 +712,19 @@ func main() {
 		if len(info.Transactions) > 0 {
 			avgGasPerTx = float64(info.GasUsed) / float64(len(info.Transactions))
 		}
-		fmt.Printf("  block %d: %d txs, gas=%d, avg_gas/tx=%.1f, %d addresses\n",
+		outf("  block %d: %d txs, gas=%d, avg_gas/tx=%.1f, %d addresses\n",
 			blockNum, len(info.Transactions), info.GasUsed, avgGasPerTx, len(info.Addresses))
 	}
 
 	if len(blocks) == 0 {
-		fmt.Fprintf(os.Stderr, "No blocks discovered\n")
+		errf("No blocks discovered\n")
 		os.Exit(1)
 	}
 	if len(allAddresses) == 0 {
-		fmt.Fprintf(os.Stderr, "No addresses found in recent blocks\n")
+		errf("No addresses found in selected blocks\n")
 		os.Exit(1)
 	}
-	fmt.Printf("Discovered %d blocks, %d transactions, %d unique addresses\n",
+	outf("Discovered %d blocks, %d transactions, %d unique addresses\n",
 		len(blocks), len(allTxHashes), len(allAddresses))
 
 	var allStorageSlots []storageSlot
@@ -638,7 +736,11 @@ func main() {
 		defer rngMu.Unlock()
 		return rng.Intn(n)
 	}
-	latestHex := fmt.Sprintf("0x%x", latestBlock)
+	referenceBlock := latestBlock
+	if startBlock > 0 || endBlock > 0 {
+		referenceBlock = blocks[len(blocks)-1].Number
+	}
+	referenceHex := fmt.Sprintf("0x%x", referenceBlock)
 	randBlock := func() *BlockInfo { return blocks[randomIntn(len(blocks))] }
 	randAddr := func() string { return allAddresses[randomIntn(len(allAddresses))] }
 	randTxHash := func() string {
@@ -650,16 +752,15 @@ func main() {
 	randStorageParams := func() []interface{} {
 		if len(allStorageSlots) > 0 {
 			s := allStorageSlots[randomIntn(len(allStorageSlots))]
-			return []interface{}{s.Address, s.Slot, latestHex}
+			return []interface{}{s.Address, s.Slot, referenceHex}
 		}
-		return []interface{}{randAddr(), fmt.Sprintf("0x%064x", randomIntn(10)), latestHex}
+		return []interface{}{randAddr(), fmt.Sprintf("0x%064x", randomIntn(10)), referenceHex}
 	}
 	randLogsParams := func() []interface{} {
-		start := randomIntn(len(blocks))
-		maxWindow := min(5, len(blocks)-start)
-		end := start + randomIntn(maxWindow)
-		fromBlock := blocks[end].Number
-		toBlock := blocks[start].Number
+		first := randBlock().Number
+		second := randBlock().Number
+		fromBlock := min(first, second)
+		toBlock := max(first, second)
 		return []interface{}{map[string]interface{}{
 			"fromBlock": fmt.Sprintf("0x%x", fromBlock),
 			"toBlock":   fmt.Sprintf("0x%x", toBlock),
@@ -673,9 +774,9 @@ func main() {
 		{"debug_traceBlockByNumber", func() []interface{} { return []interface{}{fmt.Sprintf("0x%x", randBlock().Number)} }, 10, true},
 		{"debug_traceTransaction", func() []interface{} { return []interface{}{randTxHash()} }, 10, true},
 		{"eth_getLogs", func() []interface{} { return randLogsParams() }, 20, true},
-		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 25, false},
-		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
-		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), latestHex} }, 15, false},
+		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), referenceHex} }, 25, false},
+		{"eth_getTransactionCount", func() []interface{} { return []interface{}{randAddr(), referenceHex} }, 15, false},
+		{"eth_getCode", func() []interface{} { return []interface{}{randAddr(), referenceHex} }, 15, false},
 		{"eth_getStorageAt", func() []interface{} { return randStorageParams() }, 25, false},
 	}
 
@@ -706,7 +807,7 @@ func main() {
 	}
 
 	if len(allMethods) == 0 {
-		fmt.Fprintf(os.Stderr, "No methods selected\n")
+		errf("No methods selected\n")
 		os.Exit(1)
 	}
 	hasMethod := func(name string) bool {
@@ -719,27 +820,28 @@ func main() {
 	}
 
 	if hasMethod("eth_getStorageAt") && traceDiscover > 0 && len(allTxHashes) > 0 {
-		fmt.Printf("\n--- Discovering storage slots (tracing %d txs) ---\n", min(traceDiscover, len(allTxHashes)))
+		outf("\n--- Discovering storage slots (tracing %d txs) ---\n", min(traceDiscover, len(allTxHashes)))
 		allStorageSlots = discoverStorageSlots(endpoint, allTxHashes, traceDiscover)
-		fmt.Printf("Discovered %d unique storage slots\n", len(allStorageSlots))
+		outf("Discovered %d unique storage slots\n", len(allStorageSlots))
 	}
 
-	fmt.Printf("  methods:     ")
+	outf("  reference:   block %d\n", referenceBlock)
+	outf("  methods:     ")
 	for i, m := range allMethods {
 		if i > 0 {
-			fmt.Printf(", ")
+			outf(", ")
 		}
-		fmt.Printf("%s", m.name)
+		outf("%s", m.name)
 	}
-	fmt.Printf("\n")
+	outf("\n")
 
 	// =========================================================================
 	// Phase 1: Per-block trace — one trace per discovered block, prints each result
 	// =========================================================================
 	if hasMethod("debug_traceBlockByNumber") {
-		fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
-		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
-		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
+		outf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
+		outf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
+		outf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
 		perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
 		perBlockSamples := make([]PerBlockTraceSample, 0, len(blocks))
 		for _, b := range blocks {
@@ -765,7 +867,7 @@ func main() {
 				GasUsed: b.GasUsed,
 				Latency: lat,
 			})
-			fmt.Printf("  %-12d  %-6d  %-12d  %-12.1f  %s%s\n",
+			outf("  %-12d  %-6d  %-12d  %-12.1f  %s%s\n",
 				b.Number, len(b.Transactions), b.GasUsed, avgGasPerTx, lat.Round(time.Millisecond), errStr)
 		}
 		totalTime := time.Duration(0)
@@ -777,11 +879,11 @@ func main() {
 		if plotDir != "" {
 			paths, err := writePerBlockTracePlots(plotDir, perBlockSamples)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to write plots: %v\n", err)
+				errf("Failed to write plots: %v\n", err)
 			} else {
-				fmt.Printf("\nWrote per-block trace plots:\n")
+				outf("\nWrote per-block trace plots:\n")
 				for _, path := range paths {
-					fmt.Printf("  %s\n", path)
+					outf("  %s\n", path)
 				}
 			}
 		}
@@ -796,7 +898,7 @@ func main() {
 			continue
 		}
 		title := fmt.Sprintf("%s (concurrent x%d)", m.name, concurrency)
-		fmt.Printf("\n--- %s ---\n", title)
+		outf("\n--- %s ---\n", title)
 		s := runConcurrent(concurrency, requestsPer, func(_ int) (string, time.Duration, error) {
 			return m.call(endpoint)
 		})
@@ -834,7 +936,7 @@ func main() {
 	}
 
 	totalMixed := requestsPer * 3
-	fmt.Printf("\n--- Mixed workload (concurrent x%d, %d total reqs) ---\n", concurrency, totalMixed)
+	outf("\n--- Mixed workload (concurrent x%d, %d total reqs) ---\n", concurrency, totalMixed)
 	stats := runConcurrent(concurrency, totalMixed, func(_ int) (string, time.Duration, error) {
 		r := randomIntn(totalWeight)
 		cumulative := 0
@@ -848,5 +950,5 @@ func main() {
 	})
 	printStats("Mixed workload", stats)
 
-	fmt.Printf("\nBenchmark complete.\n")
+	outf("\nBenchmark complete.\n")
 }
