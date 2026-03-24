@@ -141,13 +141,9 @@ func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
 	n := rts.AddPeerWithoutWaiting(t)
 	// Peer registration in the reactor is asynchronous, so block until this peer
 	// is visible before returning to callers that may assert on peer counts.
-<<<<<<< HEAD
 	require.Eventually(t, func() bool {
-		return rts.reactor.peers.Contains(testNode.NodeID)
+		return rts.reactor.peers.Contains(n.TestNode.NodeID)
 	}, 5*time.Second, 50*time.Millisecond)
-=======
-	utils.OrPanic(rts.reactor.peers.WaitUntilContains(t.Context(), n.TestNode.NodeID))
->>>>>>> cc96111 (rotation of outbound peers (#3037))
 	return n
 }
 
