@@ -1,15 +1,11 @@
 # EVM RPC .io / .iox tests
 
-<<<<<<< HEAD
-Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **164 tests** from `testdata/` against a live RPC endpoint.
-=======
 Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suite runs **159** `.io`/`.iox` files from `testdata/` against a live RPC endpoint (**157** after main's explicit-unsupported fixture refresh, plus **two** `sei_legacy_deprecation/*.iox` for gated `sei_*` and deprecation signaling).
 
 ### `.io` vs `.iox`
 
 - **`.io`** - vanilla JSON-RPC fixtures (`>>` / `<<`): no Sei-specific harness directives such as `@ expect_body_contains`.
 - **`.iox`** - same line format, plus Sei extensions: `@ bind` / `<< @ ref_pair`, `@ expect_body_contains`, `@ expect_response_header`, `not-supported.iox` (documented `-32000` errors), and other non-vanilla tags the parser accepts.
->>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
 
 ## How to run
 
@@ -75,13 +71,8 @@ For a fair comparison, both endpoints should serve the **same chain** (same gene
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **.io**   | ~50   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-<<<<<<< HEAD
-| **.iox**  | ~114  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request. |
-| **Total** | 164   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
-=======
 | **.iox**  | ~109  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
 | **Total** | 159   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
->>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -283,31 +274,15 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |
 
 
-<<<<<<< HEAD
-### Failed tests (29)
-=======
 ### Failed tests (14 on latest 159-file reference run; all `sei_*` pass)
 
 Methods that Sei documents as unsupported use dedicated **`not-supported.iox`** fixtures (and `eth_blobBaseFee/blobs-not-supported-error.iox`). They return JSON-RPC **error** `-32000` with a fixed message (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
->>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
 
 *Remaining failures* are **only** `eth_*`: gas / base fee, proofs (IAVL), log range vs spec, block-not-found shape, tx-by-index. **No `sei_*` rows.** On **docker localnet** with expanded `enabled_legacy_sei_apis`, some historically flaky `eth_*` cases pass when the node returns `null` for missing blocks (varies by build/config).
 
 | Endpoint                           | Test                                                                              | Status | Source       | Reason                 | Error message                                                                            |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ------ | ------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
-<<<<<<< HEAD
-| debug_getRawBlock                  | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawBlock does not exist/is not available" |
-| debug_getRawBlock                  | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawBlock does not exist/is not available" |
-| debug_getRawHeader                 | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawHeader does not exist/is not available" |
-| debug_getRawHeader                 | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawHeader does not exist/is not available" |
-| debug_getRawReceipts               | get-block-n.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawReceipts does not exist/is not available" |
-| debug_getRawReceipts               | get-genesis.iox                                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawReceipts does not exist/is not available" |
-| debug_getRawTransaction            | get-tx.iox                                                                        | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method debug_getRawTransaction does not exist/is not available" |
-| eth_blobBaseFee                    | get-current-blobfee.iox                                                           | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_blobBaseFee does not exist/is not available" |
-| eth_call                           | call-callenv-options-eip1559.iox                                                  | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
-=======
 | eth_call                           | call-callenv-options-eip1559.iox                                                  | FAIL   | Sei          | Gas fee issue          | error code=-32000 (e.g. `max fee per gas less than block base fee`, `maxFeePerGas` vs `baseFee`) |
->>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
 | eth_createAccessList               | create-al-abi-revert.iox                                                          | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
 | eth_createAccessList               | create-al-contract-eip1559.iox                                                    | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
 | eth_createAccessList               | create-al-contract.iox                                                             | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
@@ -321,8 +296,6 @@ Methods that Sei documents as unsupported use dedicated **`not-supported.iox`** 
 | eth_getProof                       | get-account-proof-with-storage.iox                                                | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
 | eth_getTransactionByBlockHashAndIndex | get-block-n.iox                                                                | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
 | eth_getTransactionByBlockNumberAndIndex | get-block-n.iox                                                            | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
-| eth_newPendingTransactionFilter    | newPendingTransactionFilter.iox                                                   | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_newPendingTransactionFilter does not exist/is not available" |
-| eth_syncing                        | check-syncing.iox                                                                 | FAIL   | Sei          | Not implemented        | error code=-32601 message="the method eth_syncing does not exist/is not available" |
 
 
 ### Skipped tests (0)
@@ -337,18 +310,6 @@ SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/get
 
 Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/get-tx.iox,debug_traceTransaction/traceTransaction.iox`. Logs show `SEI_EVM_IO_SEED_BLOCK`, each pair's placeholders and binding values, the actual request sent, and bindings after each response.
 
-<<<<<<< HEAD
-### Summary
-
-
-| Metric          | Previous run | Latest run |
-| --------------- | ------------ | ---------- |
-| **Total tests** | 255          | 164        |
-| **Passed**      | 157          | 135        |
-| **Failed**      | 98           | 29         |
-| **Skipped**     | 0            | 0          |
-| **Pass rate**   | 61.6%        | 82.3%      |
-=======
 ### Summary (recorded runs)
 
 
@@ -363,9 +324,6 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 (1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. Associate setup may log `result: null` for `sei_associate` in the script; that is separate from the `.iox` assertions.
 
 **Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). Remaining fails are **`eth_*` only**, not gated `sei_*` denial.
->>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
-
-
 
 | Metric                               | Count                                                                                                                      |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
