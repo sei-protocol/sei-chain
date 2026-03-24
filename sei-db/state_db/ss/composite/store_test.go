@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,69 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
+
+type mockImportStateStore struct {
+	importFn func(version int64, ch <-chan types.SnapshotNode) error
+}
+
+func (m *mockImportStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockImportStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
+	return false, nil
+}
+
+func (m *mockImportStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return nil, nil
+}
+
+func (m *mockImportStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return nil, nil
+}
+
+func (m *mockImportStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
+	return false, nil
+}
+
+func (m *mockImportStateStore) GetLatestVersion() int64 {
+	return 0
+}
+
+func (m *mockImportStateStore) SetLatestVersion(version int64) error {
+	return nil
+}
+
+func (m *mockImportStateStore) GetEarliestVersion() int64 {
+	return 0
+}
+
+func (m *mockImportStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
+	return nil
+}
+
+func (m *mockImportStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
+	return nil
+}
+
+func (m *mockImportStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+	return nil
+}
+
+func (m *mockImportStateStore) Prune(version int64) error {
+	return nil
+}
+
+func (m *mockImportStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
+	if m.importFn != nil {
+		return m.importFn(version, ch)
+	}
+	return nil
+}
+
+func (m *mockImportStateStore) Close() error {
+	return nil
+}
 
 func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 	dir, err := os.MkdirTemp("", "composite_store_test")
@@ -1620,6 +1684,53 @@ func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 		val, err := store.cosmosStore.Get(tc.store, 1, []byte(tc.key))
 		require.NoError(t, err)
 		require.Equal(t, tc.value, val, "module %s key %s", tc.store, tc.key)
+	}
+}
+
+func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
+	expectedErr := errors.New("evm import failed")
+	store := &CompositeStateStore{
+		cosmosStore: &mockImportStateStore{
+			importFn: func(version int64, ch <-chan types.SnapshotNode) error {
+				for range ch {
+				}
+				return nil
+			},
+		},
+		evmStore: &mockImportStateStore{
+			importFn: func(version int64, ch <-chan types.SnapshotNode) error {
+				for range ch {
+					return expectedErr
+				}
+				return nil
+			},
+		},
+		config: config.StateStoreConfig{
+			WriteMode: config.DualWrite,
+		},
+	}
+
+	const nodeCount = 256
+	ch := make(chan types.SnapshotNode, nodeCount)
+	for i := 0; i < nodeCount; i++ {
+		ch <- types.SnapshotNode{
+			StoreKey: commonevm.EVMStoreKey,
+			Key:      []byte{byte(i)},
+			Value:    []byte("value"),
+		}
+	}
+	close(ch)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- store.Import(1, ch)
+	}()
+
+	select {
+	case err := <-resultCh:
+		require.ErrorIs(t, err, expectedErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("CompositeStateStore.Import blocked after EVM import error")
 	}
 }
 
