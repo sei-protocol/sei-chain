@@ -261,39 +261,96 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
 	evmCh := make(chan types.SnapshotNode, 100)
+	importErrCh := make(chan error, 2)
 
 	var wg sync.WaitGroup
-	var cosmosErr, evmErr error
+	var closeOnce sync.Once
+
+	closeImportChans := func() {
+		closeOnce.Do(func() {
+			close(cosmosCh)
+			close(evmCh)
+		})
+	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cosmosErr = s.cosmosStore.Import(version, cosmosCh)
+		if err := s.cosmosStore.Import(version, cosmosCh); err != nil {
+			importErrCh <- err
+		}
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		evmErr = s.evmStore.Import(version, evmCh)
+		if err := s.evmStore.Import(version, evmCh); err != nil {
+			importErrCh <- err
+		}
 	}()
+
+	var importErr error
+	drainImportErr := func() {
+		for {
+			select {
+			case err := <-importErrCh:
+				if err != nil && importErr == nil {
+					importErr = err
+					closeImportChans()
+				}
+			default:
+				return
+			}
+		}
+	}
+	sendNode := func(dst chan types.SnapshotNode, node types.SnapshotNode) error {
+		for {
+			drainImportErr()
+			if importErr != nil {
+				return importErr
+			}
+			select {
+			case dst <- node:
+				return nil
+			case err := <-importErrCh:
+				if err != nil && importErr == nil {
+					importErr = err
+					closeImportChans()
+				}
+			}
+		}
+	}
 
 	for node := range ch {
+		drainImportErr()
+		if importErr != nil {
+			continue
+		}
 		isEVM := node.StoreKey == evm.EVMStoreKey
 		if !isEVM || !splitWrite {
-			cosmosCh <- node
+			if err := sendNode(cosmosCh, node); err != nil {
+				continue
+			}
 		}
 		if isEVM {
-			evmCh <- node
+			if err := sendNode(evmCh, node); err != nil {
+				continue
+			}
 		}
 	}
-	close(cosmosCh)
-	close(evmCh)
+	closeImportChans()
 
 	wg.Wait()
-	if cosmosErr != nil {
-		return cosmosErr
+	close(importErrCh)
+	if importErr == nil {
+		for err := range importErrCh {
+			if err != nil {
+				importErr = err
+				break
+			}
+		}
 	}
-	return evmErr
+	return importErr
 }
 
 func (s *CompositeStateStore) Prune(version int64) error {
