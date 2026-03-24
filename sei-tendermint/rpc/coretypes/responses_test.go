@@ -12,6 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	pbcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -89,5 +92,31 @@ func TestResultBlockResults_regression8583(t *testing.T) {
 	}
 	if diff := cmp.Diff(rsp, back); diff != "" {
 		t.Errorf("Unmarshaled result (-want, +got):\n%s", diff)
+	}
+}
+
+func TestValidatorInfoJSONReencoding(t *testing.T) {
+	cases := map[string]ValidatorInfo{
+		"non-validator": {
+			PubKey:      utils.None[crypto.PubKey](),
+			VotingPower: 0,
+		},
+		"validator": {
+			PubKey:      utils.Some(ed25519.TestSecretKey([]byte("validator-info-json")).Public()),
+			VotingPower: 123,
+		},
+	}
+
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw, err := json.Marshal(want)
+			require.NoError(t, err)
+
+			var got ValidatorInfo
+			require.NoError(t, json.Unmarshal(raw, &got))
+			if err := utils.TestDiff(want, got); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
