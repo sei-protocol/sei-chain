@@ -355,7 +355,14 @@ func makeNode(
 			csState.SetPrivValidator(ctx, utils.Some(privValidator))
 		}
 	}
-	node.rpcEnv.PubKey = pubKey
+	if _, ok := pubKey.Get(); ok {
+		node.rpcEnv.PubKey = pubKey
+	} else {
+		// For non-validator nodes, fall back to the P2P node key so that the
+		// /status RPC response always contains a non-null pub_key field.
+		// CosmJS (tendermint-rpc) requires validator_info.pub_key to be present.
+		node.rpcEnv.PubKey = utils.Some(nodeKey.PubKey())
+	}
 
 	node.BaseService = *service.NewBaseService("Node", node)
 
