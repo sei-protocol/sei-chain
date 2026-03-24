@@ -50,7 +50,21 @@ Same docker localnet + script; fixtures **`eth_call/call-callenv-options-eip1559
 
 **Moved from fail to pass** (baseline to typical docker localnet, varies by build): `eth_blobBaseFee`, `eth_getBlockByHash` (empty / not-found hash), `eth_getBlockReceipts` (empty / not-found hash), `eth_getBlockTransactionCountByHash/get-genesis.iox` - when the node returns spec-shaped `null` or exposes the method.
 
-## Failed tests by endpoint (12 failures after **eth_call fix** on **159** files; **14** failures on pre-fix **sei_* fix** reference)
+### After eth_getLogs future-range fixture fix (159 fixtures)
+
+Same docker localnet + script; **`eth_getLogs/filter-error-future-block-range.io`** now uses a large numeric `toBlock` so the range end stays above chain head as the localnet grows (small fixed heights became historical and returned `result: []`, flipping the spec-only kind check).
+
+| Metric    | Count |
+| --------- | ----- |
+| Total     | 159   |
+| Passed    | 148   |
+| Failed    | 11    |
+| Skipped   | 0     |
+| Pass rate | 93.1% |
+
+**Resolved vs eth_call-fix reference (12 → 11 fails):** `filter-error-future-block-range.io` now **passes**. Summary column **getLogs range fix** in `RPC_IO_README.md`. **All `eth_getLogs` fixtures pass** on this run.
+
+## Failed tests by endpoint (11 failures after **getLogs range fix** on **159** files; **12** failures after **eth_call fix**; **14** on pre-fix **sei_* fix** reference)
 
 `debug_getRaw*`, `eth_newPendingTransactionFilter`, and `eth_syncing` now use **`not-supported.iox`** (expect JSON-RPC error `-32000`); they are not listed below as -32601 failures. See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
 
@@ -60,7 +74,6 @@ Same docker localnet + script; fixtures **`eth_call/call-callenv-options-eip1559
 | eth_estimateGas | 2 | estimate-with-eip4844.iox, estimate-with-eip7702.iox (parse error) |
 | eth_estimateGasAfterCalls | 1 | estimateGasAfterCalls.iox (insufficient funds) |
 | eth_getBlockByNumber | 1 | get-block-notfound.iox (-32000 e.g. `requested height 1000 is not yet available; safe latest is 128` vs spec `result: null`) |
-| eth_getLogs | 1 | filter-error-future-block-range.io (Sei returns []; spec: error when range > head) |
 | eth_getProof | 3 | get-account-proof-* (cannot find EVM IAVL store) |
 | eth_getTransactionByBlockHashAndIndex | 1 | get-block-n.iox (transaction index out of range) |
 | eth_getTransactionByBlockNumberAndIndex | 1 | get-block-n.iox (transaction index out of range) |
@@ -84,7 +97,7 @@ These methods are **implemented** to return JSON-RPC error code `-32000` with a 
 | -------- | -------------------- | ------ |
 | **Return null for missing block** | eth_getBlockByHash, eth_getBlockReceipts (empty/notfound) | RPC: return `result: null` instead of -32000 for non-existent block hash (if still failing on your node) |
 | **Block hash lookup** | eth_getBlockTransactionCountByHash (get-genesis) | RPC: resolve block by hash when that hash was returned by getBlockByNumber |
-| **Block range validation** | eth_getLogs (filter-error-future-block-range) | RPC: return -32602 when toBlock > current head |
+| **Future log range fixture** | eth_getLogs (`filter-error-future-block-range.io`) | **Done (fixture):** use a `toBlock` that stays beyond head on long-lived localnet; RPC already rejects `toBlock > head` with an error (not `[]`) |
 | **EIP-1559 call / access list (fixture-aligned)** | `call-callenv-options-eip1559.iox`, `create-al-contract-eip1559.iox` | **Done (fixtures):** `eth_call` uses zero 1559 caps + `from=0x0`; `createAccessList` uses receipt `from` + non-zero caps (Geth `setFeeDefaults` + `BuyGas`). Revert behavior unchanged on `call-revert-abi-*-sei.iox`. |
 | **Other** | eth_createAccessList (2), eth_estimateGas (2), eth_estimateGasAfterCalls, eth_getBlockByNumber (notfound), eth_getProof (3), eth_getTransactionBy*Index (2) | RPC or fixtures (e.g. funded `from` like eip1559 fixture, parse 4844/7702, IAVL store, tx index) |
 
