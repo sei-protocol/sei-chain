@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
