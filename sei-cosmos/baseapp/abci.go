@@ -949,38 +949,15 @@ func splitPath(requestPath string) (path []string) {
 // ABCI++
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
-
-	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
-		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
-	}
-
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
+	if app.ChainID != req.Header.ChainID {
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.prepareProposalState == nil {
-		app.setPrepareProposalState(header)
+		app.setPrepareProposalState(*req.Header)
 	} else {
 		// In the first block, app.prepareProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.setPrepareProposalHeader(header)
+		app.setPrepareProposalHeader(*req.Header)
 	}
 
 	app.preparePrepareProposalState()
@@ -989,8 +966,8 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 		if err := recover(); err != nil {
 			logger.Error(
 				"panic recovered in PrepareProposal",
-				"height", req.Height,
-				"time", req.Time,
+				"height", req.Header.Height,
+				"time", req.Header.Time,
 				"panic", err,
 			)
 

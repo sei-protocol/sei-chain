@@ -177,7 +177,6 @@ func CreateEVMTransferTxs(t testing.TB, tCtx *GigaTestContext, transfers []EVMTr
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -666,7 +665,6 @@ func CreateContractDeployTxs(t testing.TB, tCtx *GigaTestContext, deploys []EVMC
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -727,7 +725,6 @@ func CreateContractCallTxs(t testing.TB, tCtx *GigaTestContext, calls []EVMContr
 		err = txBuilder.SetMsgs(msg)
 		require.NoError(t, err)
 		txBuilder.SetGasLimit(10000000000)
-		txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 		txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 		require.NoError(t, err)
@@ -1733,7 +1730,6 @@ func createCustomEVMTx(
 	err = txBuilder.SetMsgs(msg)
 	require.NoError(t, err)
 	txBuilder.SetGasLimit(10000000000)
-	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)

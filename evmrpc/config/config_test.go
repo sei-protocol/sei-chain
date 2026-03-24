@@ -128,6 +128,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.worker_queue_size" {
 		return o.workerQueueSize
 	}
+	if k == "evm.enabled_legacy_sei_apis" {
+		return nil
+	}
 	panic("unknown key")
 }
 

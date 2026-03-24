@@ -294,7 +294,13 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			ctx := t.Context()
 			snapshots := make([]*abci.Snapshot, len(tc.snapshots))
 			for i, s := range tc.snapshots {
-				snapshots[i] = utils.ProtoClone(s)
+				snapshots[i] = &abci.Snapshot{
+					Height:   s.Height,
+					Format:   s.Format,
+					Chunks:   s.Chunks,
+					Hash:     append([]byte(nil), s.Hash...),
+					Metadata: append([]byte(nil), s.Metadata...),
+				}
 			}
 
 			// mock ABCI connection to return local snapshots
