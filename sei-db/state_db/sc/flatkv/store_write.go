@@ -92,7 +92,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if _, seen := oldAccountRawValues[addrStr]; !seen {
 					if paw, ok := s.accountWrites[addrStr]; ok {
-						oldAccountRawValues[addrStr] = paw.value.Encode()
+						if paw.isDelete {
+							oldAccountRawValues[addrStr] = nil
+						} else {
+							oldAccountRawValues[addrStr] = paw.value.Encode()
+						}
 					} else {
 						rawBytes, err := s.accountDB.Get(AccountKey(addr))
 						if err != nil {
@@ -120,10 +124,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if pair.Delete {
 					if kind == evm.EVMKeyNonce {
-						paw.value.ClearNonce()
+						paw.value.Nonce = 0
 					} else {
-						paw.value.ClearCodeHash()
+						paw.value.CodeHash = CodeHash{}
 					}
+					paw.isDelete = paw.value.IsEmpty()
 				} else {
 					if kind == evm.EVMKeyNonce {
 						if len(pair.Value) != NonceLen {
@@ -136,6 +141,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						}
 						copy(paw.value.CodeHash[:], pair.Value)
 					}
+					paw.isDelete = paw.value.IsEmpty()
 				}
 
 			case evm.EVMKeyCode:
@@ -205,11 +211,15 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			continue
 		}
 
+		var encodedValue []byte
+		if !paw.isDelete {
+			encodedValue = paw.value.Encode()
+		}
 		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
 			Key:       AccountKey(paw.addr),
-			Value:     paw.value.Encode(),
-			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
-			Delete:    false,  // account rows are never physically deleted
+			Value:     encodedValue,
+			LastValue: oldRaw,
+			Delete:    paw.isDelete,
 		})
 	}
 
@@ -355,9 +365,15 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 		for _, paw := range s.accountWrites {
 			key := AccountKey(paw.addr)
-			encoded := EncodeAccountValue(paw.value)
-			if err := batch.Set(key, encoded); err != nil {
-				return fmt.Errorf("accountDB set: %w", err)
+			if paw.isDelete {
+				if err := batch.Delete(key); err != nil {
+					return fmt.Errorf("accountDB delete: %w", err)
+				}
+			} else {
+				encoded := EncodeAccountValue(paw.value)
+				if err := batch.Set(key, encoded); err != nil {
+					return fmt.Errorf("accountDB set: %w", err)
+				}
 			}
 		}
 
@@ -367,76 +383,41 @@ func (s *CommitStore) commitBatches(version int64) error {
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
 
-	// Commit to codeDB
-	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_code_db_prepare")
-		batch := s.codeDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.codeWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("codeDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("codeDB set: %w", err)
-				}
-			}
-		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[codeDBDir]); err != nil {
-			return fmt.Errorf("codeDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{codeDBDir, batch})
+	// Commit to codeDB, storageDB, legacyDB (identical logic per KV DB).
+	kvDBs := [...]struct {
+		dir    string
+		phase  string
+		writes map[string]*pendingKVWrite
+		db     types.KeyValueDB
+	}{
+		{codeDBDir, "commit_code_db_prepare", s.codeWrites, s.codeDB},
+		{storageDBDir, "commit_storage_db_prepare", s.storageWrites, s.storageDB},
+		{legacyDBDir, "commit_legacy_db_prepare", s.legacyWrites, s.legacyDB},
 	}
+	for _, spec := range kvDBs {
+		if len(spec.writes) == 0 && version <= s.localMeta[spec.dir].CommittedVersion {
+			continue
+		}
+		s.phaseTimer.SetPhase(spec.phase)
+		batch := spec.db.NewBatch()
+		defer func(b types.Batch) { _ = b.Close() }(batch)
 
-	// Commit to storageDB
-	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_storage_db_prepare")
-		batch := s.storageDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.storageWrites {
+		for _, pw := range spec.writes {
 			if pw.isDelete {
 				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("storageDB delete: %w", err)
+					return fmt.Errorf("%s delete: %w", spec.dir, err)
 				}
 			} else {
 				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("storageDB set: %w", err)
+					return fmt.Errorf("%s set: %w", spec.dir, err)
 				}
 			}
 		}
 
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[storageDBDir]); err != nil {
-			return fmt.Errorf("storageDB local meta: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[spec.dir]); err != nil {
+			return fmt.Errorf("%s local meta: %w", spec.dir, err)
 		}
-		pending = append(pending, pendingCommit{storageDBDir, batch})
-	}
-
-	// Commit to legacyDB
-	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_legacy_db_prepare")
-		batch := s.legacyDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.legacyWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("legacyDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("legacyDB set: %w", err)
-				}
-			}
-		}
-
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[legacyDBDir]); err != nil {
-			return fmt.Errorf("legacyDB local meta: %w", err)
-		}
-		pending = append(pending, pendingCommit{legacyDBDir, batch})
+		pending = append(pending, pendingCommit{spec.dir, batch})
 	}
 
 	if len(pending) == 0 {

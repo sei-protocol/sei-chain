@@ -155,64 +155,18 @@ func TestFlatKVAccountValueEncoding(t *testing.T) {
 	})
 }
 
-func TestAccountValueNonceBytes(t *testing.T) {
-	t.Run("ZeroNonce", func(t *testing.T) {
-		v := AccountValue{Nonce: 0}
-		b, ok := v.NonceBytes()
-		require.True(t, ok, "zero nonce should still be found")
-		require.Equal(t, make([]byte, NonceLen), b)
-	})
+func TestAccountValueIsEmpty(t *testing.T) {
+	require.True(t, AccountValue{}.IsEmpty(), "zero-value AccountValue should be empty")
 
-	t.Run("NonZeroNonce", func(t *testing.T) {
-		v := AccountValue{Nonce: 42}
-		b, ok := v.NonceBytes()
-		require.True(t, ok)
-		require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, b)
-	})
+	require.False(t, AccountValue{Nonce: 1}.IsEmpty(), "non-zero nonce")
+	require.False(t, AccountValue{CodeHash: CodeHash{0x01}}.IsEmpty(), "non-zero codehash")
+	require.False(t, AccountValue{Balance: Balance{0x01}}.IsEmpty(), "non-zero balance")
 
-	t.Run("MaxNonce", func(t *testing.T) {
-		v := AccountValue{Nonce: math.MaxUint64}
-		b, ok := v.NonceBytes()
-		require.True(t, ok)
-		require.Equal(t, []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, b)
-	})
-}
-
-func TestAccountValueCodeHashBytes(t *testing.T) {
-	t.Run("ZeroCodeHash", func(t *testing.T) {
-		v := AccountValue{CodeHash: CodeHash{}}
-		b, ok := v.CodeHashBytes()
-		require.False(t, ok, "zero codehash should be absent")
-		require.Nil(t, b)
-	})
-
-	t.Run("NonZeroCodeHash", func(t *testing.T) {
-		var ch CodeHash
-		ch[0] = 0xAA
-		ch[31] = 0xBB
-		v := AccountValue{CodeHash: ch}
-		b, ok := v.CodeHashBytes()
-		require.True(t, ok)
-		require.Equal(t, ch[:], b)
-	})
-}
-
-func TestAccountValueClearNonce(t *testing.T) {
-	var ch CodeHash
-	ch[0] = 0xFF
-	v := AccountValue{Nonce: 99, CodeHash: ch}
-	v.ClearNonce()
-	require.Equal(t, uint64(0), v.Nonce, "nonce should be zero after ClearNonce")
-	require.Equal(t, ch, v.CodeHash, "ClearNonce must not touch codehash")
-}
-
-func TestAccountValueClearCodeHash(t *testing.T) {
-	var ch CodeHash
-	ch[0] = 0xFF
-	v := AccountValue{Nonce: 99, CodeHash: ch}
-	v.ClearCodeHash()
-	require.Equal(t, CodeHash{}, v.CodeHash, "codehash should be zero after ClearCodeHash")
-	require.Equal(t, uint64(99), v.Nonce, "ClearCodeHash must not touch nonce")
+	require.False(t, AccountValue{
+		Balance:  Balance{0x01},
+		Nonce:    42,
+		CodeHash: CodeHash{0xFF},
+	}.IsEmpty(), "all non-zero fields")
 }
 
 func TestFlatKVTypeConversions(t *testing.T) {
