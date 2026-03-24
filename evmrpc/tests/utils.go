@@ -150,6 +150,7 @@ func setupTestServer(
 	cfg := evmrpcconfig.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
+	cfg.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	s, err := evmrpc.NewEVMHTTPServer(
 		cfg,
 		mockClient,
