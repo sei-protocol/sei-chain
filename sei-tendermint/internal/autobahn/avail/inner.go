@@ -9,6 +9,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// TODO: when dynamic committee changes are supported, newly joined members
+// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
+// Currently all four are initialized once in newInner from c.Lanes().All().
+// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
+// member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
@@ -23,8 +28,10 @@ type inner struct {
 	// reconstructed from the blocks already on disk (see newInner).
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
-	// inner waiters (PushVote, PushCommitQC, etc.) on every markBlockPersisted
-	// call. Only RecvBatch needs to be notified of cursor changes;
+	// inner waiters (PushVote, PushCommitQC, etc.) on markBlockPersisted calls.
+	// Now that blocks are persisted concurrently by lane (one notification per
+	// lane per batch, not per block), the frequency is lower, but still not
+	// ideal. Only RecvBatch needs to be notified of cursor changes;
 	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist map[types.LaneID]types.BlockNumber
 
