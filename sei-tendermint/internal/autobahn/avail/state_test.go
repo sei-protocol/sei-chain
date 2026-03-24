@@ -18,6 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	noBlockCB    = utils.None[func(*types.Signed[*types.LaneProposal])]()
+	noCommitQCCB = utils.None[func(*types.CommitQC)]()
+)
+
 type byLane[T any] map[types.LaneID][]T
 
 func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.Signed[*types.AppVote] {
@@ -219,8 +224,8 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 // goroutine writes can be correctly loaded back by loadPersistedState/newInner.
 //
 // After iteration 0's AppQC prunes old data, iteration 1 writes new blocks
-// and commitQCs at higher indices. If DeleteBefore hasn't cleaned up the
-// stale files by shutdown, restart exercises the gap-filtering path in
+// and commitQCs at higher indices. If WAL truncation hasn't cleaned up the
+// stale entries by shutdown, restart exercises the gap-filtering path in
 // loadPersistedState (stale entries below the prune anchor are discarded).
 func TestStateRestartFromPersisted(t *testing.T) {
 	rng := utils.TestRng()
@@ -291,9 +296,10 @@ func TestStateRestartFromPersisted(t *testing.T) {
 			wantAppQCIdx = appProposal.RoadIndex()
 		}
 
-		// Wait for persistence to complete. markCommitQCsPersisted fires
-		// after all blocks, commitQCs, the prune anchor, and cleanup in the
-		// batch are on disk, so this confirms all data is durable.
+		// Wait for commitQC persistence. markCommitQCsPersisted fires after
+		// all commitQCs in the batch are on disk. Block goroutines may still
+		// be in flight, but scope.Parallel in runPersist ensures they complete
+		// before the next batch, so the data is durable by scope exit.
 		if err := state.waitForCommitQC(ctx, wantAppQCIdx); err != nil {
 			return fmt.Errorf("waitForCommitQC: %w", err)
 		}
@@ -459,7 +465,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := types.RoadIndex(0); i <= roadIdx; i++ {
 			qc := makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
 			prev = utils.Some(qc)
-			require.NoError(t, cp.PersistCommitQC(qc))
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qc}, noCommitQCCB))
 			pruneQC = qc
 		}
 
@@ -497,7 +503,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PersistBlock(signed))
+			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
 
 		// Now construct state — it should load the blocks.
@@ -525,7 +531,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := types.RoadIndex(0); i <= roadIdx; i++ {
 			qc := makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
 			prev = utils.Some(qc)
-			require.NoError(t, cp.PersistCommitQC(qc))
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qc}, noCommitQCCB))
 			pruneQC = qc
 		}
 
@@ -546,7 +552,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PersistBlock(signed))
+			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -573,7 +579,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := range qcs {
 			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
 			prev = utils.Some(qcs[i])
-			require.NoError(t, cp.PersistCommitQC(qcs[i]))
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
 		}
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -582,9 +588,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		// All 3 commitQCs should be loaded (no AppQC to skip past).
 		require.Equal(t, types.RoadIndex(0), state.FirstCommitQC())
 		// LastCommitQC should be set to the last loaded one.
-		latest, ok := state.LastCommitQC().Load().Get()
-		require.True(t, ok)
-		require.NoError(t, utils.TestDiff(qcs[2], latest))
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC().Load()))
 	})
 
 	t.Run("loads persisted commitQCs with AppQC", func(t *testing.T) {
@@ -606,7 +610,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := range qcs {
 			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
 			prev = utils.Some(qcs[i])
-			require.NoError(t, cp.PersistCommitQC(qcs[i]))
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
 		}
 
 		// Persist prune anchor (AppQC + CommitQC pair at roadIdx).
@@ -622,14 +626,11 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		// inner.prune(appQC@1, commitQC@1) sets commitQCs.first = 1.
 		require.Equal(t, types.RoadIndex(1), state.FirstCommitQC())
-		latest, ok := state.LastCommitQC().Load().Get()
-		require.True(t, ok)
-		require.NoError(t, utils.TestDiff(qcs[4], latest))
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[4]), state.LastCommitQC().Load()))
 	})
 
 	t.Run("non-contiguous commitQC files return error", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 
 		// Build 6 sequential CommitQCs (indices 0-5).
 		allQCs := make([]*types.CommitQC, 6)
@@ -649,19 +650,109 @@ func TestNewStateWithPersistence(t *testing.T) {
 			CommitQc: types.CommitQCConv.Encode(allQCs[0]),
 		}))
 
-		// Persist QCs 0, 1, 2 contiguously, then skip to 5 (simulating
-		// corruption or manual tampering). Since the anchor is persisted
-		// first, a gap should never occur normally — treat it as an error.
+		// Persist QCs 0, 1, 2 contiguously, then try to skip to 5.
+		// MaybePruneAndPersist enforces strict sequential order, so the gap
+		// is caught at write time rather than at load time.
 		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
 		require.NoError(t, err)
-		for i := 0; i < 3; i++ {
-			require.NoError(t, cp.PersistCommitQC(allQCs[i]))
+		for i := range 3 {
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{allQCs[i]}, noCommitQCCB))
 		}
-		require.NoError(t, cp.PersistCommitQC(allQCs[5]))
-
-		_, err = NewState(keys[0], ds, utils.Some(dir))
+		err = cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{allQCs[5]}, noCommitQCCB)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "non-contiguous")
+		require.Contains(t, err.Error(), "out of sequence")
+		require.NoError(t, cp.Close())
+	})
+
+	t.Run("anchor past all persisted commitQCs truncates WAL", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+
+		// Build a chain of 10 CommitQCs (indices 0-9).
+		qcs := make([]*types.CommitQC, 10)
+		prev := utils.None[*types.CommitQC]()
+		for i := range qcs {
+			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qcs[i])
+		}
+
+		// Persist only indices 0-4 to the CommitQC WAL.
+		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+		require.NoError(t, err)
+		for i := range 5 {
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
+		}
+		require.NoError(t, cp.Close())
+
+		// Persist a prune anchor at index 9 — well past the persisted range.
+		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng))
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
+		require.NoError(t, err)
+		require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+			AppQc:    types.AppQCConv.Encode(appQC),
+			CommitQc: types.CommitQCConv.Encode(qcs[9]),
+		}))
+
+		// NewState should succeed: MaybePruneAndPersist truncates the stale WAL
+		// and internally re-persists the anchor's CommitQC for crash recovery.
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		require.Equal(t, types.RoadIndex(9), state.FirstCommitQC())
+		require.NoError(t, utils.TestDiff(utils.Some(qcs[9]), state.LastCommitQC().Load()))
+
+		got, ok := state.LastAppQC().Get()
+		require.True(t, ok)
+		require.Equal(t, types.RoadIndex(9), got.Proposal().RoadIndex())
+	})
+
+	t.Run("anchor past all persisted blocks truncates lane WAL", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+		lane := keys[0].Public()
+
+		// Persist commitQCs 0-9 and blocks 0-2 for one lane.
+		qcs := make([]*types.CommitQC, 10)
+		prev := utils.None[*types.CommitQC]()
+		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+		require.NoError(t, err)
+		for i := range qcs {
+			qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+			prev = utils.Some(qcs[i])
+			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
+		}
+		require.NoError(t, cp.Close())
+
+		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
+		require.NoError(t, err)
+		var parent types.BlockHeaderHash
+		for n := types.BlockNumber(0); n < 3; n++ {
+			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
+			signed := types.Sign(keys[0], types.NewLaneProposal(block))
+			parent = block.Header().Hash()
+			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
+		}
+
+		// Persist a prune anchor at index 9 with a laneRange that starts past
+		// all persisted blocks — MaybePruneAndPersistLane will TruncateAll the block WAL.
+		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng))
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
+		require.NoError(t, err)
+		require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+			AppQc:    types.AppQCConv.Encode(appQC),
+			CommitQc: types.CommitQCConv.Encode(qcs[9]),
+		}))
+
+		// NewState should succeed: block WAL gets truncated, lane starts clean.
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		require.NoError(t, err)
+
+		require.Equal(t, types.RoadIndex(9), state.FirstCommitQC())
+		got, ok := state.LastAppQC().Get()
+		require.True(t, ok)
+		require.Equal(t, types.RoadIndex(9), got.Proposal().RoadIndex())
 	})
 
 	t.Run("corrupt AppQC data returns error", func(t *testing.T) {
