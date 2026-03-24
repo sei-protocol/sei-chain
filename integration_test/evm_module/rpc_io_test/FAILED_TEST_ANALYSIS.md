@@ -2,7 +2,9 @@
 
 **Principle:** Fixtures encode **Ethereum-expected behavior**. A test must **fail** when Sei RPC diverges. Fix the **RPC**, not the fixture.
 
-## Latest run (evm_rpc_tests.sh)
+## Runs
+
+### Post-trim baseline (157 fixtures on main after explicit-unsupported swap)
 
 | Metric    | Count |
 | --------- | ----- |
@@ -12,7 +14,35 @@
 | Skipped   | 0     |
 | Pass rate | 82.3% |
 
+<<<<<<< HEAD
 ## Failed tests by endpoint (29)
+=======
+*Leave this block as the older **157**-only snapshot; see `RPC_IO_README.md` summary column **unsupported-fix** (~142 / ~15 / ~90.4%) for the recorded pre-`sei_*`-harness baseline.*
+
+### With sei_* gating + deprecation IO (159 fixtures)
+
+Docker localnet with expanded `[evm].enabled_legacy_sei_apis` (all gated `sei_*` except `sei_sign`) plus `testdata/sei_legacy_deprecation/*.iox` (two files on top of main's 157).
+
+| Metric    | Count |
+| --------- | ----- |
+| Total     | 159   |
+| Passed    | 145   |
+| Failed    | 14    |
+| Skipped   | 0     |
+| Pass rate | 91.2% |
+
+Reference: `TestEVMRPCSpecSummary` after `evm_rpc_tests.sh` (**159** fixtures, docker localnet with expanded `enabled_legacy_sei_apis`). **Two** `sei_legacy_deprecation/*.iox` pass. **145** pass / **14** fail / **91.2%** (see `RPC_IO_README.md` summary column **sei_* fix**).
+
+**Legacy `sei_*`:** Every **`sei_*`** fixture under `testdata/` passes on that run (blocks, traces, filters, logs, receipts, deprecation `.iox`, etc.). There are **no** `sei2_*` `.io`/`.iox` files in the suite yet.
+
+**Moved from fail to pass** (vs earlier 159-file runs): `eth_getFilterLogs/getFilterLogs-lifecycle.iox` and `sei_getFilterLogs/getFilterLogs.iox` - filter criteria changed from `0x1`->`latest` to `latest`->`latest` so the span stays within `max_blocks_for_log` on long-lived localnet.
+
+**Moved from fail to pass** (baseline to typical docker localnet, varies by build): `eth_blobBaseFee`, `eth_getBlockByHash` (empty / not-found hash), `eth_getBlockReceipts` (empty / not-found hash), `eth_getBlockTransactionCountByHash/get-genesis.iox` - when the node returns spec-shaped `null` or exposes the method.
+
+## Failed tests by endpoint (14 failures on the **159**-file reference run; **unsupported-fix** baseline remains ~15 fails on **157** files without deprecation `.iox`)
+
+`debug_getRaw*`, `eth_newPendingTransactionFilter`, and `eth_syncing` now use **`not-supported.iox`** (expect JSON-RPC error `-32000`); they are not listed below as -32601 failures. See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
+>>>>>>> f7104d8 (chore: sei legacy RPC deprecation (#3109))
 
 | Endpoint | # | Fixtures / cause |
 | -------- | - | ---------------- |
@@ -25,10 +55,7 @@
 | eth_createAccessList | 3 | create-al-abi-revert, create-al-contract-eip1559, create-al-contract (insufficient funds / gas fee) |
 | eth_estimateGas | 2 | estimate-with-eip4844.iox, estimate-with-eip7702.iox (parse error) |
 | eth_estimateGasAfterCalls | 1 | estimateGasAfterCalls.iox (insufficient funds) |
-| eth_getBlockByHash | 2 | get-block-by-empty-hash, get-block-by-notfound-hash (Sei returns error; spec: result=null) |
-| eth_getBlockByNumber | 1 | get-block-notfound.iox (height not available vs spec null) |
-| eth_getBlockReceipts | 2 | get-block-receipts-empty, get-block-receipts-not-found (Sei returns error; spec: result=null) |
-| eth_getBlockTransactionCountByHash | 1 | get-genesis.iox (hash lookup: block from getBlockByNumber("0x0") not found by hash) |
+| eth_getBlockByNumber | 1 | get-block-notfound.iox (-32000 e.g. `requested height 1000 is not yet available; safe latest is 128` vs spec `result: null`) |
 | eth_getLogs | 1 | filter-error-future-block-range.io (Sei returns []; spec: error when range > head) |
 | eth_getProof | 3 | get-account-proof-* (cannot find EVM IAVL store) |
 | eth_getTransactionByBlockHashAndIndex | 1 | get-block-n.iox (transaction index out of range) |
@@ -48,14 +75,16 @@
 | eth_newPendingTransactionFilter | newPendingTransactionFilter.iox | No NewPendingTransactionFilter in FilterAPI |
 | eth_syncing | check-syncing.iox | No Syncing on InfoAPI |
 
+`eth_blobBaseFee`: on recent localnet builds the method is often exposed (returns a JSON-RPC error for "blobs not supported" per spec); when missing it failed older runs with -32601.
+
 ## Fix direction (no fixture changes)
 
 | Category | Endpoints / fixtures | Action |
 | -------- | -------------------- | ------ |
-| **Return null for missing block** | eth_getBlockByHash, eth_getBlockReceipts (empty/notfound) | RPC: return `result: null` instead of -32000 for non-existent block hash |
+| **Return null for missing block** | eth_getBlockByHash, eth_getBlockReceipts (empty/notfound) | RPC: return `result: null` instead of -32000 for non-existent block hash (if still failing on your node) |
 | **Block hash lookup** | eth_getBlockTransactionCountByHash (get-genesis) | RPC: resolve block by hash when that hash was returned by getBlockByNumber |
 | **Block range validation** | eth_getLogs (filter-error-future-block-range) | RPC: return -32602 when toBlock > current head |
 | **EIP1559 in eth_call** | eth_call (call-callenv-options-eip1559) | RPC: accept maxFeePerGas/maxPriorityFeePerGas and return result |
-| **Other** | eth_createAccessList (3), eth_estimateGas (2), eth_estimateGasAfterCalls, eth_getBlockByNumber (notfound), eth_getProof (3), eth_getTransactionBy*Index (2) | Investigate; fix RPC or env (e.g. funded “from”, parse, IAVL store, tx index) |
+| **Other** | eth_createAccessList (3), eth_estimateGas (2), eth_estimateGasAfterCalls, eth_getBlockByNumber (notfound), eth_getProof (3), eth_getTransactionBy*Index (2) | Investigate; fix RPC or env (e.g. funded "from", parse, IAVL store, tx index) |
 
 *Removed fixtures (not in suite): call-revert-abi-error.io, call-revert-abi-panic.io, estimate-call-abi-error.io, estimate-failed-call.io. Revert coverage: call-revert-abi-error-sei.iox, call-revert-abi-panic-sei.iox, estimate-call-abi-error-sei.iox, estimate-call-abi-panic-sei.iox (use __REVERTER__). eth_simulateV1 folder is not under testdata.*
