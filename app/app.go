@@ -1004,9 +1004,6 @@ func New(
 	if benchmarkEnabled {
 		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
 		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
-		app.SetPrepareProposalHandler(app.PrepareProposalBenchmarkHandler)
-	} else {
-		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	}
 
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
@@ -1194,14 +1191,6 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
-}
-
-func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	return &abci.ResponsePrepareProposal{
-		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-		}),
-	}, nil
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
