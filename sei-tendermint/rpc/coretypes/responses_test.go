@@ -114,9 +114,7 @@ func TestValidatorInfoJSONReencoding(t *testing.T) {
 
 			var got ValidatorInfo
 			require.NoError(t, json.Unmarshal(raw, &got))
-			if err := utils.TestDiff(want, got); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, utils.TestDiff(want, got))
 		})
 	}
 }

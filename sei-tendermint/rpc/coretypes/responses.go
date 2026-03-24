@@ -129,7 +129,7 @@ type ValidatorInfo struct {
 	VotingPower int64
 }
 
-// CosmJS compatible response, which contains an public key = 0 in case of non-validator nodes.
+// CosmJS compatible response, which contains a public key = 0 in case of non-validator nodes.
 type validatorInfoJSON struct {
 	Address     bytes.HexBytes  `json:"address"`
 	PubKey      json.RawMessage `json:"pub_key"`
