@@ -36,7 +36,6 @@ func SetupWithDB(t *testing.T, isCheckTx bool, db dbm.DB) *app.App {
 		// Initialize the chain
 		a.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: app.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},

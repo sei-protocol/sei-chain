@@ -19,7 +19,6 @@ type RequestInitChain struct {
 	Time            time.Time
 	ChainId         string
 	ConsensusParams *tmproto.ConsensusParams
-	Validators      []ValidatorUpdate
 	AppStateBytes   []byte
 	InitialHeight   int64
 }
@@ -45,8 +44,8 @@ type RequestEndBlock struct {
 }
 
 type ResponseInitChain struct {
-	Validators      []ValidatorUpdate
-	AppHash         []byte
+	Validators []ValidatorUpdate
+	AppHash    []byte
 }
 
 type ResponseGetTxPriorityHint struct {

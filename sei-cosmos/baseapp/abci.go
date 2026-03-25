@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -70,26 +68,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
-
-	// sanity check
-	if len(req.Validators) > 0 {
-		if len(req.Validators) != len(resp.Validators) {
-			return nil,
-				fmt.Errorf(
-					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
-					len(req.Validators), len(resp.Validators),
-				)
-		}
-
-		sort.Sort(abci.ValidatorUpdates(req.Validators))
-		sort.Sort(abci.ValidatorUpdates(resp.Validators))
-
-		for i := range resp.Validators {
-			if !proto.Equal(&resp.Validators[i], &req.Validators[i]) {
-				return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
-			}
-		}
-	}
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.

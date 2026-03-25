@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 
+	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -192,23 +194,40 @@ func (h *Handshaker) ReplayBlocks(
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-		validators := make([]*types.Validator, len(h.genDoc.Validators))
-		for i, val := range h.genDoc.Validators {
-			validators[i] = types.NewValidator(val.PubKey, val.Power)
-		}
-		validatorSet := types.NewValidatorSet(validators)
-		nextVals := types.TM2PB.ValidatorUpdates(validatorSet)
+
 		pbParams := h.genDoc.ConsensusParams.ToProto()
 		res, err := appClient.InitChain(ctx, &abci.RequestInitChain{
 			Time:            h.genDoc.GenesisTime,
 			ChainId:         h.genDoc.ChainID,
 			InitialHeight:   h.genDoc.InitialHeight,
 			ConsensusParams: &pbParams,
-			Validators:      nextVals,
 			AppStateBytes:   h.genDoc.AppState,
 		})
 		if err != nil {
 			return nil, err
+		}
+		// The validator set from genesis is expected to match the output of InitChain.
+		if len(h.genDoc.Validators) > 0 {
+			validators := make([]*types.Validator, len(h.genDoc.Validators))
+			for i, val := range h.genDoc.Validators {
+				validators[i] = types.NewValidator(val.PubKey, val.Power)
+			}
+			valUpdates := types.TM2PB.ValidatorUpdates(types.NewValidatorSet(validators))
+			if len(valUpdates) != len(res.Validators) {
+				return nil, fmt.Errorf(
+					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
+					len(valUpdates), len(res.Validators),
+				)
+			}
+
+			sort.Sort(abci.ValidatorUpdates(valUpdates))
+			sort.Sort(abci.ValidatorUpdates(res.Validators))
+
+			for i := range res.Validators {
+				if !proto.Equal(&res.Validators[i], &valUpdates[i]) {
+					return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
+				}
+			}
 		}
 
 		appHash = res.AppHash
@@ -221,17 +240,17 @@ func (h *Handshaker) ReplayBlocks(
 				state.AppHash = res.AppHash
 			}
 			// If the app returned validators, update the state.
-			if len(res.Validators) > 0 {
-				vals, err := types.PB2TM.ValidatorUpdates(res.Validators)
-				if err != nil {
-					return nil, err
-				}
-				state.Validators = types.NewValidatorSet(vals)
-				state.NextValidators = types.NewValidatorSet(vals).CopyIncrementProposerPriority(1)
-			} else if len(h.genDoc.Validators) == 0 {
+			if len(res.Validators) == 0 {
 				// If validator set is not set in genesis and still empty after InitChain, exit.
 				return nil, fmt.Errorf("validator set is nil in genesis and still empty after InitChain")
 			}
+
+			vals, err := types.PB2TM.ValidatorUpdates(res.Validators)
+			if err != nil {
+				return nil, err
+			}
+			state.Validators = types.NewValidatorSet(vals)
+			state.NextValidators = types.NewValidatorSet(vals).CopyIncrementProposerPriority(1)
 
 			// We update the last results hash with the empty hash, to conform with RFC-6962.
 			state.LastResultsHash = merkle.HashFromByteSlices(nil)

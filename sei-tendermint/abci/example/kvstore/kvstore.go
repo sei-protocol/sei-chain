@@ -97,8 +97,7 @@ func NewApplication() *Application {
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
-
-	for _, v := range req.Validators {
+	for _, v := range RandVals(3) {
 		r := app.updateValidator(v)
 		if r.IsErr() {
 			logger.Error("error updating validators", "err", r)
@@ -131,7 +130,7 @@ func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	}
 
 	if isPrepareTx(tx) {
-		return app.execPrepareTx(tx)
+		return &types.ExecTxResult{}
 	}
 
 	var key, value string
@@ -297,6 +296,16 @@ func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcess
 //---------------------------------------------
 // update validators
 
+func (app *Application) SetValidators(validators []types.ValidatorUpdate) {
+	for _, v := range app.Validators() {
+		v.Power = 0
+		app.updateValidator(v)
+	}
+	for _, v := range validators {
+		app.updateValidator(v)
+	}
+}
+
 func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -425,11 +434,4 @@ const PreparePrefix = "prepare"
 
 func isPrepareTx(tx []byte) bool {
 	return bytes.HasPrefix(tx, []byte(PreparePrefix))
-}
-
-// execPrepareTx is noop. tx data is considered as placeholder
-// and is substitute at the PrepareProposal.
-func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
-	// noop
-	return &types.ExecTxResult{}
 }

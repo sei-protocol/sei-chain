@@ -85,7 +85,6 @@ func Setup(isCheckTx bool) *SimApp {
 		_, err = app.InitChain(
 			context.Background(),
 			&abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
@@ -167,7 +166,6 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		t.Context(),
 		&abci.RequestInitChain{
 			ChainId:         chainID,
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},

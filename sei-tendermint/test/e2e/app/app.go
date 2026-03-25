@@ -16,7 +16,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/sei-protocol/seilog"
 )
@@ -138,11 +137,6 @@ func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain)
 	}
 	resp := &abci.ResponseInitChain{
 		AppHash: app.state.Hash,
-		ConsensusParams: &types.ConsensusParams{
-			Version: &types.VersionParams{
-				AppVersion: 1,
-			},
-		},
 	}
 	if resp.Validators, err = app.validatorUpdates(0); err != nil {
 		panic(err)

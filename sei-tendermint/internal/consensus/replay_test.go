@@ -298,7 +298,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		nVals,
 		nPeers,
 		newMockTickerFunc(true),
-		newEpehemeralKVStore)
+	)
 	sim.Config = cfg
 	defer func() { t.Cleanup(cleanup) }()
 
@@ -772,7 +772,7 @@ func applyBlock(
 func buildAppStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	appClient abci.Application,
+	appClient *kvstore.Application,
 	stateStore sm.Store,
 	mempool mempool.Mempool,
 	evpool sm.EvidencePool,
@@ -787,11 +787,9 @@ func buildAppStateFromChain(
 	// start a new app without handshake, play nBlocks blocks
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
-
+	appClient.SetValidators(validators)
 	require.NoError(t, stateStore.Save(state)) // save height 1's validatorsInfo
 
 	switch mode {
@@ -835,10 +833,9 @@ func buildTMStateFromChain(
 
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := app.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
+	app.SetValidators(validators)
 
 	require.NoError(t, stateStore.Save(state))
 
