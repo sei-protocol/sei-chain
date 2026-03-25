@@ -46,7 +46,7 @@ type StateCommitConfig struct {
 	MemIAVLConfig memiavl.Config
 
 	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
-	FlatKVConfig *flatkv.Config
+	FlatKVConfig flatkv.Config
 
 	// Max concurrent historical proof queries (RPC /store path).
 	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
@@ -67,7 +67,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		ReadMode:          CosmosOnlyRead,
 		EnableLatticeHash: false,
 		MemIAVLConfig:     memiavl.DefaultConfig(),
-		FlatKVConfig:      flatkv.DefaultConfig(),
+		FlatKVConfig:      *flatkv.DefaultConfig(),
 
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,

@@ -45,11 +45,10 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test", EVMStoreName})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -95,11 +94,10 @@ func TestEmptyChangesets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -117,11 +115,10 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -155,11 +152,10 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -234,10 +230,9 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 			cfg.WriteMode = tt.writeMode
 			cfg.EnableLatticeHash = tt.enableLattice
 
-			cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-			require.NoError(t, err)
+			cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 			cs.Initialize([]string{"test", EVMStoreName})
-			_, err = cs.LoadVersion(0, false)
+			_, err := cs.LoadVersion(0, false)
 			require.NoError(t, err)
 			defer cs.Close()
 
@@ -335,11 +330,10 @@ func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	// Commit a few versions
@@ -372,11 +366,10 @@ func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := 0; i < 3; i++ {
@@ -396,8 +389,7 @@ func TestGetVersions(t *testing.T) {
 	}
 	require.NoError(t, cs.Close())
 
-	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()
@@ -410,11 +402,10 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"test"})
 
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -510,10 +501,9 @@ func TestExportImportSplitWrite(t *testing.T) {
 
 	// --- Source store: write cosmos + EVM data ---
 	srcDir := t.TempDir()
-	src, err := NewCompositeCommitStore(t.Context(), srcDir, cfg)
-	require.NoError(t, err)
+	src := NewCompositeCommitStore(t.Context(), srcDir, cfg)
 	src.Initialize([]string{"bank", EVMStoreName})
-	_, err = src.LoadVersion(0, false)
+	_, err := src.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	addr := flatkv.Address{0xAA}
@@ -559,8 +549,7 @@ func TestExportImportSplitWrite(t *testing.T) {
 
 	// --- Destination store: import ---
 	dstDir := t.TempDir()
-	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
-	require.NoError(t, err)
+	dst := NewCompositeCommitStore(t.Context(), dstDir, cfg)
 	dst.Initialize([]string{"bank", EVMStoreName})
 	_, err = dst.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -599,10 +588,9 @@ func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	dir := t.TempDir()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
 	cs.Initialize([]string{"bank"})
-	_, err = cs.LoadVersion(0, false)
+	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{

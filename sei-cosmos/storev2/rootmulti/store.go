@@ -92,15 +92,9 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
-	if err != nil {
-		panic(err)
-	}
+	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		panic(err)
-	}
-	if err := scStore.CleanupCrashArtifacts(); err != nil {
-		panic(fmt.Errorf("failed to cleanup crash artifacts: %w", err))
 	}
 	store := &Store{
 		scStore:          scStore,

@@ -33,8 +33,6 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-
-	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
 	// Collect LtHash pairs per DB (using internal key format)

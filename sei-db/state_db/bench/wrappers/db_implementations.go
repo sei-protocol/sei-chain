@@ -73,10 +73,7 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Composite commit store: %w", err)
-	}
+	cs := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
 	if err := cs.CleanupCrashArtifacts(); err != nil {
 		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
 	}
