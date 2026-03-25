@@ -642,7 +642,6 @@ func NewWasmApp(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetInitChainer(app.InitChainer)
-	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
@@ -681,14 +680,6 @@ func NewWasmApp(
 
 // Name returns the name of the App
 func (app *WasmApp) Name() string { return app.BaseApp.Name() }
-
-func (app *WasmApp) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	return &abci.ResponsePrepareProposal{
-		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-		}),
-	}, nil
-}
 
 func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return &abci.ResponseProcessProposal{

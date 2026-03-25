@@ -1374,14 +1374,15 @@ func TestReopenAfterDeletes(t *testing.T) {
 	_, found = s2.Get(codeKey2)
 	require.False(t, found, "code should stay deleted after reopen")
 
+	// With Account Row GC, all-zero account row is physically deleted.
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal, found := s2.Get(nonceKey)
-	require.True(t, found, "nonce should return found=true after reopen (zero-value write)")
-	require.Equal(t, make([]byte, NonceLen), nonceVal)
+	require.False(t, found, "nonce should not be found after reopen (row deleted)")
+	require.Nil(t, nonceVal)
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
 	chVal, found := s2.Get(chKey)
-	require.False(t, found, "codehash should return found=false after reopen")
+	require.False(t, found, "codehash should not be found after reopen (row deleted)")
 	require.Nil(t, chVal)
 }
 
@@ -1689,4 +1690,177 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(2, false)
 	require.Error(t, err, "LoadVersion should fail: WAL corrupted, can't reach requested version")
+}
+
+// =============================================================================
+// Account Row GC Persistence Tests
+// =============================================================================
+
+func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xE1}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+
+	cs1 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: make([]byte, CodeHashLen)},
+		}},
+	}
+	ch := CodeHash{0xAA}
+	cs1.Changeset.Pairs[1].Value = ch[:]
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit()
+	require.NoError(t, err)
+
+	cs2 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit()
+	require.NoError(t, err)
+
+	hashBefore := s.RootHash()
+	require.NoError(t, s.Close())
+
+	s2, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should match after reopen")
+
+	nonceVal, found := s2.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after reopen (row deleted)")
+	require.Nil(t, nonceVal)
+}
+
+func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xE2}
+
+	cs1 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit() // v1
+	require.NoError(t, err)
+
+	cs2 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit() // v2
+	require.NoError(t, err)
+
+	hashAtV2 := s.RootHash()
+	require.NoError(t, s.Close())
+
+	// Simulate crash: rewind global version to v1 so catchup must replay v2
+	metaCfg := pebbledb.DefaultTestConfig(t)
+	metaCfg.DataDir = filepath.Join(dbDir, "working", metadataDir)
+	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
+	require.NoError(t, err)
+	versionBuf := make([]byte, 8)
+	versionBuf[7] = 1 // version = 1
+	require.NoError(t, mdb.Set(metaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Close())
+
+	s2, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(2), s2.Version())
+	require.Equal(t, hashAtV2, s2.RootHash(), "LtHash should match after WAL replay")
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	_, found := s2.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after WAL replay (row deleted)")
+}
+
+func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	cfg.SnapshotInterval = 1
+	cfg.SnapshotKeepRecent = 2
+
+	s, err := NewCommitStore(context.Background(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := Address{0xE3}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+
+	cs1 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit() // v1 (snapshot taken)
+	require.NoError(t, err)
+
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
+
+	cs2 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit() // v2 (row deleted, snapshot taken)
+	require.NoError(t, err)
+
+	_, found = s.Get(nonceKey)
+	require.False(t, found, "nonce should be gone at v2")
+
+	// Rollback to v1: row should be restored
+	require.NoError(t, s.Rollback(1))
+	require.Equal(t, int64(1), s.Version())
+
+	nonceVal, found = s.Get(nonceKey)
+	require.True(t, found, "nonce should be restored after rollback to v1")
+	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
+
+	require.NoError(t, s.Close())
 }

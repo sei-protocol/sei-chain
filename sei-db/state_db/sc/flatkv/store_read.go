@@ -2,8 +2,12 @@ package flatkv
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // Get returns the value for the given memiavl key.
@@ -16,21 +20,11 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 
 	switch kind {
 	case evm.EVMKeyStorage:
-		// Storage: keyBytes = addr(20) || slot(32)
-		// Check pending writes first
-		if pw, ok := s.storageWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
-
-		// Read from storageDB
-		value, err := s.storageDB.Get(keyBytes)
+		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, value != nil
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 		// Account data: keyBytes = addr(20)
@@ -42,10 +36,19 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 
 		// Check pending writes first
 		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if kind == evm.EVMKeyNonce {
-				return paw.value.NonceBytes()
+			if paw.isDelete {
+				return nil, false
 			}
-			return paw.value.CodeHashBytes()
+			if kind == evm.EVMKeyNonce {
+				nonce := make([]byte, NonceLen)
+				binary.BigEndian.PutUint64(nonce, paw.value.Nonce)
+				return nonce, true
+			}
+			// CodeHash
+			if paw.value.CodeHash == (CodeHash{}) {
+				return nil, false
+			}
+			return paw.value.CodeHash[:], true
 		}
 
 		// Read from accountDB
@@ -59,40 +62,29 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		if kind == evm.EVMKeyNonce {
-			return av.NonceBytes()
+			nonce := make([]byte, NonceLen)
+			binary.BigEndian.PutUint64(nonce, av.Nonce)
+			return nonce, true
 		}
-		return av.CodeHashBytes()
+		// CodeHash
+		if av.CodeHash == (CodeHash{}) {
+			return nil, false
+		}
+		return av.CodeHash[:], true
 
 	case evm.EVMKeyCode:
-		// Code: keyBytes = addr(20) - per x/evm/types/keys.go
-		// Check pending writes first
-		if pw, ok := s.codeWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
-
-		// Read from codeDB
-		value, err := s.codeDB.Get(keyBytes)
+		value, err := s.getCodeValue(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, value != nil
 
 	case evm.EVMKeyLegacy:
-		if pw, ok := s.legacyWrites[string(keyBytes)]; ok {
-			if pw.isDelete {
-				return nil, false
-			}
-			return pw.value, true
-		}
-
-		value, err := s.legacyDB.Get(keyBytes)
+		value, err := s.getLegacyValue(keyBytes)
 		if err != nil {
 			return nil, false
 		}
-		return value, true
+		return value, value != nil
 
 	default:
 		return nil, false
@@ -179,4 +171,73 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	default:
 		return &emptyIterator{}
 	}
+}
+
+// =============================================================================
+// Internal Getters (used by ApplyChangeSets for LtHash computation)
+// =============================================================================
+
+// getAccountValue loads AccountValue from pending writes or DB.
+// Returns zero AccountValue if not found (new account) or if the pending
+// write is marked for deletion (row logically absent).
+// Returns error if existing data is corrupted (decode fails) or I/O error occurs.
+func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
+	// Check pending writes first
+	if paw, ok := s.accountWrites[string(addr[:])]; ok {
+		if paw.isDelete {
+			return AccountValue{}, nil
+		}
+		return paw.value, nil
+	}
+
+	// Read from accountDB
+	value, err := s.accountDB.Get(AccountKey(addr))
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return AccountValue{}, nil // New account
+		}
+		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
+	}
+
+	av, err := DecodeAccountValue(value)
+	if err != nil {
+		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
+	}
+	return av, nil
+}
+
+// getKVValue returns the value from pending writes or the backing DB.
+// Returns (nil, nil) if not found. Returns (nil, error) on I/O error.
+func (s *CommitStore) getKVValue(
+	key []byte,
+	writes map[string]*pendingKVWrite,
+	db seidbtypes.KeyValueDB,
+	dbName string,
+) ([]byte, error) {
+	if pw, ok := writes[string(key)]; ok {
+		if pw.isDelete {
+			return nil, nil
+		}
+		return pw.value, nil
+	}
+	value, err := db.Get(key)
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s I/O error for key %x: %w", dbName, key, err)
+	}
+	return value, nil
+}
+
+func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
+	return s.getKVValue(key, s.storageWrites, s.storageDB, "storageDB")
+}
+
+func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
+	return s.getKVValue(key, s.codeWrites, s.codeDB, "codeDB")
+}
+
+func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
+	return s.getKVValue(key, s.legacyWrites, s.legacyDB, "legacyDB")
 }

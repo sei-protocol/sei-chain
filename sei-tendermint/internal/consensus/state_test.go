@@ -1905,7 +1905,6 @@ func TestProcessProposalAccept(t *testing.T) {
 				status = abci.ResponseProcessProposal_ACCEPT
 			}
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: status}, nil)
-			m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil).Maybe()
 			cs1, _ := makeState(ctx, t, makeStateArgs{config: config, application: m})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 
@@ -1953,7 +1952,6 @@ func TestFinalizeBlockCalled(t *testing.T) {
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{
 				Status: abci.ResponseProcessProposal_ACCEPT,
 			}, nil)
-			m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
 			r := &abci.ResponseFinalizeBlock{AppHash: []byte("the_hash")}
 			m.On("FinalizeBlock", mock.Anything, mock.Anything).Return(r, nil).Maybe()
 			m.On("Commit", mock.Anything).Return(&abci.ResponseCommit{}, nil).Maybe()
@@ -2876,51 +2874,4 @@ func TestAddProposalBlockPartNilProposalBlockParts(t *testing.T) {
 	// Should not add the part and should not return an error (just a debug log)
 	require.False(t, added, "Part should not be added when ProposalBlockParts is nil")
 	require.NoError(t, err, "No error expected when ProposalBlockParts is nil, just debug logging")
-}
-
-// TestCreateProposalBlockPanicRecovery tests that panics in createProposalBlock are recovered
-func TestCreateProposalBlockPanicRecovery(t *testing.T) {
-	ctx := t.Context()
-	config := configSetup(t)
-
-	// Create a consensus state with a panicking app
-	cs1, vss := makeState(ctx, t, makeStateArgs{
-		config:      config,
-		application: &panicConsensusApp{},
-	})
-
-	// Make sure we're at the right height and have validators
-	incrementHeight(vss...)
-
-	cs1.mtx.Lock()
-	// This should trigger the panic recovery mechanism in createProposalBlock
-	block, err := cs1.createProposalBlock(ctx)
-	cs1.mtx.Unlock()
-
-	// Verify panic was recovered and converted to error
-	assert.Nil(t, block, "Block should be nil when panic is recovered")
-	assert.Error(t, err, "Should return error when panic is recovered")
-	assert.Contains(t, err.Error(), "CreateProposalBlock panic recovered", "Error should indicate panic recovery")
-	assert.Contains(t, err.Error(), "consensus panic test", "Error should contain original panic message")
-}
-
-// panicConsensusApp is a test app that panics during PrepareProposal to test panic recovery
-type panicConsensusApp struct {
-	abci.BaseApplication
-}
-
-func (app *panicConsensusApp) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	panic("consensus panic test")
-}
-
-func (app *panicConsensusApp) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-	return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
-}
-
-func (app *panicConsensusApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	return &abci.ResponseFinalizeBlock{}, nil
-}
-
-func (app *panicConsensusApp) Commit(_ context.Context) (*abci.ResponseCommit, error) {
-	return &abci.ResponseCommit{}, nil
 }

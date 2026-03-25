@@ -325,32 +325,6 @@ func (app *Application) ApplySnapshotChunk(_ context.Context, req *abci.RequestA
 	return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 }
 
-// PrepareProposal will take the given transactions and attempt to prepare a
-// proposal from them when it's our turn to do so.
-//
-// NB: Assumes that the supplied transactions do not exceed `req.MaxTxBytes`.
-func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	// None of the transactions are modified by this application.
-	trs := make([]*abci.TxRecord, 0, len(req.Txs))
-	var totalBytes int64
-	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx)) //nolint:gosec // tx length fits in int64
-		if totalBytes > req.MaxTxBytes {
-			break
-		}
-		trs = append(trs, &abci.TxRecord{
-			Action: abci.TxRecord_UNMODIFIED,
-			Tx:     tx,
-		})
-	}
-
-	if app.cfg.PrepareProposalDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.PrepareProposalDelayMS) * time.Millisecond) //nolint:gosec // PrepareProposalDelayMS is a small test config value
-	}
-
-	return &abci.ResponsePrepareProposal{TxRecords: trs}, nil
-}
-
 // ProcessProposal implements part of the Application interface.
 // It accepts any proposal that does not contain a malformed transaction.
 func (app *Application) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {

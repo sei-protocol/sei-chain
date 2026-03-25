@@ -61,12 +61,15 @@ type pendingKVWrite struct {
 // pendingAccountWrite tracks a buffered account write.
 // Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
 //
-// Account-field deletes (KVPair.Delete for nonce or codehash) are field resets
-// within AccountValue, not physical row deletions. The accountDB row always
-// persists; there is no row-level tombstone for accounts.
+// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
+// individual field within value. When all fields become zero after resets,
+// isDelete is set to true and the accountDB row is physically deleted at
+// commit time. Any subsequent write to the same address within the same
+// block clears isDelete back to false (row is recreated).
 type pendingAccountWrite struct {
-	addr  Address
-	value AccountValue
+	addr     Address
+	value    AccountValue
+	isDelete bool // true = row will be physically deleted (all fields zero)
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
@@ -637,7 +640,69 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 			return nil, fmt.Errorf("reopen store for import: %w", err)
 		}
 	}
+	if err := s.resetForImport(); err != nil {
+		return nil, fmt.Errorf("reset store for import: %w", err)
+	}
 	return NewKVImporter(s, version), nil
+}
+
+// resetForImport purges all existing data so that a subsequent import
+// produces a clean store containing only the snapshot being restored.
+// Without this, keys that exist locally but were deleted in the remote
+// snapshot would survive the import, producing a mixed stale state.
+func (s *CommitStore) resetForImport() error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before import reset: %w", err)
+	}
+
+	dir := s.flatkvDir()
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create flatkv dir: %w", err)
+	}
+
+	// rootmulti.Restore calls Close() (which releases the file lock)
+	// before calling Importer(). Re-acquire the lock before mutating
+	// the data directory so no other process can interfere.
+	if s.fileLock == nil {
+		if err := s.acquireFileLock(dir); err != nil {
+			return err
+		}
+	}
+
+	if err := atomicRemoveDir(filepath.Join(dir, workingDirName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", workingDirName, err)
+	}
+
+	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		p := filepath.Join(dir, snapshotName(v))
+		if err := atomicRemoveDir(p); err != nil {
+			return false, fmt.Errorf("remove snapshot %s: %w", p, err)
+		}
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("resetForImport: %w", err)
+	}
+
+	if err := os.Remove(currentPath(dir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
+	}
+
+	if err := atomicRemoveDir(filepath.Join(dir, changelogDir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", changelogDir, err)
+	}
+
+	// Reopen from a pristine empty state. open() will load metadata
+	// from the empty DB (a no-op), then we reset in-memory state below.
+	if err := s.open(); err != nil {
+		return err
+	}
+
+	s.committedVersion = 0
+	s.committedLtHash = lthash.New()
+	s.workingLtHash = lthash.New()
+	s.perDBWorkingLtHash = newPerDBLtHashMap()
+
+	return nil
 }
 
 func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {

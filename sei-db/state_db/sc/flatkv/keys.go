@@ -138,33 +138,10 @@ func (v AccountValue) HasCode() bool {
 	return v.CodeHash != CodeHash{}
 }
 
-// NonceBytes returns the nonce as big-endian bytes.
-// Always returns (bytes, true) — zero is a valid nonce for existing accounts.
-func (v AccountValue) NonceBytes() ([]byte, bool) {
-	b := make([]byte, NonceLen)
-	binary.BigEndian.PutUint64(b, v.Nonce)
-	return b, true
-}
-
-// CodeHashBytes returns the codehash if the account has code.
-// Returns (nil, false) when CodeHash is all zeros (EOA / no code).
-func (v AccountValue) CodeHashBytes() ([]byte, bool) {
-	if v.CodeHash == (CodeHash{}) {
-		return nil, false
-	}
-	return v.CodeHash[:], true
-}
-
-// ClearNonce resets the nonce to zero.
-// The accountDB row persists — this is a logical field reset, not a row delete.
-func (v *AccountValue) ClearNonce() {
-	v.Nonce = 0
-}
-
-// ClearCodeHash resets the codehash to all zeros, marking the account as EOA.
-// The accountDB row persists — this is a logical field reset, not a row delete.
-func (v *AccountValue) ClearCodeHash() {
-	v.CodeHash = CodeHash{}
+// IsEmpty returns true when all fields are zero-valued, indicating the
+// account can be physically deleted from accountDB.
+func (v AccountValue) IsEmpty() bool {
+	return v.Balance == (Balance{}) && v.Nonce == 0 && v.CodeHash == (CodeHash{})
 }
 
 // Encode encodes the AccountValue to bytes.
@@ -175,23 +152,16 @@ func (v AccountValue) Encode() []byte {
 // EncodeAccountValue encodes v into a variable-length slice.
 // EOA accounts (no code) are encoded as 40 bytes, contracts as 72 bytes.
 func EncodeAccountValue(v AccountValue) []byte {
-	if !v.HasCode() {
-		// EOA: balance(32) || nonce(8)
-		b := make([]byte, 0, accountValueEOALen)
-		b = append(b, v.Balance[:]...)
-		var nonce [NonceLen]byte
-		binary.BigEndian.PutUint64(nonce[:], v.Nonce)
-		b = append(b, nonce[:]...)
-		return b
+	size := accountValueEOALen
+	if v.HasCode() {
+		size = accountValueContractLen
 	}
-
-	// Contract: balance(32) || nonce(8) || codehash(32)
-	b := make([]byte, 0, accountValueContractLen)
-	b = append(b, v.Balance[:]...)
-	var nonce [NonceLen]byte
-	binary.BigEndian.PutUint64(nonce[:], v.Nonce)
-	b = append(b, nonce[:]...)
-	b = append(b, v.CodeHash[:]...)
+	b := make([]byte, size)
+	copy(b, v.Balance[:])
+	binary.BigEndian.PutUint64(b[BalanceLen:], v.Nonce)
+	if v.HasCode() {
+		copy(b[BalanceLen+NonceLen:], v.CodeHash[:])
+	}
 	return b
 }
 

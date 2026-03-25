@@ -23,7 +23,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
@@ -52,7 +51,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
-	app.setPrepareProposalState(initHeader)
 	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
@@ -60,7 +58,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
-		app.StoreConsensusParams(app.prepareProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.checkState.ctx, req.ConsensusParams)
 	}
@@ -72,7 +69,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
-	app.initChainer(app.prepareProposalState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
 	res = &resp
 
@@ -947,77 +943,6 @@ func splitPath(requestPath string) (path []string) {
 }
 
 // ABCI++
-func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
-
-	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
-		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
-	}
-
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
-	}
-	if app.prepareProposalState == nil {
-		app.setPrepareProposalState(header)
-	} else {
-		// In the first block, app.prepareProposalState.ctx will already be initialized
-		// by InitChain. Context is now updated with Header information.
-		app.setPrepareProposalHeader(header)
-	}
-
-	app.preparePrepareProposalState()
-
-	defer func() {
-		if err := recover(); err != nil {
-			logger.Error(
-				"panic recovered in PrepareProposal",
-				"height", req.Height,
-				"time", req.Time,
-				"panic", err,
-			)
-
-			resp = &abci.ResponsePrepareProposal{
-				TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-					return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-				}),
-			}
-		}
-	}()
-
-	if app.prepareProposalHandler != nil {
-		resp, err = app.prepareProposalHandler(app.prepareProposalState.ctx, req)
-		if err != nil {
-			return nil, err
-		}
-
-		if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
-			resp.ConsensusParamUpdates = cp
-		}
-
-		return resp, nil
-	}
-
-	return nil, errors.New("no prepare proposal handler")
-}
-
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 	if app.ChainID != req.Header.ChainID {

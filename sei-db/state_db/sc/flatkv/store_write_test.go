@@ -285,11 +285,12 @@ func TestStoreWriteDelete(t *testing.T) {
 	_, err := s.storageDB.Get(StorageKey(addr, slot))
 	require.Error(t, err, "storage should be deleted")
 
-	// Verify nonce is set to 0 (delete in AccountValue context)
+	// Nonce was the only account field written (no codehash). After delete,
+	// all fields are zero so the accountDB row is physically deleted.
 	nonceKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceValue, found := s.Get(nonceKeyDel)
-	require.True(t, found, "nonce entry should still exist but be zero")
-	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 0}, nonceValue, "nonce should be 0 after delete")
+	require.False(t, found, "nonce should not be found after account row deletion")
+	require.Nil(t, nonceValue)
 
 	// Verify code is deleted
 	codeKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
@@ -917,26 +918,26 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
 	commitAndCheck(t, s)
 
+	// After deleting all account fields, the row is physically deleted (Account Row GC).
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal, found := s.Get(nonceKey)
-	require.True(t, found, "nonce Get should return found=true after delete")
-	require.Equal(t, make([]byte, NonceLen), nonceVal, "nonce should be zero bytes")
+	require.False(t, found, "nonce should not be found after all-zero account row deletion")
+	require.Nil(t, nonceVal)
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
 	chVal, found := s.Get(chKey)
-	require.False(t, found, "codehash Get should return found=false after delete")
+	require.False(t, found, "codehash should not be found after row deletion")
 	require.Nil(t, chVal)
 
 	require.False(t, s.Has(chKey), "Has(codehash) should be false after delete")
-	require.True(t, s.Has(nonceKey), "Has(nonce) should be true after delete")
+	require.False(t, s.Has(nonceKey), "Has(nonce) should be false after row deletion")
 
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 	_, found = s.Get(codeKey)
 	require.False(t, found, "code should be physically deleted")
 
-	raw, err := s.accountDB.Get(AccountKey(addr))
-	require.NoError(t, err, "accountDB entry should persist after account delete")
-	require.NotNil(t, raw)
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be physically deleted when all fields are zero")
 }
 
 // =============================================================================
@@ -1142,10 +1143,10 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
+		// With Account Row GC, nonce-only account becomes all-zero → row deleted
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-		val, found := s.Get(key)
-		require.True(t, found, "nonce delete zeroes but row persists")
-		require.Equal(t, make([]byte, NonceLen), val)
+		_, found := s.Get(key)
+		require.False(t, found, "nonce-only account should be deleted after nonce delete")
 	})
 
 	t.Run("nonce-delete-then-write", func(t *testing.T) {
@@ -1186,7 +1187,7 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
 		_, found := s.Get(key)
-		require.False(t, found, "codehash delete -> not found (asymmetric with nonce)")
+		require.False(t, found, "codehash-only account: delete → all-zero → row deleted")
 	})
 
 	t.Run("codehash-delete-then-write", func(t *testing.T) {
@@ -1267,6 +1268,170 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), av3.Nonce, "nonce should survive codehash deletion")
 	require.Equal(t, CodeHash{}, av3.CodeHash, "codehash should be zero after delete")
+}
+
+// =============================================================================
+// Account Row GC
+// =============================================================================
+
+func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xA1)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	ch := codeHashN(0xBB)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 42), codeHashPair(addr, ch)),
+	}))
+	commitAndCheck(t, s)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
+	}))
+	commitAndCheck(t, s)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be physically deleted")
+
+	nonceVal, found := s.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after row deletion")
+	require.Nil(t, nonceVal)
+
+	chVal, found := s.Get(chKey)
+	require.False(t, found, "codehash should not be found after row deletion")
+	require.Nil(t, chVal)
+}
+
+func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xA2)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	ch := codeHashN(0xCC)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 7), codeHashPair(addr, ch)),
+	}))
+	commitAndCheck(t, s)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(codeHashDeletePair(addr)),
+	}))
+	commitAndCheck(t, s)
+
+	raw, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err, "accountDB row should still exist after partial delete")
+	require.NotNil(t, raw)
+
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found, "nonce should still be readable")
+	require.Equal(t, nonceBytes(7), nonceVal)
+}
+
+func TestAccountRowDeleteThenRecreate(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xA3)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 10)),
+	}))
+	commitAndCheck(t, s)
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(nonceDeletePair(addr)),
+	}))
+	commitAndCheck(t, s)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "row should be deleted after all-zero")
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 99)),
+	}))
+	commitAndCheck(t, s)
+
+	raw, err := s.accountDB.Get(AccountKey(addr))
+	require.NoError(t, err, "row should be recreated")
+	require.NotNil(t, raw)
+
+	nonceVal, found := s.Get(nonceKey)
+	require.True(t, found)
+	require.Equal(t, nonceBytes(99), nonceVal)
+}
+
+// =============================================================================
+// Write-Zero Triggers GC (EIP-161 alignment)
+// =============================================================================
+
+// TestAccountRowGCOnWriteZero verifies that writing a zero value (as opposed
+// to a Delete) still triggers row GC when the result is an all-zero account.
+// This is critical for future balance support where SetBalance(0) is a write,
+// not a delete.
+func TestAccountRowGCOnWriteZero(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xA4)
+
+	// Block 1: write nonce = 5
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 5)),
+	}))
+	commitAndCheck(t, s)
+
+	// Block 2: write nonce = 0 (write, not delete)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 0)),
+	}))
+	commitAndCheck(t, s)
+
+	_, err := s.accountDB.Get(AccountKey(addr))
+	require.Error(t, err, "accountDB row should be GC'd when write-zero makes account empty")
+
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	_, found := s.Get(nonceKey)
+	require.False(t, found, "nonce should not be found after write-zero GC")
+}
+
+// TestAccountRowGCWriteZeroOrderIndependent verifies that the order of
+// delete + write-zero operations within a single changeset does not affect
+// whether GC occurs.
+func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
+	for _, name := range []string{"delete-then-write-zero", "write-zero-then-delete"} {
+		t.Run(name, func(t *testing.T) {
+			s := setupTestStore(t)
+			defer s.Close()
+
+			addr := addrN(0xA5)
+			ch := codeHashN(0xDD)
+
+			// Block 1: nonce=5 + codehash
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+				namedCS(noncePair(addr, 5), codeHashPair(addr, ch)),
+			}))
+			commitAndCheck(t, s)
+
+			// Block 2: one field deleted, one field written to zero
+			var pairs []*iavl.KVPair
+			if name == "delete-then-write-zero" {
+				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+			} else {
+				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+			}
+			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+			commitAndCheck(t, s)
+
+			_, err := s.accountDB.Get(AccountKey(addr))
+			require.Error(t, err, "accountDB row should be GC'd regardless of operation order")
+		})
+	}
 }
 
 // =============================================================================

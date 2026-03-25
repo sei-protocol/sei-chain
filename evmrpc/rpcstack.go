@@ -42,6 +42,9 @@ type HTTPConfig struct {
 	CorsAllowedOrigins []string
 	Vhosts             []string
 	DenyList           []string
+	// SeiLegacyAllowlist is BuildSeiLegacyEnabledSet(app.toml enabled_legacy_sei_apis); nil skips the HTTP gate
+	// for gated sei_* and sei2_* methods.
+	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
 }
@@ -312,8 +315,9 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		srv.RegisterDenyList(method)
 	}
 	h.HTTPConfig = config
+	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
 	h.httpHandler.Store(&rpcHandler{
-		Handler: NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret),
+		Handler: wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist),
 		server:  srv,
 	})
 	return nil

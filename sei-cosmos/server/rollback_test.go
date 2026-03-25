@@ -94,10 +94,6 @@ func (m *mockApplication) ApplySnapshotChunk(ctx context.Context, req *abci.Requ
 	return &abci.ResponseApplySnapshotChunk{}, nil
 }
 
-func (m *mockApplication) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	return &abci.ResponsePrepareProposal{}, nil
-}
-
 func (m *mockApplication) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return &abci.ResponseProcessProposal{}, nil
 }

@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -332,4 +333,179 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.Equal(t, nonceVal, got)
 
 	require.Equal(t, srcHash, s2.RootHash())
+}
+
+// TestImportPurgesStaleData verifies that importing a snapshot into a store
+// that already contains data removes keys not present in the snapshot.
+// Covers all four DB types: storage, account (nonce/codehash), code, and
+// ensures stale keys from every DB are purged.
+func TestImportPurgesStaleData(t *testing.T) {
+	// --- Phase 1: populate a store with data across all DB types ---
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addrA := Address{0xAA}
+	addrB := Address{0xBB}
+	addrStale := Address{0xCC} // will be absent from the imported snapshot
+	slotA := Slot{0x01}
+	slotStale := Slot{0x03}
+
+	// Storage keys
+	storageA := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrA, slotA))
+	storageStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrStale, slotStale))
+	// Account keys (nonce + codehash)
+	nonceA := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addrA[:])
+	nonceStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addrStale[:])
+	codeHashB := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addrB[:])
+	codeHashStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addrStale[:])
+	// Code key
+	codeB := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrB[:])
+	codeStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrStale[:])
+
+	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
+	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal[31] = 0xAB
+	codeVal := []byte{0x60, 0x80}
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: storageA, Value: []byte{0x0A}},
+			{Key: storageStale, Value: []byte{0x0C}},
+			{Key: nonceA, Value: nonceVal},
+			{Key: nonceStale, Value: nonceVal},
+			{Key: codeHashB, Value: codeHashVal},
+			{Key: codeHashStale, Value: codeHashVal},
+			{Key: codeB, Value: codeVal},
+			{Key: codeStale, Value: codeVal},
+		}}},
+	}))
+	commitAndCheck(t, s)
+
+	staleKeys := [][]byte{storageStale, nonceStale, codeHashStale, codeStale}
+
+	for _, k := range staleKeys {
+		_, found := s.Get(k)
+		require.True(t, found, "pre-import: key should exist")
+	}
+
+	// --- Phase 2: build a snapshot that only contains addrA/addrB data ---
+	src := setupTestStore(t)
+	defer src.Close()
+
+	newStorageVal := []byte{0xA1}
+	newNonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 5}
+	newCodeHashVal := make([]byte, CodeHashLen)
+	newCodeHashVal[31] = 0xCD
+	newCodeVal := []byte{0x60, 0x40, 0x52}
+
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: storageA, Value: newStorageVal},
+			{Key: nonceA, Value: newNonceVal},
+			{Key: codeHashB, Value: newCodeHashVal},
+			{Key: codeB, Value: newCodeVal},
+		}}},
+	}))
+	commitAndCheck(t, src)
+	srcHash := src.RootHash()
+
+	exp, err := src.Exporter(1)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	// --- Phase 3: import snapshot into the existing store ---
+	require.NoError(t, s.Close())
+
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	imp, err := s.Importer(1)
+	require.NoError(t, err)
+	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	require.NoError(t, imp.Close())
+
+	// --- Phase 4: verify stale keys are gone across all DB types ---
+	got, found := s.Get(storageA)
+	require.True(t, found, "storage key A should exist")
+	require.Equal(t, newStorageVal, got)
+
+	got, found = s.Get(nonceA)
+	require.True(t, found, "nonce key A should exist")
+	require.Equal(t, newNonceVal, got)
+
+	got, found = s.Get(codeB)
+	require.True(t, found, "code key B should exist")
+	require.Equal(t, newCodeVal, got)
+
+	got, found = s.Get(codeHashB)
+	require.True(t, found, "codehash key B should exist")
+	require.Equal(t, newCodeHashVal, got)
+
+	for _, k := range staleKeys {
+		_, found = s.Get(k)
+		require.False(t, found, "stale key should NOT exist after import")
+	}
+
+	require.Equal(t, srcHash, s.RootHash(), "LtHash must match source after clean import")
+
+	// Verify the store survives a reopen.
+	require.NoError(t, s.Close())
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(1, false)
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.Equal(t, int64(1), s.Version())
+	for _, k := range staleKeys {
+		_, found = s.Get(k)
+		require.False(t, found, "stale key must remain absent after reopen")
+	}
+	require.Equal(t, srcHash, s.RootHash())
+}
+
+func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, flatkvRootDir)
+
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s.Close()
+
+	current := currentPath(s.flatkvDir())
+	err = os.Remove(current)
+	if err != nil && !os.IsNotExist(err) {
+		require.NoError(t, err)
+	}
+	require.NoError(t, os.Mkdir(current, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(current, "sentinel"), []byte("blocked"), 0o600))
+
+	imp, err := s.Importer(1)
+	require.Nil(t, imp)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reset store for import")
+	require.Contains(t, err.Error(), "remove "+currentLink)
+
+	info, statErr := os.Stat(current)
+	require.NoError(t, statErr)
+	require.True(t, info.IsDir(), "failed reset must not proceed past the invalid current path")
 }
