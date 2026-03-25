@@ -31,7 +31,7 @@ import (
 
 // InitChain implements the ABCI interface. It runs the initialization logic
 // directly on the CommitMultiStore.
-func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (res *abci.ResponseInitChain, err error) {
+func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	// On a new chain, we consider the init chain block height as 0, even though
 	// req.InitialHeight is 1 by default.
 	initHeader := tmproto.Header{ChainID: req.ChainId, Time: req.Time}
@@ -65,28 +65,27 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	app.SetDeliverStateToCommit()
 
 	if app.initChainer == nil {
-		return
+		return nil, nil
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
-	res = &resp
 
 	// sanity check
 	if len(req.Validators) > 0 {
-		if len(req.Validators) != len(res.Validators) {
+		if len(req.Validators) != len(resp.Validators) {
 			return nil,
 				fmt.Errorf(
 					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
-					len(req.Validators), len(res.Validators),
+					len(req.Validators), len(resp.Validators),
 				)
 		}
 
 		sort.Sort(abci.ValidatorUpdates(req.Validators))
-		sort.Sort(abci.ValidatorUpdates(res.Validators))
+		sort.Sort(abci.ValidatorUpdates(resp.Validators))
 
-		for i := range res.Validators {
-			if !proto.Equal(&res.Validators[i], &req.Validators[i]) {
+		for i := range resp.Validators {
+			if !proto.Equal(&resp.Validators[i], &req.Validators[i]) {
 				return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
 			}
 		}
@@ -106,11 +105,8 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	// NOTE: We don't commit, but BeginBlock for block `initial_height` starts from this
 	// deliverState.
-	return &abci.ResponseInitChain{
-		ConsensusParams: res.ConsensusParams,
-		Validators:      res.Validators,
-		AppHash:         appHash,
-	}, nil
+	resp.AppHash = appHash
+	return &resp, nil
 }
 
 // Info implements the ABCI interface.

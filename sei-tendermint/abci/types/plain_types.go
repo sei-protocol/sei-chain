@@ -45,7 +45,6 @@ type RequestEndBlock struct {
 }
 
 type ResponseInitChain struct {
-	ConsensusParams *tmproto.ConsensusParams
 	Validators      []ValidatorUpdate
 	AppHash         []byte
 }
