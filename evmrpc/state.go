@@ -11,8 +11,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
+	gigacachekv "github.com/sei-protocol/sei-chain/giga/deps/store"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
-	iavlstore "github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
@@ -115,28 +118,15 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 		return nil, err
 	}
-	var iavl *iavlstore.Store
-	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
-OUTER:
-	for {
-		switch cast := s.(type) {
-		case *iavlstore.Store:
-			iavl = cast
-			break OUTER
-		case *cachekv.Store:
-			if cast.GetParent() == nil {
-				return nil, errors.New("cannot find EVM IAVL store")
-			}
-			s = cast.GetParent()
-		default:
-			return nil, errors.New("cannot find EVM IAVL store")
-		}
+	queryStore, err := findQueryableKVStore(sdkCtx.MultiStore().GetKVStore(a.keeper.GetStoreKey()))
+	if err != nil {
+		return nil, err
 	}
 	proofResult := ProofResult{Address: address}
 	for _, key := range storageKeys {
 		paddedKey := common.BytesToHash([]byte(key))
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
-		qres := iavl.Query(abci.RequestQuery{
+		qres := queryStore.Query(abci.RequestQuery{
 			Path:   "/key",
 			Data:   formattedKey,
 			Height: block.Block.Height,
@@ -147,6 +137,45 @@ OUTER:
 	}
 
 	return &proofResult, nil
+}
+
+// findQueryableKVStore unwraps known KVStore wrappers until it reaches a types.Queryable
+// (classic IAVL, store/v2 memiavl commitment, or future proof-capable roots).
+func findQueryableKVStore(s sdk.KVStore) (storetypes.Queryable, error) {
+	const maxDepth = 64
+	for range maxDepth {
+		if s == nil {
+			return nil, errors.New("cannot find EVM IAVL store")
+		}
+		switch cast := s.(type) {
+		case *cachekv.Store:
+			if cast.GetParent() == nil {
+				return nil, errors.New("cannot find EVM IAVL store")
+			}
+			s = cast.GetParent()
+			continue
+		case *gigacachekv.Store:
+			if cast.GetParent() == nil {
+				return nil, errors.New("cannot find EVM IAVL store")
+			}
+			s = cast.GetParent()
+			continue
+		case *tracekv.Store:
+			s = cast.Parent()
+			continue
+		case prefix.Store:
+			s = cast.Parent()
+			continue
+		case *prefix.Store:
+			s = cast.Parent()
+			continue
+		}
+		if q, ok := s.(storetypes.Queryable); ok {
+			return q, nil
+		}
+		return nil, errors.New("cannot find EVM IAVL store")
+	}
+	return nil, errors.New("cannot find EVM IAVL store: exceeded unwrap depth")
 }
 
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
