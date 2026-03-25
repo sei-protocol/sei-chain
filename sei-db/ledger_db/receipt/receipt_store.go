@@ -12,7 +12,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
@@ -22,7 +21,10 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "ledger-db", "receipt")
 
 // Sentinel errors for consistent error checking.
 var (
@@ -75,18 +77,34 @@ func normalizeReceiptBackend(backend string) string {
 	}
 }
 
-func NewReceiptStore(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
-	backend, err := newReceiptBackend(log, config, storeKey)
+func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	backend, err := newReceiptBackend(config, storeKey)
 	if err != nil {
 		return nil, err
 	}
 	return newCachedReceiptStore(backend), nil
 }
 
-func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
-	if log == nil {
-		log = dbLogger.NewNopLogger()
+// BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.
+// Returns "" if store is nil or the backend type is unknown.
+func BackendTypeName(store ReceiptStore) string {
+	if store == nil {
+		return ""
 	}
+	if c, ok := store.(*cachedReceiptStore); ok {
+		store = c.backend
+	}
+	switch store.(type) {
+	case *parquetReceiptStore:
+		return receiptBackendParquet
+	case *receiptStore:
+		return receiptBackendPebble
+	default:
+		return "unknown"
+	}
+}
+
+func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if config.DBDirectory == "" {
 		return nil, errors.New("receipt store db directory not configured")
 	}
@@ -94,10 +112,11 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
 	case receiptBackendParquet:
-		return newParquetReceiptStore(log, config, storeKey)
+		return newParquetReceiptStore(config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
+		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
@@ -109,7 +128,7 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 		if err != nil {
 			return nil, err
 		}
-		if err := recoverReceiptStore(log, dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
+		if err := recoverReceiptStore(dbutils.GetChangelogPath(ssConfig.DBDirectory), db); err != nil {
 			_ = db.Close()
 			return nil, err
 		}
@@ -118,7 +137,7 @@ func newReceiptBackend(log dbLogger.Logger, config dbconfig.ReceiptStoreConfig, 
 			storeKey:    storeKey,
 			stopPruning: make(chan struct{}),
 		}
-		startReceiptPruning(log, db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
+		startReceiptPruning(db, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds), rs.stopPruning, &rs.pruneWg)
 		return rs, nil
 	default:
 		return nil, fmt.Errorf("unsupported receipt store backend: %s", config.Backend)
@@ -247,10 +266,10 @@ func (s *receiptStore) Close() error {
 	return err
 }
 
-func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db seidbtypes.StateStore) error {
+func recoverReceiptStore(changelogPath string, db seidbtypes.StateStore) error {
 	ssLatestVersion := db.GetLatestVersion()
-	log.Info(fmt.Sprintf("Recovering from changelog %s with latest receipt version %d", changelogPath, ssLatestVersion))
-	streamHandler, err := wal.NewChangelogWAL(log, changelogPath, wal.Config{})
+	logger.Info("Recovering from changelog with latest receipt version", "changelog-path", changelogPath, "version", ssLatestVersion)
+	streamHandler, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
 	if err != nil {
 		return err
 	}
@@ -284,7 +303,7 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db seidbtype
 	}
 	// Replay from the offset where the version is larger than SS store latest version
 	targetStartOffset := curOffset
-	log.Info(fmt.Sprintf("Start replaying changelog to recover ReceiptStore from offset %d to %d", targetStartOffset, lastOffset))
+	logger.Info("Start replaying changelog to recover ReceiptStore", "from-offset", targetStartOffset, "to-offset", lastOffset)
 	if targetStartOffset < lastOffset {
 		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
 			// commit to state store
@@ -300,7 +319,7 @@ func recoverReceiptStore(log dbLogger.Logger, changelogPath string, db seidbtype
 	return nil
 }
 
-func startReceiptPruning(log dbLogger.Logger, db seidbtypes.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
+func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterval int64, stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if keepRecent <= 0 || pruneInterval <= 0 {
 		return
 	}
@@ -310,7 +329,7 @@ func startReceiptPruning(log dbLogger.Logger, db seidbtypes.StateStore, keepRece
 		for {
 			select {
 			case <-stopCh:
-				log.Info("Receipt store pruning goroutine stopped")
+				logger.Info("Receipt store pruning goroutine stopped")
 				return
 			default:
 			}
@@ -321,9 +340,9 @@ func startReceiptPruning(log dbLogger.Logger, db seidbtypes.StateStore, keepRece
 			if pruneVersion > 0 {
 				// prune all versions up to and including the pruneVersion
 				if err := db.Prune(pruneVersion); err != nil {
-					log.Error("failed to prune receipt store till", "version", pruneVersion, "err", err)
+					logger.Error("failed to prune receipt store till", "version", pruneVersion, "err", err)
 				}
-				log.Info(fmt.Sprintf("Pruned receipt store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime)))
+				logger.Info("Pruned receipt store till version", "version", pruneVersion, "took", time.Since(pruneStartTime))
 			}
 
 			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
@@ -333,7 +352,7 @@ func startReceiptPruning(log dbLogger.Logger, db seidbtypes.StateStore, keepRece
 
 			select {
 			case <-stopCh:
-				log.Info("Receipt store pruning goroutine stopped")
+				logger.Info("Receipt store pruning goroutine stopped")
 				return
 			case <-time.After(sleepDuration):
 				// Continue to next iteration

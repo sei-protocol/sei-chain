@@ -203,7 +203,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
 				// If we can't calculate the ratio, use 0.0 as fallback
-				sdkCtx.Logger().Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
+				logger.Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
 			} else {
 				gasUsedRatio = calculatedRatio
@@ -262,6 +262,21 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 		return (*hexutil.Big)(big.NewInt(0)), nil
 	}
 	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
+}
+
+func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
+// Syncing implements eth_syncing. It is intentionally registered (not removed): the RPC returns
+// JSON-RPC error -32000 with a clear message instead of -32601 method not found. Ethereum returns
+// false or a sync object; Sei does not expose sync semantics on this API.
+func (i *InfoAPI) Syncing() (result any, returnErr error) {
+	startTime := time.Now()
+	defer recordMetricsWithError("eth_Syncing", i.connectionType, startTime, returnErr)
+	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
 func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {

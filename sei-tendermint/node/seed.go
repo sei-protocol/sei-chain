@@ -16,7 +16,6 @@ import (
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -24,7 +23,6 @@ import (
 
 type seedNodeImpl struct {
 	service.BaseService
-	logger log.Logger
 
 	// config
 	config     *config.Config
@@ -45,7 +43,6 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
-	logger log.Logger,
 	cfg *config.Config,
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
@@ -71,14 +68,14 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
 			peerCloser)
 	}
 
-	pexReactor, err := pex.NewReactor(logger, router, pex.DefaultSendInterval)
+	pexReactor, err := pex.NewReactor(router, pex.DefaultSendInterval)
 	if err != nil {
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
@@ -94,13 +91,12 @@ func makeSeedNode(
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
-	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+	eventBus := eventbus.NewDefault()
 
 	stateStore := sm.NewStore(stateDB)
 
 	node := &seedNodeImpl{
 		config:     cfg,
-		logger:     logger,
 		genesisDoc: genDoc,
 
 		nodeKey: nodeKey,
@@ -115,17 +111,16 @@ func makeSeedNode(
 			StateStore: stateStore,
 			BlockStore: blockStore,
 
-			PeerManager: router,
+			Router: router,
 
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
-			Logger:     logger.With("module", "rpc"),
 			Config:     *cfg.RPC,
 		},
 		nodeInfo: nodeInfo,
 	}
-	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
+	node.BaseService = *service.NewBaseService("SeedNode", node)
 
 	return node, nil
 }
@@ -151,10 +146,10 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 		}()
 
 		go func() {
-			n.logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
+			logger.Info("Starting pprof server", "laddr", n.config.RPC.PprofListenAddress)
 
 			if err := srv.ListenAndServe(); err != nil {
-				n.logger.Error("pprof server error", "err", err)
+				logger.Error("pprof server error", "err", err)
 				rpcCancel()
 			}
 		}()
@@ -163,7 +158,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 	now := tmtime.Now()
 	genTime := n.genesisDoc.GenesisTime
 	if genTime.After(now) {
-		n.logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
+		logger.Info("Genesis time is in the future. Sleeping until then...", "genTime", genTime)
 		time.Sleep(genTime.Sub(now))
 	}
 
@@ -184,7 +179,7 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 
 // OnStop stops the Seed Node. It implements service.Service.
 func (n *seedNodeImpl) OnStop() {
-	n.logger.Info("Stopping Node")
+	logger.Info("Stopping Node")
 
 	n.pexReactor.Wait()
 	n.router.Wait()
@@ -192,7 +187,7 @@ func (n *seedNodeImpl) OnStop() {
 
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {
-			n.logger.Error("problem shutting down additional services", "err", err)
+			logger.Error("problem shutting down additional services", "err", err)
 		}
 	}
 }

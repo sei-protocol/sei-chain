@@ -13,11 +13,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "state")
 
 //-----------------------------------------------------------------------------
 // BlockExecutor handles block execution and state updates.
@@ -43,7 +45,6 @@ type BlockExecutor struct {
 	mempool mempool.Mempool
 	evpool  EvidencePool
 
-	logger  log.Logger
 	metrics *Metrics
 
 	// cache the verification results over a single height
@@ -53,7 +54,6 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	logger log.Logger,
 	app abci.Application,
 	pool mempool.Mempool,
 	evpool EvidencePool,
@@ -67,7 +67,6 @@ func NewBlockExecutor(
 		app:        app,
 		mempool:    pool,
 		evpool:     evpool,
-		logger:     logger,
 		metrics:    metrics,
 		cache:      make(map[string]struct{}),
 		blockStore: blockStore,
@@ -93,7 +92,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 ) (block *types.Block, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			blockExec.logger.Error("panic recovered in CreateProposalBlock", "panic", r, "height", height)
+			logger.Error("panic recovered in CreateProposalBlock", "panic", r, "height", height)
 			// Convert panic to error
 			block = nil
 			err = fmt.Errorf("CreateProposalBlock panic recovered: %v", r)
@@ -111,53 +110,6 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
-	rpp, err := blockExec.app.PrepareProposal(
-		ctx,
-		&abci.RequestPrepareProposal{
-			MaxTxBytes:            maxDataBytes,
-			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommitInfo:   buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			ProposerAddress:       block.ProposerAddress,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
-		},
-	)
-	if err != nil {
-		// The App MUST ensure that only valid (and hence 'processable') transactions
-		// enter the mempool. Hence, at this point, we can't have any non-processable
-		// transaction causing an error.
-		//
-		// Also, the App can simply skip any transaction that could cause any kind of trouble.
-		// Either way, we cannot recover in a meaningful way, unless we skip proposing
-		// this block, repair what caused the error and try again. Hence, we return an
-		// error for now (the production code calling this function is expected to panic).
-		return nil, err
-	}
-	txrSet := types.NewTxRecordSet(rpp.TxRecords)
-
-	if err := txrSet.Validate(maxDataBytes, block.Txs); err != nil {
-		return nil, err
-	}
-
-	for _, rtx := range txrSet.RemovedTxs() {
-		if err := blockExec.mempool.RemoveTxByKey(rtx.Key()); err != nil {
-			blockExec.logger.Debug("error removing transaction from the mempool", "error", err, "tx hash", rtx.Hash())
-		}
-	}
-	itxs := txrSet.IncludedTxs()
-	block = state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr)
 	return block, nil
 }
 
@@ -172,24 +124,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 ) (bool, error) {
 	txs := block.Txs.ToSliceOfBytes()
 	resp, err := blockExec.app.ProcessProposal(ctx, &abci.RequestProcessProposal{
-		Hash:                  block.Header.Hash(),
-		Height:                block.Height,
-		Time:                  block.Time,
-		Txs:                   txs,
-		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-		ByzantineValidators:   block.Evidence.ToABCI(),
-		ProposerAddress:       block.ProposerAddress,
-		NextValidatorsHash:    block.NextValidatorsHash,
-		AppHash:               block.AppHash,
-		ValidatorsHash:        block.ValidatorsHash,
-		ConsensusHash:         block.ConsensusHash,
-		DataHash:              block.DataHash,
-		EvidenceHash:          block.EvidenceHash,
-		LastBlockHash:         block.LastBlockID.Hash,
-		LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-		LastBlockPartSetHash:  block.LastBlockID.Hash,
-		LastCommitHash:        block.LastCommitHash,
-		LastResultsHash:       block.LastResultsHash,
+		Txs:                 txs,
+		ProposedLastCommit:  buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+		ByzantineValidators: block.Evidence.ToABCI(),
+		Hash:                block.Header.Hash(),
+		Header:              block.Header.ToProto(),
 	})
 	if err != nil {
 		return false, ErrInvalidBlock(err)
@@ -215,13 +154,13 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
-			blockExec.logger.Error("LastResultsHash mismatch detected",
+			logger.Error("LastResultsHash mismatch detected",
 				"height", block.Height,
 				"expectedHash", fmt.Sprintf("%X", state.LastResultsHash),
 				"gotHash", fmt.Sprintf("%X", block.LastResultsHash),
 				"blockHash", fmt.Sprintf("%X", block.Hash()),
 				"lastBlockHeight", state.LastBlockHeight,
-				"lastBlockID", state.LastBlockID.String(),
+				"lastBlockID", state.LastBlockID,
 				"numTxs", len(block.Txs),
 			)
 		}
@@ -270,24 +209,11 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	fBlockRes, err := blockExec.app.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   txs,
-			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			ProposerAddress:       block.ProposerAddress,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 txs,
+			DecidedLastCommit:   buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
@@ -298,7 +224,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, ErrProxyAppConn(err)
 	}
 
-	blockExec.logger.Info(
+	logger.Info(
 		"finalized block",
 		"height", block.Height,
 		"latency_ms", time.Since(startTime).Milliseconds(),
@@ -335,7 +261,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, err
 	}
 	if len(validatorUpdates) > 0 {
-		blockExec.logger.Debug("updates to validators", "updates", types.ValidatorListString(validatorUpdates))
+		logger.Debug("updates to validators", "updates", types.ValidatorListString(validatorUpdates))
 		blockExec.metrics.ValidatorSetUpdates.Add(1)
 	}
 	if fBlockRes.ConsensusParamUpdates != nil {
@@ -356,14 +282,14 @@ func (blockExec *BlockExecutor) ApplyBlock(
 
 	// Log LastResultsHash computation details for debugging consensus issues
 	if len(fBlockRes.TxResults) > 0 {
-		blockExec.logger.Info("LastResultsHash computed",
+		logger.Info("LastResultsHash computed",
 			"height", block.Height,
 			"hash", fmt.Sprintf("%X", h),
 			"txCount", len(fBlockRes.TxResults),
 		)
 		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
 		for i, txRes := range fBlockRes.TxResults {
-			blockExec.logger.Debug("TxResult for LastResultsHash",
+			logger.Debug("TxResult for LastResultsHash",
 				"height", block.Height,
 				"txIndex", i,
 				"code", txRes.Code,
@@ -396,7 +322,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		commitSpan.End()
 	}
 	if time.Since(commitStart) > 1000*time.Millisecond {
-		blockExec.logger.Info("commit in blockExec",
+		logger.Info("commit in blockExec",
 			"duration", time.Since(commitStart),
 			"height", block.Height)
 	}
@@ -437,9 +363,9 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	if retainHeight > 0 {
 		pruned, err := blockExec.pruneBlocks(retainHeight)
 		if err != nil {
-			blockExec.logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
+			logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
 		} else {
-			blockExec.logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
+			logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
 		}
 	}
 	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
@@ -457,7 +383,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		defer fireEventsSpan.End()
 	}
 	fireEventsStartTime := time.Now()
-	FireEvents(blockExec.logger, blockExec.eventBus, block, blockID, fBlockRes, validatorUpdates)
+	FireEvents(blockExec.eventBus, block, blockID, fBlockRes, validatorUpdates)
 	blockExec.metrics.FireEventsLatency.Observe(float64(time.Since(fireEventsStartTime).Milliseconds()))
 	if fireEventsSpan != nil {
 		fireEventsSpan.End()
@@ -484,13 +410,13 @@ func (blockExec *BlockExecutor) Commit(
 	start := time.Now()
 	res, err := blockExec.app.Commit(ctx)
 	if err != nil {
-		blockExec.logger.Error("client error during proxyAppConn.Commit", "err", err)
+		logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return 0, err
 	}
 	blockExec.metrics.ApplicationCommitTime.Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
-	blockExec.logger.Info(
+	logger.Info(
 		"committed state",
 		"height", block.Height,
 		"num_txs", len(block.Txs),
@@ -536,7 +462,7 @@ func (blockExec *BlockExecutor) CheckTxFromPeerProposal(ctx context.Context, tx 
 	if err := blockExec.mempool.CheckTx(ctx, tx, func(rct *abci.ResponseCheckTx) {}, mempool.TxInfo{
 		SenderID: math.MaxUint16,
 	}); err != nil {
-		blockExec.logger.Info(fmt.Sprintf("CheckTx for proposal tx from peer raised error %s. This could be ignored if the error is because the tx is added to the mempool while this check was happening", err))
+		logger.Info("CheckTx for proposal tx from peer raised error; this could be ignored if the error is because the tx is added to the mempool while this check was happening", "err", err)
 	}
 }
 
@@ -739,7 +665,6 @@ func (state State) Update(
 // Fire TxEvent for every tx.
 // NOTE: if Tendermint crashes before commit, some or all of these events may be published again.
 func FireEvents(
-	logger log.Logger,
 	eventBus types.BlockEventPublisher,
 	block *types.Block,
 	blockID types.BlockID,
@@ -810,7 +735,6 @@ func ExecCommitBlock(
 	be *BlockExecutor,
 	appConn abci.Application,
 	block *types.Block,
-	logger log.Logger,
 	store Store,
 	initialHeight int64,
 	s State,
@@ -818,22 +742,11 @@ func ExecCommitBlock(
 	finalizeBlockResponse, err := appConn.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   block.Txs.ToSliceOfBytes(),
-			DecidedLastCommit:     buildLastCommitInfo(block, store, initialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 block.Txs.ToSliceOfBytes(),
+			DecidedLastCommit:   buildLastCommitInfo(block, store, initialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 
@@ -862,7 +775,7 @@ func ExecCommitBlock(
 		}
 
 		blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
-		FireEvents(be.logger, be.eventBus, block, blockID, finalizeBlockResponse, validatorUpdates)
+		FireEvents(be.eventBus, block, blockID, finalizeBlockResponse, validatorUpdates)
 	}
 
 	// Commit block

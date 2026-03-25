@@ -1,9 +1,12 @@
-// Data-dependent: eth_call with EIP1559 options to our deployed contract. Run evm_rpc_tests.sh when local.
+// Data-dependent: eth_call with EIP1559 options (Ethereum behavior). Run evm_rpc_tests.sh when local.
+// Proves the node accepts maxFeePerGas/maxPriorityFeePerGas on the call object (same JSON shape as Ethereum).
+// Caps are "0x0": eth_call uses CallDefaults only; zero caps skip London checks and BuyGas prepay is zero.
+// eth_createAccessList runs setFeeDefaults first and rejects maxFeePerGas=0 when both 1559 fields are set; see create-al-contract-eip1559.iox.
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind deployTxHash = result.transactions.1.hash
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind contractAddress = result.contractAddress
->> {"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"0x0000000000000000000000000000000000000000","gas":"0xea60","input":"0x","maxFeePerGas":"0x5763d65","maxPriorityFeePerGas":"0xb","to":"${contractAddress}","value":"0x0"},"__SEED__"]}
+>> {"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"0x0000000000000000000000000000000000000000","gas":"0xea60","input":"0x","maxFeePerGas":"0x0","maxPriorityFeePerGas":"0x0","to":"${contractAddress}","value":"0x0"},"__SEED__"]}
 << {"jsonrpc":"2.0","id":1,"result":"0x"}

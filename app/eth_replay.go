@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -52,16 +53,16 @@ func Replay(a *App) {
 			panic(err)
 		}
 		if latestBlock < uint64(h+initHeight) { //nolint:gosec
-			a.Logger().Info(fmt.Sprintf("Latest block is %d. Sleeping for a minute", latestBlock))
+			logger.Info("latest block behind target, sleeping", "latest-block", latestBlock)
 			time.Sleep(1 * time.Minute)
 			continue
 		}
-		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+initHeight))
+		logger.Info("replaying block height", "height", h+initHeight)
 		if h+initHeight >= 19426587 && evmtypes.DefaultChainConfig().CancunTime < 0 {
-			a.Logger().Error("Reaching Cancun upgrade height. Turn on Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to 0")
+			logger.Error("Reaching Cancun upgrade height. Turn on Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to 0")
 			break
 		} else if h+initHeight < 19426587 && evmtypes.DefaultChainConfig().CancunTime >= 0 {
-			a.Logger().Error("Haven't reached Cancun upgrade height. Turn off Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to -1")
+			logger.Error("Haven't reached Cancun upgrade height. Turn off Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to -1")
 			break
 		}
 		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+initHeight))
@@ -74,9 +75,12 @@ func Replay(a *App) {
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
-			Height:            h,
 			Hash:              hash,
-			Time:              time.Now(),
+			Header: &tmproto.Header{
+				ChainID: a.ChainID,
+				Height:  h,
+				Time:    time.Now(),
+			},
 		})
 		if err != nil {
 			panic(err)
@@ -90,7 +94,7 @@ func Replay(a *App) {
 		}
 		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
-			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
+			logger.Info("verifying tx", "tx-hash", tx.Hash())
 			if tx.To() != nil {
 				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
 				if a.EvmKeeper.EthReplayConfig.ContractStateChecks {
@@ -173,12 +177,15 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		txs := utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               txs,
-			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
-			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
-			Height:            h,
 			Hash:              blockHash[:],
-			LastBlockHash:     parentHash[:],
-			Time:              time.Now(),
+			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
+			Header: &tmproto.Header{
+				ChainID:         gendoc.ChainID,
+				ProposerAddress: a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
+				LastBlockId:     tmproto.BlockID{Hash: parentHash[:]},
+				Height:          h,
+				Time:            time.Now(),
+			},
 		})
 		if err != nil {
 			panic(err)

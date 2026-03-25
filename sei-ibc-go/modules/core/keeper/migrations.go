@@ -4,6 +4,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	clientkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
+	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
 // Migrator is a struct for handling in-place store migrations.
@@ -28,5 +29,10 @@ func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 		return err
 	}
 
+	return nil
+}
+
+func (m Migrator) Migrate2to3(ctx sdk.Context) error {
+	m.keeper.SetParams(ctx, types.DefaultParams())
 	return nil
 }

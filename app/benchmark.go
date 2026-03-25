@@ -7,15 +7,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // InitBenchmark initializes the benchmark system with the configured scenarios.
 // This is called during app initialization when the benchmark build tag is enabled.
-func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID int64, logger log.Logger) {
+func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID int64) {
 	// Defensive check: prevent benchmarking on live chains
 	if evmcfg.IsLiveEVMChainID(evmChainID) {
 		panic("benchmark not allowed on live chains")
@@ -23,31 +21,13 @@ func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID in
 
 	logger.Info("Initializing benchmark mode", "chainID", chainID, "evmChainID", evmChainID)
 
-	manager, err := benchmark.NewManager(ctx, app.encodingConfig.TxConfig, chainID, evmChainID, logger)
+	manager, err := benchmark.NewManager(ctx, app.encodingConfig.TxConfig, chainID, evmChainID)
 	if err != nil {
 		panic("failed to initialize benchmark manager: " + err.Error())
 	}
 
 	app.benchmarkManager = manager
 	logger.Info("Benchmark system initialized")
-}
-
-// PrepareProposalBenchmarkHandler generates benchmark transactions during PrepareProposal.
-func (app *App) PrepareProposalBenchmarkHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	if app.benchmarkManager == nil {
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
-
-	select {
-	case proposal, ok := <-app.benchmarkManager.ProposalChannel():
-		if proposal == nil || !ok {
-			return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-		}
-		app.benchmarkManager.Logger.Increment(int64(len(proposal.TxRecords)), req.Time, req.Height)
-		return proposal, nil
-	default:
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
 }
 
 // ProcessBenchmarkReceipts extracts receipts from the block and forwards them to
@@ -62,7 +42,7 @@ func (app *App) ProcessBenchmarkReceipts(ctx sdk.Context) {
 		return
 	}
 
-	ctx.Logger().Info("benchmark: Looking for deployment receipts",
+	logger.Info("benchmark: Looking for deployment receipts",
 		"pendingCount", len(pendingHashes),
 		"height", ctx.BlockHeight())
 
@@ -70,13 +50,13 @@ func (app *App) ProcessBenchmarkReceipts(ctx sdk.Context) {
 	for _, txHash := range pendingHashes {
 		receipt, err := app.EvmKeeper.GetReceipt(ctx, txHash)
 		if err != nil {
-			ctx.Logger().Info("benchmark: Receipt not found for deployment tx",
-				"txHash", txHash.Hex(),
-				"error", err.Error())
+			logger.Info("benchmark: Receipt not found for deployment tx",
+				"tx-hash", txHash,
+				"error", err)
 			continue
 		}
-		ctx.Logger().Info("benchmark: Found deployment receipt",
-			"txHash", txHash.Hex(),
+		logger.Info("benchmark: Found deployment receipt",
+			"tx-hash", txHash,
 			"status", receipt.Status,
 			"contractAddress", receipt.ContractAddress,
 			"gasUsed", receipt.GasUsed)

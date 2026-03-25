@@ -26,7 +26,7 @@ func TestImportExportQueues(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	ctx = app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -79,7 +79,7 @@ func TestImportExportQueues(t *testing.T) {
 	)
 
 	app2.Commit(context.Background())
-	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app2.LastBlockHeight() + 1})
+	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app2.LastBlockHeight() + 1}})
 
 	ctx2 := app2.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -136,7 +136,7 @@ func TestEqualProposals(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	// Submit two proposals
 	proposal := TestProposal

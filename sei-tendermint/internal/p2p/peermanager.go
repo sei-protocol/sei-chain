@@ -2,97 +2,67 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/im"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
-type connSet[C peerConn] = im.Map[types.NodeID, C]
+var logger = seilog.NewLogger("tendermint", "internal", "p2p")
+
+type PeerConnInfo struct {
+	ID               types.NodeID
+	Channels         ChannelIDSet
+	DialedAddr       utils.Option[NodeAddress]
+	SelfDeclaredAddr utils.Option[NodeAddress]
+}
+
+func (i PeerConnInfo) connID() connID {
+	return connID{NodeID: i.ID, outbound: i.DialedAddr.IsPresent()}
+}
+
+type peerConn interface {
+	comparable
+	Info() PeerConnInfo
+	Close()
+}
+
+type connSet[C peerConn] = im.Map[connID, C]
+
+func GetAny[C peerConn](conns connSet[C], id types.NodeID) (C, bool) {
+	if c, ok := conns.Get(connID{id, true}); ok {
+		return c, true
+	}
+	return conns.Get(connID{id, false})
+}
+
+func GetAll[C peerConn](cs connSet[C], id types.NodeID) []C {
+	var out []C
+	for _, outbound := range utils.Slice(true, false) {
+		if c, ok := cs.Get(connID{id, outbound}); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 type peerManagerInner[C peerConn] struct {
-	options      *RouterOptions
 	isPersistent map[types.NodeID]bool
-	// sum of regular and persistent connection sets.
-	conns utils.AtomicSend[connSet[C]]
-
-	regular    *pool[C]
-	persistent *pool[C]
+	conns        utils.AtomicSend[connSet[C]]
+	regular      *poolManager
+	persistent   *poolManager
+	lastDialPool *poolManager
 }
 
-var errPersistentPeerAddr = errors.New("cannot add a persistent peer address to the regular address pool")
-
-func (i *peerManagerInner[C]) AddAddr(addr NodeAddress) error {
-	// Adding persistent peer addrs is only allowed during initialization.
-	// This is to make sure that malicious peers won't cause the preconfigured addrs to be dropped.
-	if i.isPersistent[addr.NodeID] {
-		return errPersistentPeerAddr
+func (i *peerManagerInner[C]) poolByID(id types.NodeID) *poolManager {
+	if i.isPersistent[id] {
+		return i.persistent
 	}
-	return i.regular.AddAddr(addr)
-}
-
-func (i *peerManagerInner[C]) TryStartDial(persistentPeer bool) (NodeAddress, bool) {
-	// Check concurrent dials limit.
-	if len(i.regular.dialing)+len(i.persistent.dialing) >= i.options.maxDials() {
-		return NodeAddress{}, false
-	}
-	if persistentPeer {
-		return i.persistent.TryStartDial()
-	}
-	// Regular peers are additionally subject to outbound connections limit.
-	// We should not dial if it would result in too many outbound connections.
-	if len(i.regular.dialing)+i.regular.outbound >= i.options.maxOutboundConns() {
-		return NodeAddress{}, false
-	}
-	return i.regular.TryStartDial()
-}
-
-func (i *peerManagerInner[C]) DialFailed(addr NodeAddress) {
-	if i.isPersistent[addr.NodeID] {
-		i.persistent.DialFailed(addr)
-	} else {
-		i.regular.DialFailed(addr)
-	}
-}
-
-func (i *peerManagerInner[C]) Evict(id types.NodeID) {
-	if !i.isPersistent[id] {
-		i.regular.Evict(id)
-	}
-}
-
-// Connected registers a new connection.
-// If it is an outbound connection the dialing status is cleared (EVEN IF IT RETURNS AN ERROR).
-func (i *peerManagerInner[C]) Connected(conn C) error {
-	info := conn.Info()
-	pool := i.regular
-	if i.isPersistent[info.ID] {
-		pool = i.persistent
-	}
-	err := pool.Connected(conn)
-	// Copy the update to the total connection pool.
-	conns := i.conns.Load()
-	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
-		i.conns.Store(conns.SetOpt(info.ID, want))
-	}
-	return err
-}
-
-func (i *peerManagerInner[C]) Disconnected(conn C) {
-	info := conn.Info()
-	pool := i.regular
-	if i.isPersistent[info.ID] {
-		pool = i.persistent
-	}
-	pool.Disconnected(conn)
-	// Copy the update to the total connection pool.
-	conns := i.conns.Load()
-	if got, want := conns.GetOpt(info.ID), getOpt(pool.conns, info.ID); got != want {
-		i.conns.Store(conns.SetOpt(info.ID, want))
-	}
+	return i.regular
 }
 
 // PeerManager manages connections and addresses of potential peers.
@@ -105,185 +75,177 @@ func (i *peerManagerInner[C]) Disconnected(conn C) {
 // * Connected(conn) -> [communicate] -> Disconnected(conn)
 // For adding new peer addrs, call AddAddrs().
 type peerManager[C peerConn] struct {
-	logger          log.Logger
+	selfID          types.NodeID
 	options         *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	isPrivate       map[types.NodeID]bool
+
+	inner utils.Watch[*peerManagerInner[C]]
 	// Receiver of the inner.conns. It is copyable and allows accessing connections
 	// without taking lock on inner.
 	conns utils.AtomicRecv[connSet[C]]
-	inner utils.Watch[*peerManagerInner[C]]
 }
 
 func (p *peerManager[C]) LogState() {
 	for inner := range p.inner.Lock() {
-		p.logger.Info("p2p connections",
-			"regular", fmt.Sprintf("%v/%v", len(inner.regular.conns), p.options.maxConns()),
-			"unconditional", len(inner.persistent.conns),
+		logger.Info("p2p connections",
+			"regular", fmt.Sprintf("in=%v/%v + out=%v/%v",
+				len(inner.regular.in), inner.regular.cfg.MaxIn,
+				len(inner.regular.out), inner.regular.cfg.MaxOut,
+			),
+			"unconditional", fmt.Sprintf("in=%v + out=%v",
+				len(inner.persistent.in),
+				len(inner.persistent.out),
+			),
 		)
 	}
 }
 
-// PeerUpdatesRecv.
-// NOT THREAD-SAFE.
-type peerUpdatesRecv[C peerConn] struct {
-	recv utils.AtomicRecv[connSet[C]]
-	last map[types.NodeID]struct{}
-}
-
-// PeerUpdate is a peer update event sent via PeerUpdates.
-type PeerUpdate struct {
-	NodeID   types.NodeID
-	Status   PeerStatus
-	Channels ChannelIDSet
-}
-
-func (s *peerUpdatesRecv[C]) Recv(ctx context.Context) (PeerUpdate, error) {
-	var update PeerUpdate
-	_, err := s.recv.Wait(ctx, func(conns connSet[C]) bool {
-		// Check for disconnected peers.
-		for id := range s.last {
-			if _, ok := conns.Get(id); !ok {
-				delete(s.last, id)
-				update = PeerUpdate{
-					NodeID: id,
-					Status: PeerStatusDown,
-				}
-				return true
-			}
-		}
-		// Check for connected peers.
-		for id, conn := range conns.All() {
-			if _, ok := s.last[id]; !ok {
-				s.last[id] = struct{}{}
-				update = PeerUpdate{
-					NodeID:   id,
-					Status:   PeerStatusUp,
-					Channels: conn.Info().Channels,
-				}
-				return true
-			}
-		}
-		return false
-	})
-	return update, err
-}
-
-func (m *peerManager[C]) Subscribe() *peerUpdatesRecv[C] {
-	return &peerUpdatesRecv[C]{
-		recv: m.conns,
-		last: map[types.NodeID]struct{}{},
-	}
-}
-
-func newPeerManager[C peerConn](logger log.Logger, selfID types.NodeID, options *RouterOptions) *peerManager[C] {
-	inner := &peerManagerInner[C]{
-		options:      options,
-		isPersistent: map[types.NodeID]bool{},
-		conns:        utils.NewAtomicSend(im.NewMap[types.NodeID, C]()),
-
-		persistent: newPool[C](poolConfig{selfID: selfID}),
-		regular: newPool[C](poolConfig{
-			selfID:   selfID,
-			maxConns: utils.Some(options.maxConns()),
-			maxAddrs: utils.Some(options.maxPeers()),
-		}),
-	}
+func newPeerManager[C peerConn](selfID types.NodeID, options *RouterOptions) *peerManager[C] {
 	isBlockSyncPeer := map[types.NodeID]bool{}
 	isPrivate := map[types.NodeID]bool{}
+	isPersistent := map[types.NodeID]bool{}
 	for _, id := range options.PrivatePeers {
 		isPrivate[id] = true
 	}
 	for _, id := range options.UnconditionalPeers {
-		inner.isPersistent[id] = true
+		isPersistent[id] = true
 	}
 	for _, id := range options.BlockSyncPeers {
-		inner.isPersistent[id] = true
+		isPersistent[id] = true
 		isBlockSyncPeer[id] = true
 	}
 	// We do not allow multiple addresses for the same peer in the peer manager any more.
 	// It would be backward incompatible to invalidate configs with multiple addresses per peer.
 	// Instead we just log an error to indicate that some addresses have been ignored.
+	var persistentAddrs []NodeAddress
 	for _, addr := range options.PersistentPeers {
-		inner.isPersistent[addr.NodeID] = true
-		if err := inner.persistent.AddAddr(addr); err != nil {
-			logger.Error("failed to add a persistent peer address to the pool", "addr", addr, "err", err)
+		if err := addr.Validate(); err != nil {
+			logger.Error("invalid persistent peer address", "addr", addr, "err", err)
+			continue
+		}
+		isPersistent[addr.NodeID] = true
+		persistentAddrs = append(persistentAddrs, addr)
+	}
+	var bootstrapAddrs []NodeAddress
+	for _, addr := range options.BootstrapPeers {
+		if err := addr.Validate(); err != nil {
+			logger.Error("invalid bootstrap peer address", "addr", addr, "err", err)
+			continue
+		}
+		if isPersistent[addr.NodeID] {
+			persistentAddrs = append(persistentAddrs, addr)
+		} else {
+			bootstrapAddrs = append(bootstrapAddrs, addr)
 		}
 	}
-	for _, addr := range options.BootstrapPeers {
-		if err := inner.AddAddr(addr); err != nil {
-			logger.Error("failed to add a bootstrap peer address to the pool", "addr", addr, "err", err)
-		}
+
+	inner := &peerManagerInner[C]{
+		isPersistent: isPersistent,
+		conns:        utils.NewAtomicSend(im.NewMap[connID, C]()),
+		persistent: newPoolManager(&poolConfig{
+			MaxIn:      utils.Max[int](),
+			MaxOut:     utils.Max[int](),
+			FixedAddrs: persistentAddrs,
+			InPool: func(id types.NodeID) bool {
+				return id != selfID && isPersistent[id]
+			},
+		}),
+		regular: newPoolManager(&poolConfig{
+			MaxIn:      options.maxInbound(),
+			MaxOut:     options.maxOutbound(),
+			FixedAddrs: bootstrapAddrs,
+			InPool: func(id types.NodeID) bool {
+				return id != selfID && !isPersistent[id]
+			},
+		}),
 	}
 	return &peerManager[C]{
-		logger:          logger,
+		selfID:          selfID,
 		options:         options,
 		isBlockSyncPeer: isBlockSyncPeer,
 		isPrivate:       isPrivate,
-		conns:           inner.conns.Subscribe(),
 		inner:           utils.NewWatch(inner),
+		conns:           inner.conns.Subscribe(),
 	}
 }
 
-func (m *peerManager[C]) Conns() connSet[C] {
-	return m.conns.Load()
-}
+func (m *peerManager[C]) Conns() connSet[C] { return m.conns.Load() }
 
-// AddAddrs adds addresses, so that they are available for dialing.
+// PushPex registers address list received from sender in the pex table.
+// Address list replaces the previous address list received from that sender
+// (every sender has a bounded capacity in peermanager).
+// The addresses on the list are expected to be fresh, ideally they should be addresses
+// of the current peers of the sender. This property allows us to quickly prune stale
+// addresses. PeerManager keeps address list from every connected peer and a small
+// "extra" cache for senders which are not connected to facilitate random local search.
+// If any of the addresses is invalid (does not parse), the whole slice is rejected.
 // Addresses to persistent peers are ignored, since they are populated in constructor.
-// Known addresses are ignored.
-// If maxAddrsPerPeer limit is exceeded, new address replaces a random failed address of that peer.
-// If options.MaxPeers limit is exceeded, some peer with ALL addresses failed is replaced.
-// If there is no such address/peer to replace, the new address is ignored.
-// If some address is invalid, an error is returned.
-// Even if an error is returned, some addresses might have been added.
-func (m *peerManager[C]) AddAddrs(addrs []NodeAddress) error {
-	if len(addrs) == 0 {
-		return nil
-	}
+func (m *peerManager[C]) PushPex(sender utils.Option[types.NodeID], addrs []NodeAddress) error {
 	for _, addr := range addrs {
 		if err := addr.Validate(); err != nil {
 			return err
 		}
 	}
 	for inner, ctrl := range m.inner.Lock() {
-		updated := false
-		for _, addr := range addrs {
-			// It is expected that not peer addresses will be accepted to the pool.
-			if err := inner.AddAddr(addr); err == nil {
-				updated = true
+		// pex data is indexed by senders which are connected peers.
+		// Other pex data is restricted to a small unindexed cache.
+		// Therefore we downgrade sender to None, if it is not a connected peer.
+		if id, ok := sender.Get(); ok {
+			if _, ok := GetAny(inner.conns.Load(), id); !ok {
+				sender = utils.None[types.NodeID]()
 			}
 		}
-		if updated {
-			ctrl.Updated()
-		}
+		inner.regular.PushPex(sender, addrs)
+		ctrl.Updated()
 	}
 	return nil
 }
 
-// StartDial waits until there is a (persistent/non-persistent) address available for dialing.
-// On success, it marks the peer as dialing - peer won't be available for dialing until DialFailed
-// is called.
-func (m *peerManager[C]) StartDial(ctx context.Context, persistentPeer bool) (NodeAddress, error) {
+func (m *peerManager[C]) PushUpgradePermit() {
 	for inner, ctrl := range m.inner.Lock() {
+		if !inner.regular.upgradePermit {
+			inner.regular.upgradePermit = true
+			ctrl.Updated()
+		}
+	}
+}
+
+// StartDial waits until there is a address available for dialing.
+// Returns a collection of addresses known for this peer.
+// On success, it marks the peer as dialing and this peer won't be available
+// for dialing until DialFailed is called.
+func (m *peerManager[C]) StartDial(ctx context.Context) ([]NodeAddress, error) {
+	for inner, ctrl := range m.inner.Lock() {
+		// Start with pool which has NOT dialed previously (for fairness).
+		pools := utils.Slice(inner.persistent, inner.regular)
+		if pools[0] == inner.lastDialPool {
+			pools[0], pools[1] = pools[1], pools[0]
+		}
 		for {
-			if addr, ok := inner.TryStartDial(persistentPeer); ok {
-				return addr, nil
+			for _, pool := range pools {
+				if addrs, ok := pool.TryStartDial(); ok {
+					inner.lastDialPool = pool
+					ctrl.Updated()
+					return addrs, nil
+				}
 			}
 			if err := ctrl.Wait(ctx); err != nil {
-				return NodeAddress{}, err
+				return nil, err
 			}
 		}
 	}
 	panic("unreachable")
 }
 
-// DialFailed marks the address as "failed to dial".
-// The addr.NodeID peer will be added back to the pool of peers
-// available for dialing.
-func (p *peerManager[C]) DialFailed(addr NodeAddress) {
-	for inner, ctrl := range p.inner.Lock() {
-		inner.DialFailed(addr)
+// DialFailed notifies the peer manager that dialing addresses of id has failed.
+func (m *peerManager[C]) DialFailed(id types.NodeID) {
+	for inner, ctrl := range m.inner.Lock() {
+		if err := inner.poolByID(id).DialFailed(id); err != nil {
+			// DialFailed will fail if id was not marked as dialing.
+			logger.Error("DialFailed()", "id", id, "err", err)
+			return
+		}
 		ctrl.Updated()
 	}
 }
@@ -293,52 +255,69 @@ func (p *peerManager[C]) DialFailed(addr NodeAddress) {
 // May close and drop a duplicate connection already present in the pool.
 // Returns an error if the connection should be rejected.
 func (m *peerManager[C]) Connected(conn C) error {
-	for inner, ctrl := range m.inner.Lock() {
-		ctrl.Updated()
-		return inner.Connected(conn)
+	id := conn.Info().connID()
+	if id.NodeID == m.selfID {
+		conn.Close()
+		return fmt.Errorf("connection to self")
 	}
-	panic("unreachable")
+	for inner, ctrl := range m.inner.Lock() {
+		// Notify the pool.
+		pool := inner.poolByID(id.NodeID)
+		toDisconnect, err := pool.Connect(id)
+		if err != nil {
+			conn.Close()
+			return err
+		}
+		// Update the connection set.
+		conns := inner.conns.Load()
+		// Check if pool requested a disconnect.
+		if toDisconnect, ok := toDisconnect.Get(); ok {
+			conns.GetOpt(toDisconnect).OrPanic("pool/connection set mismatch").Close()
+			conns = conns.Delete(toDisconnect)
+		}
+		// Insert new connection.
+		inner.conns.Store(conns.Set(id, conn))
+		ctrl.Updated()
+	}
+	return nil
 }
 
 // Disconnected removes conn from the connection pool.
 // Noop if conn was not in the connection pool.
 // conn.PeerInfo().NodeID peer is available for dialing again.
 func (m *peerManager[C]) Disconnected(conn C) {
+	id := conn.Info().connID()
 	for inner, ctrl := range m.inner.Lock() {
-		inner.Disconnected(conn)
+		// It is fine to call Disconnected for conn which is not present.
+		conns := inner.conns.Load()
+		if got, ok := conns.Get(id); !ok || conn != got {
+			return
+		}
+		// Notify pool about disconnect.
+		// Panic is OK, because inconsistency between conns and pool would be a bug.
+		pool := inner.poolByID(id.NodeID)
+		utils.OrPanic(pool.Disconnect(id))
+		conns = conns.Delete(id)
+		if _, ok := GetAny(conns, id.NodeID); !ok {
+			inner.regular.ClearPex(id.NodeID)
+		}
+		inner.conns.Store(conns)
 		ctrl.Updated()
 	}
 }
 
-// Evict removes known addresses of the regular peer and closed connection to the regular peer.
-// NOTE: noop for persistent peers.
+// Evict closes connection to id.
 func (m *peerManager[C]) Evict(id types.NodeID) {
-	for inner, ctrl := range m.inner.Lock() {
-		inner.Evict(id)
-		ctrl.Updated()
+	conns := m.Conns()
+	for _, outbound := range utils.Slice(true, false) {
+		if c, ok := conns.Get(connID{id, outbound}); ok {
+			c.Close()
+		}
 	}
 }
 
 func (m *peerManager[C]) IsBlockSyncPeer(id types.NodeID) bool {
 	return len(m.isBlockSyncPeer) == 0 || m.isBlockSyncPeer[id]
-}
-
-func (m *peerManager[C]) State(id types.NodeID) string {
-	for inner := range m.inner.Lock() {
-		if _, ok := inner.conns.Load().Get(id); ok {
-			return "ready,connected"
-		}
-		if inner.isPersistent[id] {
-			if _, ok := inner.persistent.dialing[id]; ok {
-				return "dialing"
-			}
-		} else {
-			if _, ok := inner.regular.dialing[id]; ok {
-				return "dialing"
-			}
-		}
-	}
-	return ""
 }
 
 func (m *peerManager[C]) Advertise() []NodeAddress {
@@ -348,16 +327,15 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 		addrs = append(addrs, addr)
 	}
 	var selfAddrs []NodeAddress
-	conns := m.conns.Load()
-	for _, conn := range conns.All() {
-		info := conn.Info()
-		if m.isPrivate[info.ID] {
+	for id, conn := range m.Conns().All() {
+		if m.isPrivate[id.NodeID] {
 			continue
 		}
-		if addr, ok := info.DialAddr.Get(); ok {
+		info := conn.Info()
+		if addr, ok := info.DialedAddr.Get(); ok {
 			// Prioritize dialed addresses of outbound connections.
 			addrs = append(addrs, addr)
-		} else if addr, ok := info.SelfAddr.Get(); ok {
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
 			// Fallback to self-declared addresses of inbound connections.
 			selfAddrs = append(selfAddrs, addr)
 		}
@@ -365,28 +343,39 @@ func (m *peerManager[C]) Advertise() []NodeAddress {
 	return append(addrs, selfAddrs...)
 }
 
-func (m *peerManager[C]) Peers() []types.NodeID {
-	var ids []types.NodeID
-	for inner := range m.inner.Lock() {
-		ids = make([]types.NodeID, 0, len(inner.persistent.addrs)+len(inner.regular.addrs))
-		for id := range inner.persistent.addrs {
-			ids = append(ids, id)
-		}
-		for id := range inner.regular.addrs {
-			ids = append(ids, id)
+// All addresses in pools.
+// Used by net_info endpoint, which is used by integration tests and for debugging.
+func (m *peerManager[C]) AllAddrs() []NodeAddress {
+	addrs := map[types.NodeID]NodeAddress{}
+	for _, info := range m.ConnInfos() {
+		if addr, ok := info.DialedAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
+		} else if addr, ok := info.SelfDeclaredAddr.Get(); ok {
+			addrs[addr.NodeID] = addr
 		}
 	}
-	return ids
-}
-
-func (m *peerManager[C]) Addresses(id types.NodeID) []NodeAddress {
-	var addrs []NodeAddress
 	for inner := range m.inner.Lock() {
 		for _, pool := range utils.Slice(inner.persistent, inner.regular) {
-			if pa, ok := pool.addrs[id]; ok {
-				addrs = append(addrs, pa.addr)
+			for e := range pool.pex.All() {
+				for _, pAddr := range e.addrs {
+					if _, ok := addrs[pAddr.NodeID]; !ok {
+						addrs[pAddr.NodeID] = pAddr.NodeAddress
+					}
+				}
 			}
 		}
 	}
-	return addrs
+	return slices.Collect(maps.Values(addrs))
+}
+
+// Infos of connections in the pool.
+func (m *peerManager[C]) ConnInfos() []PeerConnInfo {
+	infos := map[types.NodeID]PeerConnInfo{}
+	for _, conn := range m.Conns().All() {
+		info := conn.Info()
+		if _, ok := infos[info.ID]; !ok || info.DialedAddr.IsPresent() {
+			infos[info.ID] = info
+		}
+	}
+	return slices.Collect(maps.Values(infos))
 }

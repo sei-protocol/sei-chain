@@ -7,10 +7,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
+
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "02-client", "keeper")
 
 // ErrInboundDisabled is the error for when inbound is disabled
 var ErrInboundDisabled = sdkerrors.Register("ibc-client", 101, "ibc inbound disabled")
@@ -36,7 +39,7 @@ func (k Keeper) CreateClient(
 	clientID := k.GenerateClientIdentifier(ctx, clientState.ClientType())
 
 	k.SetClientState(ctx, clientID, clientState)
-	k.Logger(ctx).Info("client created at height", "client-id", clientID, "height", clientState.GetLatestHeight().String())
+	logger.Info("client created at height", "client-id", clientID, "height", clientState.GetLatestHeight().String())
 
 	// verifies initial consensus state against client state and initializes client store with any client-specific metadata
 	// e.g. set ProcessedTime in Tendermint clients
@@ -49,7 +52,7 @@ func (k Keeper) CreateClient(
 		k.SetClientConsensusState(ctx, clientID, clientState.GetLatestHeight(), consensusState)
 	}
 
-	k.Logger(ctx).Info("client created at height", "client-id", clientID, "height", clientState.GetLatestHeight().String())
+	logger.Info("client created at height", "client-id", clientID, "height", clientState.GetLatestHeight().String())
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(
@@ -113,7 +116,7 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 			consensusHeight = types.GetSelfHeight(ctx)
 		}
 
-		k.Logger(ctx).Info("client state updated", "client-id", clientID, "height", consensusHeight.String())
+		logger.Info("client state updated", "client-id", clientID, "height", consensusHeight.String())
 
 		defer func() {
 			telemetry.IncrCounterWithLabels(
@@ -131,7 +134,7 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 		EmitUpdateClientEvent(ctx, clientID, newClientState, consensusHeight, headerStr)
 	} else {
 
-		k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", clientID)
+		logger.Info("client frozen due to misbehaviour", "client-id", clientID)
 
 		defer func() {
 			telemetry.IncrCounterWithLabels(
@@ -176,7 +179,7 @@ func (k Keeper) UpgradeClient(ctx sdk.Context, clientID string, upgradedClient e
 	k.SetClientState(ctx, clientID, updatedClientState)
 	k.SetClientConsensusState(ctx, clientID, updatedClientState.GetLatestHeight(), updatedConsState)
 
-	k.Logger(ctx).Info("client state upgraded", "client-id", clientID, "height", updatedClientState.GetLatestHeight().String())
+	logger.Info("client state upgraded", "client-id", clientID, "height", updatedClientState.GetLatestHeight().String())
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(
@@ -219,7 +222,7 @@ func (k Keeper) CheckMisbehaviourAndUpdateState(ctx sdk.Context, misbehaviour ex
 	}
 
 	k.SetClientState(ctx, misbehaviour.GetClientID(), clientState)
-	k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", misbehaviour.GetClientID())
+	logger.Info("client frozen due to misbehaviour", "client-id", misbehaviour.GetClientID())
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(

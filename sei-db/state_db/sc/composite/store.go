@@ -6,20 +6,27 @@ import (
 	"context"
 	"fmt"
 	"math"
-
 	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/seilog"
 )
 
-// EVMStoreName is the module name for the EVM store
-const EVMStoreName = "evm"
+var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
+
+// EVMStoreName is the module name for the EVM store in memiavl.
+const EVMStoreName = commonevm.EVMStoreKey
+
+// EVMFlatKVStoreName is the module name used when exporting/importing
+// EVM data from the FlatKV backend. Treated as a separate module in
+// state-sync snapshots so that import routes data exclusively to FlatKV.
+const EVMFlatKVStoreName = commonevm.EVMFlatKVStoreKey
 
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)
@@ -27,7 +34,6 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
-	logger logger.Logger
 
 	// cosmosCommitter is the Cosmos (memiavl) backend - always initialized
 	cosmosCommitter *memiavl.CommitStore
@@ -48,14 +54,12 @@ type CompositeCommitStore struct {
 func NewCompositeCommitStore(
 	ctx context.Context,
 	homeDir string,
-	logger logger.Logger,
 	cfg config.StateCommitConfig,
 ) *CompositeCommitStore {
 	// Always initialize the Cosmos backend (creates struct only, not opened)
-	cosmosCommitter := memiavl.NewCommitStore(homeDir, logger, cfg.MemIAVLConfig)
+	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
 	store := &CompositeCommitStore{
-		logger:          logger,
 		cosmosCommitter: cosmosCommitter,
 		homeDir:         homeDir,
 		config:          cfg,
@@ -65,7 +69,7 @@ func NewCompositeCommitStore(
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
 		flatkvPath := filepath.Join(homeDir, "data", "flatkv")
-		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, logger, cfg.FlatKVConfig)
+		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, cfg.FlatKVConfig)
 	}
 
 	return store
@@ -110,7 +114,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 
 	if readOnly {
 		newStore := &CompositeCommitStore{
-			logger:          cs.logger,
 			cosmosCommitter: cosmosCommitter,
 			homeDir:         cs.homeDir,
 			config:          cs.config,
@@ -118,7 +121,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if cs.evmCommitter != nil {
 			evmStore, err := cs.evmCommitter.LoadVersion(targetVersion, true)
 			if err != nil {
-				cs.logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
+				logger.Info("FlatKV unavailable for readonly load, EVM data will not be served",
 					"version", targetVersion, "err", err)
 			} else {
 				newStore.evmCommitter = evmStore
@@ -235,16 +238,44 @@ func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
 	return cs.cosmosCommitter.GetEarliestVersion()
 }
 
+// appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
+// appended, without mutating the original. Returns the original unchanged
+// when lattice hashing is disabled.
+func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
+	if !cs.config.EnableLatticeHash {
+		return ci
+	}
+	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
+	copy(combined, ci.StoreInfos)
+	combined[len(combined)-1] = proto.StoreInfo{
+		Name: "evm_lattice",
+		CommitId: proto.CommitID{
+			Version: ci.Version,
+			Hash:    evmHash,
+		},
+	}
+	return &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: combined,
+	}
+}
+
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.WorkingCommitInfo()
+	ci := cs.cosmosCommitter.WorkingCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.RootHash())
+	}
+	return ci
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	// TODO: Need to combine hash for cosmos and evm
-	return cs.cosmosCommitter.LastCommitInfo()
+	ci := cs.cosmosCommitter.LastCommitInfo()
+	if cs.evmCommitter != nil {
+		return cs.appendEvmLatticeHash(ci, cs.evmCommitter.CommittedRootHash())
+	}
+	return ci
 }
 
 // GetChildStoreByName returns the underlying child store by module name.
@@ -273,8 +304,22 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	if version < 0 || version > math.MaxUint32 {
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
-	// TODO: Add evm committer for exporter
-	return cs.cosmosCommitter.Exporter(version)
+
+	cosmosExporter, err := cs.cosmosCommitter.Exporter(version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
+	}
+
+	var evmExporter types.Exporter
+	if cs.evmCommitter != nil && (cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite) {
+		evmExporter, err = cs.evmCommitter.Exporter(version)
+		if err != nil {
+			_ = cosmosExporter.Close()
+			return nil, fmt.Errorf("failed to create evm exporter: %w", err)
+		}
+	}
+
+	return NewExporter(cosmosExporter, evmExporter)
 }
 
 // Importer returns an importer for state sync
@@ -287,7 +332,8 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	if cs.evmCommitter != nil {
 		evmImporter, err = cs.evmCommitter.Importer(version)
 		if err != nil {
-			return nil, err
+			_ = cosmosImporter.Close()
+			return nil, fmt.Errorf("failed to create evm importer: %w", err)
 		}
 	}
 	compositeImporter := NewImporter(cosmosImporter, evmImporter)

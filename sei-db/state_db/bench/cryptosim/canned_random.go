@@ -59,6 +59,29 @@ func NewCannedRandom(
 	}
 }
 
+// Clone creates a copy of the CannedRandom. On its own, a single CannedRandom is not thread safe. A cloned copy
+// is however thread safe, with respect to the original CannedRandom and other cloned copies. Cloning a CannedRandom
+// is cheap, and does not require significant additional memory.
+//
+// If randomizeOffset is true, the clone's read position is set to a new offset derived from the source's buffer,
+// ensuring that the clone does not produce random numbers in lockstep with the original. Successive calls to
+// Clone(true) yield clones with different offsets.
+func (cr *CannedRandom) Clone(randomizeOffset bool) *CannedRandom {
+	index := cr.index
+	if randomizeOffset {
+		index = PositiveHash64(cr.Int64()) % int64(len(cr.buffer))
+	}
+	return &CannedRandom{
+		buffer: cr.buffer,
+		index:  index,
+	}
+}
+
+// Reset the index of the CannedRandom to the beginning of the buffer.
+func (cr *CannedRandom) Reset() {
+	cr.index = 0
+}
+
 // Returns a slice of random bytes.
 //
 // Returned slice is NOT safe to modify. If modification is required, the caller should make a copy of the slice.
@@ -152,7 +175,7 @@ func (cr *CannedRandom) Address(
 	}
 
 	result := make([]byte, size)
-	baseBytes := cr.SeededBytes(AddressLen, id)
+	baseBytes := cr.SeededBytes(size, id)
 	copy(result, baseBytes)
 	result[0] = addressType
 	//nolint:gosec // G115 - id is from benchmark data, overflow acceptable for address generation

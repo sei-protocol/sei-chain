@@ -17,3 +17,7 @@ gofmt -s -l .
 ```
 
 This command should produce no output if all files are properly formatted.
+
+## Benchmarking
+
+See [benchmark/CLAUDE.md](benchmark/CLAUDE.md) for benchmark usage, environment variables, and comparison workflows.

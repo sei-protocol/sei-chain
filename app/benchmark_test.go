@@ -6,60 +6,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/benchmark"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
-
-func createTestContext() sdk.Context {
-	db := dbm.NewMemDB()
-	logger := log.NewNopLogger()
-	ms := rootmulti.NewStore(db, log.NewNopLogger())
-	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
-}
-
-func TestPrepareProposalBenchmarkHandler(t *testing.T) {
-	// Create a mock app with benchmark mode enabled
-	logger := log.NewNopLogger()
-	app := &App{}
-
-	// Test handler with nil manager (should return empty proposal)
-	ctx := createTestContext()
-	req := &abci.RequestPrepareProposal{
-		Height: 1,
-		Time:   time.Now(),
-	}
-	resp, err := app.PrepareProposalBenchmarkHandler(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.TxRecords, 0)
-
-	// Create a mock manager with a channel
-	proposalCh := make(chan *abci.ResponsePrepareProposal, 1)
-	testProposal := &abci.ResponsePrepareProposal{
-		TxRecords: []*abci.TxRecord{
-			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx1")},
-			{Action: abci.TxRecord_UNMODIFIED, Tx: []byte("tx2")},
-		},
-	}
-	proposalCh <- testProposal
-
-	app.benchmarkManager = &benchmark.Manager{
-		Logger: benchmark.NewLogger(logger),
-	}
-	// We can't easily set the proposalCh since it's unexported, so we test the nil case
-
-	// Test that handler doesn't panic with nil manager
-	app.benchmarkManager = nil
-	resp2, err := app.PrepareProposalBenchmarkHandler(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp2)
-	require.Len(t, resp2.TxRecords, 0)
-}
 
 func TestBenchmarkHelperMethods(t *testing.T) {
 	app := &App{}
@@ -73,7 +21,7 @@ func TestBenchmarkHelperMethods(t *testing.T) {
 	require.Nil(t, app.BenchmarkLogger())
 
 	// Create a benchmark manager with logger
-	benchLogger := benchmark.NewLogger(log.NewNopLogger())
+	benchLogger := benchmark.NewLogger()
 	app.benchmarkManager = &benchmark.Manager{
 		Logger: benchLogger,
 	}
@@ -89,7 +37,7 @@ func TestBenchmarkHelperMethods(t *testing.T) {
 }
 
 func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	chainID := "pacific-1"
 	liveEVMChainID := int64(1329) // pacific-1's EVM chain ID (live)
 
@@ -102,7 +50,7 @@ func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
 
 	// Test that InitBenchmark panics with live chain ID
 	require.Panics(t, func() {
-		app.InitBenchmark(ctx, chainID, liveEVMChainID, logger)
+		app.InitBenchmark(ctx, chainID, liveEVMChainID)
 	}, "InitBenchmark should panic on live chain ID")
 
 	// Verify nothing was initialized
@@ -110,7 +58,7 @@ func TestInitBenchmark_PanicsOnLiveChainID(t *testing.T) {
 }
 
 func TestInitBenchmark_AllLiveChainIDs(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	liveChainIDs := []struct {
 		chainID     string
 		evmChainID  int64
@@ -129,14 +77,14 @@ func TestInitBenchmark_AllLiveChainIDs(t *testing.T) {
 			ctx := context.Background()
 
 			require.Panics(t, func() {
-				app.InitBenchmark(ctx, tc.chainID, tc.evmChainID, logger)
+				app.InitBenchmark(ctx, tc.chainID, tc.evmChainID)
 			}, "InitBenchmark should panic on live chain ID: %s", tc.description)
 		})
 	}
 }
 
 func TestInitBenchmark_Success(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	chainID := "test-chain"
 	evmChainID := int64(12345) // Non-live chain ID
 
@@ -149,7 +97,7 @@ func TestInitBenchmark_Success(t *testing.T) {
 	defer cancel()
 
 	// Test InitBenchmark with non-live chain ID
-	app.InitBenchmark(ctx, chainID, evmChainID, logger)
+	app.InitBenchmark(ctx, chainID, evmChainID)
 
 	// Verify benchmarkManager is set
 	require.NotNil(t, app.benchmarkManager, "benchmarkManager should be initialized")
@@ -165,7 +113,7 @@ func TestInitBenchmark_Success(t *testing.T) {
 		if ok {
 			require.NotNil(t, proposal, "Proposal should not be nil")
 			// EVMTransfer scenario doesn't need deployment, so should get load txs immediately
-			t.Logf("Received proposal with %d tx records", len(proposal.TxRecords))
+			t.Logf("Received proposal with %d txs", len(proposal))
 		}
 	case <-time.After(5 * time.Second):
 		t.Log("Timeout waiting for proposal (may be in setup phase)")

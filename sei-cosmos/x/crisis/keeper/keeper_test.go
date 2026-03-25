@@ -10,20 +10,12 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 )
-
-func TestLogger(t *testing.T) {
-	app := seiapp.Setup(t, false, false, false)
-
-	ctx := app.NewContext(true, tmproto.Header{})
-	require.Equal(t, ctx.Logger().With("module", "x/"+types.ModuleName), app.CrisisKeeper.Logger(ctx))
-}
 
 func TestInvariants(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	require.Equal(t, app.CrisisKeeper.InvCheckPeriod(), uint(1))
 
@@ -36,7 +28,7 @@ func TestInvariants(t *testing.T) {
 func TestAssertInvariants(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{Height: app.LastBlockHeight() + 1}})
 
 	ctx := app.NewContext(true, tmproto.Header{})
 

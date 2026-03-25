@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -14,22 +13,20 @@ import (
 var _ types.Committer = (*CommitStore)(nil)
 
 type CommitStore struct {
-	logger  logger.Logger
 	db      *DB
 	opts    Options
 	homeDir string
 }
 
-func NewCommitStore(homeDir string, logger logger.Logger, config Config) *CommitStore {
+func NewCommitStore(homeDir string, config Config) *CommitStore {
 	commitDBPath := utils.GetCommitStorePath(homeDir)
 	opts := Options{
 		Config:          config, // Embed the config directly
 		Dir:             commitDBPath,
 		CreateIfMissing: true,
-		ZeroCopy:        true,
+		ZeroCopy:        false, // Disable zero copy to avoid segfault during historical read
 	}
 	commitStore := &CommitStore{
-		logger:  logger,
 		opts:    opts,
 		homeDir: homeDir,
 	}
@@ -53,7 +50,7 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	options := cs.opts
 	options.LoadForOverwriting = true
 
-	db, err := OpenDB(cs.logger, targetVersion, options)
+	db, err := OpenDB(targetVersion, options)
 	if err != nil {
 		return err
 	}
@@ -64,16 +61,16 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 // LoadVersion loads the specified version of the database.
 // If copyExisting is true, creates a read-only copy for querying.
 func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	cs.logger.Info(fmt.Sprintf("SeiDB load target memIAVL version %d, readOnly = %v", targetVersion, readOnly))
+	logger.Info("SeiDB loading target memIAVL version", "version", targetVersion, "read-only", readOnly)
 
 	if readOnly {
 		// Create a read-only copy via NewCommitStore.
-		newCS := NewCommitStore(cs.homeDir, cs.logger, cs.opts.Config)
+		newCS := NewCommitStore(cs.homeDir, cs.opts.Config)
 		newCS.opts = cs.opts
 		newCS.opts.ReadOnly = true
 		newCS.opts.CreateIfMissing = false
 
-		db, err := OpenDB(cs.logger, targetVersion, newCS.opts)
+		db, err := OpenDB(targetVersion, newCS.opts)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +84,7 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	}
 
 	opts := cs.opts
-	db, err := OpenDB(cs.logger, targetVersion, opts)
+	db, err := OpenDB(targetVersion, opts)
 	if err != nil {
 		return nil, err
 	}

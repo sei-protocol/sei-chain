@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -47,11 +46,6 @@ func NewKeeper(
 		bankKeeper:       bk,
 		feeCollectorName: feeCollectorName,
 	}
-}
-
-// Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", "x/"+types.ModuleName)
 }
 
 // Set the mint hooks.
@@ -131,7 +125,7 @@ func (k Keeper) GetOrUpdateLatestMinter(
 
 	// There's still an ongoing release (> 0 remaining amount or same start date) or there's no release scheduled
 	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease.GetStartDate() == currentReleaseMinter.GetStartDate() || nextScheduledRelease == nil {
-		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter)
+		logger.Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter)
 		return currentReleaseMinter
 	}
 

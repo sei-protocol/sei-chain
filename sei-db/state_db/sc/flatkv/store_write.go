@@ -92,7 +92,11 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 				if _, seen := oldAccountRawValues[addrStr]; !seen {
 					if paw, ok := s.accountWrites[addrStr]; ok {
-						oldAccountRawValues[addrStr] = paw.value.Encode()
+						if paw.isDelete {
+							oldAccountRawValues[addrStr] = nil
+						} else {
+							oldAccountRawValues[addrStr] = paw.value.Encode()
+						}
 					} else {
 						rawBytes, err := s.accountDB.Get(AccountKey(addr))
 						if err != nil {
@@ -124,6 +128,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					} else {
 						paw.value.CodeHash = CodeHash{}
 					}
+					paw.isDelete = paw.value.IsEmpty()
 				} else {
 					if kind == evm.EVMKeyNonce {
 						if len(pair.Value) != NonceLen {
@@ -136,6 +141,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						}
 						copy(paw.value.CodeHash[:], pair.Value)
 					}
+					paw.isDelete = paw.value.IsEmpty()
 				}
 
 			case evm.EVMKeyCode:
@@ -205,25 +211,45 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			continue
 		}
 
+		var encodedValue []byte
+		if !paw.isDelete {
+			encodedValue = paw.value.Encode()
+		}
 		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
 			Key:       AccountKey(paw.addr),
-			Value:     paw.value.Encode(),
-			LastValue: oldRaw, // nil for new accounts → no phantom MixOut
+			Value:     encodedValue,
+			LastValue: oldRaw,
 			Delete:    paw.isDelete,
 		})
 	}
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
 
-	// Combine all pairs and update working LtHash
-	allPairs := append(storagePairs, accountPairs...)
-	allPairs = append(allPairs, codePairs...)
-	allPairs = append(allPairs, legacyPairs...)
-
-	if len(allPairs) > 0 {
-		newLtHash, _ := lthash.ComputeLtHash(s.workingLtHash, allPairs)
-		s.workingLtHash = newLtHash
+	// Per-DB LTHash updates
+	type dbPairs struct {
+		dir   string
+		pairs []lthash.KVPairWithLastValue
 	}
+	for _, dp := range [4]dbPairs{
+		{storageDBDir, storagePairs},
+		{accountDBDir, accountPairs},
+		{codeDBDir, codePairs},
+		{legacyDBDir, legacyPairs},
+	} {
+		if len(dp.pairs) > 0 {
+			newHash, _ := lthash.ComputeLtHash(s.perDBWorkingLtHash[dp.dir], dp.pairs)
+			s.perDBWorkingLtHash[dp.dir] = newHash
+		}
+	}
+
+	// Global LTHash = sum of per-DB hashes (homomorphic property).
+	// Compute into a fresh hash and swap to avoid a transient empty state
+	// on workingLtHash (safe for future pipelining / async callers).
+	globalHash := lthash.New()
+	for _, dir := range dataDBDirs {
+		globalHash.MixIn(s.perDBWorkingLtHash[dir])
+	}
+	s.workingLtHash = globalHash
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
@@ -273,7 +299,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
 		s.phaseTimer.SetPhase("commit_write_snapshot")
 		if err := s.WriteSnapshot(""); err != nil {
-			s.log.Error("auto snapshot failed", "version", version, "err", err)
+			logger.Error("auto snapshot failed", "version", version, "err", err)
 		}
 	}
 
@@ -283,7 +309,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	}
 
 	s.phaseTimer.SetPhase("commit_done")
-	s.log.Info("Committed version", "version", version)
+	logger.Info("Committed version", "version", version)
 	return version, nil
 }
 
@@ -344,7 +370,6 @@ func (s *CommitStore) commitBatches(version int64) error {
 					return fmt.Errorf("accountDB delete: %w", err)
 				}
 			} else {
-				// Encode AccountValue and store with addr as key
 				encoded := EncodeAccountValue(paw.value)
 				if err := batch.Set(key, encoded); err != nil {
 					return fmt.Errorf("accountDB set: %w", err)
@@ -352,97 +377,47 @@ func (s *CommitStore) commitBatches(version int64) error {
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("accountDB local meta set: %w", err)
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[accountDBDir]); err != nil {
+			return fmt.Errorf("accountDB local meta: %w", err)
 		}
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
 
-	// Commit to codeDB
-	if len(s.codeWrites) > 0 || version > s.localMeta[codeDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_code_db_prepare")
-		batch := s.codeDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.codeWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("codeDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("codeDB set: %w", err)
-				}
-			}
-		}
-
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("codeDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{codeDBDir, batch})
+	// Commit to codeDB, storageDB, legacyDB (identical logic per KV DB).
+	kvDBs := [...]struct {
+		dir    string
+		phase  string
+		writes map[string]*pendingKVWrite
+		db     types.KeyValueDB
+	}{
+		{codeDBDir, "commit_code_db_prepare", s.codeWrites, s.codeDB},
+		{storageDBDir, "commit_storage_db_prepare", s.storageWrites, s.storageDB},
+		{legacyDBDir, "commit_legacy_db_prepare", s.legacyWrites, s.legacyDB},
 	}
+	for _, spec := range kvDBs {
+		if len(spec.writes) == 0 && version <= s.localMeta[spec.dir].CommittedVersion {
+			continue
+		}
+		s.phaseTimer.SetPhase(spec.phase)
+		batch := spec.db.NewBatch()
+		defer func(b types.Batch) { _ = b.Close() }(batch)
 
-	// Commit to storageDB
-	if len(s.storageWrites) > 0 || version > s.localMeta[storageDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_storage_db_prepare")
-		batch := s.storageDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.storageWrites {
+		for _, pw := range spec.writes {
 			if pw.isDelete {
 				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("storageDB delete: %w", err)
+					return fmt.Errorf("%s delete: %w", spec.dir, err)
 				}
 			} else {
 				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("storageDB set: %w", err)
+					return fmt.Errorf("%s set: %w", spec.dir, err)
 				}
 			}
 		}
 
-		// Update local meta atomically with data (same batch)
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[spec.dir]); err != nil {
+			return fmt.Errorf("%s local meta: %w", spec.dir, err)
 		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("storageDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{storageDBDir, batch})
-	}
-
-	// Commit to legacyDB
-	if len(s.legacyWrites) > 0 || version > s.localMeta[legacyDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_legacy_db_prepare")
-		batch := s.legacyDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for _, pw := range s.legacyWrites {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("legacyDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("legacyDB set: %w", err)
-				}
-			}
-		}
-
-		newLocalMeta := &LocalMeta{
-			CommittedVersion: version,
-		}
-		if err := batch.Set(DBLocalMetaKey, MarshalLocalMeta(newLocalMeta)); err != nil {
-			return fmt.Errorf("legacyDB local meta set: %w", err)
-		}
-		pending = append(pending, pendingCommit{legacyDBDir, batch})
+		pending = append(pending, pendingCommit{spec.dir, batch})
 	}
 
 	if len(pending) == 0 {
@@ -468,10 +443,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 
-	// Update in-memory local meta after all commits succeed
-	newLocalMeta := &LocalMeta{CommittedVersion: version}
+	// Update in-memory local meta after all commits succeed.
 	for _, p := range pending {
-		s.localMeta[p.dbDir] = newLocalMeta
+		s.localMeta[p.dbDir] = &LocalMeta{
+			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
+		}
 	}
 	return nil
 }

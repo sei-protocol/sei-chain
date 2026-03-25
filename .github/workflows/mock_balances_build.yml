@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - release/**
+  merge_group:
+    branches:
+      - main
+      - release/**
   push:
     branches:
       - main

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -48,7 +48,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 		ZeroCopy:        true,
 		CreateIfMissing: false,
 	}
-	db, err := memiavl.OpenDB(logger.NewNopLogger(), height, opts)
+	db, err := memiavl.OpenDB(height, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +105,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
-			if moduleName == "evm" && prefix == "03" {
+			if moduleName == commonevm.EVMStoreKey && prefix == "03" {
 				addr := prefixKey[2:42]
 				if _, exists := result.ContractSizes[addr]; !exists {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}

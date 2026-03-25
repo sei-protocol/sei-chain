@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel"
@@ -69,7 +68,6 @@ func initTestCtx(injectStores bool) sdk.Context {
 	}
 	store := cachemulti.NewStore(db, stores, keys, nil, nil, nil)
 	ctx = ctx.WithMultiStore(&store)
-	ctx = ctx.WithLogger(log.NewNopLogger())
 	return ctx
 }
 

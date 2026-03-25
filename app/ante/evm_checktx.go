@@ -30,7 +30,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "ante")
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
@@ -72,45 +75,8 @@ func EvmCheckTxAnte(
 }
 
 func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
-	txBody, ok := tx.(TxBody)
-	if ok {
-		body := txBody.GetBody()
-		if body.Memo != "" {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
-		}
-		if body.TimeoutHeight != 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
-		}
-		if len(body.ExtensionOptions) > 0 || len(body.NonCriticalExtensionOptions) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
-		}
-	}
-
-	txAuth, ok := tx.(TxAuthInfo)
-	if ok {
-		authInfo := txAuth.GetAuthInfo()
-		if len(authInfo.SignerInfos) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
-		}
-		if authInfo.Fee != nil {
-			if len(authInfo.Fee.Amount) > 0 {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
-			}
-			if authInfo.Fee.Payer != "" || authInfo.Fee.Granter != "" {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
-			}
-		}
-	}
-
-	txSig, ok := tx.(TxSignaturesV2)
-	if ok {
-		sigs, err := txSig.GetSignaturesV2()
-		if err != nil {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
-		}
-		if len(sigs) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
-		}
+	if err := evmante.ValidateNoCosmosTxFields(tx); err != nil {
+		return err
 	}
 
 	if len(tx.GetMsgs()) != 1 {
@@ -174,13 +140,13 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	case ethtypes.LegacyTxType:
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	}

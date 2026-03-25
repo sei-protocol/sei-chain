@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,12 +25,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/suite"
 
-	"bytes"
-	"encoding/hex"
-	"strconv"
-
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -76,9 +74,10 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	UseSc         bool
-	EnableGiga    bool
-	EnableGigaOCC bool
+	UseSc          bool
+	EnableGiga     bool
+	EnableGigaOCC  bool
+	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -98,6 +97,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == gigaconfig.FlagOCCEnabled {
 		return t.EnableGigaOCC
+	}
+	if s == receiptStoreBackendKey && t.ReceiptBackend != "" {
+		return t.ReceiptBackend
 	}
 	// Disable EVM HTTP and WebSocket servers in tests to avoid port conflicts
 	// when multiple tests run in parallel (all would try to bind to port 8545)
@@ -323,7 +325,7 @@ func setupReceiptStore(storeKey sdk.StoreKey) (receipt.ReceiptStore, error) {
 	receiptConfig := ssconfig.DefaultReceiptStoreConfig()
 	receiptConfig.KeepRecent = 0 // No min retain blocks in test
 	receiptConfig.DBDirectory = tempDir
-	receiptStore, err := receipt.NewReceiptStore(log.NewNopLogger(), receiptConfig, storeKey)
+	receiptStore, err := receipt.NewReceiptStore(receiptConfig, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +363,6 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		dbm.NewMemDB(),
 		nil,
 		true,
@@ -391,6 +392,7 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -434,7 +436,6 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -461,6 +462,56 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return res
+}
+
+// SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
+// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// Use this to test the full app path with rs-backend from config.
+func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+
+	res = New(
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		t.TempDir(),
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		testAppOpts,
+		EmptyWasmOpts,
+		nil, // no options: receipt store is created from testAppOpts inside New()
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() { _ = recover() }()
+
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -488,7 +539,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 	}
 
 	res = New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -538,7 +588,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -564,6 +613,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
+				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
 			},
 		)
@@ -606,7 +656,6 @@ func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisSt
 	db := dbm.NewMemDB()
 	encCdc := MakeEncodingConfig()
 	app := New(
-		log.NewNopLogger(),
 		db,
 		nil,
 		true,
@@ -692,6 +741,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -699,9 +749,12 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// commit genesis changes
 	_, _ = app.Commit(context.Background())
 	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Height:             app.LastBlockHeight() + 1,
-		Hash:               app.LastCommitID().Hash,
-		NextValidatorsHash: valSet.Hash(),
+		Hash: app.LastCommitID().Hash,
+		Header: &tmproto.Header{
+			ChainID:            "sei-test",
+			Height:             app.LastBlockHeight() + 1,
+			NextValidatorsHash: valSet.Hash(),
+		},
 	})
 
 	return app
@@ -731,12 +784,13 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
 		},
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
 
 	return app
 }
@@ -915,15 +969,16 @@ func GenTx(gen client.TxConfig, msgs []sdk.Msg, feeAmt sdk.Coins, gas uint64, ch
 
 func SignCheckDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp, header tmproto.Header, msgs []sdk.Msg,
-	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
+	accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
+	require.NotEmpty(t, header.ChainID)
 
 	tx, err := GenTx(
 		txCfg,
 		msgs,
 		sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 0)},
 		DefaultGenTxGas,
-		chainID,
+		header.ChainID,
 		accNums,
 		accSeqs,
 		priv...,
@@ -942,23 +997,27 @@ func SignCheckDeliver(
 		require.Error(t, err)
 		require.Nil(t, res)
 	}
-
-	// Simulate a sending a transaction and committing a block
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	gInfo, res, deliverErr := app.Deliver(txCfg.TxEncoder(), tx)
+	if deliverErr == nil && res == nil {
+		deliverErr = fmt.Errorf("deliver tx returned no result")
+	}
 
 	if expPass {
-		require.NoError(t, err)
+		require.NoError(t, deliverErr)
 		require.NotNil(t, res)
 	} else {
-		require.Error(t, err)
+		require.Error(t, deliverErr)
 		require.Nil(t, res)
 	}
 
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	_, _ = app.Commit(context.Background())
+	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: header.ChainID, Height: header.Height}})
+	require.NoError(t, err)
+	_, err = app.Commit(context.Background())
+	require.NoError(t, err)
 
-	return gInfo, res, err
+	return gInfo, res, deliverErr
 }
 
 func GenSequenceOfTxs(txGen client.TxConfig, msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...cryptotypes.PrivKey) ([]sdk.Tx, error) {

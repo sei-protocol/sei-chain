@@ -16,10 +16,12 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "test", "e2e", "app")
 
 // Application is an ABCI application for use by end-to-end tests. It is a
 // simple key/value store for strings, storing data in memory and persisting
@@ -27,7 +29,6 @@ import (
 type Application struct {
 	abci.BaseApplication
 	mu              sync.Mutex
-	logger          log.Logger
 	state           *State
 	snapshots       *SnapshotStore
 	cfg             *Config
@@ -101,13 +102,8 @@ func NewApplication(cfg *Config) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		return nil, err
-	}
 
 	return &Application{
-		logger:    logger,
 		state:     state,
 		snapshots: snapshots,
 		cfg:       cfg,
@@ -192,7 +188,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 		txs[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 	}
 
-	valUpdates, err := app.validatorUpdates(uint64(req.Height)) //nolint:gosec // Height is a non-negative block height
+	valUpdates, err := app.validatorUpdates(uint64(req.Header.Height)) //nolint:gosec // Height is a non-negative block height
 	if err != nil {
 		panic(err)
 	}
@@ -215,7 +211,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 					},
 					{
 						Key:   []byte("height"),
-						Value: []byte(strconv.FormatInt(req.Height, 10)),
+						Value: []byte(strconv.FormatInt(req.Header.Height, 10)),
 					},
 				},
 			},
@@ -237,10 +233,10 @@ func (app *Application) Commit(_ context.Context) (*abci.ResponseCommit, error) 
 		if err != nil {
 			panic(err)
 		}
-		app.logger.Info("created state sync snapshot", "height", snapshot.Height)
+		logger.Info("created state sync snapshot", "height", snapshot.Height)
 		err = app.snapshots.Prune(maxSnapshotCount)
 		if err != nil {
-			app.logger.Error("failed to prune snapshots", "err", err)
+			logger.Error("failed to prune snapshots", "err", err)
 		}
 	}
 	retainHeight := int64(0)
@@ -329,39 +325,14 @@ func (app *Application) ApplySnapshotChunk(_ context.Context, req *abci.RequestA
 	return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 }
 
-// PrepareProposal will take the given transactions and attempt to prepare a
-// proposal from them when it's our turn to do so.
-//
-// NB: Assumes that the supplied transactions do not exceed `req.MaxTxBytes`.
-func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	// None of the transactions are modified by this application.
-	trs := make([]*abci.TxRecord, 0, len(req.Txs))
-	var totalBytes int64
-	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx)) //nolint:gosec // tx length fits in int64
-		if totalBytes > req.MaxTxBytes {
-			break
-		}
-		trs = append(trs, &abci.TxRecord{
-			Action: abci.TxRecord_UNMODIFIED,
-			Tx:     tx,
-		})
-	}
-
-	if app.cfg.PrepareProposalDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.PrepareProposalDelayMS) * time.Millisecond) //nolint:gosec // PrepareProposalDelayMS is a small test config value
-	}
-
-	return &abci.ResponsePrepareProposal{TxRecords: trs}, nil
-}
-
 // ProcessProposal implements part of the Application interface.
 // It accepts any proposal that does not contain a malformed transaction.
 func (app *Application) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	for _, tx := range req.Txs {
 		_, _, err := parseTx(tx)
 		if err != nil {
-			app.logger.Error("malformed transaction in ProcessProposal", "tx", tx, "err", err)
+			logger.Error("malformed transaction in ProcessProposal", "len-bytes", len(tx), "err", err)
+			logger.Debug("malformed transaction in ProcessProposal", "tx", tx, "err", err)
 			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
 		}
 	}

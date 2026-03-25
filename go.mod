@@ -72,7 +72,7 @@ require (
 	github.com/sei-protocol/goutils v0.0.2
 	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
 	github.com/sei-protocol/sei-tm-db v0.0.5
-	github.com/sei-protocol/seilog v0.0.1
+	github.com/sei-protocol/seilog v0.0.3
 	github.com/snikch/goodman v0.0.0-20171125024755-10e37e294daa
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
@@ -260,10 +260,11 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/mod v0.32.0 // indirect
+	golang.org/x/image v0.36.0
+	golang.org/x/mod v0.32.0
 	golang.org/x/telemetry v0.0.0-20260109210033-bd525da824e2 // indirect
 	golang.org/x/term v0.39.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect

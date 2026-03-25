@@ -9,7 +9,8 @@ PASSWORD="${SEI_EVM_IO_TX_PASSWORD:-12345678}"
 FROM="${SEI_EVM_IO_TX_FROM:-admin}"
 RECIPIENT="${SEI_EVM_IO_TX_RECIPIENT:-0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52}"
 PROJECT_ROOT="${SEI_EVM_IO_PROJECT_ROOT:-/sei-protocol/sei-chain}"
-CONTRACT_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/minimal_contract.hex"
+CONTRACT_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/minimal_contract.hex"
+REVERTER_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/reverter_contract.hex"
 EVM_RPC_URL="${SEI_EVM_RPC_URL:-http://localhost:8545}"
 KEYRING_ARGS=()
 if [[ -n "${SEI_EVM_IO_KEYRING_BACKEND:-}" ]]; then
@@ -40,6 +41,26 @@ if [[ -n "$DEPLOY_TX" ]]; then
     export SEI_EVM_IO_SEED_BLOCK="$SEED"
     export SEI_EVM_IO_DEPLOY_TX_HASH="$DEPLOY_TX"
   fi
+fi
+
+# Deploy reverter contract (reverts with Error("user error")); export SEI_EVM_IO_REVERTER_ADDRESS for .iox __REVERTER__ tag.
+docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$REVERTER_HEX\" > /tmp/reverter_contract.hex"
+REVERTER_OUT=$(run seid tx evm deploy /tmp/reverter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b block -y 2>&1) || true
+REVERTER_TX=$(echo "$REVERTER_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
+if [[ -n "$REVERTER_TX" ]]; then
+  sleep 2
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    RRESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$REVERTER_TX\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
+    REVERTER_ADDR=$(echo "$RRESP" | grep -o '"contractAddress":"[^"]*"' | head -1 | cut -d'"' -f4)
+    [[ -n "$REVERTER_ADDR" ]] && break
+    sleep 1
+  done
+  if [[ -n "$REVERTER_ADDR" ]]; then
+    export SEI_EVM_IO_REVERTER_ADDRESS="$REVERTER_ADDR"
+  fi
+fi
+if [[ -z "${SEI_EVM_IO_REVERTER_ADDRESS:-}" ]]; then
+  echo "WARNING: Reverter contract not deployed (deploy or receipt lookup failed). Tests using __REVERTER__ will be skipped." >&2
 fi
 
 export SEI_EVM_IO_RUN_INTEGRATION=1

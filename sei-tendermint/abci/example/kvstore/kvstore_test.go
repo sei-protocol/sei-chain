@@ -9,7 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 const (
@@ -78,9 +78,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 	ctx := t.Context()
 
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	key := testKey
 	value := key
 	tx := []byte(key)
@@ -94,9 +93,8 @@ func TestPersistentKVStoreKV(t *testing.T) {
 func TestPersistentKVStoreInfo(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
-	logger := log.NewNopLogger()
 
-	kvstore := NewPersistentKVStoreApplication(logger, dir)
+	kvstore := NewPersistentKVStoreApplication(dir)
 	if err := InitKVStore(ctx, kvstore); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +112,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	// make and apply block
 	height = int64(1)
 	hash := []byte("foo")
-	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Height: height}); err != nil {
+	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Header: &tmproto.Header{Height: height}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,7 +205,7 @@ func makeApplyBlock(ctx context.Context, t *testing.T, kvstore types.Application
 	hash := []byte("foo")
 	resFinalizeBlock, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{
 		Hash:   hash,
-		Height: height,
+		Header: &tmproto.Header{Height: height},
 		Txs:    txs,
 	})
 	if err != nil {

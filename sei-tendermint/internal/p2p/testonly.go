@@ -14,7 +14,6 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -38,8 +37,7 @@ func NodeInSlice(id types.NodeID, ids []types.NodeID) bool {
 // testing. It creates an arbitrary number of nodes that are connected to each
 // other, and can open channels across all nodes with custom reactors.
 type TestNetwork struct {
-	logger log.Logger
-	nodes  utils.Mutex[map[types.NodeID]*TestNode]
+	nodes utils.Mutex[map[types.NodeID]*TestNode]
 }
 
 // NetworkOptions is an argument structure to parameterize the
@@ -50,9 +48,9 @@ type TestNetworkOptions struct {
 }
 
 type TestNodeOptions struct {
-	MaxPeers       utils.Option[int]
 	MaxConnected   utils.Option[int]
 	PexOnHandshake bool
+	SelfAddress    bool
 }
 
 func TestAddress(r *Router) NodeAddress {
@@ -72,10 +70,8 @@ func TestAddress(r *Router) NodeAddress {
 // MakeNetwork creates a test network with the given number of nodes and
 // connects them to each other.
 func MakeTestNetwork(t *testing.T, opts TestNetworkOptions) *TestNetwork {
-	logger, _ := log.NewDefaultLogger("plain", "info")
 	n := &TestNetwork{
-		logger: logger,
-		nodes:  utils.NewMutex(map[types.NodeID]*TestNode{}),
+		nodes: utils.NewMutex(map[types.NodeID]*TestNode{}),
 	}
 	for i := 0; i < opts.NumNodes; i++ {
 		n.MakeNode(t, opts.NodeOpts)
@@ -97,7 +93,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		err := nodes[i].Router.peerManager.AddAddrs(utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
+		err := nodes[i].Router.peerManager.PushPex(utils.Some(nodes[i].NodeID), utils.Slice(nodes[(i+1)%len(nodes)].NodeAddress))
 		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
@@ -112,7 +108,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			err := source.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+			err := source.Router.peerManager.PushPex(utils.Some(source.NodeID), utils.Slice(target.NodeAddress))
 			require.NoError(t, err)
 		}
 	}
@@ -123,8 +119,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 				if target.NodeID == source.NodeID {
 					continue
 				}
-				_, ok := conns.Get(target.NodeID)
-				if !ok {
+				if _, ok := GetAny(conns, target.NodeID); !ok {
 					return false
 				}
 			}
@@ -224,7 +219,6 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 
 // Node is a node in a Network, with a Router and a PeerManager.
 type TestNode struct {
-	Logger      log.Logger
 	NodeID      types.NodeID
 	NodeInfo    types.NodeInfo
 	NodeAddress NodeAddress
@@ -234,9 +228,9 @@ type TestNode struct {
 
 // Waits for the specific connection to get disconnected.
 func (n *TestNode) WaitForDisconnect(ctx context.Context, conn *ConnV2) {
+	id := conn.Info().connID()
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		got, ok := conns.Get(conn.Info().ID)
-		return !ok || got != conn
+		return conns.GetOpt(id) != utils.Some(conn)
 	}); err != nil {
 		panic(err)
 	}
@@ -252,7 +246,7 @@ func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
 
 func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		_, ok := conns.Get(target)
+		_, ok := GetAny(conns, target)
 		return ok == status
 	}); err != nil {
 		panic(err)
@@ -260,17 +254,15 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	_ = n.Router.peerManager.AddAddrs(utils.Slice(target.NodeAddress))
+	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
 	n.WaitForConn(ctx, target.NodeID, true)
 	target.WaitForConn(ctx, n.NodeID, true)
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
-	conn, ok := n.Router.peerManager.Conns().Get(target)
-	if !ok {
-		panic("not connected")
+	for _, conn := range GetAll(n.Router.peerManager.Conns(), target) {
+		conn.Close()
 	}
-	conn.Close()
 	n.WaitForConn(ctx, target, false)
 }
 
@@ -280,18 +272,19 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	privKey := NodeSecretKey(ed25519.GenerateSecretKey())
 	nodeID := privKey.Public().NodeID()
-	logger := n.logger.With("node", nodeID[:5])
 	endpoint := Endpoint{AddrPort: tcp.TestReserveAddr()}
 	routerOpts := &RouterOptions{
-		SelfAddress:              utils.Some(endpoint.NodeAddress(nodeID)),
 		PexOnHandshake:           opts.PexOnHandshake,
 		Endpoint:                 endpoint,
 		Connection:               conn.DefaultMConnConfig(),
 		IncomingConnectionWindow: utils.Some[time.Duration](0),
 		MaxAcceptRate:            utils.Some(rate.Inf),
 		MaxDialRate:              utils.Some(rate.Limit(30.)),
-		MaxPeers:                 opts.MaxPeers,
-		MaxConnected:             opts.MaxConnected,
+		MaxInbound:               opts.MaxConnected,
+		MaxOutbound:              opts.MaxConnected,
+	}
+	if opts.SelfAddress {
+		routerOpts.SelfAddress = utils.Some(endpoint.NodeAddress(nodeID))
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{
@@ -303,7 +296,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 
 	router, err := NewRouter(
-		logger,
 		NopMetrics(),
 		privKey,
 		func() *types.NodeInfo { return &nodeInfo },
@@ -316,7 +308,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	t.Cleanup(router.Stop)
 
 	node := &TestNode{
-		Logger:      logger,
 		NodeID:      nodeID,
 		NodeInfo:    nodeInfo,
 		NodeAddress: routerOpts.Endpoint.NodeAddress(nodeID),

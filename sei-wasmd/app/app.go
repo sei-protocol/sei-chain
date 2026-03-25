@@ -94,12 +94,12 @@ import (
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/spf13/cast"
@@ -118,6 +118,8 @@ const appName = "WasmApp"
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
 var (
+	logger = seilog.NewLogger("wasmd", "app")
+
 	NodeDir      = ".wasmd"
 	Bech32Prefix = "wasm"
 
@@ -274,7 +276,6 @@ type WasmApp struct {
 
 // NewWasmApp returns a reference to an initialized WasmApp.
 func NewWasmApp(
-	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	loadLatest bool,
@@ -291,7 +292,7 @@ func NewWasmApp(
 	appCodec, legacyAmino := encodingConfig.Marshaler, encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
+	bApp := baseapp.NewBaseApp(appName, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
@@ -641,7 +642,6 @@ func NewWasmApp(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetInitChainer(app.InitChainer)
-	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
@@ -680,14 +680,6 @@ func NewWasmApp(
 
 // Name returns the name of the App
 func (app *WasmApp) Name() string { return app.BaseApp.Name() }
-
-func (app *WasmApp) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	return &abci.ResponsePrepareProposal{
-		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-		}),
-	}, nil
-}
 
 func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	return &abci.ResponseProcessProposal{

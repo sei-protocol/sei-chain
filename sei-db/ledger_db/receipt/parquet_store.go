@@ -8,7 +8,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbLogger "github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -20,14 +19,14 @@ type parquetReceiptStore struct {
 	storeKey sdk.StoreKey
 }
 
-func newParquetReceiptStore(log dbLogger.Logger, cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	storeCfg := parquet.StoreConfig{
 		DBDirectory:          cfg.DBDirectory,
 		KeepRecent:           int64(cfg.KeepRecent),
 		PruneIntervalSeconds: int64(cfg.PruneIntervalSeconds),
 	}
 
-	store, err := parquet.NewStore(log, storeCfg)
+	store, err := parquet.NewStore(storeCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +177,7 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 				BlockNumber:  blockNumber,
 				ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 			},
-			Logs:         buildParquetLogRecords(txLogs, blockHash),
+			Logs:         BuildParquetLogRecords(txLogs, blockHash),
 			ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 		})
 	}
@@ -309,7 +308,7 @@ func (s *parquetReceiptStore) replayWAL() error {
 					BlockNumber:  blockNumber,
 					ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 				},
-				Logs: buildParquetLogRecords(txLogs, blockHash),
+				Logs: BuildParquetLogRecords(txLogs, blockHash),
 			}
 
 			if err := s.store.ApplyReceiptFromReplay(input); err != nil {
@@ -349,14 +348,14 @@ func truncateReplayWAL(w interface{ TruncateBefore(offset uint64) error }, dropO
 	return nil
 }
 
-func buildParquetLogRecords(logs []*ethtypes.Log, blockHash common.Hash) []parquet.LogRecord {
+func BuildParquetLogRecords(logs []*ethtypes.Log, blockHash common.Hash) []parquet.LogRecord {
 	if len(logs) == 0 {
 		return nil
 	}
 
 	records := make([]parquet.LogRecord, 0, len(logs))
 	for _, lg := range logs {
-		topic0, topic1, topic2, topic3 := extractLogTopics(lg.Topics)
+		topic0, topic1, topic2, topic3 := ExtractLogTopics(lg.Topics)
 		rec := parquet.LogRecord{
 			BlockNumber: lg.BlockNumber,
 			TxHash:      lg.TxHash[:],
@@ -394,7 +393,7 @@ func buildTopicsFromParquetLogResult(lr parquet.LogResult) []common.Hash {
 	return topicList
 }
 
-func extractLogTopics(topics []common.Hash) ([]byte, []byte, []byte, []byte) {
+func ExtractLogTopics(topics []common.Hash) ([]byte, []byte, []byte, []byte) {
 	t0 := make([]byte, 0)
 	t1 := make([]byte, 0)
 	t2 := make([]byte, 0)

@@ -12,12 +12,12 @@
 // Usage:
 //
 //	cfg, _ := benchmark.LoadConfig(configPath, evmChainID, seiChainID)
-//	gen, _ := benchmark.NewGenerator(cfg, txConfig, logger)
+//	gen, _ := benchmark.NewGenerator(cfg, txConfig)
 //	benchLogger := benchmark.NewLogger(logger)
 //	proposalCh := gen.StartProposalChannel(ctx, benchLogger)
 //
 // The generator can be configured via JSON config files that follow the sei-load
-// LoadConfig format. See scripts/scenarios/ for example configurations.
+// LoadConfig format. See benchmark/scenarios/ for example configurations.
 package benchmark
 
 import (
@@ -26,21 +26,22 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "benchmark")
 
 // Manager coordinates benchmark generation and logging.
 type Manager struct {
 	Generator  *Generator
 	Logger     *Logger
-	proposalCh <-chan *abci.ResponsePrepareProposal
+	proposalCh <-chan [][]byte
 }
 
 // NewManager creates a new benchmark manager from configuration.
-func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, evmChainID int64, logger log.Logger) (*Manager, error) {
+func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, evmChainID int64) (*Manager, error) {
 	// Defensive check: prevent benchmarking on live chains
 	if evmcfg.IsLiveEVMChainID(evmChainID) {
 		panic("benchmark not allowed on live chains")
@@ -54,12 +55,12 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 		return nil, err
 	}
 
-	gen, err := NewGenerator(cfg, txConfig, logger)
+	gen, err := NewGenerator(cfg, txConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	benchLogger := NewLogger(logger)
+	benchLogger := NewLogger()
 	go benchLogger.Start(ctx)
 
 	proposalCh := gen.StartProposalChannel(ctx, benchLogger)
@@ -77,7 +78,7 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 }
 
 // ProposalChannel returns the channel of prepared proposals.
-func (m *Manager) ProposalChannel() <-chan *abci.ResponsePrepareProposal {
+func (m *Manager) ProposalChannel() <-chan [][]byte {
 	return m.proposalCh
 }
 

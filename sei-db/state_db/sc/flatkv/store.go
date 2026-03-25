@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -17,9 +16,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/seilog"
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
 const (
 	// Top-level directory names
@@ -40,12 +42,11 @@ const (
 
 	readOnlyDirPrefix = "readonly-"
 
-	// Metadata DB keys
-	MetaGlobalVersion = "_meta/version" // Global committed version watermark (8 bytes)
-	MetaGlobalLtHash  = "_meta/hash"    // Global LtHash (2048 bytes)
-
 	flatkvMeterName = "seidb_flatkv"
 )
+
+// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
+var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
 // pendingKVWrite tracks a buffered key-value write for code/storage DBs.
 type pendingKVWrite struct {
@@ -56,17 +57,22 @@ type pendingKVWrite struct {
 
 // pendingAccountWrite tracks a buffered account write.
 // Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
+//
+// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
+// individual field within value. When all fields become zero after resets,
+// isDelete is set to true and the accountDB row is physically deleted at
+// commit time. Any subsequent write to the same address within the same
+// block clears isDelete back to false (row is recreated).
 type pendingAccountWrite struct {
 	addr     Address
 	value    AccountValue
-	isDelete bool
+	isDelete bool // true = row will be physically deleted (all fields zero)
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
 	ctx    context.Context
-	log    logger.Logger
 	config Config
 	dbDir  string
 
@@ -84,6 +90,11 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
+
+	// Per-DB working LTHash tracking. Authoritative copies live in each
+	// DB's LocalMeta (atomically committed with data). On startup the
+	// working hashes are loaded from LocalMeta.
+	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
 	// accountWrites: key = address string (20 bytes), value = AccountValue
@@ -114,28 +125,24 @@ var _ Store = (*CommitStore)(nil)
 func NewCommitStore(
 	ctx context.Context,
 	dbDir string,
-	log logger.Logger,
 	cfg Config,
 ) *CommitStore {
-	if log == nil {
-		log = logger.NewNopLogger()
-	}
 	meter := otel.Meter(flatkvMeterName)
 
 	return &CommitStore{
-		ctx:               ctx,
-		log:               log,
-		config:            cfg,
-		dbDir:             dbDir,
-		localMeta:         make(map[string]*LocalMeta),
-		accountWrites:     make(map[string]*pendingAccountWrite),
-		codeWrites:        make(map[string]*pendingKVWrite),
-		storageWrites:     make(map[string]*pendingKVWrite),
-		legacyWrites:      make(map[string]*pendingKVWrite),
-		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
-		committedLtHash:   lthash.New(),
-		workingLtHash:     lthash.New(),
-		phaseTimer:        metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		ctx:                ctx,
+		config:             cfg,
+		dbDir:              dbDir,
+		localMeta:          make(map[string]*LocalMeta),
+		accountWrites:      make(map[string]*pendingAccountWrite),
+		codeWrites:         make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*pendingKVWrite),
+		legacyWrites:       make(map[string]*pendingKVWrite),
+		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
+		committedLtHash:    lthash.New(),
+		workingLtHash:      lthash.New(),
+		perDBWorkingLtHash: newPerDBLtHashMap(),
+		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
 	}
 }
 
@@ -149,7 +156,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
-	s.log.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
 
 	if readOnly {
 		if s.readOnly {
@@ -188,7 +195,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
 			}
 		} else {
-			s.log.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
+			logger.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
 		}
 		// Force a fresh working dir clone: the working dir may contain data
 		// beyond targetVersion from a previous open-to-latest.
@@ -211,7 +218,7 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
 // requested version.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
-	ro := NewCommitStore(s.ctx, s.dbDir, s.log, s.config)
+	ro := NewCommitStore(s.ctx, s.dbDir, s.config)
 
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
 	if err != nil {
@@ -222,7 +229,7 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	defer func() {
 		if retErr != nil {
 			if closeErr := ro.Close(); closeErr != nil {
-				s.log.Error("failed to close readonly store during error cleanup", "err", closeErr)
+				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
 			}
 		}
 	}()
@@ -288,7 +295,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 
 	s.readOnly = true
 
-	s.log.Info("FlatKV readonly store opened", "version", s.committedVersion,
+	logger.Info("FlatKV readonly store opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
 	return nil
 }
@@ -363,7 +370,7 @@ func (s *CommitStore) open() (retErr error) {
 		return err
 	}
 
-	s.log.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
+	logger.Info("FlatKV store opened", "dir", dir, "version", s.committedVersion)
 	return nil
 }
 
@@ -452,7 +459,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 
 	if changelogRoot != "" {
 		changelogPath := filepath.Join(changelogRoot, changelogDir)
-		s.changelog, err = wal.NewChangelogWAL(s.log, changelogPath, wal.Config{
+		s.changelog, err = wal.NewChangelogWAL(changelogPath, wal.Config{
 			WriteBufferSize: 0,
 			KeepRecent:      0,
 			PruneInterval:   0,
@@ -498,6 +505,26 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.committedLtHash = lthash.New()
 		s.workingLtHash = lthash.New()
 	}
+
+	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// If any DB's version is behind the global version (partial commit or
+	// corruption), lower committedVersion so catchup replays from there.
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta != nil && meta.LtHash != nil {
+			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+		} else {
+			s.perDBWorkingLtHash[dbDir] = lthash.New()
+		}
+		if meta != nil && meta.CommittedVersion < s.committedVersion {
+			logger.Warn("DB LocalMeta version behind global version, will catchup",
+				"db", dbDir,
+				"localVersion", meta.CommittedVersion,
+				"globalVersion", s.committedVersion)
+			s.committedVersion = meta.CommittedVersion
+		}
+	}
+
 	return nil
 }
 
@@ -517,7 +544,7 @@ func (s *CommitStore) clearChangelog() error {
 		return fmt.Errorf("remove changelog dir: %w", err)
 	}
 	var err error
-	s.changelog, err = wal.NewChangelogWAL(s.log, dir, wal.Config{})
+	s.changelog, err = wal.NewChangelogWAL(dir, wal.Config{})
 	if err != nil {
 		return fmt.Errorf("reopen changelog: %w", err)
 	}
@@ -534,18 +561,79 @@ func (s *CommitStore) RootHash() []byte {
 	return checksum[:]
 }
 
+// CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.
+func (s *CommitStore) CommittedRootHash() []byte {
+	checksum := s.committedLtHash.Checksum()
+	return checksum[:]
+}
+
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
-	// rootmulti.Restore closes the store before creating an importer.
-	// Reopen the DBs so the importer can write data.
-	if s.isClosed() {
-		if err := s.open(); err != nil {
-			return nil, fmt.Errorf("reopen store for import: %w", err)
-		}
+	if err := s.resetForImport(); err != nil {
+		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
 	return NewKVImporter(s, version), nil
+}
+
+// resetForImport purges all existing data so that a subsequent import
+// produces a clean store containing only the snapshot being restored.
+// Without this, keys that exist locally but were deleted in the remote
+// snapshot would survive the import, producing a mixed stale state.
+func (s *CommitStore) resetForImport() error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before import reset: %w", err)
+	}
+
+	dir := s.flatkvDir()
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create flatkv dir: %w", err)
+	}
+
+	// rootmulti.Restore calls Close() (which releases the file lock)
+	// before calling Importer(). Re-acquire the lock before mutating
+	// the data directory so no other process can interfere.
+	if s.fileLock == nil {
+		if err := s.acquireFileLock(dir); err != nil {
+			return err
+		}
+	}
+
+	if err := atomicRemoveDir(filepath.Join(dir, workingDirName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", workingDirName, err)
+	}
+
+	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		p := filepath.Join(dir, snapshotName(v))
+		if err := atomicRemoveDir(p); err != nil {
+			return false, fmt.Errorf("remove snapshot %s: %w", p, err)
+		}
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("resetForImport: %w", err)
+	}
+
+	if err := os.Remove(currentPath(dir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
+	}
+
+	if err := atomicRemoveDir(filepath.Join(dir, changelogDir)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("resetForImport: remove %s: %w", changelogDir, err)
+	}
+
+	// Reopen from a pristine empty state. open() will load metadata
+	// from the empty DB (a no-op), then we reset in-memory state below.
+	if err := s.open(); err != nil {
+		return err
+	}
+
+	s.committedVersion = 0
+	s.committedLtHash = lthash.New()
+	s.workingLtHash = lthash.New()
+	s.perDBWorkingLtHash = newPerDBLtHashMap()
+
+	return nil
 }
 
 func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {

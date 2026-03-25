@@ -29,7 +29,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -594,12 +593,9 @@ func init() {
 	goodConfig.WSPort = TestWSPort
 	goodConfig.FilterTimeout = 500 * time.Millisecond
 	goodConfig.MaxLogNoBlock = 10
-	infoLog, err := log.NewDefaultLogger("text", "info")
-	if err != nil {
-		panic(err)
-	}
+	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -611,7 +607,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -626,7 +622,6 @@ func init() {
 	strictConfig.MaxTraceLookbackBlocks = 1     // Artificially low lookback block
 
 	strictServer, err := evmrpc.NewEVMHTTPServer(
-		infoLog,
 		strictConfig,
 		&MockClient{},
 		EVMKeeper,
@@ -652,7 +647,6 @@ func init() {
 	archiveConfig.WSPort = TestArchivePort + 1
 	archiveConfig.MaxTraceLookbackBlocks = -1 // No lookback limit
 	archiveServer, err := evmrpc.NewEVMHTTPServer(
-		infoLog,
 		archiveConfig,
 		&MockClient{},
 		EVMKeeper,
@@ -673,7 +667,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
 	if err != nil {
 		panic(err)
 	}

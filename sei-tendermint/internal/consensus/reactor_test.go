@@ -27,7 +27,6 @@ import (
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
@@ -74,7 +73,6 @@ func setup(
 		state := states[i]
 
 		reactor, err := NewReactor(
-			state.logger.With("node", nodeID),
 			state,
 			node.Router,
 			state.eventBus,
@@ -249,7 +247,6 @@ func TestReactorWithEvidence(t *testing.T) {
 	valSet, privVals := factory.ValidatorSet(ctx, n, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	states := make([]*State, n)
-	logger := consensusLogger()
 
 	for i := range n {
 		stateDB := dbm.NewMemDB() // each state needs its own db
@@ -276,7 +273,6 @@ func TestReactorWithEvidence(t *testing.T) {
 		proxyAppConnCon := app
 
 		mempool := mempool.NewTxMempool(
-			log.NewNopLogger().With("module", "mempool"),
 			thisConfig.Mempool,
 			proxyAppConnMem,
 			nil,
@@ -299,12 +295,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		evpool.On("Update", mock.MatchedBy(func(ctx context.Context) bool { return true }), mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 		evpool2 := sm.EmptyEvidencePool{}
 
-		eventBus := eventbus.NewDefault(log.NewNopLogger().With("module", "events"))
+		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
-		cs, err := NewState(logger.With("validator", i, "module", "consensus"),
+		cs, err := NewState(
 			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, err)
 		cs.SetPrivValidator(ctx, utils.Some(pv))
@@ -477,7 +473,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		cfg,
 		nVals,
 		nPeers,
-		func() TimeoutTicker { return NewTimeoutTicker(log.NewNopLogger()) },
+		func() TimeoutTicker { return NewTimeoutTicker() },
 		newEpehemeralKVStore,
 	)
 	t.Cleanup(cleanup)
@@ -513,11 +509,10 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 	// This test covers the error handling paths in reactor when proposals exceed memory limits
 	// It's designed to improve test coverage for the reactor's proposal validation
 
-	logger := log.NewTestingLogger(t)
 	testPeerID := types.NodeID("test-peer-memory-limit")
 
 	// Test that PeerState correctly rejects proposals with excessive parts
-	ps := NewPeerState(logger, testPeerID)
+	ps := NewPeerState(testPeerID)
 	ps.PRS.Height = 1
 	ps.PRS.Round = 0
 

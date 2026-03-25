@@ -20,7 +20,6 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -70,7 +69,7 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
@@ -97,7 +96,7 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 
@@ -122,7 +121,7 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
@@ -169,7 +168,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	ctx := t.Context()
 
 	config := configSetup(t)
-	logger := log.NewNopLogger()
+
 	state, privVals := makeGenesisState(ctx, t, config, genesisStateArgs{
 		Validators: 1,
 		Power:      10,
@@ -179,7 +178,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
 	cs := newStateWithConfigAndBlockStore(
-		ctx, logger, config, state, privVals[0], NewCounterApplication(), blockStore)
+		ctx, config, state, privVals[0], NewCounterApplication(), blockStore)
 
 	err := stateStore.Save(state)
 	require.NoError(t, err)
@@ -223,7 +222,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 	app := NewCounterApplication()
 	stateStore := sm.NewStore(dbm.NewMemDB())
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	cs := newStateWithConfigAndBlockStore(ctx, log.NewNopLogger(), config, state, privVals[0], app, blockStore)
+	cs := newStateWithConfigAndBlockStore(ctx, config, state, privVals[0], app, blockStore)
 	err := stateStore.Save(state)
 	require.NoError(t, err)
 
@@ -362,22 +361,6 @@ func (app *CounterApplication) Commit(context.Context) (*abci.ResponseCommit, er
 	defer app.mu.Unlock()
 	app.mempoolTxCount = app.txCount
 	return &abci.ResponseCommit{}, nil
-}
-
-func (app *CounterApplication) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	trs := make([]*abci.TxRecord, 0, len(req.Txs))
-	var totalBytes int64
-	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx))
-		if totalBytes > req.MaxTxBytes {
-			break
-		}
-		trs = append(trs, &abci.TxRecord{
-			Action: abci.TxRecord_UNMODIFIED,
-			Tx:     tx,
-		})
-	}
-	return &abci.ResponsePrepareProposal{TxRecords: trs}, nil
 }
 
 func (app *CounterApplication) ProcessProposal(_ context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {

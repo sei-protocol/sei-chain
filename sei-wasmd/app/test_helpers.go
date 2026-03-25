@@ -39,7 +39,6 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -78,7 +77,7 @@ func setup(t testing.TB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Opt
 	require.NoError(t, err)
 	baseAppOpts := []func(*bam.BaseApp){bam.SetSnapshotStore(snapshotStore), bam.SetSnapshotKeepRecent(2)}
 	db := dbm.NewMemDB()
-	app := NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, nodeHome, invCheckPeriod, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, opts, baseAppOpts...)
+	app := NewWasmApp(db, nil, true, map[int64]bool{}, nodeHome, invCheckPeriod, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, opts, baseAppOpts...)
 	if withGenesis {
 		return app, NewDefaultGenesisState()
 	}
@@ -167,10 +166,13 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	_, err = app.Commit(context.Background())
 	require.NoError(t, err)
 	_, err = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Height:             app.LastBlockHeight() + 1,
-		Hash:               app.LastCommitID().Hash,
-		ValidatorsHash:     valSet.Hash(),
-		NextValidatorsHash: valSet.Hash(),
+		Hash: app.LastCommitID().Hash,
+		Header: &tmproto.Header{
+			ChainID:            chainID,
+			Height:             app.LastBlockHeight() + 1,
+			ValidatorsHash:     valSet.Hash(),
+			NextValidatorsHash: valSet.Hash(),
+		},
 	})
 	require.NoError(t, err)
 

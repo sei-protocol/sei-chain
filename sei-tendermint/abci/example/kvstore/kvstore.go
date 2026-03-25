@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/gogo/protobuf/proto"
@@ -19,12 +20,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "abci", "example", "kvstore")
+
 	stateKey        = []byte("stateKey")
 	kvPairPrefixKey = []byte("kvPairKey:")
 
@@ -79,7 +81,6 @@ type Application struct {
 	mu           sync.Mutex
 	state        State
 	RetainBlocks int64 // blocks to retain after commit (via ResponseCommit.RetainHeight)
-	logger       log.Logger
 
 	// validator set
 	ValUpdates         []types.ValidatorUpdate
@@ -88,7 +89,6 @@ type Application struct {
 
 func NewApplication() *Application {
 	return &Application{
-		logger:             log.NewNopLogger(),
 		state:              loadState(dbm.NewMemDB()),
 		valAddrToPubKeyMap: make(map[string]cryptoproto.PublicKey),
 	}
@@ -101,7 +101,7 @@ func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain
 	for _, v := range req.Validators {
 		r := app.updateValidator(v)
 		if r.IsErr() {
-			app.logger.Error("error updating validators", "r", r)
+			logger.Error("error updating validators", "err", r)
 			panic("problem updating validators")
 		}
 	}
@@ -186,7 +186,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 					PubKey: pubKey,
 					Power:  ev.Validator.Power - 1,
 				})
-				app.logger.Info("Decreased val power by 1 because of the equivocation",
+				logger.Info("Decreased val power by 1 because of the equivocation",
 					"val", addr)
 			} else {
 				panic(fmt.Errorf("wanted to punish val %q but can't find it", addr))
@@ -283,15 +283,6 @@ func (app *Application) Query(_ context.Context, reqQuery *types.RequestQuery) (
 	}
 
 	return &resQuery, nil
-}
-
-func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	return &types.ResponsePrepareProposal{
-		TxRecords: app.substPrepareTx(req.Txs, req.MaxTxBytes),
-	}, nil
 }
 
 func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
@@ -441,36 +432,4 @@ func isPrepareTx(tx []byte) bool {
 func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
 	// noop
 	return &types.ExecTxResult{}
-}
-
-// substPrepareTx substitutes all the transactions prefixed with 'prepare' in the
-// proposal for transactions with the prefix stripped.
-// It marks all of the original transactions as 'REMOVED' so that
-// Tendermint will remove them from its mempool.
-func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*types.TxRecord {
-	trs := make([]*types.TxRecord, 0, len(blockData))
-	var removed []*types.TxRecord
-	var totalBytes int64
-	for _, tx := range blockData {
-		txMod := tx
-		action := types.TxRecord_UNMODIFIED
-		if isPrepareTx(tx) {
-			removed = append(removed, &types.TxRecord{
-				Tx:     tx,
-				Action: types.TxRecord_UNMODIFIED,
-			})
-			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_UNMODIFIED
-		}
-		totalBytes += int64(len(txMod))
-		if totalBytes > maxTxBytes {
-			break
-		}
-		trs = append(trs, &types.TxRecord{
-			Tx:     txMod,
-			Action: action,
-		})
-	}
-
-	return append(trs, removed...)
 }

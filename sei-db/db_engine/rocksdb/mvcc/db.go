@@ -16,7 +16,6 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -114,7 +113,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 	database.latestVersion.Store(latestVersion)
 	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
-	streamHandler, err := wal.NewChangelogWAL(logger.NewNopLogger(), utils.GetChangelogPath(dataDir), wal.Config{
+	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
 		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})

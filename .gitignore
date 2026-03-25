@@ -59,6 +59,7 @@ contracts/artifacts
 # Integration tests build artifacts
 integration_test/dapp_tests/artifacts
 
-# DB benchmark data
+# DB benchmark data and artifacts
 sei-db/state_db/bench/cryptosim/data/**
 sei-db/state_db/bench/cryptosim/bin/
+sei-db/state_db/bench/cryptosim/logs/

@@ -88,7 +88,7 @@ func (s *CommitStore) Close() error {
 		return err
 	}
 
-	s.log.Info("FlatKV store closed")
+	logger.Info("FlatKV store closed")
 	return nil
 }
 
@@ -114,16 +114,28 @@ func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 	}
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), readOnlyDirPrefix) {
-			s.log.Info("removing orphaned readonly dir", "dir", e.Name())
+			logger.Info("removing orphaned readonly dir", "dir", e.Name())
 			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
 		}
 	}
 	return nil
 }
 
-// Exporter creates an exporter for the given version.
-// NOTE: Not yet implemented. Will be added with state-sync support.
-// The future implementation will export each DB separately with internal key format.
+// Exporter creates an exporter for the given version by opening a read-only
+// clone and performing a full scan of all DBs. The returned exporter must be
+// closed when done (which also closes the read-only clone).
 func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
-	return nil, fmt.Errorf("not implemented")
+	if s.readOnly {
+		return nil, errReadOnly
+	}
+	roStore, err := s.LoadVersion(version, true)
+	if err != nil {
+		return nil, fmt.Errorf("load readonly version for export: %w", err)
+	}
+	cs, ok := roStore.(*CommitStore)
+	if !ok {
+		_ = roStore.Close()
+		return nil, fmt.Errorf("unexpected store type from LoadVersion")
+	}
+	return NewKVExporter(cs, version), nil
 }

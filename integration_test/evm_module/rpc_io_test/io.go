@@ -35,15 +35,22 @@ type binding struct {
 	Path string
 }
 
-// ioxPair is one request/response pair from a .io/.iox file.
+// ioxPair is one request/response pair from a .io or .iox file
 type ioxPair struct {
 	Request       []byte
 	Expected      []byte
 	AfterBindings []binding
 	RefPair       int // 1-based; 0 = no ref check
+
+	// ExpectBodyContains: each substring must appear in the response body (UTF-8).
+	ExpectBodyContains []string
+
+	// ExpectResponseHeaders: each name must be present on the HTTP response (case-insensitive).
+	ExpectResponseHeaders []string
 }
 
-// parseIOFile parses .io/.iox content. Supports ">> request", "<< expected", "@ bind var = path", "<< @ ref_pair N".
+// parseIOFile parses .io/.iox content. Supports ">> request", "<< expected", "@ bind var = path",
+// "<< @ ref_pair N", "@ expect_body_contains substring", "@ expect_response_header Header-Name".
 func parseIOFile(content string) ([]ioxPair, error) {
 	var pairs []ioxPair
 	var curReq []byte
@@ -101,23 +108,61 @@ func parseIOFile(content string) ([]ioxPair, error) {
 					return nil, fmt.Errorf("invalid bind directive: var and path must be non-empty, got %q", trimmed)
 				}
 				pairs[lastIdx].AfterBindings = append(pairs[lastIdx].AfterBindings, binding{Var: varName, Path: path})
+				continue
 			}
+			if after, ok := strings.CutPrefix(rest, "expect_body_contains "); ok {
+				sub := strings.TrimSpace(after)
+				if sub == "" {
+					return nil, fmt.Errorf("expect_body_contains needs non-empty substring: %q", trimmed)
+				}
+				pairs[lastIdx].ExpectBodyContains = append(pairs[lastIdx].ExpectBodyContains, sub)
+				continue
+			}
+			if after, ok := strings.CutPrefix(rest, "expect_response_header "); ok {
+				name := strings.TrimSpace(after)
+				if name == "" {
+					return nil, fmt.Errorf("expect_response_header needs non-empty header name: %q", trimmed)
+				}
+				pairs[lastIdx].ExpectResponseHeaders = append(pairs[lastIdx].ExpectResponseHeaders, name)
+				continue
+			}
+			return nil, fmt.Errorf("unknown directive: %q", trimmed)
 		}
 	}
 	return pairs, nil
 }
 
-func (c *rpcClient) call(req []byte) ([]byte, int, error) {
+// assertPairBodyDirectives checks optional @ expect_body_contains rules for one .io pair.
+func assertPairBodyDirectives(t *testing.T, pair ioxPair, body []byte) {
+	t.Helper()
+	for _, sub := range pair.ExpectBodyContains {
+		if !strings.Contains(string(body), sub) {
+			t.Fatalf("expected response body to contain %q", sub)
+		}
+	}
+}
+
+func assertPairHeaderDirectives(t *testing.T, pair ioxPair, hdr http.Header) {
+	t.Helper()
+	for _, name := range pair.ExpectResponseHeaders {
+		if hdr.Get(name) == "" {
+			t.Fatalf("expected response header %q to be set (got %v)", name, hdr)
+		}
+	}
+}
+
+func (c *rpcClient) call(req []byte) ([]byte, int, http.Header, error) {
 	resp, err := c.httpClient().Post(c.URL, "application/json", bytes.NewReader(req))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	hcopy := resp.Header.Clone()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		return nil, resp.StatusCode, err
+		return nil, resp.StatusCode, hcopy, err
 	}
-	return buf.Bytes(), resp.StatusCode, nil
+	return buf.Bytes(), resp.StatusCode, hcopy, nil
 }
 
 func (c *rpcClient) httpClient() *http.Client {
@@ -185,6 +230,13 @@ func substituteSeedTag(request []byte, seedBlock string) []byte {
 		v = seedBlock
 	}
 	return []byte(strings.ReplaceAll(string(request), `"__SEED__"`, `"`+v+`"`))
+}
+
+func substituteReverterTag(request []byte, reverterAddr string) []byte {
+	if reverterAddr == "" {
+		return request
+	}
+	return []byte(strings.ReplaceAll(string(request), `"__REVERTER__"`, `"`+reverterAddr+`"`))
 }
 
 func substituteRequest(request []byte, bindings map[string]any) []byte {
