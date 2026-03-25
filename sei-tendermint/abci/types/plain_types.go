@@ -39,15 +39,6 @@ type RequestQuery struct {
 
 type RequestCommit struct{}
 
-type RequestPrepareProposal struct {
-	MaxTxBytes          int64
-	Txs                 [][]byte
-	ByzantineValidators []Misbehavior
-	LocalLastCommitInfo CommitInfo
-
-	Header *tmproto.Header
-}
-
 type RequestBeginBlock struct {
 	Hash                []byte
 	Header              tmproto.Header
@@ -75,14 +66,6 @@ type ResponseInitChain struct {
 	ConsensusParams *tmproto.ConsensusParams
 	Validators      []ValidatorUpdate
 	AppHash         []byte
-}
-
-type ResponsePrepareProposal struct {
-	TxRecords             []*TxRecord
-	AppHash               []byte
-	TxResults             []*ExecTxResult
-	ValidatorUpdates      []ValidatorUpdate
-	ConsensusParamUpdates *tmproto.ConsensusParams
 }
 
 type ResponseGetTxPriorityHint struct {
@@ -297,26 +280,6 @@ type Evidence struct {
 	TotalVotingPower int64
 }
 
-type TxRecord struct {
-	Action TxRecord_TxAction
-	Tx     []byte
-}
-
-type TxRecord_TxAction int32
-
-const (
-	TxRecord_UNMODIFIED TxRecord_TxAction = iota
-)
-
-func (a TxRecord_TxAction) String() string {
-	switch a {
-	case TxRecord_UNMODIFIED:
-		return "UNMODIFIED"
-	default:
-		return "UNMODIFIED"
-	}
-}
-
 type Snapshot struct {
 	Height   uint64
 	Format   uint32
@@ -395,20 +358,6 @@ func (m *RequestQuery) GetHeight() int64 {
 	return 0
 }
 
-func (m *RequestPrepareProposal) GetTxs() [][]byte {
-	if m != nil {
-		return m.Txs
-	}
-	return nil
-}
-
-func (m *RequestPrepareProposal) GetByzantineValidators() []Misbehavior {
-	if m != nil {
-		return m.ByzantineValidators
-	}
-	return nil
-}
-
 func (m *RequestBeginBlock) GetHash() []byte {
 	if m != nil {
 		return m.Hash
@@ -461,34 +410,6 @@ func (m *ResponseInitChain) GetValidators() []ValidatorUpdate {
 func (m *ResponseInitChain) GetAppHash() []byte {
 	if m != nil {
 		return m.AppHash
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetAppHash() []byte {
-	if m != nil {
-		return m.AppHash
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetTxResults() []*ExecTxResult {
-	if m != nil {
-		return m.TxResults
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetValidatorUpdates() []ValidatorUpdate {
-	if m != nil {
-		return m.ValidatorUpdates
-	}
-	return nil
-}
-
-func (m *ResponsePrepareProposal) GetConsensusParamUpdates() *tmproto.ConsensusParams {
-	if m != nil {
-		return m.ConsensusParamUpdates
 	}
 	return nil
 }
@@ -617,20 +538,6 @@ func (m *Evidence) GetTotalVotingPower() int64 {
 		return m.TotalVotingPower
 	}
 	return 0
-}
-
-func (m *TxRecord) GetAction() TxRecord_TxAction {
-	if m != nil {
-		return m.Action
-	}
-	return TxRecord_UNMODIFIED
-}
-
-func (m *TxRecord) GetTx() []byte {
-	if m != nil {
-		return m.Tx
-	}
-	return nil
 }
 
 func (m *Snapshot) GetHeight() uint64 {

@@ -28,11 +28,6 @@ func (app *proxyClient) InitChain(ctx context.Context, req *types.RequestInitCha
 	return app.app.InitChain(ctx, req)
 }
 
-func (app *proxyClient) PrepareProposal(ctx context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "prepare_proposal", "type", "sync"))()
-	return app.app.PrepareProposal(ctx, req)
-}
-
 func (app *proxyClient) ProcessProposal(ctx context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "process_proposal", "type", "sync"))()
 	return app.app.ProcessProposal(ctx, req)

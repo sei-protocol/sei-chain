@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	ctest "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/test"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -46,20 +45,6 @@ func TestTxIndexByHash(t *testing.T) {
 		assert.Equal(t, -1, txs.IndexByHash(nil))
 		assert.Equal(t, -1, txs.IndexByHash(Tx("foodnwkf").Hash()))
 	}
-}
-
-func TestValidateTxRecordSet(t *testing.T) {
-	t.Run("should error on new transactions marked UNMODIFIED", func(t *testing.T) {
-		trs := []*abci.TxRecord{
-			{
-				Action: abci.TxRecord_UNMODIFIED,
-				Tx:     Tx([]byte{1, 2, 3, 4, 5}),
-			},
-		}
-		txrSet := NewTxRecordSet(trs)
-		err := txrSet.Validate(100, []Tx{})
-		require.Error(t, err)
-	})
 }
 
 func TestValidTxProof(t *testing.T) {

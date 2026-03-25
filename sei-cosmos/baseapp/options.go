@@ -175,14 +175,6 @@ func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	app.endBlocker = endBlocker
 }
 
-func (app *BaseApp) SetPrepareProposalHandler(prepareProposalHandler sdk.PrepareProposalHandler) {
-	if app.sealed {
-		panic("SetPrepareProposalHandler() on sealed BaseApp")
-	}
-
-	app.prepareProposalHandler = prepareProposalHandler
-}
-
 func (app *BaseApp) SetPreCommitHandler(preCommitHandler sdk.PreCommitHandler) {
 	if app.sealed {
 		panic("SetPreCommitHandler() on sealed BaseApp")
