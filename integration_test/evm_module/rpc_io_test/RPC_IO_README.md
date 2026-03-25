@@ -118,11 +118,11 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 
 *Source:* **Eth exec api** = from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) (`.io`); **Sei** = Sei-generated (`.iox` or Sei-added `.io`).
 
-**Latest recorded `TestEVMRPCSpec` (docker localnet, 159 files):** **145** passed, **14** failed, **91.2%** pass rate. **All `sei_*` fixtures pass** (every `testdata/**/sei_*` file, including `sei_legacy_deprecation/*.iox` for HTTP gate + `Sei-Legacy-RPC-Deprecation` header). The **14** failures are **only** `eth_*` (gas, proofs, log range semantics, block height, tx index - see *Failed tests* below). There are **no** `sei2_*` fixtures in `testdata/` yet.
+**Latest recorded `TestEVMRPCSpec` (docker localnet, 159 files):** **148** passed, **11** failed, **93.1%** pass rate (**getLogs range fix** column below). **All `sei_*` fixtures pass** (every `testdata/**/sei_*` file, including `sei_legacy_deprecation/*.iox` for HTTP gate + `Sei-Legacy-RPC-Deprecation` header). The **11** failures are **only** `eth_*` (createAccessList insufficient funds on `from=0x0`, estimateGas parse paths, proofs, block-not-found shape, tx-by-index — see *Failed tests* below). There are **no** `sei2_*` fixtures in `testdata/` yet.
 
-**Column guide (Summary table below):** **First run** = historical full suite before trimming. **Post-trim baseline** = early **164**-fixture snapshot. **unsupported-fix** = **157** fixtures: current `testdata/` after `eth_simulateV1` removal and **`not-supported.iox`** explicit errors (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)). **sei_* fix** = **159** files: **157** + two `sei_legacy_deprecation/*.iox`, docker `enabled_legacy_sei_apis` expanded (all gated `sei_*` / `sei2_*` except `sei_sign`); filter-log lifecycle `.iox` use `latest`->`latest` so they respect `max_blocks_for_log`.
+**Column guide (Summary table below):** **First run** = historical full suite before trimming. **Post-trim baseline** = early **164**-fixture snapshot. **unsupported-fix** = **157** fixtures: current `testdata/` after `eth_simulateV1` removal and **`not-supported.iox`** explicit errors (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)). **sei_* fix** = **159** files: **157** + two `sei_legacy_deprecation/*.iox`, docker `enabled_legacy_sei_apis` expanded (all gated `sei_*` / `sei2_*` except `sei_sign`); filter-log lifecycle `.iox` use `latest`->`latest` so they respect `max_blocks_for_log`. **eth_call fix** = same **159** files after fixture updates for **EIP-1559-shaped** `eth_call` and `eth_createAccessList`: `call-callenv-options-eip1559.iox` uses zero `maxFeePerGas`/`maxPriorityFeePerGas` with `from=0x0` (Geth `CallDefaults`/`NoBaseFee` path); `create-al-contract-eip1559.iox` uses deploy receipt `from` + non-zero caps (`setFeeDefaults` + `BuyGas`). **getLogs range fix** = same **159** files after **`eth_getLogs/filter-error-future-block-range.io`** uses a `toBlock` (`0x7fffffffffffffff`) that stays above chain head as the localnet grows (small fixed heights became historical and returned `[]`, causing a spec kind mismatch); RPC behavior unchanged.
 
-### Passed tests (145 of 159)
+### Passed tests (148 of 159)
 
 
 | Endpoint                               | Test                                                           | Source       |
@@ -145,6 +145,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_blobBaseFee                        | blobs-not-supported-error.iox                                  | Sei          |
 | eth_blockNumber                        | simple-test.io                                                 | Eth exec api |
 | eth_call                               | call-callenv.io                                                | Eth exec api |
+| eth_call                               | call-callenv-options-eip1559.iox                               | Sei          |
 | eth_call                               | call-contract-from-deploy.iox                                  | Sei          |
 | eth_call                               | call-contract.io                                               | Eth exec api |
 | eth_call                               | call-eip7702-delegation.io                                     | Eth exec api |
@@ -152,6 +153,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_call                               | call-revert-abi-panic-sei.iox                                  | Sei          |
 | eth_chainId                            | get-chain-id.io                                                | Eth exec api |
 | eth_coinbase                           | coinbase.io                                                    | Sei          |
+| eth_createAccessList                   | create-al-contract-eip1559.iox                                 | Sei          |
 | eth_createAccessList                   | create-al-value-transfer.iox                                   | Sei          |
 | eth_estimateGas                        | estimate-call-abi-error-sei.iox                                | Sei          |
 | eth_estimateGas                        | estimate-call-abi-panic-sei.iox                                | Sei          |
@@ -198,6 +200,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getFilterLogs                      | getFilterLogs-invalid-id.io                                    | Eth exec api |
 | eth_getFilterLogs                      | getFilterLogs-lifecycle.iox                                    | Sei          |
 | eth_getLogs                            | contract-addr.io                                               | Eth exec api |
+| eth_getLogs                            | filter-error-future-block-range.io                             | Eth exec api |
 | eth_getLogs                            | filter-error-invalid-blockHash-and-range.io                    | Eth exec api |
 | eth_getLogs                            | filter-error-reversed-block-range.io                           | Eth exec api |
 | eth_getLogs                            | filter-with-blockHash-and-topics.io                            | Eth exec api |
@@ -274,23 +277,20 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |
 
 
-### Failed tests (14 on latest 159-file reference run; all `sei_*` pass)
+### Failed tests (11 on latest 159-file reference run after **getLogs range fix**; all `sei_*` pass)
 
 Methods that Sei documents as unsupported use dedicated **`not-supported.iox`** fixtures (and `eth_blobBaseFee/blobs-not-supported-error.iox`). They return JSON-RPC **error** `-32000` with a fixed message (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
 
-*Remaining failures* are **only** `eth_*`: gas / base fee, proofs (IAVL), log range vs spec, block-not-found shape, tx-by-index. **No `sei_*` rows.** On **docker localnet** with expanded `enabled_legacy_sei_apis`, some historically flaky `eth_*` cases pass when the node returns `null` for missing blocks (varies by build/config).
+*Remaining failures* are **only** `eth_*`: gas / base fee, proofs (IAVL), block-not-found shape, tx-by-index. **No `sei_*` rows.** On **docker localnet** with expanded `enabled_legacy_sei_apis`, some historically flaky `eth_*` cases pass when the node returns `null` for missing blocks (varies by build/config).
 
 | Endpoint                           | Test                                                                              | Status | Source       | Reason                 | Error message                                                                            |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ------ | ------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
-| eth_call                           | call-callenv-options-eip1559.iox                                                  | FAIL   | Sei          | Gas fee issue          | error code=-32000 (e.g. `max fee per gas less than block base fee`, `maxFeePerGas` vs `baseFee`) |
-| eth_createAccessList               | create-al-abi-revert.iox                                                          | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
-| eth_createAccessList               | create-al-contract-eip1559.iox                                                    | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
+| eth_createAccessList               | create-al-abi-revert.iox                                                          | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" (`from` defaults to `0x0`) |
 | eth_createAccessList               | create-al-contract.iox                                                             | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
 | eth_estimateGas                    | estimate-with-eip4844.iox                                                         | FAIL   | Sei          | Parse error            | error code=-32700 message="parse error" |
 | eth_estimateGas                    | estimate-with-eip7702.iox                                                         | FAIL   | Sei          | Parse error            | error code=-32700 message="parse error" |
 | eth_estimateGasAfterCalls          | estimateGasAfterCalls.iox                                                         | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
 | eth_getBlockByNumber               | get-block-notfound.iox                                                            | FAIL   | Sei          | Block not available    | error code=-32000 message="requested height 1000 is not yet available; safe latest is ..." (height varies) |
-| eth_getLogs                        | filter-error-future-block-range.io                                                | FAIL   | Eth exec api | Expected error, got result | response kind mismatch: expected result=false error=true, actual result=true error=false |
 | eth_getProof                       | get-account-proof-blockhash.iox                                                   | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
 | eth_getProof                       | get-account-proof-latest.iox                                                      | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
 | eth_getProof                       | get-account-proof-with-storage.iox                                                | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
@@ -313,17 +313,17 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 ### Summary (recorded runs)
 
 
-| Metric | First run | Post-trim baseline | unsupported-fix | sei_* fix |
-| ------ | --------- | ------------------- | ---------------- | ---------------------- |
-| **Total tests** | 255 | 164 | 157 | 159 |
-| **Passed** | 157 | 135 | 142 | 145 |
-| **Failed** | 98 | 29 | 15 | 14 |
-| **Skipped** | 0 | 0 | 0 | 0 |
-| **Pass rate** | 61.6% | 82.3% | ~90.4% | 91.2% |
+| Metric | First run | Post-trim baseline | unsupported-fix | sei_* fix | eth_call fix | getLogs range fix |
+| ------ | --------- | ------------------- | ---------------- | --------- | ------------ | ----------------- |
+| **Total tests** | 255 | 164 | 157 | 159 | 159 | 159 |
+| **Passed** | 157 | 135 | 142 | 145 | 147 | 148 |
+| **Failed** | 98 | 29 | 15 | 14 | 12 | 11 |
+| **Skipped** | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Pass rate** | 61.6% | 82.3% | ~90.4% | 91.2% | 92.5% | 93.1% |
 
-(1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. Associate setup may log `result: null` for `sei_associate` in the script; that is separate from the `.iox` assertions.
+(1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. (4) **eth_call fix (159)** = same docker localnet + script after EIP-1559 fixture updates (`call-callenv-options-eip1559.iox`, `create-al-contract-eip1559.iox`); reference **147 / 12 / 92.5%**. (5) **getLogs range fix (159)** = **`filter-error-future-block-range.io`** updated so `toBlock` stays beyond head on long-lived localnet; reference **148 / 11 / 93.1%** (`TestEVMRPCSpec`, Mar 2026). Associate setup may log `result: null` or an error for `sei_associate` in the script; deploy still proceeds when the tx succeeds.
 
-**Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). Remaining fails are **`eth_*` only**, not gated `sei_*` denial.
+**Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). Remaining fails are **`eth_*` only**, not gated `sei_*` denial. After **getLogs range fix**, the only remaining **`eth_createAccessList`** failures are **`create-al-abi-revert.iox`** and **`create-al-contract.iox`** (both use implicit `from=0x0` and hit insufficient funds on `BuyGas`). **All `eth_getLogs` fixtures pass.**
 
 
 
@@ -336,4 +336,4 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 **eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **70** endpoint folders.
 
 
-*Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** column matches docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`).*
+*Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** / **eth_call fix** / **getLogs range fix** columns match docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`).*
