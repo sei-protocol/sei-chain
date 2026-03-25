@@ -44,3 +44,18 @@ if [ "$GIGA_EXECUTOR" = "true" ]; then
     sed -i 's/occ_enabled = true/occ_enabled = false/' ~/.sei/config/app.toml
   fi
 fi
+
+# Override receipt store backend if requested
+RECEIPT_BACKEND=${RECEIPT_BACKEND:-}
+if [ -n "$RECEIPT_BACKEND" ]; then
+  echo "Setting receipt store backend to '$RECEIPT_BACKEND' for node $NODE_ID..."
+  if grep -q "\[receipt-store\]" ~/.sei/config/app.toml; then
+    # Section exists, update the backend value
+    sed -i "s/rs-backend = .*/rs-backend = \"$RECEIPT_BACKEND\"/" ~/.sei/config/app.toml
+  else
+    # Section doesn't exist, append it
+    echo "" >> ~/.sei/config/app.toml
+    echo "[receipt-store]" >> ~/.sei/config/app.toml
+    echo "rs-backend = \"$RECEIPT_BACKEND\"" >> ~/.sei/config/app.toml
+  fi
+fi
