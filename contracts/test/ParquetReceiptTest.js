@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const hre = require("hardhat");
 const { ethers } = hre;
-const { deployEvmContract, setupSigners, fundAddress } = require("./lib");
+const { deployEvmContract, setupSigners } = require("./lib");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -441,12 +441,13 @@ describe("Receipt Store Integration Tests", function () {
     it("Should return correct receipts for rapid-fire transactions", async function () {
       const txPromises = [];
       const numTxs = 3;
+      const baseNonce = await owner.getNonce("pending");
 
       // Send multiple transactions rapidly (may land in same block)
       for (let i = 0; i < numTxs; i++) {
         const tx = evmTester.setUint256Var(i + 1000, {
           gasPrice: ethers.parseUnits("100", "gwei"),
-          nonce: await owner.getNonce() + i,
+          nonce: baseNonce + i,
         });
         txPromises.push(tx);
       }
