@@ -424,6 +424,7 @@ describe("Receipt Store Integration Tests", function () {
         (l) => l.transactionHash === receipt.hash
       );
       expect(matchingLog).to.not.be.undefined;
+      expect(matchingLog.transactionHash).to.equal(receipt.hash);
 
       const receiptLog = receipt.logs[0];
       expect(matchingLog.address.toLowerCase()).to.equal(
@@ -432,7 +433,7 @@ describe("Receipt Store Integration Tests", function () {
       expect(matchingLog.topics).to.deep.equal(receiptLog.topics);
       expect(matchingLog.data).to.equal(receiptLog.data);
       expect(matchingLog.blockNumber).to.equal(receiptLog.blockNumber);
-      expect(matchingLog.blockHash).to.equal(receiptLog.blockHash);
+      expect(matchingLog.index).to.equal(receiptLog.index);
     });
   });
 
