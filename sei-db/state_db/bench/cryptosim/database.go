@@ -29,9 +29,6 @@ type Database struct {
 	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
 	nextBlockNumber uint64
 
-	// The next benchmark-assigned DB version to apply.
-	nextVersion int64
-
 	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
 	batch *SyncMap[string, []byte]
@@ -56,7 +53,6 @@ func NewDatabase(
 		batch:           NewSyncMap[string, []byte](),
 		metrics:         metrics,
 		nextBlockNumber: initialNextBlockNumber,
-		nextVersion:     db.Version() + 1,
 	}
 }
 
@@ -185,14 +181,13 @@ func (d *Database) FinalizeBlock(
 	d.nextBlockNumber++
 
 	entry := &proto.ChangelogEntry{
-		Version:    d.nextVersion,
+		Version:    d.db.Version() + 1,
 		Changesets: changeSets,
 	}
 	err := d.db.ApplyChangeSets(entry)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
-	d.nextVersion++
 
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
