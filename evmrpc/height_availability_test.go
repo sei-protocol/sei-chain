@@ -181,6 +181,52 @@ func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
 	require.Equal(t, hexutil.Uint(0), *count)
 }
 
+func TestGetBlockTransactionCountByNumberGenesis(t *testing.T) {
+	t.Parallel()
+
+	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	count, err := api.GetBlockTransactionCountByNumber(context.Background(), 0)
+	require.NoError(t, err)
+	require.NotNil(t, count)
+	require.Equal(t, hexutil.Uint(0), *count)
+}
+
+func TestGetBlockReceiptsGenesis(t *testing.T) {
+	t.Parallel()
+
+	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	receipts, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithHash(genesisBlockHash, true))
+	require.NoError(t, err)
+	require.NotNil(t, receipts)
+	require.Empty(t, receipts)
+}
+
+func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
+	t.Parallel()
+
+	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP,
+		func(context.Context, common.Hash) (bool, error) { return false, nil },
+		nil, nil, nil)
+	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	require.Equal(t, genesisBlockHashHex, block["hash"])
+}
+
+func TestGetBlockNumberByNrOrHashGenesis(t *testing.T) {
+	t.Parallel()
+
+	height, err := GetBlockNumberByNrOrHash(
+		context.Background(),
+		nil,
+		nil,
+		rpc.BlockNumberOrHashWithHash(genesisBlockHash, true),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, height)
+	require.Equal(t, int64(0), *height)
+}
+
 func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 	t.Parallel()
 
