@@ -6,12 +6,6 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-type RequestEcho struct {
-	Message string
-}
-
-type RequestFlush struct{}
-
 type RequestInfo struct {
 	Version      string
 	BlockVersion uint64
@@ -37,8 +31,6 @@ type RequestQuery struct {
 	Prove  bool
 }
 
-type RequestCommit struct{}
-
 type RequestBeginBlock struct {
 	Hash                []byte
 	Header              tmproto.Header
@@ -51,16 +43,6 @@ type RequestEndBlock struct {
 	Height       int64
 	BlockGasUsed int64
 }
-
-type ResponseException struct {
-	Error string
-}
-
-type ResponseEcho struct {
-	Message string
-}
-
-type ResponseFlush struct{}
 
 type ResponseInitChain struct {
 	ConsensusParams *tmproto.ConsensusParams
