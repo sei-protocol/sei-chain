@@ -95,12 +95,12 @@ func Open(
 	}, nil
 }
 
-// OpenCached opens a Pebble-backed DB and wraps it with a read-through cache.
-// Cache behaviour is controlled by config: when CacheSize is 0 a no-op cache
-// is used, otherwise a sharded LRU cache is created.
+// OpenWithCache opens a Pebble-backed DB and wraps it with a read-through cache.
+// When cacheConfig.MaxSize is 0 a no-op (passthrough) cache is used.
 func OpenWithCache(
 	ctx context.Context,
 	config *PebbleDBConfig,
+	cacheConfig *dbcache.CacheConfig,
 	comparer *pebble.Comparer,
 	readPool threading.Pool,
 	miscPool threading.Pool,
@@ -110,21 +110,7 @@ func OpenWithCache(
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	var cacheName string
-	if config.EnableMetrics {
-		cacheName = filepath.Base(config.DataDir)
-	}
-
-	cache, err := dbcache.BuildCache(
-		ctx,
-		config.CacheShardCount,
-		config.CacheSize,
-		readPool,
-		miscPool,
-		config.EstimatedOverheadPerEntry,
-		cacheName,
-		config.MetricsScrapeInterval,
-	)
+	cache, err := dbcache.BuildCache(ctx, cacheConfig, readPool, miscPool)
 	if err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to create cache: %w", err)

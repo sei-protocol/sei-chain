@@ -5,15 +5,21 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
 	return pebbledb.PebbleDBConfig{
-		CacheSize:       16 * unit.MB,
-		CacheShardCount: 8,
-		BlockCacheSize:  16 * unit.MB,
-		EnableMetrics:   false,
+		BlockCacheSize: 16 * unit.MB,
+		EnableMetrics:  false,
+	}
+}
+
+func smallTestCacheConfig() dbcache.CacheConfig {
+	return dbcache.CacheConfig{
+		ShardCount: 8,
+		MaxSize:    16 * unit.MB,
 	}
 }
 
@@ -26,10 +32,15 @@ func DefaultTestConfig(t *testing.T) *Config {
 		SnapshotInterval:       DefaultSnapshotInterval,
 		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
 		AccountDBConfig:        smallTestPebbleConfig(),
+		AccountCacheConfig:     smallTestCacheConfig(),
 		CodeDBConfig:           smallTestPebbleConfig(),
+		CodeCacheConfig:        smallTestCacheConfig(),
 		StorageDBConfig:        smallTestPebbleConfig(),
+		StorageCacheConfig:     smallTestCacheConfig(),
 		LegacyDBConfig:         smallTestPebbleConfig(),
+		LegacyCacheConfig:      smallTestCacheConfig(),
 		MetadataDBConfig:       smallTestPebbleConfig(),
+		MetadataCacheConfig:    smallTestCacheConfig(),
 		ReaderThreadsPerCore:   2.0,
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,

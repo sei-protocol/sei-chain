@@ -4,17 +4,23 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 )
 
-// Default configuration suitable for testing. Allocates much smaller cache sizes and disables metrics.
-// DataDir defaults to t.TempDir(); callers that need a specific path can override it after calling.
+// DefaultTestConfig returns a PebbleDBConfig suitable for testing.
+// Allocates a smaller block cache and disables metrics.
 func DefaultTestConfig(t *testing.T) PebbleDBConfig {
 	cfg := DefaultConfig()
-
 	cfg.DataDir = t.TempDir()
-	cfg.CacheSize = 16 * unit.MB
 	cfg.BlockCacheSize = 16 * unit.MB
 	cfg.EnableMetrics = false
-
 	return cfg
+}
+
+// DefaultTestCacheConfig returns a CacheConfig suitable for testing.
+func DefaultTestCacheConfig() dbcache.CacheConfig {
+	return dbcache.CacheConfig{
+		ShardCount: 8,
+		MaxSize:    16 * unit.MB,
+	}
 }

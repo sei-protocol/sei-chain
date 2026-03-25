@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -46,20 +47,30 @@ type Config struct {
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
-	// AccountDBConfig defines the configuration for the account database.
+	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
+	// AccountCacheConfig defines the cache configuration for the account database.
+	AccountCacheConfig dbcache.CacheConfig
 
-	// CodeDBConfig defines the configuration for the code database.
+	// CodeDBConfig defines the PebbleDB configuration for the code database.
 	CodeDBConfig pebbledb.PebbleDBConfig
+	// CodeCacheConfig defines the cache configuration for the code database.
+	CodeCacheConfig dbcache.CacheConfig
 
-	// StorageDBConfig defines the configuration for the storage database.
+	// StorageDBConfig defines the PebbleDB configuration for the storage database.
 	StorageDBConfig pebbledb.PebbleDBConfig
+	// StorageCacheConfig defines the cache configuration for the storage database.
+	StorageCacheConfig dbcache.CacheConfig
 
-	// LegacyDBConfig defines the configuration for the legacy database.
+	// LegacyDBConfig defines the PebbleDB configuration for the legacy database.
 	LegacyDBConfig pebbledb.PebbleDBConfig
+	// LegacyCacheConfig defines the cache configuration for the legacy database.
+	LegacyCacheConfig dbcache.CacheConfig
 
-	// MetadataDBConfig defines the configuration for the metadata database.
+	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
 	MetadataDBConfig pebbledb.PebbleDBConfig
+	// MetadataCacheConfig defines the cache configuration for the metadata database.
+	MetadataCacheConfig dbcache.CacheConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -90,10 +101,15 @@ func DefaultConfig() *Config {
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
+		AccountCacheConfig:        dbcache.DefaultCacheConfig(),
 		CodeDBConfig:              pebbledb.DefaultConfig(),
+		CodeCacheConfig:           dbcache.DefaultCacheConfig(),
 		StorageDBConfig:           pebbledb.DefaultConfig(),
+		StorageCacheConfig:        dbcache.DefaultCacheConfig(),
 		LegacyDBConfig:            pebbledb.DefaultConfig(),
+		LegacyCacheConfig:         dbcache.DefaultCacheConfig(),
 		MetadataDBConfig:          pebbledb.DefaultConfig(),
+		MetadataCacheConfig:       dbcache.DefaultCacheConfig(),
 		ReaderThreadsPerCore:      2.0,
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
@@ -101,8 +117,8 @@ func DefaultConfig() *Config {
 		MiscConstantThreadCount:   0,
 	}
 
-	cfg.AccountDBConfig.CacheSize = unit.GB
-	cfg.StorageDBConfig.CacheSize = unit.GB * 4
+	cfg.AccountCacheConfig.MaxSize = unit.GB
+	cfg.StorageCacheConfig.MaxSize = unit.GB * 4
 
 	return cfg
 }

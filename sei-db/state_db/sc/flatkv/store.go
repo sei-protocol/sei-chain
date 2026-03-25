@@ -14,6 +14,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -451,11 +452,11 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 }
 
 // openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
-func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.KeyValueDB, error) {
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcache.CacheConfig) (seidbtypes.KeyValueDB, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-	db, err := pebbledb.OpenWithCache(s.ctx, cfg, pebble.DefaultComparer, s.readPool, s.miscPool)
+	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, pebble.DefaultComparer, s.readPool, s.miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
@@ -483,31 +484,31 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 	}()
 
 	var err error
-	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig)
+	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, &s.config.AccountCacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open account DB: %w", err)
 	}
 	toClose = append(toClose, s.accountDB)
 
-	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig)
+	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, &s.config.CodeCacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open code DB: %w", err)
 	}
 	toClose = append(toClose, s.codeDB)
 
-	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig)
+	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, &s.config.StorageCacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open storage DB: %w", err)
 	}
 	toClose = append(toClose, s.storageDB)
 
-	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig)
+	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig, &s.config.LegacyCacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open legacy DB: %w", err)
 	}
 	toClose = append(toClose, s.legacyDB)
 
-	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig)
+	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}

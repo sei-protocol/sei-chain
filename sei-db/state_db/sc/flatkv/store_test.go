@@ -60,7 +60,8 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
-	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, pebble.DefaultComparer,
+	cacheCfg := pebbledb.DefaultTestCacheConfig()
+	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, &cacheCfg, pebble.DefaultComparer,
 		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	return db
