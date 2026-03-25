@@ -1,10 +1,8 @@
 package upgrade_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -34,7 +32,7 @@ const minorUpgradeInfo = `{"upgradeType":"minor"}`
 
 var s TestSuite
 
-func setupTest(t *testing.T, height int64, skip map[int64]bool) TestSuite {
+func setupTest(t *testing.T, height int64) TestSuite {
 	db := dbm.NewMemDB()
 	app := seiapp.SetupWithDB(t, db, false, false, false)
 	genesisState := seiapp.NewDefaultGenesisState(app.AppCodec())
@@ -42,12 +40,7 @@ func setupTest(t *testing.T, height int64, skip map[int64]bool) TestSuite {
 	if err != nil {
 		panic(err)
 	}
-	app.InitChain(
-		context.Background(), &abci.RequestInitChain{
-			Validators:    []abci.ValidatorUpdate{},
-			AppStateBytes: stateBytes,
-		},
-	)
+	app.InitChain(t.Context(), &abci.RequestInitChain{AppStateBytes: stateBytes})
 
 	s.keeper = app.UpgradeKeeper
 	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{Height: height, Time: time.Now()})
@@ -58,7 +51,7 @@ func setupTest(t *testing.T, height int64, skip map[int64]bool) TestSuite {
 }
 
 func TestRequireName(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{}})
 	require.Error(t, err)
@@ -66,14 +59,14 @@ func TestRequireName(t *testing.T) {
 }
 
 func TestRequireFutureBlock(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "test", Height: s.ctx.BlockHeight() - 1}})
 	require.Error(t, err)
 	require.True(t, errors.Is(sdkerrors.ErrInvalidRequest, err), err)
 }
 
 func TestDoHeightUpgrade(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	t.Log("Verify can schedule an upgrade")
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "test", Height: s.ctx.BlockHeight() + 1}})
 	require.NoError(t, err)
@@ -82,7 +75,7 @@ func TestDoHeightUpgrade(t *testing.T) {
 }
 
 func TestCanOverwriteScheduleUpgrade(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	t.Log("Can overwrite plan")
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "bad_test", Height: s.ctx.BlockHeight() + 10}})
 	require.NoError(t, err)
@@ -129,7 +122,7 @@ func VerifyDoUpgradeWithCtx(t *testing.T, newCtx sdk.Context, proposalName strin
 }
 
 func TestHaltIfTooNew(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	t.Log("Verify that we don't panic with registered plan not in database at all")
 	var called int
 	s.keeper.SetUpgradeHandler("future", func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
@@ -170,7 +163,7 @@ func VerifyCleared(t *testing.T, newCtx sdk.Context) {
 }
 
 func TestCanClear(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	t.Log("Verify upgrade is scheduled")
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "test", Height: s.ctx.BlockHeight() + 100}})
 	require.NoError(t, err)
@@ -182,7 +175,7 @@ func TestCanClear(t *testing.T) {
 }
 
 func TestCantApplySameUpgradeTwice(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	height := s.ctx.BlockHeader().Height + 1
 	err := s.handler(s.ctx, &types.SoftwareUpgradeProposal{Title: "prop", Plan: types.Plan{Name: "test", Height: height}})
 	require.NoError(t, err)
@@ -194,7 +187,7 @@ func TestCantApplySameUpgradeTwice(t *testing.T) {
 }
 
 func TestNoSpuriousUpgrades(t *testing.T) {
-	s := setupTest(t, 10, map[int64]bool{})
+	s := setupTest(t, 10)
 	t.Log("Verify that no upgrade panic is triggered in the BeginBlocker when we haven't scheduled an upgrade")
 	require.NotPanics(t, func() {
 		upgrade.BeginBlocker(s.keeper, s.ctx)
@@ -207,10 +200,10 @@ func TestPlanStringer(t *testing.T) {
   height: 100
   Info: .`, types.Plan{Name: "test", Height: 100, Info: ""}.String())
 
-	require.Equal(t, fmt.Sprintf(`Upgrade Plan
+	require.Equal(t, `Upgrade Plan
   Name: test
   height: 100
-  Info: .`), types.Plan{Name: "test", Height: 100, Info: ""}.String())
+  Info: .`, types.Plan{Name: "test", Height: 100, Info: ""}.String())
 }
 
 func VerifyNotDone(t *testing.T, newCtx sdk.Context, name string) {
@@ -235,8 +228,7 @@ func VerifySet(t *testing.T, skipUpgradeHeights map[int64]bool) {
 
 // TODO: add testcase to for `no upgrade handler is present for last applied upgrade`.
 func TestBinaryVersion(t *testing.T) {
-	var skipHeight int64 = 15
-	s := setupTest(t, 10, map[int64]bool{skipHeight: true})
+	s := setupTest(t, 10)
 
 	testCases := []struct {
 		name        string
