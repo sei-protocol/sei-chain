@@ -157,20 +157,20 @@ func (c *Config) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
-	if c.AccountDBConfig.Validate() != nil {
-		return fmt.Errorf("account db config is invalid: %w", c.AccountDBConfig.Validate())
+	if err := c.AccountDBConfig.Validate(); err != nil {
+		return fmt.Errorf("account db config is invalid: %w", err)
 	}
-	if c.CodeDBConfig.Validate() != nil {
-		return fmt.Errorf("code db config is invalid: %w", c.CodeDBConfig.Validate())
+	if err := c.CodeDBConfig.Validate(); err != nil {
+		return fmt.Errorf("code db config is invalid: %w", err)
 	}
-	if c.StorageDBConfig.Validate() != nil {
-		return fmt.Errorf("storage db config is invalid: %w", c.StorageDBConfig.Validate())
+	if err := c.StorageDBConfig.Validate(); err != nil {
+		return fmt.Errorf("storage db config is invalid: %w", err)
 	}
-	if c.LegacyDBConfig.Validate() != nil {
-		return fmt.Errorf("legacy db config is invalid: %w", c.LegacyDBConfig.Validate())
+	if err := c.LegacyDBConfig.Validate(); err != nil {
+		return fmt.Errorf("legacy db config is invalid: %w", err)
 	}
-	if c.MetadataDBConfig.Validate() != nil {
-		return fmt.Errorf("metadata db config is invalid: %w", c.MetadataDBConfig.Validate())
+	if err := c.MetadataDBConfig.Validate(); err != nil {
+		return fmt.Errorf("metadata db config is invalid: %w", err)
 	}
 
 	if c.ReaderThreadsPerCore < 0 {

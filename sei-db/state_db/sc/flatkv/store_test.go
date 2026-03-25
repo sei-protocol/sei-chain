@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -61,7 +60,7 @@ func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
 	cacheCfg := pebbledb.DefaultTestCacheConfig()
-	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, &cacheCfg, pebble.DefaultComparer,
+	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, &cacheCfg,
 		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	return db

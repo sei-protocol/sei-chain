@@ -11,8 +11,7 @@ import (
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
 	return pebbledb.PebbleDBConfig{
-		BlockCacheSize: 16 * unit.MB,
-		EnableMetrics:  false,
+		EnableMetrics: false,
 	}
 }
 

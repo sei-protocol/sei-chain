@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -279,7 +278,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 		// Create an actual PebbleDB so Open works
 		cfg := pebbledb.DefaultTestConfig(t)
 		cfg.DataDir = dbPath
-		db, err := pebbledb.Open(t.Context(), &cfg, pebble.DefaultComparer)
+		db, err := pebbledb.Open(t.Context(), &cfg)
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
@@ -345,7 +344,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = accountDBPath
 	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg, pebble.DefaultComparer)
+	db, err := pebbledb.Open(t.Context(), &acctCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
@@ -1523,7 +1522,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = workingMeta
 	metaCfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &metaCfg, pebble.DefaultComparer)
+	db, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
@@ -1532,7 +1531,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	metaCfg2 := pebbledb.DefaultConfig()
 	metaCfg2.DataDir = snapMeta
 	metaCfg2.EnableMetrics = false
-	db2, err := pebbledb.Open(context.Background(), &metaCfg2, pebble.DefaultComparer)
+	db2, err := pebbledb.Open(context.Background(), &metaCfg2)
 	require.NoError(t, err)
 	require.NoError(t, db2.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
@@ -1607,7 +1606,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = workingAccount
 	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &acctCfg, pebble.DefaultComparer)
+	db, err := pebbledb.Open(context.Background(), &acctCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
@@ -1617,7 +1616,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg2 := pebbledb.DefaultConfig()
 	acctCfg2.DataDir = snapAccount
 	acctCfg2.EnableMetrics = false
-	db2, err := pebbledb.Open(context.Background(), &acctCfg2, pebble.DefaultComparer)
+	db2, err := pebbledb.Open(context.Background(), &acctCfg2)
 	require.NoError(t, err)
 	require.NoError(t, db2.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
@@ -1659,7 +1658,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = workingMeta
 	metaCfg.EnableMetrics = false
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg, pebble.DefaultComparer)
+	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
 	require.NoError(t, mdb.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())

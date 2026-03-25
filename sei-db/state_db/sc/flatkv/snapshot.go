@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -381,8 +380,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	var version int64
 	metaCfg := s.config.MetadataDBConfig
 	metaCfg.DataDir = filepath.Join(flatkvDir, metadataDir)
-	tmpMeta, err := pebbledb.Open(
-		s.ctx, &metaCfg, pebble.DefaultComparer)
+	tmpMeta, err := pebbledb.Open(s.ctx, &metaCfg)
 	if err == nil {
 		verData, verErr := tmpMeta.Get(metaVersionKey)
 		_ = tmpMeta.Close()

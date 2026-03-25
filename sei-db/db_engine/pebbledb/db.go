@@ -13,6 +13,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -29,19 +30,18 @@ var _ types.KeyValueDB = (*pebbleDB)(nil)
 func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
-	comparer *pebble.Comparer,
 ) (_ types.KeyValueDB, err error) {
 
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	pebbleCache := pebble.NewCache(int64(config.BlockCacheSize))
+	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
 	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
-		Comparer: comparer,
+		Comparer: pebble.DefaultComparer,
 		// FormatMajorVersion is pinned to a specific version to prevent accidental
 		// breaking changes when updating the pebble dependency. Using FormatNewest
 		// would cause the on-disk format to silently upgrade when pebble is updated,
@@ -101,11 +101,10 @@ func OpenWithCache(
 	ctx context.Context,
 	config *PebbleDBConfig,
 	cacheConfig *dbcache.CacheConfig,
-	comparer *pebble.Comparer,
 	readPool threading.Pool,
 	miscPool threading.Pool,
 ) (types.KeyValueDB, error) {
-	db, err := Open(ctx, config, comparer)
+	db, err := Open(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

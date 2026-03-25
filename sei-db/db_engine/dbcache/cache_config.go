@@ -33,8 +33,8 @@ func DefaultCacheConfig() CacheConfig {
 
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *CacheConfig) Validate() error {
-	if c.MaxSize > 0 && (c.ShardCount&(c.ShardCount-1)) != 0 {
-		return fmt.Errorf("shard count must be a power of two")
+	if c.MaxSize > 0 && (c.ShardCount == 0 || (c.ShardCount&(c.ShardCount-1)) != 0) {
+		return fmt.Errorf("shard count must be a non-zero power of two")
 	}
 	if c.MetricsName != "" && c.MetricsScrapeInterval <= 0 {
 		return fmt.Errorf("metrics scrape interval must be positive when metrics name is set")

@@ -1,12 +1,10 @@
 package pebbledb
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
@@ -35,7 +33,7 @@ func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig, ca
 
 func openDB(t *testing.T, cfg *PebbleDBConfig, cacheCfg *dbcache.CacheConfig) types.KeyValueDB {
 	t.Helper()
-	db, err := OpenWithCache(t.Context(), cfg, cacheCfg, pebble.DefaultComparer,
+	db, err := OpenWithCache(t.Context(), cfg, cacheCfg,
 		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -203,51 +201,6 @@ func TestIteratorPrev(t *testing.T) {
 	require.Equal(t, "b", string(itr.Key()))
 }
 
-func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
-	cmp := *pebble.DefaultComparer
-	cmp.Name = "sei-db/test-split-on-slash"
-	cmp.Split = func(k []byte) int {
-		for i, b := range k {
-			if b == '/' {
-				return i + 1
-			}
-		}
-		return len(k)
-	}
-	cmp.ImmediateSuccessor = func(dst, a []byte) []byte {
-		for i := len(a) - 1; i >= 0; i-- {
-			if a[i] != 0xff {
-				dst = append(dst, a[:i+1]...)
-				dst[len(dst)-1]++
-				return dst
-			}
-		}
-		return append(dst, a...)
-	}
-
-	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	db, err := OpenWithCache(t.Context(), &cfg, &cacheCfg, &cmp, threading.NewAdHocPool(), threading.NewAdHocPool())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	for _, k := range []string{"a/1", "a/2", "a/3", "b/1"} {
-		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
-	}
-
-	itr, err := db.NewIter(nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, itr.Close()) })
-
-	require.True(t, itr.SeekGE([]byte("a/")))
-	require.True(t, itr.Valid())
-	require.True(t, bytes.HasPrefix(itr.Key(), []byte("a/")))
-
-	require.True(t, itr.NextPrefix())
-	require.True(t, itr.Valid())
-	require.Equal(t, "b/1", string(itr.Key()))
-}
-
 func TestIteratorSeekLTAndValue(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cacheCfg := DefaultTestCacheConfig()
@@ -274,7 +227,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 func TestCloseIsIdempotent(t *testing.T) {
 	cfg := DefaultTestConfig(t)
 	cacheCfg := DefaultTestCacheConfig()
-	db, err := OpenWithCache(t.Context(), &cfg, &cacheCfg, pebble.DefaultComparer,
+	db, err := OpenWithCache(t.Context(), &cfg, &cacheCfg,
 		threading.NewAdHocPool(), threading.NewAdHocPool())
 	require.NoError(t, err)
 

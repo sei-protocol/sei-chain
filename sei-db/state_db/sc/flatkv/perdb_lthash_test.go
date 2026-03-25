@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -118,7 +117,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = metaDBPath
 	metaCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &metaCfg, pebble.DefaultComparer)
+	db, err := pebbledb.Open(t.Context(), &metaCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())

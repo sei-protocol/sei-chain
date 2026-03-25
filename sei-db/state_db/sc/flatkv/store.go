@@ -10,8 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/cockroachdb/pebble/v2"
-
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
@@ -456,7 +454,7 @@ func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcac
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, pebble.DefaultComparer, s.readPool, s.miscPool)
+	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, s.readPool, s.miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
