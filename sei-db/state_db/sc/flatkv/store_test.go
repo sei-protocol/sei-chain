@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -956,5 +957,6 @@ func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
 
 	err := s2.CleanupOrphanedReadOnlyDirs()
 	require.Error(t, err)
+	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
 	require.ErrorContains(t, err, "acquire file lock")
 }

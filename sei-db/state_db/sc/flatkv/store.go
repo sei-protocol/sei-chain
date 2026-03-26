@@ -216,8 +216,15 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 }
 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
-// requested version.
+// requested version. If the writer lock has not yet been acquired (e.g. the
+// store was freshly constructed), CleanupOrphanedReadOnlyDirs is called
+// lazily to acquire it and clean up any leftover directories.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
+	if s.fileLock == nil {
+		if err := s.CleanupOrphanedReadOnlyDirs(); err != nil {
+			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
+		}
+	}
 	ro := NewCommitStore(s.ctx, s.dbDir, s.config)
 
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
