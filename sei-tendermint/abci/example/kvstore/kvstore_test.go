@@ -95,9 +95,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	dir := t.TempDir()
 
 	kvstore := NewPersistentKVStoreApplication(dir)
-	if err := InitKVStore(ctx, kvstore); err != nil {
-		t.Fatal(err)
-	}
+	kvstore.SetValidators(RandVals(1))
 	height := int64(0)
 
 	resInfo, err := kvstore.Info(ctx, &types.RequestInfo{})

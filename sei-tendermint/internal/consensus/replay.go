@@ -208,18 +208,13 @@ func (h *Handshaker) ReplayBlocks(
 		}
 		// The validator set from genesis is expected to match the output of InitChain.
 		if len(h.genDoc.Validators) > 0 {
-			validators := make([]*types.Validator, len(h.genDoc.Validators))
-			for i, val := range h.genDoc.Validators {
-				validators[i] = types.NewValidator(val.PubKey, val.Power)
-			}
-			valUpdates := types.TM2PB.ValidatorUpdates(types.NewValidatorSet(validators))
+			valUpdates := h.genDoc.ValidatorUpdates()
 			if len(valUpdates) != len(res.Validators) {
 				return nil, fmt.Errorf(
-					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
+					"len(GenesisValidators) != len(ResponseInitChain.Validators) (%d != %d)",
 					len(valUpdates), len(res.Validators),
 				)
 			}
-
 			sort.Sort(abci.ValidatorUpdates(valUpdates))
 			sort.Sort(abci.ValidatorUpdates(res.Validators))
 

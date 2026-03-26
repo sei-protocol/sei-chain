@@ -95,16 +95,7 @@ func NewApplication() *Application {
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-	for _, v := range RandVals(3) {
-		r := app.updateValidator(v)
-		if r.IsErr() {
-			logger.Error("error updating validators", "err", r)
-			panic("problem updating validators")
-		}
-	}
-	return &types.ResponseInitChain{}, nil
+	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }
 
 func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
