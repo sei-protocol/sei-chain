@@ -64,6 +64,12 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+# ZeroCopy if true, memiavl returns slices pointing directly to mmap-ed snapshot files.
+# This avoids allocation but the returned data becomes invalid after the backing snapshot
+# is pruned, risking SIGSEGV on concurrent reads during snapshot switches.
+# When false (default), returned data is copied into Go-managed memory.
+sc-zero-copy = {{ .StateCommit.MemIAVLConfig.ZeroCopy }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################

@@ -298,6 +298,7 @@ func TestGetConfigStateCommit(t *testing.T) {
 	v.Set("state-commit.sc-snapshot-min-time-interval", 1800)
 	v.Set("state-commit.sc-snapshot-writer-limit", 4)
 	v.Set("state-commit.sc-snapshot-prefetch-threshold", 0.9)
+	v.Set("state-commit.sc-zero-copy", true)
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
@@ -315,6 +316,7 @@ func TestGetConfigStateCommit(t *testing.T) {
 	require.Equal(t, uint32(1800), cfg.StateCommit.MemIAVLConfig.SnapshotMinTimeInterval)
 	require.Equal(t, 4, cfg.StateCommit.MemIAVLConfig.SnapshotWriterLimit)
 	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
+	require.True(t, cfg.StateCommit.MemIAVLConfig.ZeroCopy)
 }
 
 func TestGetConfigStateStore(t *testing.T) {
@@ -354,6 +356,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 	require.Empty(t, cfg.StateCommit.Directory)
 	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateCommit.WriteMode)
 	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateCommit.ReadMode)
+	require.False(t, cfg.StateCommit.MemIAVLConfig.ZeroCopy)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

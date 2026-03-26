@@ -40,6 +40,13 @@ type Config struct {
 
 	// SnapshotWriteRateMBps is the global snapshot write rate limit in MB/s. 0 = unlimited. Default 100.
 	SnapshotWriteRateMBps int `mapstructure:"snapshot-write-rate-mbps"`
+
+	// ZeroCopy if true, Get and Iterator return slices pointing directly to mmap-ed
+	// snapshot files.  This avoids allocation but the returned data becomes invalid
+	// after the backing snapshot is pruned/closed (risk of SIGSEGV).
+	// When false (default), returned data is copied into Go-managed memory, which is
+	// safe across snapshot lifecycles at the cost of extra allocations.
+	ZeroCopy bool `mapstructure:"zero-copy"`
 }
 
 func DefaultConfig() Config {

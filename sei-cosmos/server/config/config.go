@@ -418,6 +418,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotMinTimeInterval:   v.GetUint32("state-commit.sc-snapshot-min-time-interval"),
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
+				ZeroCopy:                  v.GetBool("state-commit.sc-zero-copy"),
 			},
 		},
 		StateStore: config.StateStoreConfig{

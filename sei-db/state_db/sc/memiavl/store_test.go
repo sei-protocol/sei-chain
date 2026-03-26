@@ -33,6 +33,14 @@ func TestNewCommitStore(t *testing.T) {
 	require.True(t, cs.opts.CreateIfMissing)
 }
 
+func TestNewCommitStore_ZeroCopyFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.ZeroCopy = true
+	cs := NewCommitStore(dir, cfg)
+	require.True(t, cs.opts.ZeroCopy)
+}
+
 func TestNewCommitStoreWithCustomDirectory(t *testing.T) {
 	customDir := t.TempDir()
 

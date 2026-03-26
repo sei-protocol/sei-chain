@@ -47,6 +47,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-snapshot-min-time-interval =", "Missing sc-snapshot-min-time-interval")
 	require.Contains(t, output, "sc-snapshot-prefetch-threshold =", "Missing sc-snapshot-prefetch-threshold")
 	require.Contains(t, output, "sc-snapshot-write-rate-mbps =", "Missing sc-snapshot-write-rate-mbps")
+	require.Contains(t, output, "sc-zero-copy = false", "Missing or incorrect sc-zero-copy")
 	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
