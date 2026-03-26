@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -759,14 +759,15 @@ func TestNewStateWithPersistence(t *testing.T) {
 		dir := t.TempDir()
 		ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
 
-		// Write a valid PersistedWrapper whose Data payload is garbage.
-		// This simulates corruption at the application data level while
-		// keeping the outer A/B wrapper intact.
-		seq := uint64(1)
-		wrapper := &pb.PersistedWrapper{Seq: &seq, Data: []byte("not a valid protobuf")}
-		bz, err := proto.Marshal(wrapper)
+		// Create a throwaway persister to discover the A/B filenames,
+		// then corrupt them so NewState fails on load.
+		_, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
 		require.NoError(t, err)
-		require.NoError(t, persist.WriteRawFile(dir, innerFile, bz))
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, e.Name()), []byte("corrupt"), 0600))
+		}
 
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)
