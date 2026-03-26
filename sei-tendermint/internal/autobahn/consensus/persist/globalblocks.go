@@ -71,20 +71,20 @@ func (s *globalBlockState) persistBlock(n types.GlobalBlockNumber, block *types.
 }
 
 func (s *globalBlockState) truncateBefore(n types.GlobalBlockNumber) error {
-	iw, ok := s.iw.Get()
-	if !ok || n == 0 {
+	if n == 0 {
 		return nil
 	}
+	iw, ok := s.iw.Get()
 	if n >= s.next {
 		s.next = n
-		if iw.Count() > 0 {
+		if ok && iw.Count() > 0 {
 			if err := iw.TruncateAll(); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if iw.Count() == 0 {
+	if !ok || iw.Count() == 0 {
 		return nil
 	}
 	firstGlobal := s.next - types.GlobalBlockNumber(iw.Count())

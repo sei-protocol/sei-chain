@@ -32,15 +32,28 @@ func TestNewGlobalBlockPersisterEmptyDir(t *testing.T) {
 }
 
 func TestNewGlobalBlockPersisterNoop(t *testing.T) {
+	rng := utils.TestRng()
+	blocks := makeGlobalBlocks(rng, 5)
+
 	gp, err := NewGlobalBlockPersister(utils.None[string]())
 	require.NoError(t, err)
 	require.NotNil(t, gp)
 	require.Equal(t, 0, len(gp.LoadedBlocks()))
 
-	rng := utils.TestRng()
-	block := makeGlobalBlock(rng)
-	require.NoError(t, gp.PersistBlock(0, block))
-	require.Equal(t, types.GlobalBlockNumber(1), gp.LoadNext())
+	for i, b := range blocks {
+		require.NoError(t, gp.PersistBlock(types.GlobalBlockNumber(i), b))
+	}
+	require.Equal(t, types.GlobalBlockNumber(5), gp.LoadNext())
+
+	// Truncate in no-op mode. Before the fix, truncateBefore wouldn't
+	// advance s.next, so subsequent PersistBlock calls at higher numbers
+	// would fail with "out of sequence".
+	require.NoError(t, gp.TruncateBefore(10))
+	require.Equal(t, types.GlobalBlockNumber(10), gp.LoadNext())
+
+	newBlock := makeGlobalBlock(rng)
+	require.NoError(t, gp.PersistBlock(10, newBlock))
+	require.Equal(t, types.GlobalBlockNumber(11), gp.LoadNext())
 	require.NoError(t, gp.Close())
 }
 
