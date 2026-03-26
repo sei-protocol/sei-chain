@@ -74,6 +74,12 @@ func getConfig(t *testing.T) *config.Config {
 	return c
 }
 
+func newApp(validators []abci.ValidatorUpdate) *kvstore.Application {
+	app := kvstore.NewApplication()
+	app.SetValidators(validators)
+	return app
+}
+
 func waitForBlock(ctx context.Context, cs *State, lastBlock int64) error {
 	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: testSubscriber,
@@ -104,7 +110,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(types.TM2PB.ValidatorUpdates(state.Validators)),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -229,7 +235,7 @@ func crashWALandCheckLiveness(
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(types.TM2PB.ValidatorUpdates(state.Validators)),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -689,7 +695,7 @@ func testHandshakeReplay(
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	app := kvstore.NewApplication()
+	app := newApp(types.TM2PB.ValidatorUpdates(genesisState.Validators))
 	if nBlocks > 0 {
 		// run nBlocks against a new client to build up the app state.
 		// use a throwaway tendermint state
@@ -786,10 +792,8 @@ func buildAppStateFromChain(
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
-	appClient.SetValidators(validators)
 	require.NoError(t, stateStore.Save(state)) // save height 1's validatorsInfo
 
 	switch mode {
@@ -829,13 +833,9 @@ func buildTMStateFromChain(
 	t.Helper()
 
 	// run the whole chain against this client to build up the tendermint state
-	app := kvstore.NewApplication()
-
-	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
+	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
 	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
-	app.SetValidators(validators)
 
 	require.NoError(t, stateStore.Save(state))
 
