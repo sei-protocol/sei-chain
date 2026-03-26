@@ -28,7 +28,7 @@ func (a GigaNodeAddr) String() string {
 }
 
 type GigaRouterConfig struct {
-	Data          *data.Config
+	Committee     *atypes.Committee
 	Consensus     *consensus.Config
 	App           abci.Application
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
@@ -45,7 +45,8 @@ type GigaRouter struct {
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error) {
-	dataState := data.NewState(cfg.Data, utils.None[data.BlockStore]())
+	// Automated pruning is disabled, because it is controlled by the application.
+	dataState := data.NewState(&data.Config{Committee:cfg.Committee}, utils.None[data.BlockStore]())
 	consensusState,err := consensus.NewState(cfg.Consensus, dataState)	
 	if err!=nil {
 		return nil,fmt.Errorf("consensus.NewState(): %w",err)
