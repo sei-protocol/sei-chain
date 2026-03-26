@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
@@ -14,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -81,6 +83,14 @@ func StartTendermint(
 	opts ...func(*Options),
 ) (service.Service, ServiceCloser, error) {
 	ctx, cancel := context.WithCancel(ctx)
+
+	if kvApp, ok := app.(*kvstore.Application); ok {
+		genDoc, err := types.GenesisDocFromFile(conf.GenesisFile())
+		if err != nil {
+			return nil, func(_ context.Context) error { cancel(); return nil }, fmt.Errorf("types.GenesisDocFromFile(%q): %w", conf.GenesisFile(), err)
+		}
+		kvApp.SetValidators(genDoc.ValidatorUpdates())
+	}
 
 	nodeOpts := &Options{}
 	for _, opt := range opts {

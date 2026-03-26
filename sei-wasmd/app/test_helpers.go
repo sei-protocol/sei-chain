@@ -149,7 +149,6 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	_, err = app.InitChain(
 		context.Background(),
 		&abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 			ChainId:         chainID,
