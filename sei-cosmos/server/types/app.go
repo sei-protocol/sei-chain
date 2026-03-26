@@ -59,6 +59,8 @@ type (
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore
 
+		GetValidators() []abci.ValidatorUpdate
+
 		// Close any open resources
 		Close() error
 

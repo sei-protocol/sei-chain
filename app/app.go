@@ -2206,6 +2206,17 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 	return app.cdc
 }
 
+func (app *App) GetValidators() []abci.ValidatorUpdate {
+	ctx := app.NewUncachedContext(false, tmproto.Header{Height: app.LastBlockHeight()})
+	validators := app.DistrKeeper.GetAllValidators(ctx)
+	updates := make([]abci.ValidatorUpdate, len(validators))
+	powerReduction := app.StakingKeeper.PowerReduction(ctx)
+	for i, validator := range validators {
+		updates[i] = validator.ABCIValidatorUpdate(powerReduction)
+	}
+	return updates
+}
+
 // AppCodec returns an app codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
