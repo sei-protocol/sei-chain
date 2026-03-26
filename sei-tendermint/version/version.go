@@ -1,13 +1,12 @@
 package version
 
-import tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
-
-var (
-	TMVersion = TMVersionDefault
+import (
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
-const (
 
+const (
 	// TMVersionDefault is the used as the fallback version of Tendermint Core
 	// when not using git describe. It is formatted with semantic versioning.
 	TMVersionDefault = "0.35.0-unreleased"
@@ -15,9 +14,8 @@ const (
 	ABCISemVer = "0.17.0"
 
 	ABCIVersion = ABCISemVer
-)
-
-var (
+	TMVersion = TMVersionDefault
+	
 	// P2PProtocol versions all p2p behavior and msgs.
 	// This includes proposer selection.
 	P2PProtocol uint64 = 8
@@ -37,4 +35,14 @@ func (c Consensus) ToProto() tmversion.Consensus {
 		Block: c.Block,
 		App:   c.App,
 	}
+}
+
+// RequestInfo contains all the information for sending
+// the abci.RequestInfo message during handshake with the app.
+// It contains only compile-time version information.
+var RequestInfo = abci.RequestInfo{
+	Version:      TMVersion,
+	BlockVersion: BlockProtocol,
+	P2PVersion:   P2PProtocol,
+	AbciVersion:  ABCIVersion,
 }

@@ -87,6 +87,17 @@ func (i *inner) updateNextBlock(m *dataMetrics) {
 	}
 }
 
+func (i *inner) pruneFirst(now time.Time, m *dataMetrics) {
+	b := i.blocks[i.first]
+	latency := now.Sub(b.Payload().CreatedAt()).Seconds()
+	m.Blocks.Prune.ObserveWithWeight(latency, 1)
+	m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	delete(i.appProposals, i.first)
+	delete(i.blocks, i.first)
+	delete(i.qcs, i.first)
+	i.first += 1
+}
+
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
 type State struct {
@@ -330,20 +341,23 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 	panic("unreachable")
 }
 
+func (s *State) PruneBefore(n types.GlobalBlockNumber) {
+	pruningTime := time.Now()
+	for inner, ctrl := range s.inner.Lock() {
+		for inner.first < min(n,inner.nextAppProposal) {
+			inner.pruneFirst(pruningTime,s.metrics)
+		}
+		ctrl.Updated()
+	}
+}
+
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune entries at pruningTime.
 			for inner.first < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[inner.first].timestamp) >= after {
-				b := inner.blocks[inner.first]
-				latency := pruningTime.Sub(b.Payload().CreatedAt()).Seconds()
-				s.metrics.Blocks.Prune.ObserveWithWeight(latency, 1)
-				s.metrics.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-				delete(inner.appProposals, inner.first)
-				delete(inner.blocks, inner.first)
-				delete(inner.qcs, inner.first)
-				inner.first += 1
+				inner.pruneFirst(pruningTime,s.metrics)
 				ctrl.Updated()
 			}
 			// Compute the next pruning time.
