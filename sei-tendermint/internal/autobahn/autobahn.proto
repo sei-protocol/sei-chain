@@ -168,12 +168,6 @@ message PersistedInner {
   optional FullTimeoutVote timeout_vote = 6;
 }
 
-// Wrapper for persisted data with sequence number.
-message PersistedWrapper {
-  optional uint64 seq = 1;
-  optional bytes data = 2;
-}
-
 // Persisted availability prune anchor (AppQC + matching CommitQC pair).
 // Stored atomically in an A/B file; used as the crash-recovery pruning watermark.
 message PersistedAvailPruneAnchor {
