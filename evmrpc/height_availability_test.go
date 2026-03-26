@@ -201,6 +201,17 @@ func TestGetBlockReceiptsGenesis(t *testing.T) {
 	require.Empty(t, receipts)
 }
 
+func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
+	t.Parallel()
+
+	api := NewBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	n := rpc.BlockNumber(0)
+	receipts, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(n))
+	require.NoError(t, err)
+	require.NotNil(t, receipts)
+	require.Empty(t, receipts)
+}
+
 func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
 	t.Parallel()
 

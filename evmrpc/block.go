@@ -280,9 +280,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
 		return nil, nil
 	}
-	// Genesis block is synthetic (same hash as getBlockByNumber 0x0); there is no TM block to fetch and
-	// height 0 is outside typical watermark earliest - match block-by-number behavior with empty receipts.
+	// Synthetic genesis (eth_getBlockByNumber("0x0")): empty receipts without TM/watermarks.
+	// Callers may pass the genesis hash or the literal block number 0x0 (parsed as number, not hash).
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
+		return []map[string]any{}, nil
+	}
+	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
 		return []map[string]any{}, nil
 	}
 	// Get height from params
