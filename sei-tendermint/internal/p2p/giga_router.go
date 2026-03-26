@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"slices"
+	"maps"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -28,14 +30,15 @@ func (a GigaNodeAddr) String() string {
 }
 
 type GigaRouterConfig struct {
-	Committee     *atypes.Committee
 	Consensus     *consensus.Config
 	App           abci.Application
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
+	GenDoc *types.GenesisDoc
 }
 
 type GigaRouter struct {
 	cfg     *GigaRouterConfig
+	committee *atypes.Committee
 	key     NodeSecretKey
 	data     *data.State
 	consensus *consensus.State
@@ -45,8 +48,12 @@ type GigaRouter struct {
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error) {
+	committee,err := atypes.NewRoundRobinElection(slices.Collect(maps.Keys(cfg.ValidatorAddrs)))
+	if err!=nil {
+		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w",err)
+	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataState := data.NewState(&data.Config{Committee:cfg.Committee}, utils.None[data.BlockStore]())
+	dataState := data.NewState(&data.Config{Committee:committee}, utils.None[data.BlockStore]())
 	consensusState,err := consensus.NewState(cfg.Consensus, dataState)	
 	if err!=nil {
 		return nil,fmt.Errorf("consensus.NewState(): %w",err)
@@ -63,7 +70,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error)
 }
 
 func (r *GigaRouter) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {	
 		// Spawn outbound connections dialing.
 		for _,addr := range r.cfg.ValidatorAddrs {
 			s.Spawn(func() error {
@@ -81,12 +88,28 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 		
 		info,err := r.cfg.App.Info(ctx, &version.RequestInfo)
 		if err!=nil { return fmt.Errorf("App.Info(): %w",err) }
+		appHash := info.LastBlockAppHash
 		last := atypes.GlobalBlockNumber(info.LastBlockHeight)
-		// TODO: in case next=1, we actually need to initialize the chain.
-		
+		if last==0 {
+			if r.cfg.GenDoc.InitialHeight<1 {
+				return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1",r.cfg.GenDoc.InitialHeight)
+			}
+			resp,err := r.cfg.App.InitChain(ctx, &abci.RequestInitChain {
+				Time: r.cfg.GenDoc.GenesisTime,
+				ChainId: r.cfg.GenDoc.ChainID,
+				InitialHeight: r.cfg.GenDoc.InitialHeight,
+				ConsensusParams: utils.Alloc(r.cfg.GenDoc.ConsensusParams.ToProto()),
+				AppStateBytes: r.cfg.GenDoc.AppState,
+			})
+			if err!=nil {
+				return fmt.Errorf("App.InitChain(): %w",err)
+			}
+			last = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight-1)
+			appHash = resp.AppHash
+		}
+
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
-		appHash := info.LastBlockAppHash
 		if err := r.data.PushAppHash(last,appHash); err!=nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w",err)
 		}
@@ -96,34 +119,17 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 			if err!=nil { return err }
 			resp,err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock {
 				Txs: b.Payload().Txs(),
-				DecidedLastCommit: abci.CommitInfo{}, 
-				ByzantineValidators: nil, 
+				// Unset DecidedLastCommit does not affect jailing at all. 
+				
 				// WARNING: this is a hash of the autobahn block header.
-				// AFAICT app does not verify the hash wrt the header.
+				// It is used to identify block processed optimistically
+				// and is fed as block hash to EVM contracts.
 				Hash: hash[:],
 				Header: (&types.Header{
-					Version: version.Consensus{}, // TODO
-					ChainID: "", // TODO 
+					ChainID: r.cfg.GenDoc.ChainID,
 					Height: int64(n),  
 					Time: b.Payload().CreatedAt(),
-					LastBlockID: types.BlockID{
-						Hash: []byte{}, // TODO
-						PartSetHeader: types.PartSetHeader{}, // TODO
-					},
-
-					// hashes of block data
-					LastCommitHash: []byte{}, // TODO
-					DataHash:       []byte{}, // TODO
-
-					// hashes from the app output from the prev block
-					ValidatorsHash: []byte{},      // validators for the current block
-					NextValidatorsHash: []byte{}, // validators for the next block
-					ConsensusHash: []byte{}, // consensus params for current block
-					AppHash: appHash,            
-					// root hash of all results from the txs from the previous block
-					// see `deterministicResponseDeliverTx` to understand which parts of a tx is hashed into here
-					LastResultsHash: []byte{}, // TODO: not sure how to mock it. 
-					EvidenceHash: []byte{}, // TODO: hash of empty evidence
+					// TODO: set so that no logs are produced.
 					ProposerAddress: types.Address{},  // TODO: let's just hardcode a single fake validator.
 				}).ToProto(),
 			})
