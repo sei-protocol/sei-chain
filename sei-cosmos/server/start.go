@@ -147,7 +147,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
 					// TODO: Should this be bound to all interfaces?
 					server := &http.Server{
-						Addr:              "localhost:6060",
+						Addr:              "0.0.0.0:6060",
 						ReadHeaderTimeout: 10 * time.Second,
 						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
 					}
