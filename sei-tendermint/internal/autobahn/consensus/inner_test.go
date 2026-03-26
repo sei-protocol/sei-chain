@@ -938,7 +938,7 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	// and terminates the consensus component (instead of panicking).
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
-	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore](), utils.None[data.GlobalBlockWAL]())
 
 	wantErr := errors.New("disk on fire")
 	pers := utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})
