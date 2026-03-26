@@ -5,11 +5,12 @@ import (
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
 func makeTestKeys(t *testing.T) (feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract []byte) {
 	t.Helper()
-	keyRand := NewCannedRandom(4096, 1)
+	keyRand := rand.NewCannedRandom(4096, 1)
 
 	feeAccount = evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
@@ -32,7 +33,7 @@ func makeTestKeys(t *testing.T) (feeAccount, srcAccount, dstAccount, senderSlot,
 }
 
 func TestBuildERC20TransferReceipt(t *testing.T) {
-	crand := NewCannedRandom(1<<20, 42)
+	crand := rand.NewCannedRandom(1<<20, 42)
 	feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract := makeTestKeys(t)
 
 	receipt, err := BuildERC20TransferReceipt(
@@ -68,7 +69,7 @@ func TestBuildERC20TransferReceipt(t *testing.T) {
 }
 
 func TestBuildERC20TransferReceipt_InvalidInputs(t *testing.T) {
-	crand := NewCannedRandom(1<<20, 42)
+	crand := rand.NewCannedRandom(1<<20, 42)
 	feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract := makeTestKeys(t)
 
 	if _, err := BuildERC20TransferReceipt(nil, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0); err == nil {
@@ -84,8 +85,8 @@ func TestBuildERC20TransferReceipt_InvalidInputs(t *testing.T) {
 
 // Regression test: account keys with EVMKeyCode prefix must still be accepted.
 func TestBuildERC20TransferReceipt_EVMKeyCodeAccounts(t *testing.T) {
-	crand := NewCannedRandom(1<<20, 42)
-	keyRand := NewCannedRandom(4096, 1)
+	keyRand := rand.NewCannedRandom(4096, 1)
+	crand := rand.NewCannedRandom(1<<20, 42)
 
 	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)
@@ -113,8 +114,8 @@ func TestBuildERC20TransferReceipt_EVMKeyCodeAccounts(t *testing.T) {
 // Regression test: uses the exact key formats produced by data_generator.go
 // (EVMKeyCodeHash for accounts, EVMKeyStorage with full StorageKeyLen payload).
 func TestBuildERC20TransferReceipt_DataGeneratorKeyFormats(t *testing.T) {
-	crand := NewCannedRandom(1<<20, 42)
-	keyRand := NewCannedRandom(4096, 1)
+	keyRand := rand.NewCannedRandom(4096, 1)
+	crand := rand.NewCannedRandom(1<<20, 42)
 
 	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 1, AddressLen))
@@ -134,8 +135,8 @@ func TestBuildERC20TransferReceipt_DataGeneratorKeyFormats(t *testing.T) {
 }
 
 func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
-	keyRand := NewCannedRandom(4096, 1)
-	receiptRand := NewCannedRandom(1<<20, 2)
+	keyRand := rand.NewCannedRandom(4096, 1)
+	receiptRand := rand.NewCannedRandom(1<<20, 2)
 
 	feeAccount := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, AddressLen))
 	srcAddr := keyRand.Address(accountPrefix, 1, AddressLen)

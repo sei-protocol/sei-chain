@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	"golang.org/x/time/rate"
 )
@@ -139,7 +140,7 @@ func NewCryptoSim(
 	// avoiding rate() spikes when restarting with a preserved DB.
 
 	fmt.Printf("Initializing random number generator.\n")
-	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
+	rand := rand.NewCannedRandom(config.CannedRandomSize, config.Seed)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 

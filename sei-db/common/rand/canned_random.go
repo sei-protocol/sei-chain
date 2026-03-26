@@ -1,10 +1,16 @@
-package cryptosim
+package rand
 
 import (
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+)
+
+const (
+	AddressLen = 20 // EVM address length
 )
 
 // CannedRandom provides pre-generated randomness for benchmarking.
@@ -69,7 +75,7 @@ func NewCannedRandom(
 func (cr *CannedRandom) Clone(randomizeOffset bool) *CannedRandom {
 	index := cr.index
 	if randomizeOffset {
-		index = PositiveHash64(cr.Int64()) % int64(len(cr.buffer))
+		index = utils.PositiveHash64(cr.Int64()) % int64(len(cr.buffer))
 	}
 	return &CannedRandom{
 		buffer: cr.buffer,
@@ -102,7 +108,7 @@ func (cr *CannedRandom) SeededBytes(count int, seed int64) []byte {
 		return cr.buffer
 	}
 
-	startIndex := PositiveHash64(seed) % int64(len(cr.buffer)-count)
+	startIndex := utils.PositiveHash64(seed) % int64(len(cr.buffer)-count)
 	return cr.buffer[startIndex : startIndex+int64(count)]
 }
 
@@ -115,7 +121,7 @@ func (cr *CannedRandom) Int64() int64 {
 	}
 	base := binary.BigEndian.Uint64(buf[:])
 	//nolint:gosec // G115 - benchmark uses deterministic non-crypto randomness, overflow acceptable
-	result := Hash64(int64(base) + cr.index)
+	result := utils.Hash64(int64(base) + cr.index)
 
 	// Add 8 to the index to skip the 8 bytes we just read.
 	cr.index = (cr.index + 8) % bufLen
