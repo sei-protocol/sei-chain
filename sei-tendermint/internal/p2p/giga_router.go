@@ -117,6 +117,10 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 			b,err := r.data.Block(ctx,n)
 			hash := b.Header().Hash()
 			if err!=nil { return err }
+			var proposerAddress types.Address
+			if vals := r.cfg.App.GetValidators(); len(vals)>0 {
+				// TODO: select a proposer deterministically.
+			}
 			resp,err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock {
 				Txs: b.Payload().Txs(),
 				// Unset DecidedLastCommit does not affect jailing at all. 
@@ -129,8 +133,8 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 					ChainID: r.cfg.GenDoc.ChainID,
 					Height: int64(n),  
 					Time: b.Payload().CreatedAt(),
-					// TODO: set so that no logs are produced.
-					ProposerAddress: types.Address{},  // TODO: let's just hardcode a single fake validator.
+					// We set proposerAddress to an active validator, so that app does not emit error logs.
+					ProposerAddress: proposerAddress,
 				}).ToProto(),
 			})
 			appHash = resp.AppHash		
