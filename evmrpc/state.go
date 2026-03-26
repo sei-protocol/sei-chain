@@ -26,6 +26,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+var errNoProofCapableQueryableKVStore = errors.New("cannot find a proof-capable queryable KV store")
+
 type StateAPI struct {
 	tmClient       rpcclient.Client
 	keeper         *keeper.Keeper
@@ -141,41 +143,50 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 
 // findQueryableKVStore unwraps known KVStore wrappers until it reaches a types.Queryable
 // (classic IAVL, store/v2 memiavl commitment, or future proof-capable roots).
+// Go only allows `x := s.(type)` inside a type switch, not before it. Nil parents are
+// handled by the `s == nil` check on the next iteration; nil *Store receivers are
+// guarded in each pointer case so we never call methods on nil.
 func findQueryableKVStore(s sdk.KVStore) (storetypes.Queryable, error) {
 	const maxDepth = 64
 	for range maxDepth {
 		if s == nil {
-			return nil, errors.New("cannot find EVM IAVL store")
+			return nil, errNoProofCapableQueryableKVStore
 		}
 		switch cast := s.(type) {
 		case *cachekv.Store:
-			if cast.GetParent() == nil {
-				return nil, errors.New("cannot find EVM IAVL store")
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
 			}
 			s = cast.GetParent()
 			continue
 		case *gigacachekv.Store:
-			if cast.GetParent() == nil {
-				return nil, errors.New("cannot find EVM IAVL store")
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
 			}
 			s = cast.GetParent()
 			continue
 		case *tracekv.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
 			s = cast.Parent()
 			continue
 		case prefix.Store:
 			s = cast.Parent()
 			continue
 		case *prefix.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
 			s = cast.Parent()
 			continue
 		}
 		if q, ok := s.(storetypes.Queryable); ok {
 			return q, nil
 		}
-		return nil, errors.New("cannot find EVM IAVL store")
+		return nil, errNoProofCapableQueryableKVStore
 	}
-	return nil, errors.New("cannot find EVM IAVL store: exceeded unwrap depth")
+	return nil, fmt.Errorf("%w: exceeded unwrap depth", errNoProofCapableQueryableKVStore)
 }
 
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
