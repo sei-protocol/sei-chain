@@ -38,11 +38,13 @@ import (
 )
 
 func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
+	app := kvstore.NewApplication()
+	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 	return New(
 		ctx,
 		cfg,
 		func() {},
-		kvstore.NewApplication(),
+		app,
 		nil,
 		nil,
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),

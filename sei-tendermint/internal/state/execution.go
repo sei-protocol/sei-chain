@@ -182,10 +182,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 // It's the only function that needs to be called
 // from outside this package to process and commit an entire block.
 // It takes a blockID to avoid recomputing the parts hash.
-func (blockExec *BlockExecutor) ApplyBlock(
-	ctx context.Context,
-	state State,
-	blockID types.BlockID, block *types.Block, tracer otrace.Tracer) (State, error) {
+func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blockID types.BlockID, block *types.Block, tracer otrace.Tracer) (State, error) {
 	if tracer != nil {
 		spanCtx, span := tracer.Start(ctx, "cs.state.ApplyBlock")
 		ctx = spanCtx
@@ -507,66 +504,7 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 	}
 }
 
-// buildCommitInfo populates an ABCI commit from the
-// corresponding Tendermint commit ec, using the stored validator set
-// from ec.  It requires ec to include the original precommit votes along with
-// the vote extensions from the last commit.
-//
-// For heights below the initial height, for which we do not have the required
-// data, it returns an empty record.
-//
-// Assumes that the commit signatures are sorted according to validator index.
-func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
-	if commit.Height < initialHeight {
-		// There are no extended commits for heights below the initial height.
-		return abci.CommitInfo{}
-	}
-
-	valSet, err := store.LoadValidators(commit.Height)
-	if err != nil {
-		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", commit.Height, initialHeight, err))
-	}
-
-	var (
-		commitSize = commit.Size()
-		valSetLen  = len(valSet.Validators)
-	)
-
-	// Ensure that the size of the validator set in the commit matches
-	// the size of the validator set in the state store.
-	if commitSize != valSetLen {
-		panic(fmt.Errorf(
-			"commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, commit.Height, commit.Signatures, valSet.Validators,
-		))
-	}
-
-	votes := make([]abci.VoteInfo, commitSize)
-	for i, val := range valSet.Validators {
-		commitSig := commit.Signatures[i]
-
-		// Absent signatures have empty validator addresses, but otherwise we
-		// expect the validator addresses to be the same.
-		if commitSig.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(commitSig.ValidatorAddress, val.Address) {
-			panic(fmt.Errorf("validator address of extended commit signature in position %d (%s) does not match the corresponding validator's at height %d (%s)",
-				i, commitSig.ValidatorAddress, commit.Height, val.Address,
-			))
-		}
-
-		votes[i] = abci.VoteInfo{
-			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
-		}
-	}
-
-	return abci.CommitInfo{
-		Round: commit.Round,
-		Votes: votes,
-	}
-}
-
-func validateValidatorUpdates(abciUpdates []abci.ValidatorUpdate,
-	params types.ValidatorParams) error {
+func validateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.ValidatorParams) error {
 	for _, valUpdate := range abciUpdates {
 		if valUpdate.GetPower() < 0 {
 			return fmt.Errorf("voting power can't be negative %v", valUpdate)

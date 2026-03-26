@@ -43,21 +43,19 @@ func (s *commitQCState) persistCommitQC(qc *types.CommitQC) error {
 	return nil
 }
 
-// deleteBefore truncates the WAL below idx. Caller must hold the lock.
-// If anchor is present it is re-persisted after truncation for crash recovery.
-func (s *commitQCState) deleteBefore(idx types.RoadIndex, anchor utils.Option[*types.CommitQC]) error {
+// deleteBefore truncates WAL entries below the anchor's index, then
+// re-persists the anchor for crash recovery. Caller must hold the lock.
+func (s *commitQCState) deleteBefore(anchor *types.CommitQC) error {
+	idx := anchor.Index()
 	iw, ok := s.iw.Get()
-	if !ok || idx == 0 {
-		return nil
-	}
 	if idx >= s.next {
 		s.next = idx
-		if iw.Count() > 0 {
+		if ok && iw.Count() > 0 {
 			if err := iw.TruncateAll(); err != nil {
 				return err
 			}
 		}
-	} else if iw.Count() > 0 {
+	} else if ok && iw.Count() > 0 {
 		firstRoadIndex := s.next - types.RoadIndex(iw.Count())
 		if idx > firstRoadIndex {
 			walIdx := iw.FirstIdx() + uint64(idx-firstRoadIndex)
@@ -71,10 +69,7 @@ func (s *commitQCState) deleteBefore(idx types.RoadIndex, anchor utils.Option[*t
 			}
 		}
 	}
-	if qc, ok := anchor.Get(); ok {
-		return s.persistCommitQC(qc)
-	}
-	return nil
+	return s.persistCommitQC(anchor)
 }
 
 // CommitQCPersister manages CommitQC persistence using a WAL.
@@ -148,7 +143,7 @@ func (cp *CommitQCPersister) MaybePruneAndPersist(
 ) error {
 	for s := range cp.state.Lock() {
 		if qc, ok := anchor.Get(); ok {
-			if err := s.deleteBefore(qc.Index(), utils.Some(qc)); err != nil {
+			if err := s.deleteBefore(qc); err != nil {
 				return err
 			}
 		}
