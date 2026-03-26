@@ -104,13 +104,14 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	ctx := t.Context()
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		newApp(types.TM2PB.ValidatorUpdates(state.Validators)),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -229,13 +230,14 @@ func crashWALandCheckLiveness(
 	t.Logf("Generate WAL with sendTxsFn running in parallel.")
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		newApp(types.TM2PB.ValidatorUpdates(state.Validators)),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -695,7 +697,8 @@ func testHandshakeReplay(
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	app := newApp(types.TM2PB.ValidatorUpdates(genesisState.Validators))
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
+	app := newApp(genDoc.ValidatorUpdates())
 	if nBlocks > 0 {
 		// run nBlocks against a new client to build up the app state.
 		// use a throwaway tendermint state
@@ -834,6 +837,7 @@ func buildTMStateFromChain(
 
 	// run the whole chain against this client to build up the tendermint state
 	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
+	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
 
@@ -1127,11 +1131,17 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	stateStore := sm.NewStore(stateDB)
 
 	oldValAddr := state.Validators.Validators[0].Address
+	genDoc := utils.OrPanic1(sm.MakeGenesisDocFromFile(cfg.GenesisFile()))
+	genDoc.Validators = []types.GenesisValidator{{
+		Address: val.Address,
+		PubKey:  val.PubKey,
+		Power:   val.VotingPower,
+	}}
+	require.NoError(t, genDoc.SaveAs(cfg.GenesisFile()))
 
 	// now start the app using the handshake - it should sync
-	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
+	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 	require.NoError(t, handshaker.Handshake(ctx, app), "error on abci handshake")
 
