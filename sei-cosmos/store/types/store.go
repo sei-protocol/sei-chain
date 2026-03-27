@@ -464,3 +464,16 @@ type GigaMultiStore interface {
 	IsStoreGiga(key StoreKey) bool
 	SetGigaKVStores(handler func(sk StoreKey, s KVStore) KVStore) MultiStore
 }
+
+// InterBlockCache is a KVStore that persists across block boundaries. It wraps
+// an underlying parent CommitKVStore with an in-memory write-through cache and
+// supports O(dirty) selective flushing rather than full eviction each block.
+type InterBlockCache interface {
+	KVStore
+	// UpdateParent refreshes the parent store reference. Must be called at
+	// block start when the underlying CommitKVStore is reloaded after Commit.
+	UpdateParent(parent KVStore)
+	// FlushDirty writes only entries modified since the last flush to the
+	// parent store, then marks them clean without evicting cached entries.
+	FlushDirty()
+}

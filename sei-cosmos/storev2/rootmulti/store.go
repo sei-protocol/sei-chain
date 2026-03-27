@@ -14,6 +14,8 @@ import (
 
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
+	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/interblock"
 	"github.com/cosmos/cosmos-sdk/store/mem"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/store/transient"
@@ -51,7 +53,11 @@ type Store struct {
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
-	pruningManager *pruning.Manager
+	// interBlockCaches holds one persistent in-memory cache per giga-registered
+	// store key. Each cache wraps the underlying CommitKVStore and survives
+	// across block boundaries, eliminating cold reads for hot EVM state.
+	interBlockCaches map[types.StoreKey]*interblock.Cache
+	pruningManager   *pruning.Manager
 }
 
 type VersionedChangesets struct {
@@ -105,6 +111,13 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	}
 	commitStartTime := time.Now()
 	defer telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
+
+	// Flush interblock cache dirty entries into the CommitKVStore changesets
+	// before flush() extracts those changesets for SC/SS. This ensures that
+	// EVM writes buffered in the interblock caches (via WriteGiga) are
+	// included in the current block's commit.
+	rs.flushInterBlockCaches()
+
 	if err := rs.flush(); err != nil {
 		panic(err)
 	}
@@ -133,9 +146,34 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		}
 	}
 
+	// Refresh interblock cache parent pointers since CommitKVStore instances
+	// may have been reloaded above. The caches themselves (and their warm
+	// entries) are preserved; only the parent reference is updated.
+	rs.updateInterBlockCacheParents()
+
 	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
 	return rs.lastCommitInfo.CommitID()
+}
+
+// flushInterBlockCaches writes dirty entries from each interblock cache into
+// its parent CommitKVStore, populating the CommitKVStore's changeset so that
+// flush() can pick them up for SS/SC persistence.
+func (rs *Store) flushInterBlockCaches() {
+	for _, cache := range rs.interBlockCaches {
+		cache.FlushDirty()
+	}
+}
+
+// updateInterBlockCacheParents refreshes the parent CommitKVStore pointer in
+// each interblock cache. Must be called after rs.ckvStores entries are
+// reloaded in Commit() to avoid stale references.
+func (rs *Store) updateInterBlockCacheParents() {
+	for sk, cache := range rs.interBlockCaches {
+		if store, ok := rs.ckvStores[sk]; ok {
+			cache.UpdateParent(store)
+		}
+	}
 }
 
 // Flush all the pending changesets to commit store.
@@ -239,6 +277,19 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	gigaKeys := make([]types.StoreKey, 0, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
 		gigaKeys = append(gigaKeys, rs.storeKeys[k])
+	}
+	// When interblock caches are available, use them as the parent stores for
+	// the giga cachekv.Store layer. This keeps hot EVM state (contract slots,
+	// balances) warm in memory across blocks, so the MVS WriteLatestToStore()
+	// flush writes into the interblock cache rather than directly to the
+	// CommitKVStore. FlushDirty() then propagates the dirty subset to disk at
+	// Commit time.
+	if len(rs.interBlockCaches) > 0 {
+		gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.interBlockCaches))
+		for sk, cache := range rs.interBlockCaches {
+			gigaStores[sk] = cache
+		}
+		return cachemulti.NewFromKVStore(dbadapter.Store{DB: nil}, stores, gigaStores, rs.storeKeys, gigaKeys, nil, nil)
 	}
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
 }
@@ -448,7 +499,27 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	} else {
 		rs.lastCommitInfo = &types.CommitInfo{}
 	}
+	rs.initInterBlockCaches()
 	return nil
+}
+
+// initInterBlockCaches creates one interblock.Cache per giga-registered store
+// key backed by the corresponding CommitKVStore. Must be called after
+// rs.ckvStores is populated (i.e. at the end of LoadVersionAndUpgrade).
+func (rs *Store) initInterBlockCaches() {
+	if len(rs.gigaKeys) == 0 {
+		return
+	}
+	rs.interBlockCaches = make(map[types.StoreKey]*interblock.Cache, len(rs.gigaKeys))
+	for _, k := range rs.gigaKeys {
+		sk := rs.storeKeys[k]
+		if sk == nil {
+			continue
+		}
+		if parent, ok := rs.ckvStores[sk]; ok {
+			rs.interBlockCaches[sk] = interblock.NewCache(parent, sk)
+		}
+	}
 }
 
 func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParams) (types.CommitKVStore, error) {
