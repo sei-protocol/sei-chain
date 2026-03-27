@@ -438,7 +438,7 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	}
 	rs.scStore.Initialize(initialStores)
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
-		return nil
+		return err
 	}
 
 	storesKeysForDeletion := make(map[types.StoreKey]struct{})

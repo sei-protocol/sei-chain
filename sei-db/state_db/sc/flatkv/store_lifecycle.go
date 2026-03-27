@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -107,7 +106,7 @@ func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 	}
 	if s.fileLock == nil {
 		if err := s.acquireFileLock(dir); err != nil {
-			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
+			return err
 		}
 	}
 

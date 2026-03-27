@@ -958,5 +958,5 @@ func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
 	err := s2.CleanupOrphanedReadOnlyDirs()
 	require.Error(t, err)
 	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
-	require.ErrorContains(t, err, "acquire file lock")
+	require.ErrorContains(t, err, "file already locked")
 }
