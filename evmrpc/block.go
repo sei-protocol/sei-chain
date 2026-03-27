@@ -262,6 +262,10 @@ func (a *BlockAPI) getBlockByNumber(
 	}
 
 	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
