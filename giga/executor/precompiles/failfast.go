@@ -56,6 +56,21 @@ func (e *InvalidPrecompileCallError) IsAbortError() bool {
 // It implements vm.AbortError to ensure it propagates through the call stack.
 var ErrInvalidPrecompileCall error = &InvalidPrecompileCallError{}
 
+// BalanceMigrationAbortError signals that the transaction requires balance
+// migration (unassociated address), which giga cannot handle. The caller
+// should fall back to v2.
+type BalanceMigrationAbortError struct{}
+
+func (e *BalanceMigrationAbortError) Error() string {
+	return "balance migration required for unassociated address"
+}
+
+func (e *BalanceMigrationAbortError) IsAbortError() bool {
+	return true
+}
+
+var ErrBalanceMigrationRequired error = &BalanceMigrationAbortError{}
+
 type FailFastPrecompile struct{}
 
 var FailFastSingleton vm.PrecompiledContract = &FailFastPrecompile{}
