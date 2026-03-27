@@ -22,6 +22,7 @@ import (
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
@@ -41,14 +42,80 @@ func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 	require.Len(t, nodeIDs, 2)
 
 	reactor := rts.reactors[nodeIDs[0]]
-	ps := NewPeerState(nodeIDs[1])
-	ps.PRS.Height = 1
-	ps.PRS.Round = 1
-	ps.PRS.Step = cstypes.RoundStepPrevote
-	ps.PRS.ProposalPOLRound = 0
-	ps.PRS.ProposalPOL = bits.NewBitArray(1)
+	peerID := nodeIDs[1]
+	state := reactor.state.GetState()
+	reactor.SwitchToConsensus(ctx, state, false)
+
+	require.Eventually(t, func() bool {
+		_, ok := reactor.GetPeerState(peerID)
+		return ok
+	}, 10*time.Second, 10*time.Millisecond)
 
 	valSet, privVals := types.RandValidatorSet(4, 1)
+	proposerPubKey, err := privVals[0].GetPubKey(ctx)
+	require.NoError(t, err)
+
+	proposal := types.NewProposal(
+		1,
+		1,
+		0,
+		types.BlockID{
+			Hash: crypto.CRandBytes(crypto.HashSize),
+			PartSetHeader: types.PartSetHeader{
+				Total: 1,
+				Hash:  crypto.CRandBytes(crypto.HashSize),
+			},
+		},
+		time.Now(),
+		nil,
+		types.Header{
+			Version:         version.Consensus{Block: version.BlockProtocol},
+			Height:          1,
+			ProposerAddress: proposerPubKey.Address(),
+		},
+		&types.Commit{},
+		nil,
+		proposerPubKey.Address(),
+	)
+	proposal.Signature = makeSig("invalid-signature")
+
+	require.NoError(t, reactor.handleStateMessage(p2p.RecvMsg[*tmcons.Message]{
+		From: peerID,
+		Message: MsgToProto(&NewRoundStepMessage{
+			HRS: cstypes.HRS{
+				Height: 1,
+				Round:  1,
+				Step:   cstypes.RoundStepPrevote,
+			},
+			SecondsSinceStartTime: 1,
+			LastCommitRound:       -1,
+		}),
+	}))
+
+	require.NoError(t, reactor.handleDataMessage(ctx, p2p.RecvMsg[*tmcons.Message]{
+		From: peerID,
+		Message: MsgToProto(&ProposalMessage{
+			Proposal: proposal,
+		}),
+	}))
+
+	require.NoError(t, reactor.handleDataMessage(ctx, p2p.RecvMsg[*tmcons.Message]{
+		From: peerID,
+		Message: MsgToProto(&ProposalPOLMessage{
+			Height:           1,
+			ProposalPOLRound: 0,
+			ProposalPOL:      bits.NewBitArray(1),
+		}),
+	}))
+
+	ps, ok := reactor.GetPeerState(peerID)
+	require.True(t, ok)
+	prs := ps.GetRoundState()
+	require.Equal(t, int64(1), prs.Height)
+	require.Equal(t, int32(1), prs.Round)
+	require.Equal(t, int32(0), prs.ProposalPOLRound)
+	require.Equal(t, 1, prs.ProposalPOL.Size())
+
 	voteSet := cstypes.NewHeightVoteSet("test-chain", 1, valSet)
 	voteSet.SetRound(1)
 
