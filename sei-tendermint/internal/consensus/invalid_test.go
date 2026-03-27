@@ -260,7 +260,7 @@ func invalidDoPrevoteFunc(
 		addr := pubKey.Address()
 		valIndex, _, ok := cs.roundState.Validators().GetByAddress(addr)
 		if !ok {
-			panic("mikssing validator")
+			panic("missing validator")
 		}
 
 		// precommit a random block

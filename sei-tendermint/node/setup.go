@@ -135,6 +135,9 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	if !ok {
 		return false
 	}
+	if state.Validators.Size() != 1 {
+		return false
+	}
 	addr, _, ok := state.Validators.GetByIndex(0)
 	return ok && bytes.Equal(k.Address(), addr)
 }
