@@ -3,11 +3,15 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/rand"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -15,8 +19,64 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// A simulated receipt store using the real production receipt.ReceiptStore
-// (cached parquet backend with WAL, flush, rotation, and pruning).
+const (
+	defaultTxHashRingSize = 1_000_000
+)
+
+// txHashEntry stores a written tx hash along with its block and contract address,
+// used by reader goroutines to generate realistic log filter queries.
+type txHashEntry struct {
+	txHash          common.Hash
+	blockNumber     uint64
+	contractAddress common.Address
+}
+
+// txHashRing is a fixed-size ring buffer of recently written tx hashes.
+// Writers call Push from the main loop; readers call RandomEntry from goroutines.
+type txHashRing struct {
+	mu      sync.RWMutex
+	entries []txHashEntry
+	size    int
+	head    int
+	count   int
+}
+
+func newTxHashRing(size int) *txHashRing {
+	return &txHashRing{
+		entries: make([]txHashEntry, size),
+		size:    size,
+	}
+}
+
+func (r *txHashRing) Push(txHash common.Hash, blockNumber uint64, contractAddress common.Address) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries[r.head] = txHashEntry{
+		txHash:          txHash,
+		blockNumber:     blockNumber,
+		contractAddress: contractAddress,
+	}
+	r.head = (r.head + 1) % r.size
+	if r.count < r.size {
+		r.count++
+	}
+}
+
+// RandomEntry returns a random entry from the ring. The caller's rng is used
+// to avoid contention on a shared rng across reader goroutines.
+func (r *txHashRing) RandomEntry(rng *rand.Rand) *txHashEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.count == 0 {
+		return nil
+	}
+	idx := rng.Intn(r.count)
+	entry := r.entries[idx]
+	return &entry
+}
+
+// A simulated receipt store with concurrent reads, writes, and pruning
+// backed by the production receipt.ReceiptStore (parquet + ledger cache).
 type RecieptStoreSimulator struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -25,12 +85,20 @@ type RecieptStoreSimulator struct {
 
 	recieptsChan chan *block
 
-	store   receipt.ReceiptStore
-	metrics *CryptosimMetrics
+	store                        receipt.ReceiptStore
+	crand                        *CannedRandom
+	txRing                       *txHashRing
+	metrics                      *CryptosimMetrics
+	receiptStableHotWindowBlocks uint64
+	receiptCacheWindowBlocks     uint64
 }
 
 // Creates a new receipt store simulator backed by the production ReceiptStore
-// (parquet backend + ledger cache), matching the real node write path.
+// (parquet backend + ledger cache), with optional concurrent reader goroutines.
+//
+// Receipt-by-hash reads reconstruct tx hashes on the fly via SyntheticTxHash
+// (no storage needed). Log filter reads use the ring buffer to sample contract
+// addresses written by the write path. See SyntheticTxHash in receipt.go for details.
 func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -47,21 +115,42 @@ func NewRecieptStoreSimulator(
 	}
 
 	// nil StoreKey is safe: the parquet write path never touches the legacy KV store.
-	store, err := receipt.NewReceiptStore(storeCfg, nil)
+	// Cryptosim passes its metrics as a read observer so cache hits/misses are measured
+	// at the cache wrapper, which is the only layer that can distinguish them reliably.
+	store, err := receipt.NewReceiptStoreWithReadObserver(storeCfg, nil, metrics)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create receipt store: %w", err)
 	}
 
+	// CannedRandom with the same (seed, bufferSize) as the block builder so that
+	// SyntheticTxHash produces the same hashes the write path stored.
+	// Only SeededBytes is called, which is a read-only operation safe for concurrent use.
+	crand := NewCannedRandom(config.CannedRandomSize, config.Seed)
+
+	txRing := newTxHashRing(defaultTxHashRingSize)
+
 	r := &RecieptStoreSimulator{
-		ctx:          derivedCtx,
-		cancel:       cancel,
-		config:       config,
-		recieptsChan: recieptsChan,
-		store:        store,
-		metrics:      metrics,
+		ctx:                          derivedCtx,
+		cancel:                       cancel,
+		config:                       config,
+		recieptsChan:                 recieptsChan,
+		store:                        store,
+		crand:                        crand,
+		txRing:                       txRing,
+		metrics:                      metrics,
+		receiptStableHotWindowBlocks: receipt.StableReceiptCacheWindowBlocks(store),
+		receiptCacheWindowBlocks:     receipt.EstimatedReceiptCacheWindowBlocks(store),
 	}
 	go r.mainLoop()
+
+	if config.ReceiptReadConcurrency > 0 && config.ReceiptReadsPerSecond > 0 {
+		r.startReceiptReaders()
+	}
+	if config.LogFilterReadConcurrency > 0 && config.LogFilterReadsPerSecond > 0 {
+		r.startLogFilterReaders()
+	}
+
 	return r, nil
 }
 
@@ -82,12 +171,18 @@ func (r *RecieptStoreSimulator) mainLoop() {
 }
 
 // Processes a block of receipts using the production ReceiptStore.SetReceipts path,
-// which writes to parquet (WAL + buffer + rotation) and populates the ledger cache.
+// then populates the ring buffer with contract addresses for log filter reads.
 func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	blockNumber := uint64(blk.BlockNumber()) //nolint:gosec
 
 	records := make([]receipt.ReceiptRecord, 0, len(blk.reciepts))
 	var marshalErrors int64
+
+	type ringEntry struct {
+		txHash          common.Hash
+		contractAddress common.Address
+	}
+	ringEntries := make([]ringEntry, 0, len(blk.reciepts))
 
 	for _, rcpt := range blk.reciepts {
 		if rcpt == nil {
@@ -107,6 +202,11 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 			Receipt:      rcpt,
 			ReceiptBytes: receiptBytes,
 		})
+
+		ringEntries = append(ringEntries, ringEntry{
+			txHash:          txHash,
+			contractAddress: common.HexToAddress(rcpt.ContractAddress),
+		})
 	}
 
 	for range marshalErrors {
@@ -114,8 +214,6 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	}
 
 	if len(records) > 0 {
-		// Build a minimal sdk.Context with the block height set.
-		// The parquet write path only uses ctx.BlockHeight() and ctx.Context().
 		sdkCtx := sdk.NewContext(nil, tmproto.Header{Height: int64(blockNumber)}, false) //nolint:gosec
 
 		start := time.Now()
@@ -128,8 +226,243 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 		r.metrics.ReportReceiptsWritten(int64(len(records)))
 	}
 
+	for _, entry := range ringEntries {
+		r.txRing.Push(entry.txHash, blockNumber, entry.contractAddress)
+	}
+
 	if err := r.store.SetLatestVersion(int64(blockNumber)); err != nil { //nolint:gosec
 		fmt.Printf("failed to update latest version for block %d: %v\n", blockNumber, err)
+	}
+}
+
+// startReceiptReaders launches dedicated goroutines for receipt-by-hash lookups.
+func (r *RecieptStoreSimulator) startReceiptReaders() {
+	readerCount := r.config.ReceiptReadConcurrency
+	totalReadsPerSec := r.config.ReceiptReadsPerSecond
+	if totalReadsPerSec <= 0 {
+		totalReadsPerSec = 1000
+	}
+
+	readsPerReader := totalReadsPerSec / readerCount
+	if readsPerReader < 1 {
+		readsPerReader = 1
+	}
+
+	for i := 0; i < readerCount; i++ {
+		//nolint:gosec // deterministic per-reader seed for benchmarks
+		readerRng := rand.New(rand.NewSource(r.config.Seed + int64(i) + 100))
+		go r.tickerLoop(readsPerReader, readerRng, r.executeReceiptRead)
+	}
+
+	fmt.Printf("Started %d receipt reader goroutines (%d reads/sec each)\n",
+		readerCount, readsPerReader)
+}
+
+// startLogFilterReaders launches dedicated goroutines for log filter (eth_getLogs) queries.
+func (r *RecieptStoreSimulator) startLogFilterReaders() {
+	readerCount := r.config.LogFilterReadConcurrency
+	totalReadsPerSec := r.config.LogFilterReadsPerSecond
+	if totalReadsPerSec <= 0 {
+		totalReadsPerSec = 100
+	}
+
+	readsPerReader := totalReadsPerSec / readerCount
+	if readsPerReader < 1 {
+		readsPerReader = 1
+	}
+
+	for i := 0; i < readerCount; i++ {
+		//nolint:gosec // deterministic per-reader seed, offset from receipt readers
+		readerRng := rand.New(rand.NewSource(r.config.Seed + int64(i) + 200))
+		go r.tickerLoop(readsPerReader, readerRng, r.executeLogFilterRead)
+	}
+
+	fmt.Printf("Started %d log filter reader goroutines (%d reads/sec each)\n",
+		readerCount, readsPerReader)
+}
+
+func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, rng *rand.Rand, fn func(*rand.Rand)) {
+	interval := time.Second / time.Duration(readsPerSecond)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			fn(rng)
+		}
+	}
+}
+
+// executeReceiptRead reconstructs a tx hash from a sampled (block, txIndex) pair and queries it.
+//
+// ReceiptColdReadRatio explicitly splits reads between:
+//   - hot reads in the stable near-tip cache chunk
+//   - cold reads older than the estimated cache window
+//
+// Within the chosen range, ReceiptReadRecencyExponent still applies a power-law
+// recency bias so reads cluster toward the newest blocks in that range.
+func (r *RecieptStoreSimulator) executeReceiptRead(rng *rand.Rand) {
+	latestBlock := r.store.LatestVersion()
+	if latestBlock <= 0 {
+		return
+	}
+
+	earliestBlock := int64(1)
+	if r.config.ReceiptKeepRecent > 0 && latestBlock > r.config.ReceiptKeepRecent {
+		earliestBlock = latestBlock - r.config.ReceiptKeepRecent + 1
+	}
+
+	randomBlock := selectReceiptReadBlock(
+		rng,
+		earliestBlock,
+		latestBlock,
+		r.receiptStableHotWindowBlocks,
+		r.receiptCacheWindowBlocks,
+		r.config.ReceiptColdReadRatio,
+		r.config.ReceiptReadRecencyExponent,
+	)
+	if randomBlock <= 0 {
+		return
+	}
+	randomTxIdx := rng.Intn(r.config.TransactionsPerBlock)
+
+	hashBytes := SyntheticTxHash(r.crand, uint64(randomBlock), uint32(randomTxIdx)) //nolint:gosec
+	txHash := common.BytesToHash(hashBytes)
+
+	r.metrics.ReportReceiptRead()
+
+	sdkCtx := sdk.NewContext(nil, tmproto.Header{}, false)
+	start := time.Now()
+	rcpt, err := r.store.GetReceipt(sdkCtx, txHash)
+	r.metrics.RecordReceiptReadDuration(time.Since(start).Seconds())
+
+	if err != nil {
+		r.metrics.ReportReceiptError()
+		return
+	}
+	if rcpt != nil {
+		r.metrics.ReportReceiptReadFound()
+		return
+	}
+	r.metrics.ReportReceiptReadNotFound()
+}
+
+func selectReceiptReadBlock(
+	rng *rand.Rand,
+	earliestBlock, latestBlock int64,
+	hotWindowBlocks, cacheWindowBlocks uint64,
+	coldReadRatio, exponent float64,
+) int64 {
+	if latestBlock < earliestBlock {
+		return 0
+	}
+	if hotWindowBlocks == 0 || cacheWindowBlocks == 0 {
+		return sampleRecencyBiasedBlock(rng, earliestBlock, latestBlock, exponent)
+	}
+
+	coldLatest := latestBlock - int64(cacheWindowBlocks) //nolint:gosec // G115: window sizes are small config values, overflow is impossible
+	if coldReadRatio > 0 && coldLatest >= earliestBlock && rng.Float64() < coldReadRatio {
+		return sampleRecencyBiasedBlock(rng, earliestBlock, coldLatest, exponent)
+	}
+
+	hotEarliest := latestBlock - int64(hotWindowBlocks) + 1 //nolint:gosec // G115: window sizes are small config values, overflow is impossible
+	if hotEarliest < earliestBlock {
+		hotEarliest = earliestBlock
+	}
+	return sampleRecencyBiasedBlock(rng, hotEarliest, latestBlock, exponent)
+}
+
+func sampleRecencyBiasedBlock(rng *rand.Rand, earliestBlock, latestBlock int64, exponent float64) int64 {
+	if latestBlock < earliestBlock {
+		return 0
+	}
+	blockRange := latestBlock - earliestBlock + 1
+
+	// Power-law recency bias: u^exponent maps uniform [0,1) toward newer blocks.
+	u := rng.Float64()
+	offset := int64(math.Pow(u, exponent) * float64(blockRange))
+	if offset >= blockRange {
+		offset = blockRange - 1
+	}
+	return latestBlock - offset
+}
+
+// executeLogFilterRead simulates an eth_getLogs query filtering by contract address
+// over a small block range, which is the typical RPC pattern. Contract addresses
+// come from the ring buffer since they aren't deterministically derivable from a tx ID.
+//
+// LogFilterColdReadRatio controls the hot/cold split:
+//   - Hot reads (1 - ratio): pick a random fromBlock explicitly within the
+//     in-memory cache window so the query is guaranteed to hit the ledger cache.
+//   - Cold reads (ratio): pick a random fromBlock older than the cache window,
+//     forcing a DuckDB query on closed parquet files.
+//
+// Default ratio 0.1 yields ~90% cache hits.
+func (r *RecieptStoreSimulator) executeLogFilterRead(rng *rand.Rand) {
+	entry := r.txRing.RandomEntry(rng)
+	if entry == nil {
+		return
+	}
+
+	latestVersion := r.store.LatestVersion()
+	if latestVersion <= 0 {
+		return
+	}
+
+	rangeSize := uint64(10) + (rng.Uint64() % 91)
+	var fromBlock, toBlock uint64
+
+	coldRatio := r.config.LogFilterColdReadRatio
+	latest := uint64(latestVersion) //nolint:gosec
+	cacheWindow := r.receiptCacheWindowBlocks
+
+	if coldRatio > 0 && cacheWindow > 0 && latest > cacheWindow && rng.Float64() < coldRatio {
+		// Cold: random block range entirely before the cache window.
+		coldLatest := latest - cacheWindow
+		earliestBlock := uint64(1)
+		if r.config.ReceiptKeepRecent > 0 && latest > uint64(r.config.ReceiptKeepRecent) { //nolint:gosec
+			earliestBlock = latest - uint64(r.config.ReceiptKeepRecent) + 1 //nolint:gosec
+		}
+		if coldLatest > earliestBlock {
+			fromBlock = earliestBlock + (rng.Uint64() % (coldLatest - earliestBlock))
+			toBlock = fromBlock + rangeSize
+			if toBlock > coldLatest {
+				toBlock = coldLatest
+			}
+		} else {
+			fromBlock = entry.blockNumber
+			toBlock = fromBlock + rangeSize
+		}
+	} else {
+		// Hot: random block range within the cache window.
+		hotEarliest := latest - cacheWindow + 1
+		if hotEarliest < 1 {
+			hotEarliest = 1
+		}
+		hotRange := latest - hotEarliest + 1
+		fromBlock = hotEarliest + (rng.Uint64() % hotRange)
+		toBlock = fromBlock + rangeSize
+	}
+
+	if toBlock > latest {
+		toBlock = latest
+	}
+
+	crit := filters.FilterCriteria{
+		Addresses: []common.Address{entry.contractAddress},
+	}
+
+	sdkCtx := sdk.NewContext(nil, tmproto.Header{}, false)
+	start := time.Now()
+	logs, err := r.store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
+	r.metrics.RecordReceiptLogFilterDuration(time.Since(start).Seconds())
+	r.metrics.RecordLogFilterLogsReturned(int64(len(logs)))
+
+	if err != nil {
+		r.metrics.ReportReceiptError()
 	}
 }
 

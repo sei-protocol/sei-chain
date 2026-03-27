@@ -1,8 +1,15 @@
 {
-    "Comment": "For testing with the state store and reciept store both enabled.",
+    "Comment": "For testing with the state store and receipt store both enabled, with concurrent reads, pruning, and cache.",
     "DataDir": "data",
+    "LogDir": "logs",
+    "LogLevel": "info",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 1000000,
-    "GenerateReceipts": true
+    "GenerateReceipts": true,
+    "ReceiptReadConcurrency": 4,
+    "ReceiptReadsPerSecond": 1000,
+    "ReceiptColdReadRatio": 0.1,
+    "LogFilterReadConcurrency": 4,
+    "LogFilterReadsPerSecond": 200,
+    "LogFilterColdReadRatio": 0.1
 }
-

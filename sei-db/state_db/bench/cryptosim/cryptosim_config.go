@@ -158,6 +158,41 @@ type CryptoSimConfig struct {
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
 
+	// Number of concurrent reader goroutines issuing receipt lookups. 0 disables reads.
+	ReceiptReadConcurrency int
+
+	// Target total receipt reads per second across all reader goroutines.
+	// Reads are distributed evenly across readers.
+	ReceiptReadsPerSecond int
+
+	// Fraction of single-receipt reads that intentionally target blocks older
+	// than the in-memory receipt-cache window (0.0-1.0).
+	// These reads should mostly miss cache and fall through to DuckDB.
+	ReceiptColdReadRatio float64
+
+	// Deprecated: ignored when LogFilterReadConcurrency > 0. Previously controlled
+	// the fraction of shared reads that were log filters vs receipt lookups.
+	ReceiptLogFilterRatio float64
+
+	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
+	// These goroutines are independent from the receipt reader goroutines.
+	LogFilterReadConcurrency int
+
+	// Target total log filter reads per second across all log filter goroutines.
+	LogFilterReadsPerSecond int
+
+	// Fraction of log filter reads that intentionally target blocks older than
+	// the in-memory cache window (0.0-1.0). These cold reads miss the cache
+	// and fall through to DuckDB on closed parquet files. The remaining
+	// (1 - LogFilterColdReadRatio) reads target recent blocks likely in cache.
+	// Default 0.1 yields ~90% cache hit ratio.
+	LogFilterColdReadRatio float64
+
+	// Exponent controlling the recency bias within the chosen hot/cold read range.
+	// 1.0 = uniform within that range; higher values skew reads toward the newest
+	// blocks in the selected bucket.
+	ReceiptReadRecencyExponent float64
+
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
 	ReceiptKeepRecent int64
 
@@ -215,6 +250,14 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
 		MaxTPS:                            0,
+		ReceiptReadConcurrency:            0,
+		ReceiptReadsPerSecond:             100,
+		ReceiptColdReadRatio:              0.1,
+		ReceiptLogFilterRatio:             0,
+		LogFilterReadConcurrency:          0,
+		LogFilterReadsPerSecond:           100,
+		LogFilterColdReadRatio:            0.1,
+		ReceiptReadRecencyExponent:        3.0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 		LogLevel:                          "info",
@@ -302,12 +345,29 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
 	}
+	if c.ReceiptColdReadRatio < 0 || c.ReceiptColdReadRatio > 1 {
+		return fmt.Errorf("ReceiptColdReadRatio must be in [0, 1] (got %f)", c.ReceiptColdReadRatio)
+	}
+	if c.ReceiptLogFilterRatio < 0 || c.ReceiptLogFilterRatio > 1 {
+		return fmt.Errorf("ReceiptLogFilterRatio must be in [0, 1] (got %f)", c.ReceiptLogFilterRatio)
+	}
+	if c.LogFilterReadConcurrency < 0 {
+		return fmt.Errorf("LogFilterReadConcurrency must be non-negative (got %d)", c.LogFilterReadConcurrency)
+	}
+	if c.LogFilterColdReadRatio < 0 || c.LogFilterColdReadRatio > 1 {
+		return fmt.Errorf("LogFilterColdReadRatio must be in [0, 1] (got %f)", c.LogFilterColdReadRatio)
+	}
+	if c.ReceiptReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
+	}
+	if c.ReceiptReadRecencyExponent < 1 {
+		return fmt.Errorf("ReceiptReadRecencyExponent must be >= 1.0 (got %f)", c.ReceiptReadRecencyExponent)
+	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
 	}
-
 	return nil
 }
 
