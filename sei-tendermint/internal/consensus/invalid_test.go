@@ -128,7 +128,10 @@ func invalidDoPrevoteFunc(
 		require.NoError(t, err)
 
 		addr := pubKey.Address()
-		valIndex, _ := cs.roundState.Validators().GetByAddress(addr)
+		valIndex, _, ok := cs.roundState.Validators().GetByAddress(addr)
+		if !ok {
+			panic("mikssing validator")
+		}
 
 		// precommit a random block
 		blockHash := bytes.HexBytes(tmrand.Bytes(32))
