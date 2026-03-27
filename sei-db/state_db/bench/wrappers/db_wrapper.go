@@ -8,9 +8,10 @@ import (
 
 // This benchmarking utility is capable of benchmarking a DB that implements this interface.
 type DBWrapper interface {
-	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are ignored. Call Commit to persist.
-	ApplyChangeSets(cs []*proto.NamedChangeSet) error
+	// ApplyChangeSets applies a versioned changelog entry. SC-backed wrappers buffer
+	// entry changesets until Commit, while SS-backed wrappers can use entry.Version
+	// to persist at the benchmark-assigned version immediately.
+	ApplyChangeSets(entry *proto.ChangelogEntry) error
 
 	// Read reads the value for the given key.
 	Read(key []byte) (data []byte, found bool, err error)
