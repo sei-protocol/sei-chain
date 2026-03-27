@@ -489,6 +489,7 @@ func replayImport(t *testing.T, imp types.Importer, items []exportedItem) {
 func splitWriteConfig() config.StateCommitConfig {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.SplitWrite
+	cfg.EnableLatticeHash = true
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
