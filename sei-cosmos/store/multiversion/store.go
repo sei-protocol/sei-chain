@@ -6,10 +6,15 @@ import (
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
 	db "github.com/tendermint/tm-db"
 )
+
+// globalAccountNumberKey is the string form of x/auth's GlobalAccountNumberKey.
+// Used to detect OCC contention on new account creation.
+const globalAccountNumberKey = "globalAccountNumber"
 
 type MultiVersionStore interface {
 	GetLatest(key []byte) (value MultiVersionValueItem)
@@ -366,10 +371,16 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 					// TODO: would we want to return early?
 					conflictSet[latestValue.Index()] = struct{}{}
 					valid = false
+					if key == globalAccountNumberKey {
+						telemetry.IncrCounter(1, "sei", "occ", "global_account_number", "conflict")
+					}
 				}
 			} else if !bytes.Equal(latestValue.Value(), value) {
 				conflictSet[latestValue.Index()] = struct{}{}
 				valid = false
+				if key == globalAccountNumberKey {
+					telemetry.IncrCounter(1, "sei", "occ", "global_account_number", "conflict")
+				}
 			}
 		}
 	}
