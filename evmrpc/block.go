@@ -557,17 +557,3 @@ func countBlockTxsLikeEncodeTmBlock(
 	}
 	return n
 }
-
-// CountEncodeTmBlockVisibleTransactions matches getEvmTxCount (exported for external tests).
-func CountEncodeTmBlockVisibleTransactions(
-	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
-	block *coretypes.ResultBlock,
-	k *keeper.Keeper,
-	includeShellReceipts bool,
-	includeBankTransfers bool,
-	cacheCreationMutex *sync.Mutex,
-	globalBlockCache BlockCache,
-) int {
-	return countBlockTxsLikeEncodeTmBlock(ctxProvider, txConfigProvider, block, k, includeShellReceipts, includeBankTransfers, cacheCreationMutex, globalBlockCache)
-}
