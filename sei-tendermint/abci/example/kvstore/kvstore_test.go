@@ -95,9 +95,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	dir := t.TempDir()
 
 	kvstore := NewPersistentKVStoreApplication(dir)
-	if err := InitKVStore(ctx, kvstore); err != nil {
-		t.Fatal(err)
-	}
+	kvstore.SetValidators(RandVals(1))
 	height := int64(0)
 
 	resInfo, err := kvstore.Info(ctx, &types.RequestInfo{})
@@ -142,12 +140,11 @@ func TestValUpdates(t *testing.T) {
 	nInit := 5
 	vals := RandVals(total)
 	// initialize with the first nInit
-	_, err := kvstore.InitChain(ctx, &types.RequestInitChain{
-		Validators: vals[:nInit],
-	})
+	_, err := kvstore.InitChain(ctx, &types.RequestInitChain{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	kvstore.SetValidators(vals[:nInit])
 
 	vals1, vals2 := vals[:nInit], kvstore.Validators()
 	valsEqual(t, vals1, vals2)
@@ -236,58 +233,4 @@ func valsEqual(t *testing.T, vals1, vals2 []types.ValidatorUpdate) {
 			t.Fatalf("vals dont match at index %d. got %X/%d , expected %X/%d", i, v2.PubKey, v2.Power, v1.PubKey, v1.Power)
 		}
 	}
-}
-
-func runClientTests(ctx context.Context, t *testing.T, client types.Application) {
-	// run some tests....
-	key := testKey
-	value := key
-	tx := []byte(key)
-	testClient(ctx, t, client, tx, key, value)
-
-	value = testValue
-	tx = []byte(key + "=" + value)
-	testClient(ctx, t, client, tx, key, value)
-}
-
-func testClient(ctx context.Context, t *testing.T, app types.Application, tx []byte, key, value string) {
-	ar, err := app.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Txs: [][]byte{tx}})
-	require.NoError(t, err)
-	require.Equal(t, 1, len(ar.TxResults))
-	require.False(t, ar.TxResults[0].IsErr())
-	// repeating FinalizeBlock doesn't raise error
-	ar, err = app.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Txs: [][]byte{tx}})
-	require.NoError(t, err)
-	require.Equal(t, 1, len(ar.TxResults))
-	require.False(t, ar.TxResults[0].IsErr())
-	// commit
-	_, err = app.Commit(ctx)
-	require.NoError(t, err)
-
-	info, err := app.Info(ctx, &types.RequestInfo{})
-	require.NoError(t, err)
-	require.NotZero(t, info.LastBlockHeight)
-
-	// make sure query is fine
-	resQuery, err := app.Query(ctx, &types.RequestQuery{
-		Path: "/store",
-		Data: []byte(key),
-	})
-	require.NoError(t, err)
-	require.Equal(t, code.CodeTypeOK, resQuery.Code)
-	require.Equal(t, key, string(resQuery.Key))
-	require.Equal(t, value, string(resQuery.Value))
-	require.EqualValues(t, info.LastBlockHeight, resQuery.Height)
-
-	// make sure proof is fine
-	resQuery, err = app.Query(ctx, &types.RequestQuery{
-		Path:  "/store",
-		Data:  []byte(key),
-		Prove: true,
-	})
-	require.NoError(t, err)
-	require.Equal(t, code.CodeTypeOK, resQuery.Code)
-	require.Equal(t, key, string(resQuery.Key))
-	require.Equal(t, value, string(resQuery.Value))
-	require.EqualValues(t, info.LastBlockHeight, resQuery.Height)
 }

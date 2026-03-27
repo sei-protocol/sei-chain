@@ -74,6 +74,12 @@ func getConfig(t *testing.T) *config.Config {
 	return c
 }
 
+func newApp(validators []abci.ValidatorUpdate) *kvstore.Application {
+	app := kvstore.NewApplication()
+	app.SetValidators(validators)
+	return app
+}
+
 func waitForBlock(ctx context.Context, cs *State, lastBlock int64) error {
 	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: testSubscriber,
@@ -98,13 +104,14 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	ctx := t.Context()
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -223,13 +230,14 @@ func crashWALandCheckLiveness(
 	t.Logf("Generate WAL with sendTxsFn running in parallel.")
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -298,7 +306,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		nVals,
 		nPeers,
 		newMockTickerFunc(true),
-		newEpehemeralKVStore)
+	)
 	sim.Config = cfg
 	defer func() { t.Cleanup(cleanup) }()
 
@@ -689,7 +697,8 @@ func testHandshakeReplay(
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	app := kvstore.NewApplication()
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
+	app := newApp(genDoc.ValidatorUpdates())
 	if nBlocks > 0 {
 		// run nBlocks against a new client to build up the app state.
 		// use a throwaway tendermint state
@@ -772,7 +781,7 @@ func applyBlock(
 func buildAppStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	appClient abci.Application,
+	appClient *kvstore.Application,
 	stateStore sm.Store,
 	mempool mempool.Mempool,
 	evpool sm.EvidencePool,
@@ -786,12 +795,8 @@ func buildAppStateFromChain(
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
-
 	require.NoError(t, stateStore.Save(state)) // save height 1's validatorsInfo
 
 	switch mode {
@@ -831,13 +836,9 @@ func buildTMStateFromChain(
 	t.Helper()
 
 	// run the whole chain against this client to build up the tendermint state
-	app := kvstore.NewApplication()
-
+	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := app.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
 
 	require.NoError(t, stateStore.Save(state))
@@ -1130,11 +1131,17 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	stateStore := sm.NewStore(stateDB)
 
 	oldValAddr := state.Validators.Validators[0].Address
+	genDoc := utils.OrPanic1(sm.MakeGenesisDocFromFile(cfg.GenesisFile()))
+	genDoc.Validators = []types.GenesisValidator{{
+		Address: val.Address,
+		PubKey:  val.PubKey,
+		Power:   val.VotingPower,
+	}}
+	require.NoError(t, genDoc.SaveAs(cfg.GenesisFile()))
 
 	// now start the app using the handshake - it should sync
-	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
+	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
 	require.NoError(t, handshaker.Handshake(ctx, app), "error on abci handshake")
 
