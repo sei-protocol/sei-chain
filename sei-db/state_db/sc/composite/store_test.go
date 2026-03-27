@@ -671,3 +671,136 @@ func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
 }
 
 func (ti *trackingImporter) Close() error { return nil }
+
+func TestReconcileVersionsAfterCrash(t *testing.T) {
+	addr := [20]byte{0xAA}
+	slot := [32]byte{0xBB}
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
+		flatkv.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"test", EVMStoreName})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := byte(1); i <= 3; i++ {
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("key"), Value: []byte{i}},
+					},
+				},
+			},
+			{
+				Name: EVMStoreName,
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: storageKey, Value: []byte{i}},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(3), cs.cosmosCommitter.Version())
+	require.Equal(t, int64(3), cs.evmCommitter.Version())
+	require.NoError(t, cs.Close())
+
+	// Simulate crash: rollback FlatKV to version 2 independently, leaving
+	// cosmos at version 3. This mirrors a crash after cosmos Commit but
+	// before FlatKV Commit completes.
+	flatkvPath := dir + "/data/flatkv"
+	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), evmStore.Version())
+	err = evmStore.Rollback(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), evmStore.Version())
+	require.NoError(t, evmStore.Close())
+
+	// Reopen the composite store — LoadVersion(0) should detect the
+	// mismatch and reconcile both backends to version 2.
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"test", EVMStoreName})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.Equal(t, int64(2), cs2.cosmosCommitter.Version(), "cosmos should be rolled back to EVM version")
+	require.Equal(t, int64(2), cs2.evmCommitter.Version(), "EVM should remain at version 2")
+	require.Equal(t, int64(2), cs2.Version())
+
+	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
+	testStore := cs2.GetChildStoreByName("test")
+	require.NotNil(t, testStore)
+	require.Equal(t, []byte{2}, testStore.Get([]byte("key")))
+}
+
+func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
+	addr := [20]byte{0xCC}
+	slot := [32]byte{0xDD}
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
+		flatkv.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank", EVMStoreName})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := byte(1); i <= 5; i++ {
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "bank",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("bal"), Value: []byte{i}},
+					},
+				},
+			},
+			{
+				Name: EVMStoreName,
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: storageKey, Value: []byte{i}},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+
+	// Rollback FlatKV to version 3 (simulating 2 lost commits)
+	flatkvPath := dir + "/data/flatkv"
+	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	err = evmStore.Rollback(3)
+	require.NoError(t, err)
+	require.NoError(t, evmStore.Close())
+
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"bank", EVMStoreName})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.Equal(t, int64(3), cs2.cosmosCommitter.Version())
+	require.Equal(t, int64(3), cs2.evmCommitter.Version())
+
+	bankStore := cs2.GetChildStoreByName("bank")
+	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))
+}
