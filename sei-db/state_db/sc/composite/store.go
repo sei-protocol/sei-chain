@@ -56,6 +56,10 @@ func NewCompositeCommitStore(
 	homeDir string,
 	cfg config.StateCommitConfig,
 ) *CompositeCommitStore {
+	if err := cfg.Validate(); err != nil {
+		panic(fmt.Sprintf("invalid state commit config: %s", err))
+	}
+
 	// Always initialize the Cosmos backend (creates struct only, not opened)
 	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
