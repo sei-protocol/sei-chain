@@ -201,7 +201,7 @@ func loadAllGlobalBlocks(s *globalBlockState) ([]LoadedGlobalBlock, error) {
 		if i > 0 && entry.Number != loaded[i-1].Number+1 {
 			return nil, fmt.Errorf("gap in global blocks: number %d follows %d", entry.Number, loaded[i-1].Number)
 		}
-		loaded = append(loaded, LoadedGlobalBlock{Number: entry.Number, Block: entry.Block})
+		loaded = append(loaded, LoadedGlobalBlock(entry))
 	}
 	return loaded, nil
 }

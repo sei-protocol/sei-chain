@@ -131,7 +131,7 @@ func TestGlobalCommitQCPersistAndReload(t *testing.T) {
 	loaded := gp2.LoadedQCs()
 	require.Equal(t, len(qcs), len(loaded))
 	for i, lqc := range loaded {
-		require.Equal(t, qcs[i].QC().GlobalRange().First, lqc.First)
+		require.Equal(t, qcs[i].QC().GlobalRange().First, lqc.QC().GlobalRange().First)
 	}
 	require.Equal(t, lastNext, gp2.LoadNext())
 	require.NoError(t, gp2.Close())
@@ -161,7 +161,7 @@ func TestGlobalCommitQCTruncateAndReload(t *testing.T) {
 	// QCs 0 and 1 should be gone (their ranges are fully before truncPoint).
 	// QC 2 should be the first one remaining.
 	require.GreaterOrEqual(t, len(loaded), 1)
-	require.Equal(t, qcs[2].QC().GlobalRange().First, loaded[0].First)
+	require.Equal(t, qcs[2].QC().GlobalRange().First, loaded[0].QC().GlobalRange().First)
 	require.NoError(t, gp2.Close())
 }
 

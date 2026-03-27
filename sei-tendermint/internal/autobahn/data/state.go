@@ -55,10 +55,7 @@ type DataWAL struct {
 
 // Close shuts down both WALs.
 func (dw *DataWAL) Close() error {
-	if err := dw.Blocks.Close(); err != nil {
-		return err
-	}
-	return dw.CommitQCs.Close()
+	return errors.Join(dw.Blocks.Close(), dw.CommitQCs.Close())
 }
 
 // TruncateBefore removes entries fully before n from both WALs.
@@ -87,7 +84,6 @@ func NewDataWAL(stateDir utils.Option[string]) (*DataWAL, error) {
 	}
 	return &DataWAL{Blocks: blocks, CommitQCs: commitQCs}, nil
 }
-
 
 type appProposalWithTimestamp struct {
 	proposal  *types.AppProposal
@@ -161,33 +157,36 @@ func NewState(cfg *Config, blockStore utils.Option[BlockStore], dataWAL *DataWAL
 		}
 	}
 	if loaded := dataWAL.CommitQCs.LoadedQCs(); len(loaded) > 0 {
-		qcFirst := loaded[0].First
+		qcFirst := loaded[0].QC().GlobalRange().First
 		if qcFirst > inner.first {
 			inner.first = qcFirst
 			inner.nextAppProposal = qcFirst
 			inner.nextBlock = qcFirst
 		}
-		nextQC := loaded[len(loaded)-1].QC.QC().GlobalRange().Next
+		nextQC := loaded[len(loaded)-1].QC().GlobalRange().Next
 		if nextQC > inner.nextQC {
 			inner.nextQC = nextQC
 		}
 		for _, lqc := range loaded {
-			gr := lqc.QC.QC().GlobalRange()
+			gr := lqc.QC().GlobalRange()
 			for n := gr.First; n < gr.Next; n++ {
-				inner.qcs[n] = lqc.QC
+				inner.qcs[n] = lqc
 			}
 		}
 	}
-	m := newDataMetrics()
-	// With both blocks and QCs loaded, advance nextBlock to activate
-	// preloaded blocks whose QCs are already available. PersistBlock
-	// calls are no-ops for blocks already in the WAL.
-	if err := inner.updateNextBlock(m, dataWAL); err != nil {
-		panic(fmt.Sprintf("updateNextBlock during recovery: %v", err))
+	// Advance nextBlock past preloaded blocks that already have QCs.
+	// Don't call updateNextBlock: the blocks are already persisted,
+	// and recording receive-latency metrics with stale timestamps
+	// would skew dashboards after restart.
+	for {
+		if _, ok := inner.blocks[inner.nextBlock]; !ok {
+			break
+		}
+		inner.nextBlock++
 	}
 	return &State{
 		cfg:        cfg,
-		metrics:    m,
+		metrics:    newDataMetrics(),
 		inner:      utils.NewWatch(inner),
 		blockStore: blockStore,
 		dataWAL:    dataWAL,
@@ -441,11 +440,11 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 				inner.first += 1
 				ctrl.Updated()
 			}
-		if inner.first > oldFirst {
-			if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-				return err
+			if inner.first > oldFirst {
+				if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
+					return err
+				}
 			}
-		}
 			// Compute the next pruning time.
 			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first < inner.nextAppProposal }); err != nil {
 				return err

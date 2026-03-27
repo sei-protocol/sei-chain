@@ -10,12 +10,6 @@ import (
 
 const globalCommitQCsDir = "globalcommitqcs"
 
-// LoadedGlobalCommitQC is a FullCommitQC loaded from disk during state restoration.
-type LoadedGlobalCommitQC struct {
-	First types.GlobalBlockNumber // GlobalRange().First of the QC
-	QC    *types.FullCommitQC
-}
-
 // globalCommitQCState is the mutable state protected by GlobalCommitQCPersister's mutex.
 type globalCommitQCState struct {
 	iw   utils.Option[*indexedWAL[*types.FullCommitQC]]
@@ -87,7 +81,7 @@ func (s *globalCommitQCState) truncateBefore(n types.GlobalBlockNumber) error {
 // All public methods are safe for concurrent use.
 type GlobalCommitQCPersister struct {
 	state     utils.Mutex[*globalCommitQCState]
-	loadedQCs []LoadedGlobalCommitQC // set once at construction, cleared after first read
+	loadedQCs []*types.FullCommitQC // set once at construction, cleared after first read
 }
 
 // NewGlobalCommitQCPersister opens (or creates) a WAL in the globalcommitqcs/
@@ -111,7 +105,7 @@ func NewGlobalCommitQCPersister(stateDir utils.Option[string]) (*GlobalCommitQCP
 		return nil, err
 	}
 	if len(loaded) > 0 {
-		s.next = loaded[len(loaded)-1].QC.QC().GlobalRange().Next
+		s.next = loaded[len(loaded)-1].QC().GlobalRange().Next
 	}
 	return &GlobalCommitQCPersister{
 		state:     utils.NewMutex(s),
@@ -121,7 +115,7 @@ func NewGlobalCommitQCPersister(stateDir utils.Option[string]) (*GlobalCommitQCP
 
 // LoadedQCs returns QCs replayed from the WAL at startup and clears
 // them from memory. Only meaningful on the first call after construction.
-func (gp *GlobalCommitQCPersister) LoadedQCs() []LoadedGlobalCommitQC {
+func (gp *GlobalCommitQCPersister) LoadedQCs() []*types.FullCommitQC {
 	loaded := gp.loadedQCs
 	gp.loadedQCs = nil
 	return loaded
@@ -166,7 +160,7 @@ func (gp *GlobalCommitQCPersister) Close() error {
 	panic("unreachable")
 }
 
-func loadAllGlobalCommitQCs(s *globalCommitQCState) ([]LoadedGlobalCommitQC, error) {
+func loadAllGlobalCommitQCs(s *globalCommitQCState) ([]*types.FullCommitQC, error) {
 	iw, ok := s.iw.Get()
 	if !ok {
 		return nil, nil
@@ -175,14 +169,15 @@ func loadAllGlobalCommitQCs(s *globalCommitQCState) ([]LoadedGlobalCommitQC, err
 	if err != nil {
 		return nil, err
 	}
-	loaded := make([]LoadedGlobalCommitQC, 0, len(entries))
 	for i, entry := range entries {
-		gr := entry.QC().GlobalRange()
-		if i > 0 && gr.First != loaded[i-1].QC.QC().GlobalRange().Next {
-			return nil, fmt.Errorf("gap in global commitqcs: first=%d follows previous next=%d",
-				gr.First, loaded[i-1].QC.QC().GlobalRange().Next)
+		if i > 0 {
+			gr := entry.QC().GlobalRange()
+			prevNext := entries[i-1].QC().GlobalRange().Next
+			if gr.First != prevNext {
+				return nil, fmt.Errorf("gap in global commitqcs: first=%d follows previous next=%d",
+					gr.First, prevNext)
+			}
 		}
-		loaded = append(loaded, LoadedGlobalCommitQC{First: gr.First, QC: entry})
 	}
-	return loaded, nil
+	return entries, nil
 }
