@@ -9,7 +9,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -52,7 +51,7 @@ func TestState(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -118,7 +117,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 3)
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -224,7 +223,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 3)
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -270,7 +269,7 @@ func TestExecution(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -309,7 +308,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -323,71 +322,49 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
-// mockGlobalBlockWAL is a test-only in-memory GlobalBlockWAL.
-// This goes away when we switch to a proper storage solution.
-type mockGlobalBlockWAL struct {
-	preloaded []persist.LoadedGlobalBlock
-	persisted []persist.LoadedGlobalBlock
-	truncated types.GlobalBlockNumber
-}
-
-func (m *mockGlobalBlockWAL) LoadedBlocks() []persist.LoadedGlobalBlock {
-	loaded := m.preloaded
-	m.preloaded = nil
-	return loaded
-}
-
-func (m *mockGlobalBlockWAL) PersistBlock(n types.GlobalBlockNumber, block *types.Block) error {
-	m.persisted = append(m.persisted, persist.LoadedGlobalBlock{Number: n, Block: block})
-	return nil
-}
-
-func (m *mockGlobalBlockWAL) TruncateBefore(n types.GlobalBlockNumber) error {
-	m.truncated = n
-	return nil
-}
-
-func TestNewStateReloadsPreloadedBlocks(t *testing.T) {
+func TestStateRecoveryFromWAL(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
 
-	// Push a QC to get some blocks.
+	// Build two sequential QCs with their blocks.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	gr := qc1.QC().GlobalRange()
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
-	// Build preloaded blocks as if recovered from the WAL.
-	preloaded := make([]persist.LoadedGlobalBlock, 0, len(blocks1))
-	for i, b := range blocks1 {
-		preloaded = append(preloaded, persist.LoadedGlobalBlock{
-			Number: gr.First + types.GlobalBlockNumber(i),
-			Block:  b,
-		})
-	}
+	// First run: push both QCs through State so the WALs are populated.
+	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir)))
+	state1 := NewState(&Config{Committee: committee}, utils.None[BlockStore](), dw1)
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
+	require.Equal(t, gr2.Next, state1.NextBlock())
+	require.NoError(t, dw1.Close())
 
-	wal := &mockGlobalBlockWAL{preloaded: preloaded}
-	state := NewState(&Config{
-		Committee: committee,
-	}, utils.None[BlockStore](), utils.Some[GlobalBlockWAL](wal))
+	// Second run: reopen from the same directory.
+	// NewState should recover blocks and QCs, and updateNextBlock
+	// should advance nextBlock using preloaded QCs.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir)))
+	state2 := NewState(&Config{Committee: committee}, utils.None[BlockStore](), dw2)
 
-	// All preloaded blocks should be available via TryBlock.
-	for i, b := range blocks1 {
-		n := gr.First + types.GlobalBlockNumber(i)
-		got, err := state.TryBlock(n)
+	// nextBlock should already be at the end — no PushQC needed.
+	require.Equal(t, gr2.Next, state2.NextBlock())
+
+	// All blocks should be available.
+	for n := gr1.First; n < gr2.Next; n++ {
+		got, err := state2.TryBlock(n)
 		require.NoError(t, err)
-		require.Equal(t, b, got)
+		require.NotNil(t, got)
 	}
 
-	// Push the QC so the state accepts the blocks as contiguous. This
-	// triggers updateNextBlock which should persist them via the WAL.
-	require.NoError(t, state.PushQC(ctx, qc1, nil))
-
-	// The WAL should have received PersistBlock calls for every block.
-	require.Equal(t, len(blocks1), len(wal.persisted))
-	for i, pb := range wal.persisted {
-		require.Equal(t, gr.First+types.GlobalBlockNumber(i), pb.Number)
-		require.Equal(t, blocks1[i], pb.Block)
+	// All QCs should be available.
+	for n := gr1.First; n < gr2.Next; n++ {
+		got, err := state2.QC(ctx, n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	}
+	require.NoError(t, dw2.Close())
 }
 
 func TestPushBlockWaitsForQC(t *testing.T) {
@@ -398,7 +375,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore](), utils.None[GlobalBlockWAL]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 		// Push first QC covering [0, N).
 		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())

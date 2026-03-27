@@ -21,7 +21,7 @@ func newTestState(t *testing.T, keys []types.SecretKey) *State {
 	dataState := data.NewState(
 		&data.Config{Committee: committee},
 		utils.None[data.BlockStore](),
-		utils.None[data.GlobalBlockWAL](),
+		utils.OrPanic1(data.NewDataWAL(utils.None[string]())),
 	)
 	s, err := NewState(&Config{
 		Key:                keys[0],
@@ -279,7 +279,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		return data.NewState(
 			&data.Config{Committee: testCommittee(keys...)},
 			utils.None[data.BlockStore](),
-			utils.None[data.GlobalBlockWAL](),
+			utils.OrPanic1(data.NewDataWAL(utils.None[string]())),
 		)
 	}
 

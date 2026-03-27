@@ -18,7 +18,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	ds := data.NewState(&data.Config{
 		Committee: committee,
-	}, utils.None[data.BlockStore](), utils.None[data.GlobalBlockWAL]())
+	}, utils.None[data.BlockStore](), utils.OrPanic1(data.NewDataWAL(utils.None[string]())))
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 

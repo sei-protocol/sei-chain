@@ -45,17 +45,49 @@ type BlockStore interface {
 	WriteGlobalBlockToWAL(block *types.GlobalBlock) error
 }
 
-// GlobalBlockWAL is the interface for persisting globally-ordered blocks.
-// Implemented by persist.GlobalBlockPersister.
-// This interface is temporary and will go away once we switch to a proper
-// storage solution.
-type GlobalBlockWAL interface {
-	PersistBlock(n types.GlobalBlockNumber, block *types.Block) error
-	TruncateBefore(n types.GlobalBlockNumber) error
-	// LoadedBlocks returns blocks replayed from the WAL at startup.
-	// Only meaningful on the first call; subsequent calls return nil.
-	LoadedBlocks() []persist.LoadedGlobalBlock
+// DataWAL groups the WALs used by State for crash recovery.
+// Both fields are always non-nil; when stateDir is None they are no-op persisters.
+// This is temporary and will go away once we switch to a proper storage solution.
+type DataWAL struct {
+	Blocks    *persist.GlobalBlockPersister
+	CommitQCs *persist.GlobalCommitQCPersister
 }
+
+// Close shuts down both WALs.
+func (dw *DataWAL) Close() error {
+	if err := dw.Blocks.Close(); err != nil {
+		return err
+	}
+	return dw.CommitQCs.Close()
+}
+
+// TruncateBefore removes entries fully before n from both WALs.
+// Order doesn't matter: a crash between the two calls just leaves
+// stale entries in the second WAL, which are harmless on reload.
+func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
+	if err := dw.Blocks.TruncateBefore(n); err != nil {
+		return fmt.Errorf("truncate global block WAL: %w", err)
+	}
+	if err := dw.CommitQCs.TruncateBefore(n); err != nil {
+		return fmt.Errorf("truncate global commitqc WAL: %w", err)
+	}
+	return nil
+}
+
+// NewDataWAL constructs both global-block and global-commitqc WALs.
+// When stateDir is None, the returned persisters are no-ops.
+func NewDataWAL(stateDir utils.Option[string]) (*DataWAL, error) {
+	blocks, err := persist.NewGlobalBlockPersister(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("global block WAL: %w", err)
+	}
+	commitQCs, err := persist.NewGlobalCommitQCPersister(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("global commitqc WAL: %w", err)
+	}
+	return &DataWAL{Blocks: blocks, CommitQCs: commitQCs}, nil
+}
+
 
 type appProposalWithTimestamp struct {
 	proposal  *types.AppProposal
@@ -86,17 +118,15 @@ func newInner() *inner {
 	}
 }
 
-func (i *inner) updateNextBlock(m *dataMetrics, wal utils.Option[GlobalBlockWAL]) error {
+func (i *inner) updateNextBlock(m *dataMetrics, dw *DataWAL) error {
 	t := time.Now()
 	for {
 		b, ok := i.blocks[i.nextBlock]
 		if !ok {
 			return nil
 		}
-		if w, ok := wal.Get(); ok {
-			if err := w.PersistBlock(i.nextBlock, b); err != nil {
-				return fmt.Errorf("persist global block %d: %w", i.nextBlock, err)
-			}
+		if err := dw.Blocks.PersistBlock(i.nextBlock, b); err != nil {
+			return fmt.Errorf("persist global block %d: %w", i.nextBlock, err)
 		}
 		i.nextBlock += 1
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
@@ -108,36 +138,59 @@ func (i *inner) updateNextBlock(m *dataMetrics, wal utils.Option[GlobalBlockWAL]
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
 type State struct {
-	cfg            *Config
-	metrics        *dataMetrics
-	inner          utils.Watch[*inner]
-	blockStore     utils.Option[BlockStore]
-	globalBlockWAL utils.Option[GlobalBlockWAL]
+	cfg        *Config
+	metrics    *dataMetrics
+	inner      utils.Watch[*inner]
+	blockStore utils.Option[BlockStore]
+	dataWAL    *DataWAL
 }
 
 // NewState constructs a new data State.
-// globalBlockWAL, when present, persists blocks to a WAL for crash recovery
-// and provides preloaded blocks from the previous run via LoadedBlocks().
-func NewState(cfg *Config, blockStore utils.Option[BlockStore], globalBlockWAL utils.Option[GlobalBlockWAL]) *State {
+// dataWAL persists blocks and QCs to WALs for crash recovery and provides
+// preloaded data from the previous run. Use NewDataWAL to construct it.
+func NewState(cfg *Config, blockStore utils.Option[BlockStore], dataWAL *DataWAL) *State {
 	inner := newInner()
-	if wal, ok := globalBlockWAL.Get(); ok {
-		if loaded := wal.LoadedBlocks(); len(loaded) > 0 {
-			first := loaded[0].Number
-			inner.first = first
-			inner.nextAppProposal = first
-			inner.nextBlock = first
-			inner.nextQC = first
-			for _, lb := range loaded {
-				inner.blocks[lb.Number] = lb.Block
+	if loaded := dataWAL.Blocks.LoadedBlocks(); len(loaded) > 0 {
+		first := loaded[0].Number
+		inner.first = first
+		inner.nextAppProposal = first
+		inner.nextBlock = first
+		inner.nextQC = first
+		for _, lb := range loaded {
+			inner.blocks[lb.Number] = lb.Block
+		}
+	}
+	if loaded := dataWAL.CommitQCs.LoadedQCs(); len(loaded) > 0 {
+		qcFirst := loaded[0].First
+		if qcFirst > inner.first {
+			inner.first = qcFirst
+			inner.nextAppProposal = qcFirst
+			inner.nextBlock = qcFirst
+		}
+		nextQC := loaded[len(loaded)-1].QC.QC().GlobalRange().Next
+		if nextQC > inner.nextQC {
+			inner.nextQC = nextQC
+		}
+		for _, lqc := range loaded {
+			gr := lqc.QC.QC().GlobalRange()
+			for n := gr.First; n < gr.Next; n++ {
+				inner.qcs[n] = lqc.QC
 			}
 		}
 	}
+	m := newDataMetrics()
+	// With both blocks and QCs loaded, advance nextBlock to activate
+	// preloaded blocks whose QCs are already available. PersistBlock
+	// calls are no-ops for blocks already in the WAL.
+	if err := inner.updateNextBlock(m, dataWAL); err != nil {
+		panic(fmt.Sprintf("updateNextBlock during recovery: %v", err))
+	}
 	return &State{
-		cfg:            cfg,
-		metrics:        newDataMetrics(),
-		inner:          utils.NewWatch(inner),
-		blockStore:     blockStore,
-		globalBlockWAL: globalBlockWAL,
+		cfg:        cfg,
+		metrics:    m,
+		inner:      utils.NewWatch(inner),
+		blockStore: blockStore,
+		dataWAL:    dataWAL,
 	}
 }
 
@@ -180,6 +233,9 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	// Atomically insert QC and blocks.
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
+			if err := s.dataWAL.CommitQCs.PersistQC(qc); err != nil {
+				return fmt.Errorf("persist global commitqc: %w", err)
+			}
 			for inner.nextQC < gr.Next {
 				inner.qcs[inner.nextQC] = qc
 				inner.nextQC += 1
@@ -201,7 +257,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			}
 			ctrl.Updated()
 		}
-		if err := inner.updateNextBlock(s.metrics, s.globalBlockWAL); err != nil {
+		if err := inner.updateNextBlock(s.metrics, s.dataWAL); err != nil {
 			return err
 		}
 	}
@@ -247,7 +303,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return fmt.Errorf("block header hash mismatch: want %v, got %v", want, got)
 		}
 		inner.blocks[n] = block
-		if err := inner.updateNextBlock(s.metrics, s.globalBlockWAL); err != nil {
+		if err := inner.updateNextBlock(s.metrics, s.dataWAL); err != nil {
 			return err
 		}
 		ctrl.Updated()
@@ -385,11 +441,11 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 				inner.first += 1
 				ctrl.Updated()
 			}
-			if w, ok := s.globalBlockWAL.Get(); ok && inner.first > oldFirst {
-				if err := w.TruncateBefore(inner.first); err != nil {
-					return fmt.Errorf("truncate global block WAL: %w", err)
-				}
+		if inner.first > oldFirst {
+			if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
+				return err
 			}
+		}
 			// Compute the next pruning time.
 			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first < inner.nextAppProposal }); err != nil {
 				return err

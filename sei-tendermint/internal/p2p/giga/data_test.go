@@ -24,7 +24,7 @@ type testNode struct {
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
-	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore](), utils.None[data.GlobalBlockWAL]())
+	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore](), utils.OrPanic1(data.NewDataWAL(utils.None[string]())))
 	consensusState, err := consensus.NewState(cfg, dataState)
 	if err != nil {
 		panic(fmt.Sprintf("consensus.NewState(): %v", err))
