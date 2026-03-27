@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	minHashSize         = 20
 	minCannedRandomSize = unit.MB
 )
 
@@ -77,11 +78,11 @@ func (c *BlocksimConfig) Validate() error {
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
 	}
-	if c.BlockHashSize < 1 {
-		return fmt.Errorf("BlockHashSize must be at least 1 (got %d)", c.BlockHashSize)
+	if c.BlockHashSize < minHashSize {
+		return fmt.Errorf("BlockHashSize must be at least %d (got %d)", minHashSize, c.BlockHashSize)
 	}
-	if c.TransactionHashSize < 1 {
-		return fmt.Errorf("TransactionHashSize must be at least 1 (got %d)", c.TransactionHashSize)
+	if c.TransactionHashSize < minHashSize {
+		return fmt.Errorf("TransactionHashSize must be at least %d (got %d)", minHashSize, c.TransactionHashSize)
 	}
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
