@@ -744,6 +744,91 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	require.Equal(t, []byte{2}, testStore.Get([]byte("key")))
 }
 
+func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
+	addr := [20]byte{0xEE}
+	slot := [32]byte{0xFF}
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
+		flatkv.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank", EVMStoreName})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Commit versions 1-3 with both backends in sync.
+	for i := byte(1); i <= 3; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: []byte("bal"), Value: []byte{i}},
+			}}},
+			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: storageKey, Value: []byte{i}},
+			}}},
+		}))
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+
+	// Simulate crash: roll FlatKV back to version 2.
+	flatkvPath := dir + "/data/flatkv"
+	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, evmStore.Rollback(2))
+	require.NoError(t, evmStore.Close())
+
+	// Reopen — reconciliation should bring both to version 2.
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"bank", EVMStoreName})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(2), cs2.cosmosCommitter.Version())
+	require.Equal(t, int64(2), cs2.evmCommitter.Version())
+
+	// Continue committing new blocks on top of the reconciled state.
+	// Version 3 is re-created with new data (0xA3 instead of 0x03).
+	for i := byte(0); i < 3; i++ {
+		v := []byte{0xA0 + i + 3}
+		require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: []byte("bal"), Value: v},
+			}}},
+			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: storageKey, Value: v},
+			}}},
+		}))
+		ver, err := cs2.Commit()
+		require.NoError(t, err)
+		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
+		require.Equal(t, ver, cs2.cosmosCommitter.Version())
+		require.Equal(t, ver, cs2.evmCommitter.Version())
+	}
+	require.NoError(t, cs2.Close())
+
+	// Reopen a third time to verify the post-reconciliation commits are durable
+	// and both backends agree on version 5.
+	cs3 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs3.Initialize([]string{"bank", EVMStoreName})
+	_, err = cs3.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs3.Close()
+
+	require.Equal(t, int64(5), cs3.cosmosCommitter.Version())
+	require.Equal(t, int64(5), cs3.evmCommitter.Version())
+
+	bankStore := cs3.GetChildStoreByName("bank")
+	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
+
+	got, found := cs3.evmCommitter.Get(storageKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0xA5}, got)
+}
+
 func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	addr := [20]byte{0xCC}
 	slot := [32]byte{0xDD}
