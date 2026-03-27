@@ -1438,6 +1438,38 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 // Write Test Helpers
 // =============================================================================
 
+// TestLtHashExistingAccountNonceUpdate is a focused regression test for the
+// oldAccountRawValues bug: when an account already exists in the DB and a new
+// block updates its nonce (the most common case — every tx increments sender
+// nonce), the LtHash delta must MixOut the old encoded AccountValue before
+// MixIn'ing the new one. The bug sets oldAccountRawValues[addr] = nil instead
+// of the DB value when s.accountWrites has no pending entry, causing the
+// MixOut to be skipped and the LtHash to diverge from ground truth.
+func TestLtHashExistingAccountNonceUpdate(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xE1)
+
+	// Block 1: create account with nonce=1 (new account — oldAccountRawValues
+	// correctly nil here since nothing exists in DB).
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 1)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1) // should pass: new account, nil old is correct
+
+	// Block 2: update nonce to 2. The account now EXISTS in accountDB with
+	// encoded(nonce=1). The buggy code sets oldAccountRawValues[addr] = nil
+	// because s.accountWrites is empty after the block-1 commit cleared it.
+	// The correct old value is the DB's encoded(nonce=1).
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 2)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2) // FAILS: incremental skipped MixOut of old value
+}
+
 func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	t.Helper()
 	iter, err := db.NewIter(&types.IterOptions{})

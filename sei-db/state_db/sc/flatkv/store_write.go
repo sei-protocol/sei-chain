@@ -104,6 +104,8 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						} else {
 							oldAccountRawValues[addrStr] = paw.value.Encode()
 						}
+					} else if result, ok := accountOld[addrKey]; ok {
+						oldAccountRawValues[addrStr] = result.Value
 					} else {
 						oldAccountRawValues[addrStr] = nil
 					}
