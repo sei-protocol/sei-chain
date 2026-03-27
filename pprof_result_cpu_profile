@@ -1,0 +1,332 @@
+File: seid
+Build ID: b9a5c0a2b31ecbbc65da0995794f2ede94726a60
+Type: cpu
+Time: 2026-03-27 10:28:39 PDT
+Duration: 30.09s, Total samples = 36.18s (120.23%)
+Showing nodes accounting for 27.09s, 74.88% of 36.18s total
+Dropped 1596 nodes (cum <= 0.18s)
+      flat  flat%   sum%        cum   cum%
+    17.02s 47.04% 47.04%     17.33s 47.90%  runtime.cgocall
+     1.45s  4.01% 51.05%      1.45s  4.01%  internal/runtime/syscall.Syscall6
+     1.21s  3.34% 54.39%      1.21s  3.34%  hash/crc32.castagnoliUpdate
+     0.74s  2.05% 56.44%      2.41s  6.66%  runtime.scanobject
+     0.70s  1.93% 58.37%      0.92s  2.54%  runtime.greyobject
+     0.47s  1.30% 59.67%      0.47s  1.30%  cmpbody
+     0.47s  1.30% 60.97%      0.47s  1.30%  runtime.memclrNoHeapPointers
+     0.46s  1.27% 62.24%      0.46s  1.27%  runtime.duffcopy
+     0.43s  1.19% 63.43%      0.43s  1.19%  runtime.memmove
+     0.36s     1% 64.43%      2.33s  6.44%  runtime.mallocgc
+     0.29s   0.8% 65.23%      1.08s  2.99%  runtime.mallocgcSmallScanNoHeader
+     0.26s  0.72% 65.95%      0.54s  1.49%  runtime.mallocgcSmallNoscan
+     0.26s  0.72% 66.67%      0.26s  0.72%  runtime.nanotime (inline)
+     0.25s  0.69% 67.36%      0.29s   0.8%  runtime.typePointers.next
+     0.23s  0.64% 67.99%      0.47s  1.30%  github.com/cockroachdb/pebble/v2.(*Iterator).Close
+     0.19s  0.53% 68.52%      0.38s  1.05%  runtime.findObject
+     0.16s  0.44% 68.96%      0.19s  0.53%  runtime.(*mspan).writeHeapBitsSmall
+     0.13s  0.36% 69.32%      0.98s  2.71%  runtime.growslice
+     0.12s  0.33% 69.65%      0.34s  0.94%  github.com/cockroachdb/pebble/v2.(*DB).newIter
+     0.11s   0.3% 69.96%      0.24s  0.66%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Skiplist).findSpliceForLevel
+     0.11s   0.3% 70.26%      0.23s  0.64%  github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl.setRecursive
+     0.09s  0.25% 70.51%      0.40s  1.11%  crypto/internal/fips140/sha256.(*Digest).Write
+     0.08s  0.22% 70.73%      0.59s  1.63%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*Event).Unmarshal
+     0.08s  0.22% 70.95%      0.23s  0.64%  github.com/syndtr/goleveldb/leveldb.(*iComparer).uCompare (inline)
+     0.07s  0.19% 71.14%      0.20s  0.55%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.MVCCKeyCompare
+     0.07s  0.19% 71.34%      0.33s  0.91%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*EventAttribute).Unmarshal
+     0.07s  0.19% 71.53%      2.55s  7.05%  runtime.gcDrain
+     0.05s  0.14% 71.67%      0.26s  0.72%  crypto/internal/fips140/sha256.(*Digest).checkSum
+     0.05s  0.14% 71.81%      0.29s   0.8%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*ValidatorSet).incrementProposerPriority
+     0.05s  0.14% 71.95%      0.29s   0.8%  reflect.implements
+     0.05s  0.14% 72.08%      0.26s  0.72%  runtime.exitsyscall
+     0.04s  0.11% 72.19%      0.28s  0.77%  crypto/internal/fips140/sha256.block
+     0.04s  0.11% 72.31%     21.04s 58.15%  github.com/cockroachdb/pebble/v2.(*mergingIter).seekLT
+     0.04s  0.11% 72.42%      0.19s  0.53%  runtime.cgoCheckPointer
+     0.03s 0.083% 72.50%      0.30s  0.83%  crypto/internal/fips140/sha256.(*Digest).Sum
+     0.03s 0.083% 72.58%     12.35s 34.13%  github.com/cockroachdb/pebble/v2.(*levelIter).loadFile
+     0.03s 0.083% 72.66%      0.55s  1.52%  github.com/cockroachdb/pebble/v2/internal/manual._Cfunc_calloc
+     0.03s 0.083% 72.75%      0.21s  0.58%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*ValidatorSet).getValWithMostPriority (inline)
+     0.03s 0.083% 72.83%      0.23s  0.64%  github.com/syndtr/goleveldb/leveldb/iterator.(*indexedIterator).Next
+     0.03s 0.083% 72.91%      0.20s  0.55%  runtime.mapassign
+     0.03s 0.083% 73.00%      1.02s  2.82%  runtime.newobject
+     0.03s 0.083% 73.08%      0.20s  0.55%  runtime.sweepone
+     0.03s 0.083% 73.16%      1.22s  3.37%  syscall.pread
+     0.02s 0.055% 73.22%      0.46s  1.27%  bytes.Compare (inline)
+     0.02s 0.055% 73.27%      0.23s  0.64%  encoding/json.addrMarshalerEncoder
+     0.02s 0.055% 73.33%      0.29s   0.8%  github.com/cockroachdb/pebble/v2/internal/cache.(*Value).Release
+     0.02s 0.055% 73.38%      0.57s  1.58%  github.com/cockroachdb/pebble/v2/internal/manual.New
+     0.02s 0.055% 73.44%      0.59s  1.63%  github.com/cockroachdb/pebble/v2/sstable/block.Alloc
+     0.02s 0.055% 73.49%     22.92s 63.35%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).getFromCache
+     0.02s 0.055% 73.55%     16.90s 46.71%  github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix.Store.Get
+     0.02s 0.055% 73.60%      0.19s  0.53%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment.(*Store).Get
+     0.02s 0.055% 73.66%      0.33s  0.91%  github.com/sei-protocol/sei-chain/sei-cosmos/types.Context.KVStore
+     0.02s 0.055% 73.71%     11.47s 31.70%  github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper.Keeper.GetDoneHeight
+     0.02s 0.055% 73.77%      0.35s  0.97%  github.com/syndtr/goleveldb/leveldb/iterator.(*indexedIterator).setData
+     0.02s 0.055% 73.83%      0.41s  1.13%  github.com/tendermint/go-amino.(*Codec).decodeReflectJSON
+     0.02s 0.055% 73.88%      0.25s  0.69%  runtime.(*mcache).nextFree
+     0.01s 0.028% 73.91%      0.20s  0.55%  crypto/sha256.Sum256
+     0.01s 0.028% 73.94%      0.32s  0.88%  encoding/json.structEncoder.encode
+     0.01s 0.028% 73.96%      0.23s  0.64%  fmt.Sprintf
+     0.01s 0.028% 73.99%     16.17s 44.69%  github.com/DataDog/zstd._Cfunc_ZSTD_decompressDCtx
+     0.01s 0.028% 74.02%      0.35s  0.97%  github.com/cockroachdb/pebble/v2.(*DB).NewIter
+     0.01s 0.028% 74.05%     21.11s 58.35%  github.com/cockroachdb/pebble/v2.(*Iterator).Last
+     0.01s 0.028% 74.07%     12.26s 33.89%  github.com/cockroachdb/pebble/v2.(*fileCacheHandle).newIters
+     0.01s 0.028% 74.10%     12.20s 33.72%  github.com/cockroachdb/pebble/v2.(*fileCacheHandle).newPointIter
+     0.01s 0.028% 74.13%     20.74s 57.32%  github.com/cockroachdb/pebble/v2.(*levelIter).SeekLT
+     0.01s 0.028% 74.16%      0.27s  0.75%  github.com/cockroachdb/pebble/v2/internal/cache.(*Value).free
+     0.01s 0.028% 74.18%     12.12s 33.50%  github.com/cockroachdb/pebble/v2/sstable.(*Reader).newPointIter
+     0.01s 0.028% 74.21%      8.35s 23.08%  github.com/cockroachdb/pebble/v2/sstable.(*singleLevelIterator[go.shape.struct { github.com/cockroachdb/pebble/v2/sstable/rowblk.iter github.com/cockroachdb/pebble/v2/sstable/rowblk.Iter },go.shape.*github.com/cockroachdb/pebble/v2/sstable/rowblk.IndexIter,go.shape.2d95560dd2a436f029e6e31dd6b50f33cdf7f7fbac770a905f7c097f0b5ec4b0,go.shape.*github.com/cockroachdb/pebble/v2/sstable/rowblk.Iter]).SeekLT
+     0.01s 0.028% 74.24%     16.35s 45.19%  github.com/cockroachdb/pebble/v2/sstable/block.DecompressInto
+     0.01s 0.028% 74.27%     10.18s 28.14%  github.com/ethereum/go-ethereum/core.(*StateTransition).Execute
+     0.01s 0.028% 74.30%     28.12s 77.72%  github.com/ethereum/go-ethereum/rpc.(*callback).call
+     0.01s 0.028% 74.32%      0.64s  1.77%  github.com/sei-protocol/sei-chain/app/legacyabci.CheckTx
+     0.01s 0.028% 74.35%     11.63s 32.14%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).GetCustomPrecompiles
+     0.01s 0.028% 74.38%     28.11s 77.69%  github.com/sei-protocol/sei-chain/evmrpc.(*SendAPI).SendRawTransaction
+     0.01s 0.028% 74.41%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*ProtoCodec).UnmarshalInterface
+     0.01s 0.028% 74.43%     22.92s 63.35%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).Get
+     0.01s 0.028% 74.46%      2.11s  5.83%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.GetBalance
+     0.01s 0.028% 74.49%     22.58s 62.41%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.(*Database).Get
+     0.01s 0.028% 74.52%      0.39s  1.08%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.(*Database).Get.func1
+     0.01s 0.028% 74.54%     22.59s 62.44%  github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos.(*CosmosStateStore).Get
+     0.01s 0.028% 74.57%      0.38s  1.05%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*ExecTxResult).Unmarshal
+     0.01s 0.028% 74.60%      0.35s  0.97%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetCode
+     0.01s 0.028% 74.63%     11.51s 31.81%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetCustomPrecompilesVersions
+     0.01s 0.028% 74.65%      0.31s  0.86%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Snapshot
+     0.01s 0.028% 74.68%      0.62s  1.71%  github.com/syndtr/goleveldb/leveldb.(*tableCompactionBuilder).run
+     0.01s 0.028% 74.71%      1.27s  3.51%  internal/poll.(*FD).Pread
+     0.01s 0.028% 74.74%      1.28s  3.54%  os.(*File).ReadAt
+     0.01s 0.028% 74.77%      0.20s  0.55%  runtime.(*mcache).refill
+     0.01s 0.028% 74.79%      0.21s  0.58%  runtime.bgsweep
+     0.01s 0.028% 74.82%      0.20s  0.55%  runtime.heapSetTypeNoHeader (inline)
+     0.01s 0.028% 74.85%      0.28s  0.77%  runtime.makeslice
+     0.01s 0.028% 74.88%      0.24s  0.66%  syscall.Write (inline)
+         0     0% 74.88%      0.33s  0.91%  encoding/json.(*encodeState).marshal
+         0     0% 74.88%      0.33s  0.91%  encoding/json.(*encodeState).reflectValue
+         0     0% 74.88%      0.35s  0.97%  encoding/json.Marshal
+         0     0% 74.88%      0.23s  0.64%  encoding/json.condAddrEncoder.encode
+         0     0% 74.88%      0.32s  0.88%  encoding/json.ptrEncoder.encode
+         0     0% 74.88%     16.27s 44.97%  github.com/DataDog/zstd.(*ctx).DecompressInto
+         0     0% 74.88%     16.27s 44.97%  github.com/DataDog/zstd.(*ctx).DecompressInto.func1 (inline)
+         0     0% 74.88%      0.34s  0.94%  github.com/cockroachdb/pebble/v2.(*DB).NewIterWithContext (inline)
+         0     0% 74.88%     21.05s 58.18%  github.com/cockroachdb/pebble/v2.(*Iterator).iterLastWithinBounds
+         0     0% 74.88%     21.05s 58.18%  github.com/cockroachdb/pebble/v2.(*mergingIter).SeekLT
+         0     0% 74.88%      0.25s  0.69%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Iterator).SeekLT
+         0     0% 74.88%      0.25s  0.69%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Iterator).seekForBaseSplice
+         0     0% 74.88%      0.21s  0.58%  github.com/cockroachdb/pebble/v2/internal/cache.(*readEntry).setReadValue
+         0     0% 74.88%      0.57s  1.58%  github.com/cockroachdb/pebble/v2/internal/cache.Alloc
+         0     0% 74.88%      0.21s  0.58%  github.com/cockroachdb/pebble/v2/internal/cache.ReadHandle.SetReadValue (inline)
+         0     0% 74.88%     16.27s 44.97%  github.com/cockroachdb/pebble/v2/internal/compression.(*zstdDecompressor).DecompressInto
+         0     0% 74.88%      1.13s  3.12%  github.com/cockroachdb/pebble/v2/internal/crc.CRC.Update (inline)
+         0     0% 74.88%      1.13s  3.12%  github.com/cockroachdb/pebble/v2/internal/crc.New (inline)
+         0     0% 74.88%      0.26s  0.72%  github.com/cockroachdb/pebble/v2/internal/manual.Free
+         0     0% 74.88%      0.26s  0.72%  github.com/cockroachdb/pebble/v2/internal/manual.Free.func1 (inline)
+         0     0% 74.88%      1.26s  3.48%  github.com/cockroachdb/pebble/v2/objstorage/objstorageprovider.(*vfsReadHandle).ReadAt
+         0     0% 74.88%     12.12s 33.50%  github.com/cockroachdb/pebble/v2/sstable.(*Reader).NewPointIter (inline)
+         0     0% 74.88%      8.05s 22.25%  github.com/cockroachdb/pebble/v2/sstable.(*Reader).readDataBlock (inline)
+         0     0% 74.88%     12.03s 33.25%  github.com/cockroachdb/pebble/v2/sstable.(*Reader).readIndexBlock (inline)
+         0     0% 74.88%     12.03s 33.25%  github.com/cockroachdb/pebble/v2/sstable.(*Reader).readTopLevelIndexBlock
+         0     0% 74.88%      8.09s 22.36%  github.com/cockroachdb/pebble/v2/sstable.(*singleLevelIterator[go.shape.struct { github.com/cockroachdb/pebble/v2/sstable/rowblk.iter github.com/cockroachdb/pebble/v2/sstable/rowblk.Iter },go.shape.*github.com/cockroachdb/pebble/v2/sstable/rowblk.IndexIter,go.shape.2d95560dd2a436f029e6e31dd6b50f33cdf7f7fbac770a905f7c097f0b5ec4b0,go.shape.*github.com/cockroachdb/pebble/v2/sstable/rowblk.Iter]).loadDataBlock
+         0     0% 74.88%     12.10s 33.44%  github.com/cockroachdb/pebble/v2/sstable.newRowBlockSingleLevelIterator
+         0     0% 74.88%     20.08s 55.50%  github.com/cockroachdb/pebble/v2/sstable/block.(*Reader).Read
+         0     0% 74.88%     19.69s 54.42%  github.com/cockroachdb/pebble/v2/sstable/block.(*Reader).doRead
+         0     0% 74.88%      1.14s  3.15%  github.com/cockroachdb/pebble/v2/sstable/block.ValidateChecksum
+         0     0% 74.88%      3.42s  9.45%  github.com/ethereum/go-ethereum/core.(*StateTransition).BuyGas
+         0     0% 74.88%      3.12s  8.62%  github.com/ethereum/go-ethereum/core.(*StateTransition).preCheck
+         0     0% 74.88%      9.83s 27.17%  github.com/ethereum/go-ethereum/core.ApplyMessage
+         0     0% 74.88%      2.62s  7.24%  github.com/ethereum/go-ethereum/core.CanTransfer
+         0     0% 74.88%      1.81s  5.00%  github.com/ethereum/go-ethereum/core.Transfer
+         0     0% 74.88%      4.82s 13.32%  github.com/ethereum/go-ethereum/core/vm.(*EVM).Call
+         0     0% 74.88%      0.48s  1.33%  github.com/ethereum/go-ethereum/crypto.Ecrecover (inline)
+         0     0% 74.88%      0.48s  1.33%  github.com/ethereum/go-ethereum/crypto/secp256k1.RecoverPubkey
+         0     0% 74.88%      0.48s  1.33%  github.com/ethereum/go-ethereum/crypto/secp256k1.RecoverPubkey.func1 (inline)
+         0     0% 74.88%      0.47s  1.30%  github.com/ethereum/go-ethereum/crypto/secp256k1._Cfunc_secp256k1_ext_ecdsa_recover
+         0     0% 74.88%     11.81s 32.64%  github.com/ethereum/go-ethereum/eth/gasestimator.Estimate
+         0     0% 74.88%      9.97s 27.56%  github.com/ethereum/go-ethereum/eth/gasestimator.execute
+         0     0% 74.88%      9.97s 27.56%  github.com/ethereum/go-ethereum/eth/gasestimator.run
+         0     0% 74.88%     26.95s 74.49%  github.com/ethereum/go-ethereum/internal/ethapi.DoEstimateGas
+         0     0% 74.88%     28.15s 77.81%  github.com/ethereum/go-ethereum/rpc.(*handler).handleCall
+         0     0% 74.88%     28.15s 77.81%  github.com/ethereum/go-ethereum/rpc.(*handler).handleCallMsg
+         0     0% 74.88%     28.29s 78.19%  github.com/ethereum/go-ethereum/rpc.(*handler).handleMsg.func1.1
+         0     0% 74.88%     28.29s 78.19%  github.com/ethereum/go-ethereum/rpc.(*handler).handleNonBatchCall
+         0     0% 74.88%     28.12s 77.72%  github.com/ethereum/go-ethereum/rpc.(*handler).runMethod
+         0     0% 74.88%     28.25s 78.08%  github.com/ethereum/go-ethereum/rpc.(*handler).startCallProc.func1
+         0     0% 74.88%      0.88s  2.43%  github.com/sei-protocol/sei-chain/app.(*App).CheckTx
+         0     0% 74.88%      0.19s  0.53%  github.com/sei-protocol/sei-chain/app.(*App).DecodeTransactionsConcurrently.func1
+         0     0% 74.88%      1.57s  4.34%  github.com/sei-protocol/sei-chain/app.(*App).DeliverTx
+         0     0% 74.88%      0.21s  0.58%  github.com/sei-protocol/sei-chain/app.(*App).ProcessBlock
+         0     0% 74.88%      0.21s  0.58%  github.com/sei-protocol/sei-chain/app.(*App).ProcessProposalHandler.func1
+         0     0% 74.88%      0.51s  1.41%  github.com/sei-protocol/sei-chain/app.(*App).RPCContextProvider
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/app/ante.CheckAndDecodeSignature
+         0     0% 74.88%      0.66s  1.82%  github.com/sei-protocol/sei-chain/app/ante.EvmCheckAndChargeFees
+         0     0% 74.88%      0.61s  1.69%  github.com/sei-protocol/sei-chain/app/ante.EvmCheckTxAnte
+         0     0% 74.88%      0.38s  1.05%  github.com/sei-protocol/sei-chain/app/ante.EvmDeliverChargeFees
+         0     0% 74.88%      0.59s  1.63%  github.com/sei-protocol/sei-chain/app/ante.EvmDeliverTxAnte
+         0     0% 74.88%      1.52s  4.20%  github.com/sei-protocol/sei-chain/app/legacyabci.DeliverTx
+         0     0% 74.88%      3.36s  9.29%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).StateAndHeaderByNumberOrHash
+         0     0% 74.88%      0.97s  2.68%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).getBlockHeight
+         0     0% 74.88%      2.25s  6.22%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).getHeader
+         0     0% 74.88%     27.06s 74.79%  github.com/sei-protocol/sei-chain/evmrpc.(*SendAPI).simulateTx
+         0     0% 74.88%      0.51s  1.41%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).EnsureBlockHeightAvailable
+         0     0% 74.88%      0.59s  1.63%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).LatestHeight (inline)
+         0     0% 74.88%      1.10s  3.04%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).Watermarks
+         0     0% 74.88%      1.10s  3.04%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).fetchTendermintWatermarks
+         0     0% 74.88%      0.34s  0.94%  github.com/sei-protocol/sei-chain/evmrpc.TraceTendermintIfApplicable
+         0     0% 74.88%      1.89s  5.22%  github.com/sei-protocol/sei-chain/evmrpc.blockByNumberRespectingWatermarks
+         0     0% 74.88%      0.79s  2.18%  github.com/sei-protocol/sei-chain/evmrpc.blockByNumberWithRetry
+         0     0% 74.88%      0.79s  2.18%  github.com/sei-protocol/sei-chain/evmrpc.blockResultsWithRetry
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).CreateQueryContext
+         0     0% 74.88%      0.29s   0.8%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).LastBlockHeight (inline)
+         0     0% 74.88%      0.82s  2.27%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).RunMsgs
+         0     0% 74.88%      0.67s  1.85%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*MsgServiceRouter).RegisterService.func2
+         0     0% 74.88%      0.67s  1.85%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*MsgServiceRouter).RegisterService.func2.1
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*LegacyAmino).UnmarshalAsJSON
+         0     0% 74.88%      0.25s  0.69%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*ProtoCodec).UnpackAny (inline)
+         0     0% 74.88%      0.30s  0.83%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.(*interfaceRegistry).UnpackAny
+         0     0% 74.88%      0.30s  0.83%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.(*statefulUnpacker).UnpackAny
+         0     0% 74.88%      0.28s  0.77%  github.com/sei-protocol/sei-chain/sei-cosmos/snapshots.(*Manager).createSnapshot
+         0     0% 74.88%      0.41s  1.13%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.Store.CacheMultiStore
+         0     0% 74.88%      0.41s  1.13%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.newCacheMultiStoreFromCMS
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.newCacheMultiStoreFromCMS.func1
+         0     0% 74.88%     23.03s 63.65%  github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv.(*Store).Get
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps.ProofsFromMap
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-cosmos/store/types.CommitInfo.CommitID (inline)
+         0     0% 74.88%      0.45s  1.24%  github.com/sei-protocol/sei-chain/sei-cosmos/store/types.CommitInfo.Hash
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti.(*Store).LastCommitID
+         0     0% 74.88%     22.59s 62.44%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state.(*Store).Get
+         0     0% 74.88%      1.72s  4.75%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).executeAll.func1
+         0     0% 74.88%      1.69s  4.67%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).executeTask
+         0     0% 74.88%      1.72s  4.75%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).prepareAndRunTask
+         0     0% 74.88%      1.82s  5.03%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.start.func1
+         0     0% 74.88%      0.22s  0.61%  github.com/sei-protocol/sei-chain/sei-cosmos/types.(*Dec).UnmarshalJSON
+         0     0% 74.88%      3.16s  8.73%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.GetAccount
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.UnmarshalAccount (inline)
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.decodeAccount
+         0     0% 74.88%      0.90s  2.49%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseSendKeeper.AddCoins
+         0     0% 74.88%      0.25s  0.69%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseSendKeeper.AddWei
+         0     0% 74.88%      0.56s  1.55%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseSendKeeper.CanSendTo (inline)
+         0     0% 74.88%      0.75s  2.07%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseSendKeeper.SubUnlockedCoins
+         0     0% 74.88%      2.73s  7.55%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.GetWeiBalance
+         0     0% 74.88%      3.17s  8.76%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.LockedCoins
+         0     0% 74.88%      0.51s  1.41%  github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types.Subspace.GetIfExists
+         0     0% 74.88%      0.52s  1.44%  github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types.Subspace.GetParamSetIfExists
+         0     0% 74.88%     22.16s 61.25%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.getMVCCSlice
+         0     0% 74.88%      0.47s  1.30%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.getMVCCSlice.func1
+         0     0% 74.88%      0.28s  0.77%  github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl.(*Tree).ApplyChangeSet
+         0     0% 74.88%      0.24s  0.66%  github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl.(*Tree).Set
+         0     0% 74.88%      0.25s  0.69%  github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl.(*Tree).StartBackgroundWrite.func1
+         0     0% 74.88%     22.59s 62.44%  github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite.(*CompositeStateStore).Get
+         0     0% 74.88%      0.70s  1.93%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*ResponseFinalizeBlock).Unmarshal
+         0     0% 74.88%      0.24s  0.66%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.HashFromByteSlices
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.ProofsFromByteSlices
+         0     0% 74.88%      0.24s  0.66%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.hashFromByteSlices
+         0     0% 74.88%      0.35s  0.97%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).Run.func1.2
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).addVote
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).enterCommit
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).enterCommit.func1
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).finalizeCommit
+         0     0% 74.88%      0.35s  0.97%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).handleMsg
+         0     0% 74.88%      0.36s     1%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).receiveRoutine
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).tryAddVote
+         0     0% 74.88%      0.26s  0.72%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).tryFinalizeCommit
+         0     0% 74.88%      0.97s  2.68%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool.(*TxMempool).CheckTx
+         0     0% 74.88%      0.88s  2.43%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy.(*proxyClient).CheckTx
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).Observe.func3
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).run.func2
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).send
+         0     0% 74.88%      0.57s  1.58%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).Block
+         0     0% 74.88%      0.79s  2.18%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).BlockResults
+         0     0% 74.88%      0.97s  2.68%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).BroadcastTx
+         0     0% 74.88%      0.98s  2.71%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).Status
+         0     0% 74.88%      0.39s  1.08%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).validatorAtHeight
+         0     0% 74.88%      0.23s  0.64%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state.(*BlockExecutor).ApplyBlock
+         0     0% 74.88%      0.73s  2.02%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state.dbStore.LoadFinalizeBlockResponses
+         0     0% 74.88%      0.39s  1.08%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state.dbStore.LoadValidators
+         0     0% 74.88%      0.27s  0.75%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer.(*Service).publish
+         0     0% 74.88%      0.35s  0.97%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).Height
+         0     0% 74.88%      0.44s  1.22%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).LoadBlock
+         0     0% 74.88%      0.46s  1.27%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.Spawn.func1
+         0     0% 74.88%      0.45s  1.24%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.SpawnBg.func1
+         0     0% 74.88%      0.42s  1.16%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.SpawnNamed.func1
+         0     0% 74.88%      0.57s  1.58%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).Block
+         0     0% 74.88%      0.79s  2.18%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).BlockResults
+         0     0% 74.88%      0.97s  2.68%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).BroadcastTx
+         0     0% 74.88%      0.98s  2.71%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).Status
+         0     0% 74.88%      0.22s  0.61%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*Block).ValidateBasic
+         0     0% 74.88%      0.20s  0.55%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*Data).Hash
+         0     0% 74.88%      0.29s   0.8%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*ValidatorSet).IncrementProposerPriority
+         0     0% 74.88%      0.24s  0.66%  github.com/sei-protocol/sei-chain/sei-tendermint/types.BlockFromProto
+         0     0% 74.88%      0.20s  0.55%  github.com/sei-protocol/sei-chain/sei-tendermint/types.Txs.Hash
+         0     0% 74.88%      0.39s  1.08%  github.com/sei-protocol/sei-chain/utils/helpers.GetAddresses
+         0     0% 74.88%      0.38s  1.05%  github.com/sei-protocol/sei-chain/utils/helpers.RecoverPubkey
+         0     0% 74.88%      0.56s  1.55%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).CanAddressReceive
+         0     0% 74.88%     11.51s 31.81%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).CustomPrecompiles
+         0     0% 74.88%      6.90s 19.07%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetBalance
+         0     0% 74.88%      1.35s  3.73%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetCodeHash
+         0     0% 74.88%      0.30s  0.83%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetNextBaseFeePerGas
+         0     0% 74.88%      0.19s  0.53%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetNonce
+         0     0% 74.88%      0.52s  1.44%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetParams (inline)
+         0     0% 74.88%      0.52s  1.44%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetParamsIfExists (inline)
+         0     0% 74.88%      3.04s  8.40%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSeiAddress
+         0     0% 74.88%      2.48s  6.85%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSeiAddressOrDefault (partial-inline)
+         0     0% 74.88%      0.23s  0.64%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSstoreSetGasEIP2200
+         0     0% 74.88%      0.47s  1.30%  github.com/sei-protocol/sei-chain/x/evm/keeper.Keeper.applyEVMMessage
+         0     0% 74.88%      0.67s  1.85%  github.com/sei-protocol/sei-chain/x/evm/keeper.msgServer.EVMTransaction
+         0     0% 74.88%      1.30s  3.59%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).AddBalance
+         0     0% 74.88%      1.35s  3.73%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Exist
+         0     0% 74.88%      6.21s 17.16%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).GetBalance
+         0     0% 74.88%      0.35s  0.97%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).GetCode
+         0     0% 74.88%      1.35s  3.73%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).GetCodeHash
+         0     0% 74.88%      2.53s  6.99%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).SubBalance
+         0     0% 74.88%      3.38s  9.34%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).ensureMinimumBalance
+         0     0% 74.88%      1.45s  4.01%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).ensureSufficientBalance
+         0     0% 74.88%      2.22s  6.14%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).getSeiAddress
+         0     0% 74.88%      0.67s  1.85%  github.com/sei-protocol/sei-chain/x/evm/types._Msg_EVMTransaction_Handler
+         0     0% 74.88%      0.67s  1.85%  github.com/sei-protocol/sei-chain/x/evm/types._Msg_EVMTransaction_Handler.func1
+         0     0% 74.88%      0.19s  0.53%  github.com/syndtr/goleveldb/leveldb.(*DB).Write
+         0     0% 74.88%      0.68s  1.88%  github.com/syndtr/goleveldb/leveldb.(*DB).compactionTransact
+         0     0% 74.88%      0.62s  1.71%  github.com/syndtr/goleveldb/leveldb.(*DB).tCompaction
+         0     0% 74.88%      0.62s  1.71%  github.com/syndtr/goleveldb/leveldb.(*DB).tableAutoCompaction
+         0     0% 74.88%      0.62s  1.71%  github.com/syndtr/goleveldb/leveldb.(*DB).tableCompaction
+         0     0% 74.88%      0.21s  0.58%  github.com/syndtr/goleveldb/leveldb.(*DB).writeLocked
+         0     0% 74.88%      0.34s  0.94%  github.com/syndtr/goleveldb/leveldb.(*iComparer).Compare
+         0     0% 74.88%      0.36s     1%  github.com/syndtr/goleveldb/leveldb.(*tWriter).append
+         0     0% 74.88%      0.31s  0.86%  github.com/syndtr/goleveldb/leveldb.(*tableCompactionBuilder).appendKV
+         0     0% 74.88%      0.28s  0.77%  github.com/syndtr/goleveldb/leveldb/iterator.(*mergedIterator).Next
+         0     0% 74.88%      0.28s  0.77%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).getDataIter
+         0     0% 74.88%      0.26s  0.72%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).getDataIterErr
+         0     0% 74.88%      0.25s  0.69%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).newBlockIter
+         0     0% 74.88%      0.19s  0.53%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).readBlockCached
+         0     0% 74.88%      0.35s  0.97%  github.com/syndtr/goleveldb/leveldb/table.(*Writer).Append
+         0     0% 74.88%      0.26s  0.72%  github.com/syndtr/goleveldb/leveldb/table.(*Writer).finishBlock
+         0     0% 74.88%      0.26s  0.72%  github.com/syndtr/goleveldb/leveldb/table.(*Writer).writeBlock
+         0     0% 74.88%      0.22s  0.61%  github.com/syndtr/goleveldb/leveldb/table.(*blockIter).Seek
+         0     0% 74.88%      0.26s  0.72%  github.com/syndtr/goleveldb/leveldb/table.(*indexIter).Get
+         0     0% 74.88%      0.44s  1.22%  github.com/tendermint/go-amino.(*Codec).UnmarshalJSON
+         0     0% 74.88%      0.34s  0.94%  github.com/tendermint/tm-db.(*GoLevelDB).ReverseIterator
+         0     0% 74.88%      0.19s  0.53%  github.com/tendermint/tm-db.(*goLevelDBBatch).WriteSync
+         0     0% 74.88%      0.19s  0.53%  github.com/tendermint/tm-db.(*goLevelDBBatch).write
+         0     0% 74.88%      0.32s  0.88%  github.com/tendermint/tm-db.newGoLevelDBIterator
+         0     0% 74.88%      1.21s  3.34%  hash/crc32.Update (inline)
+         0     0% 74.88%      1.21s  3.34%  hash/crc32.archUpdateCastagnoli
+         0     0% 74.88%      1.21s  3.34%  hash/crc32.update
+         0     0% 74.88%      1.22s  3.37%  internal/poll.(*FD).Pread.func1 (inline)
+         0     0% 74.88%      0.24s  0.66%  internal/poll.(*FD).Write
+         0     0% 74.88%      1.22s  3.37%  internal/poll.ignoringEINTR2[go.shape.int] (inline)
+         0     0% 74.88%      0.31s  0.86%  internal/poll.ignoringEINTRIO (inline)
+         0     0% 74.88%      0.29s   0.8%  net/http.(*conn).serve
+         0     0% 74.88%      1.27s  3.51%  os.(*File).pread (inline)
+         0     0% 74.88%      0.19s  0.53%  reflect.(*rtype).Implements
+         0     0% 74.88%     28.11s 77.69%  reflect.Value.Call
+         0     0% 74.88%     28.11s 77.69%  reflect.Value.call
+         0     0% 74.88%      2.57s  7.10%  runtime.gcBgMarkWorker
+         0     0% 74.88%      2.55s  7.05%  runtime.gcBgMarkWorker.func2
+         0     0% 74.88%      1.20s  3.32%  runtime.gcDrainMarkWorkerDedicated (inline)
+         0     0% 74.88%      1.35s  3.73%  runtime.gcDrainMarkWorkerIdle (inline)
+         0     0% 74.88%      0.23s  0.64%  runtime.mcall
+         0     0% 74.88%      0.21s  0.58%  runtime.schedule
+         0     0% 74.88%      3.13s  8.65%  runtime.systemstack
+         0     0% 74.88%      0.38s  1.05%  sync.(*Once).Do (inline)
+         0     0% 74.88%      0.38s  1.05%  sync.(*Once).doSlow
+         0     0% 74.88%      1.22s  3.37%  syscall.Pread (inline)
+         0     0% 74.88%      1.43s  3.95%  syscall.RawSyscall6
+         0     0% 74.88%      0.32s  0.88%  syscall.Syscall
+         0     0% 74.88%      1.21s  3.34%  syscall.Syscall6
+         0     0% 74.88%      0.23s  0.64%  syscall.write

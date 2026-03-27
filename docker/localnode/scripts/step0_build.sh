@@ -3,7 +3,7 @@
 # Input parameters
 NODE_ID=${ID:-0}
 ARCH=$(uname -m)
-MOCK_BALANCES=${MOCK_BALANCES:-false}
+MOCK_BALANCES=${MOCK_BALANCES:-true}
 
 # Build seid
 echo "Building seid from local branch"

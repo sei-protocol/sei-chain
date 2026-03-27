@@ -1,0 +1,292 @@
+File: seid
+Build ID: b9a5c0a2b31ecbbc65da0995794f2ede94726a60
+Type: alloc_space
+Time: 2026-03-27 10:29:23 PDT
+Showing nodes accounting for 193504.09MB, 79.70% of 242778.40MB total
+Dropped 2459 nodes (cum <= 1213.89MB)
+      flat  flat%   sum%        cum   cum%
+27513.37MB 11.33% 11.33% 27756.01MB 11.43%  github.com/syndtr/goleveldb/leveldb.(*DB).get
+26826.78MB 11.05% 22.38% 37605.16MB 15.49%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*Event).Unmarshal
+14177.03MB  5.84% 28.22% 32036.29MB 13.20%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*ExecTxResult).Unmarshal
+10778.39MB  4.44% 32.66% 10778.39MB  4.44%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*EventAttribute).Unmarshal
+ 8641.97MB  3.56% 36.22% 61536.23MB 25.35%  github.com/sei-protocol/sei-chain/sei-tendermint/abci/types.(*ResponseFinalizeBlock).Unmarshal
+    8251MB  3.40% 39.62% 10196.11MB  4.20%  encoding/json.Marshal
+ 7484.48MB  3.08% 42.70%  7484.48MB  3.08%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.NewStore (inline)
+ 6418.57MB  2.64% 45.35%  6418.57MB  2.64%  github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types.(*Data).Unmarshal
+ 6137.25MB  2.53% 47.87%  6137.25MB  2.53%  github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv.NewStore (inline)
+ 5351.07MB  2.20% 50.08%  5358.57MB  2.21%  github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types.(*Part).Unmarshal
+ 5316.97MB  2.19% 52.27% 26796.73MB 11.04%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).LoadBlock
+ 4698.76MB  1.94% 54.20%  5141.29MB  2.12%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.newStoreWithoutGiga (inline)
+ 4218.50MB  1.74% 55.94%  4218.50MB  1.74%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.(*ProofNode).FlattenAunts (inline)
+ 3952.60MB  1.63% 57.57%  3952.60MB  1.63%  internal/sync.newIndirectNode[go.shape.interface {},go.shape.interface {}] (inline)
+ 3173.13MB  1.31% 58.88%  3332.66MB  1.37%  github.com/sei-protocol/sei-chain/sei-cosmos/types.(*StoreTracer).Get
+ 2970.82MB  1.22% 60.10%  5508.13MB  2.27%  go.opentelemetry.io/otel/metric.WithAttributes
+ 2666.48MB  1.10% 61.20%  2666.48MB  1.10%  github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps.(*simpleMap).Set
+ 2537.31MB  1.05% 62.24%  2537.31MB  1.05%  go.opentelemetry.io/otel/attribute.computeDataFixed (inline)
+ 2353.41MB  0.97% 63.21%  2414.91MB  0.99%  github.com/ethereum/go-ethereum/core/vm.NewEVM
+ 2303.32MB  0.95% 64.16%  2887.40MB  1.19%  encoding/json.Unmarshal
+ 2226.10MB  0.92% 65.08%  5227.36MB  2.15%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).Write
+ 2137.47MB  0.88% 65.96%  2587.61MB  1.07%  compress/flate.NewWriter (inline)
+ 2092.06MB  0.86% 66.82%  2092.06MB  0.86%  crypto/internal/fips140/sha256.(*Digest).Sum
+ 1999.96MB  0.82% 67.64%  2098.46MB  0.86%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).newBlockIter
+ 1982.62MB  0.82% 68.46%  4599.69MB  1.89%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.trailsFromByteSlices
+ 1785.86MB  0.74% 69.20% 16022.29MB  6.60%  github.com/sei-protocol/sei-chain/sei-cosmos/store/internal/maps.ProofsFromMap
+ 1664.77MB  0.69% 69.88% 11317.84MB  4.66%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.newCacheMultiStoreFromCMS
+ 1618.83MB  0.67% 70.55%  1618.83MB  0.67%  github.com/syndtr/goleveldb/leveldb.(*Batch).grow (inline)
+ 1440.54MB  0.59% 71.14%  1440.54MB  0.59%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto.Checksum (inline)
+ 1364.56MB  0.56% 71.70%  1364.56MB  0.56%  math/big.nat.make (inline)
+ 1245.06MB  0.51% 72.22%  1245.06MB  0.51%  internal/sync.newEntryNode[go.shape.interface {},go.shape.interface {}] (inline)
+ 1236.82MB  0.51% 72.73%  9062.23MB  3.73%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Snapshot
+ 1236.27MB  0.51% 73.24%  1377.77MB  0.57%  github.com/gogo/protobuf/proto.Marshal
+ 1234.57MB  0.51% 73.74%  1234.57MB  0.51%  github.com/sei-protocol/sei-chain/sei-db/common/utils.Clone (inline)
+ 1214.71MB   0.5% 74.25%  1214.71MB   0.5%  reflect.New
+ 1195.55MB  0.49% 74.74%  2233.60MB  0.92%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.MVCCEncode (inline)
+ 1042.08MB  0.43% 75.17%  1466.59MB   0.6%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.innerHash
+  997.58MB  0.41% 75.58%  9815.77MB  4.04%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.ProofsFromByteSlices
+  835.69MB  0.34% 75.92%  1813.31MB  0.75%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetVMBlockContext
+  816.56MB  0.34% 76.26%  1551.64MB  0.64%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.NewAnyWithValue
+  758.63MB  0.31% 76.57%  2292.71MB  0.94%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti.(*Store).CacheMultiStoreWithVersion
+  680.51MB  0.28% 76.85%  1291.02MB  0.53%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.storePrefix (inline)
+  428.92MB  0.18% 77.03%  4938.94MB  2.03%  github.com/sei-protocol/sei-chain/x/evm/state.NewDBImpl
+  388.02MB  0.16% 77.19%  2006.85MB  0.83%  github.com/syndtr/goleveldb/leveldb.(*Batch).appendRec
+  372.51MB  0.15% 77.34%  2866.21MB  1.18%  github.com/sei-protocol/sei-chain/sei-cosmos/types.(*Dec).UnmarshalJSON
+  368.81MB  0.15% 77.49% 14699.48MB  6.05%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).CreateQueryContext
+  359.53MB  0.15% 77.64%  1241.58MB  0.51%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes.HexBytes.MarshalJSON
+  336.63MB  0.14% 77.78%  1740.69MB  0.72%  github.com/sei-protocol/sei-chain/sei-tendermint/types.BlockMetaFromProto
+     320MB  0.13% 77.91%  5824.13MB  2.40%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.(*Database).Get.func1
+  296.53MB  0.12% 78.03%  3027.23MB  1.25%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*ProtoCodec).UnmarshalInterface
+  279.82MB  0.12% 78.15% 16979.73MB  6.99%  github.com/ethereum/go-ethereum/core.(*StateTransition).Execute
+  279.40MB  0.12% 78.26%  1279.84MB  0.53%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Copy
+  251.60MB   0.1% 78.37%  2181.41MB   0.9%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).LoadBlockMeta
+  245.64MB   0.1% 78.47%  1838.11MB  0.76%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).prepareTask
+  233.03MB 0.096% 78.56%  1856.73MB  0.76%  github.com/syndtr/goleveldb/leveldb.(*DB).newIterator
+  208.50MB 0.086% 78.65%  1874.67MB  0.77%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).setCacheValue
+  208.03MB 0.086% 78.74% 11525.86MB  4.75%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.Store.CacheMultiStore
+  144.01MB 0.059% 78.80%  1572.70MB  0.65%  github.com/syndtr/goleveldb/leveldb.(*DB).newRawIterator
+  137.51MB 0.057% 78.85%  1428.53MB  0.59%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.prependStoreKey (inline)
+  128.08MB 0.053% 78.91% 10470.16MB  4.31%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).Status
+  126.01MB 0.052% 78.96%  7082.33MB  2.92%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetParamsIfExists (inline)
+  105.51MB 0.043% 79.00%  1263.16MB  0.52%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx.NewTxConfigWithHandler.DefaultTxDecoder.func1
+   92.58MB 0.038% 79.04%  8293.06MB  3.42%  github.com/sei-protocol/sei-chain/x/evm/keeper.Keeper.applyEVMMessage
+   91.51MB 0.038% 79.08%  2851.13MB  1.17%  github.com/tendermint/tm-db.newGoLevelDBIterator
+   90.58MB 0.037% 79.11% 13382.79MB  5.51%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*MsgServiceRouter).RegisterService.func2
+      87MB 0.036% 79.15%  2762.27MB  1.14%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.GetBalance
+   83.57MB 0.034% 79.18% 13130.62MB  5.41%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*MsgServiceRouter).RegisterService.func2.1
+   83.54MB 0.034% 79.22%  3246.90MB  1.34%  github.com/sei-protocol/sei-chain/sei-tendermint/types.BlockFromProto
+   77.03MB 0.032% 79.25%  1222.71MB   0.5%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).LoadBaseMeta
+   72.54MB  0.03% 79.28% 10643.88MB  4.38%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetCustomPrecompilesVersions
+   71.54MB 0.029% 79.31% 10715.42MB  4.41%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).CustomPrecompiles
+      70MB 0.029% 79.34%  1514.83MB  0.62%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti.(*Store).Snapshot
+      62MB 0.026% 79.36%  4061.71MB  1.67%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.NewFromKVStore
+   61.54MB 0.025% 79.39% 116933.16MB 48.16%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).getHeader
+      50MB 0.021% 79.41%  1942.66MB   0.8%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSeiAddressOrDefault
+   44.02MB 0.018% 79.43% 27069.29MB 11.15%  github.com/sei-protocol/sei-chain/app/legacyabci.DeliverTx
+   37.50MB 0.015% 79.44%  3062.23MB  1.26%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.UnmarshalAccount (inline)
+   34.50MB 0.014% 79.46% 16646.77MB  6.86%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).RunMsgs
+   32.87MB 0.014% 79.47%  3876.38MB  1.60%  github.com/sei-protocol/sei-chain/app.(*App).ProcessBlock
+   30.50MB 0.013% 79.48%  8632.40MB  3.56%  github.com/sei-protocol/sei-chain/app.(*App).CheckTx
+      29MB 0.012% 79.50%  9175.55MB  3.78%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool.(*TxMempool).CheckTx
+   25.65MB 0.011% 79.51%  1332.17MB  0.55%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).EndBlock
+   24.50MB  0.01% 79.52%  9201.05MB  3.79%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).BroadcastTx
+   22.50MB 0.0093% 79.53%  1270.15MB  0.52%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).GetConsensusParams
+   22.50MB 0.0093% 79.53%  2884.71MB  1.19%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.(*interfaceRegistry).UnpackAny
+      22MB 0.0091% 79.54% 10774.65MB  4.44%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).LoadBlockPart
+      22MB 0.0091% 79.55%  4265.45MB  1.76%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).SubBalance
+   21.50MB 0.0089% 79.56%  5666.81MB  2.33%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).ABCIInfo
+      20MB 0.0082% 79.57%  1839.02MB  0.76%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/tx/kv.(*TxIndex).Index
+   18.50MB 0.0076% 79.58%  6755.11MB  2.78%  github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types.(*Block).Unmarshal
+      17MB 0.007% 79.58%  2944.50MB  1.21%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer.(*Service).publish
+      17MB 0.007% 79.59%  5540.78MB  2.28%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).Info
+   16.50MB 0.0068% 79.60% 188068.56MB 77.47%  github.com/ethereum/go-ethereum/rpc.(*handler).handleCallMsg
+   16.50MB 0.0068% 79.61%  1858.65MB  0.77%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).getSeiAddress
+      16MB 0.0066% 79.61% 31036.61MB 12.78%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).executeTask
+      16MB 0.0066% 79.62%  7007.71MB  2.89%  github.com/sei-protocol/sei-chain/app/legacyabci.CheckTx
+      14MB 0.0058% 79.62%  1592.09MB  0.66%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).AddBalance
+   12.50MB 0.0051% 79.63% 13042.05MB  5.37%  github.com/sei-protocol/sei-chain/x/evm/keeper.msgServer.EVMTransaction
+      11MB 0.0045% 79.63%  1725.35MB  0.71%  github.com/sei-protocol/sei-chain/app.(*App).ProcessTXsWithOCCV2
+      11MB 0.0045% 79.64% 83445.80MB 34.37%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state.dbStore.LoadFinalizeBlockResponses
+   10.50MB 0.0043% 79.64% 84230.93MB 34.69%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).BlockResults
+   10.50MB 0.0043% 79.65%  3354.60MB  1.38%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/store.(*BlockStore).Height
+      10MB 0.0041% 79.65% 27566.83MB 11.35%  github.com/sei-protocol/sei-chain/app.(*App).DeliverTx
+      10MB 0.0041% 79.66% 187885.02MB 77.39%  reflect.Value.call
+    9.50MB 0.0039% 79.66%  1504.34MB  0.62%  github.com/sei-protocol/sei-chain/app.(*App).DeliverTxBatch
+    9.50MB 0.0039% 79.66% 187894.52MB 77.39%  github.com/ethereum/go-ethereum/rpc.(*callback).call
+    9.50MB 0.0039% 79.67% 13139.62MB  5.41%  github.com/sei-protocol/sei-chain/x/evm/types._Msg_EVMTransaction_Handler
+       9MB 0.0037% 79.67% 187873.02MB 77.38%  github.com/sei-protocol/sei-chain/evmrpc.(*SendAPI).SendRawTransaction
+       8MB 0.0033% 79.67% 190717.30MB 78.56%  github.com/ethereum/go-ethereum/rpc.(*handler).handleNonBatchCall
+       8MB 0.0033% 79.68% 178109.92MB 73.36%  github.com/sei-protocol/sei-chain/evmrpc.(*SendAPI).simulateTx
+    7.50MB 0.0031% 79.68%  8684.41MB  3.58%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy.(*proxyClient).CheckTx
+    7.50MB 0.0031% 79.68% 29048.12MB 11.96%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core.(*Environment).Block
+    7.50MB 0.0031% 79.69% 190767.81MB 78.58%  github.com/ethereum/go-ethereum/rpc.(*handler).startCallProc.func1
+       7MB 0.0029% 79.69%  5645.30MB  2.33%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy.(*proxyClient).Info
+       6MB 0.0025% 79.69% 13432.17MB  5.53%  github.com/ethereum/go-ethereum/eth/gasestimator.run
+       5MB 0.0021% 79.69% 31022.45MB 12.78%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.start.func1
+    4.50MB 0.0019% 79.70% 14914.33MB  6.14%  github.com/ethereum/go-ethereum/eth/gasestimator.Estimate
+    3.50MB 0.0014% 79.70%  3157.85MB  1.30%  github.com/sei-protocol/sei-chain/x/evm/keeper.msgServer.EVMTransaction.func1
+    3.50MB 0.0014% 79.70%  9724.70MB  4.01%  github.com/sei-protocol/sei-chain/app/ante.EvmCheckAndChargeFees
+       3MB 0.0012% 79.70% 49647.38MB 20.45%  github.com/sei-protocol/sei-chain/evmrpc.blockByNumberRespectingWatermarks
+       3MB 0.0012% 79.70% 38382.59MB 15.81%  github.com/sei-protocol/sei-chain/evmrpc.blockByNumberWithRetry
+       2MB 0.00082% 79.70%  2575.62MB  1.06%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state.(*BlockExecutor).ApplyBlock
+    1.50MB 0.00062% 79.70%  1493.34MB  0.62%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).ProcessAll
+       1MB 0.00041% 79.70%  3988.53MB  1.64%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).handleMsg
+       1MB 0.00041% 79.70%  2392.15MB  0.99%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).chainConfigForHeight
+    0.50MB 0.00021% 79.70%  3015.32MB  1.24%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).addVote
+    0.50MB 0.00021% 79.70%  2891.02MB  1.19%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).finalizeCommit
+    0.50MB 0.00021% 79.70% 10571.34MB  4.35%  github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper.Keeper.GetDoneHeight
+         0     0% 79.70%  2643.29MB  1.09%  compress/gzip.(*Writer).Write
+         0     0% 79.70%  2580.23MB  1.06%  encoding/json.(*Encoder).Encode
+         0     0% 79.70%  2154.62MB  0.89%  encoding/json.(*encodeState).marshal
+         0     0% 79.70%  2154.62MB  0.89%  encoding/json.(*encodeState).reflectValue
+         0     0% 79.70%  1713.42MB  0.71%  encoding/json.addrMarshalerEncoder
+         0     0% 79.70%  1719.42MB  0.71%  encoding/json.condAddrEncoder.encode
+         0     0% 79.70%  2148.62MB  0.89%  encoding/json.ptrEncoder.encode
+         0     0% 79.70%  2148.62MB  0.89%  encoding/json.structEncoder.encode
+         0     0% 79.70%  5564.62MB  2.29%  github.com/ethereum/go-ethereum/core.(*StateTransition).BuyGas
+         0     0% 79.70%  2576.87MB  1.06%  github.com/ethereum/go-ethereum/core.(*StateTransition).preCheck
+         0     0% 79.70% 10672.16MB  4.40%  github.com/ethereum/go-ethereum/core.ApplyMessage
+         0     0% 79.70%  3694.90MB  1.52%  github.com/ethereum/go-ethereum/core.CanTransfer
+         0     0% 79.70%  2377.56MB  0.98%  github.com/ethereum/go-ethereum/core.Transfer
+         0     0% 79.70%  7739.89MB  3.19%  github.com/ethereum/go-ethereum/core/vm.(*EVM).Call
+         0     0% 79.70% 13432.17MB  5.53%  github.com/ethereum/go-ethereum/eth/gasestimator.execute
+         0     0% 79.70% 177986.91MB 73.31%  github.com/ethereum/go-ethereum/internal/ethapi.DoEstimateGas
+         0     0% 79.70%  2580.23MB  1.06%  github.com/ethereum/go-ethereum/rpc.(*Server).newHTTPServerConn.func1
+         0     0% 79.70% 188052.06MB 77.46%  github.com/ethereum/go-ethereum/rpc.(*handler).handleCall
+         0     0% 79.70% 190717.30MB 78.56%  github.com/ethereum/go-ethereum/rpc.(*handler).handleMsg.func1.1
+         0     0% 79.70%  2580.23MB  1.06%  github.com/ethereum/go-ethereum/rpc.(*handler).handleNonBatchCall.func2
+         0     0% 79.70% 187922.52MB 77.40%  github.com/ethereum/go-ethereum/rpc.(*handler).runMethod
+         0     0% 79.70%  2580.23MB  1.06%  github.com/ethereum/go-ethereum/rpc.(*jsonCodec).writeJSON
+         0     0% 79.70%  1331.69MB  0.55%  github.com/gogo/protobuf/proto.Clone
+         0     0% 79.70% 13581.28MB  5.59%  github.com/gogo/protobuf/proto.Unmarshal
+         0     0% 79.70%  1670.26MB  0.69%  github.com/sei-protocol/sei-chain/app.(*App).EndBlock
+         0     0% 79.70%  1725.35MB  0.71%  github.com/sei-protocol/sei-chain/app.(*App).ExecuteTxsConcurrently
+         0     0% 79.70%  3817.28MB  1.57%  github.com/sei-protocol/sei-chain/app.(*App).ProcessProposalHandler.func1
+         0     0% 79.70% 15353.61MB  6.32%  github.com/sei-protocol/sei-chain/app.(*App).RPCContextProvider
+         0     0% 79.70%  2392.82MB  0.99%  github.com/sei-protocol/sei-chain/app/ante.DecorateContext
+         0     0% 79.70%  6456.80MB  2.66%  github.com/sei-protocol/sei-chain/app/ante.EvmCheckTxAnte
+         0     0% 79.70%  5450.71MB  2.25%  github.com/sei-protocol/sei-chain/app/ante.EvmDeliverChargeFees
+         0     0% 79.70%  7703.51MB  3.17%  github.com/sei-protocol/sei-chain/app/ante.EvmDeliverTxAnte
+         0     0% 79.70%  1402.23MB  0.58%  github.com/sei-protocol/sei-chain/app/ante.GetMinimumFee
+         0     0% 79.70%  1417.19MB  0.58%  github.com/sei-protocol/sei-chain/app/legacyabci.EndBlock
+         0     0% 79.70%  2392.15MB  0.99%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).ChainConfig
+         0     0% 79.70% 14505.96MB  5.97%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).GetCustomPrecompiles
+         0     0% 79.70% 146925.18MB 60.52%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).StateAndHeaderByNumberOrHash
+         0     0% 79.70% 24903.90MB 10.26%  github.com/sei-protocol/sei-chain/evmrpc.(*Backend).getBlockHeight
+         0     0% 79.70%  5611.62MB  2.31%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).EnsureBlockHeightAvailable
+         0     0% 79.70%  5650.16MB  2.33%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).LatestHeight (inline)
+         0     0% 79.70% 11261.79MB  4.64%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).Watermarks
+         0     0% 79.70% 11250.29MB  4.63%  github.com/sei-protocol/sei-chain/evmrpc.(*WatermarkManager).fetchTendermintWatermarks
+         0     0% 79.70%  2579.73MB  1.06%  github.com/sei-protocol/sei-chain/evmrpc.(*gzipResponseWriter).Write
+         0     0% 79.70% 10109.10MB  4.16%  github.com/sei-protocol/sei-chain/evmrpc.TraceTendermintIfApplicable
+         0     0% 79.70% 84230.93MB 34.69%  github.com/sei-protocol/sei-chain/evmrpc.blockResultsWithRetry
+         0     0% 79.70%  2348.14MB  0.97%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).CacheTxContext
+         0     0% 79.70% 11222.58MB  4.62%  github.com/sei-protocol/sei-chain/sei-cosmos/baseapp.(*BaseApp).LastBlockHeight (inline)
+         0     0% 79.70%  4069.91MB  1.68%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*LegacyAmino).UnmarshalAsJSON
+         0     0% 79.70%  1652.66MB  0.68%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*ProtoCodec).Unmarshal
+         0     0% 79.70%  2264.66MB  0.93%  github.com/sei-protocol/sei-chain/sei-cosmos/codec.(*ProtoCodec).UnpackAny (inline)
+         0     0% 79.70%  2862.21MB  1.18%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.(*statefulUnpacker).UnpackAny
+         0     0% 79.70%  1354.10MB  0.56%  github.com/sei-protocol/sei-chain/sei-cosmos/codec/types.UnpackInterfaces (inline)
+         0     0% 79.70%  2156.92MB  0.89%  github.com/sei-protocol/sei-chain/sei-cosmos/snapshots.(*Manager).createSnapshot
+         0     0% 79.70% 12422.53MB  5.12%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).Get
+         0     0% 79.70%  1819.17MB  0.75%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).Set
+         0     0% 79.70% 12422.53MB  5.12%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv.(*Store).getFromCache
+         0     0% 79.70%  5227.36MB  2.15%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.Store.Write
+         0     0% 79.70%  1450.59MB   0.6%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.Store.getOrCreateStore
+         0     0% 79.70%  5591.36MB  2.30%  github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti.newCacheMultiStoreFromCMS.func1
+         0     0% 79.70% 15748.19MB  6.49%  github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv.(*Store).Get
+         0     0% 79.70%  1572.17MB  0.65%  github.com/sei-protocol/sei-chain/sei-cosmos/store/multiversion.(*VersionIndexedStore).WriteToMultiVersionStore
+         0     0% 79.70% 12787.88MB  5.27%  github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix.Store.Get
+         0     0% 79.70% 16771.38MB  6.91%  github.com/sei-protocol/sei-chain/sei-cosmos/store/types.CommitInfo.CommitID (inline)
+         0     0% 79.70% 16893.42MB  6.96%  github.com/sei-protocol/sei-chain/sei-cosmos/store/types.CommitInfo.Hash
+         0     0% 79.70% 16710.36MB  6.88%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti.(*Store).LastCommitID
+         0     0% 79.70% 11097.25MB  4.57%  github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state.(*Store).Get
+         0     0% 79.70% 31068.61MB 12.80%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).executeAll.func1 (partial-inline)
+         0     0% 79.70% 31068.61MB 12.80%  github.com/sei-protocol/sei-chain/sei-cosmos/tasks.(*scheduler).prepareAndRunTask
+         0     0% 79.70%  6897.29MB  2.84%  github.com/sei-protocol/sei-chain/sei-cosmos/types.Context.KVStore
+         0     0% 79.70%  5555.12MB  2.29%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.GetAccount
+         0     0% 79.70%  3062.23MB  1.26%  github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper.AccountKeeper.decodeAccount
+         0     0% 79.70%  1999.67MB  0.82%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseSendKeeper.SubUnlockedCoins
+         0     0% 79.70%  1420.63MB  0.59%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.GetWeiBalance
+         0     0% 79.70%  5468.11MB  2.25%  github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper.BaseViewKeeper.LockedCoins
+         0     0% 79.70%  6306.96MB  2.60%  github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types.Subspace.GetIfExists
+         0     0% 79.70%  6956.32MB  2.87%  github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types.Subspace.GetParamSetIfExists
+         0     0% 79.70%  1801.22MB  0.74%  github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types.Subspace.kvStore (inline)
+         0     0% 79.70% 11097.25MB  4.57%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.(*Database).Get
+         0     0% 79.70%  1234.57MB  0.51%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.SplitMVCCKey (inline)
+         0     0% 79.70%  5024.59MB  2.07%  github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc.getMVCCSlice
+         0     0% 79.70%  1512.47MB  0.62%  github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl.OpenDB
+         0     0% 79.70% 11097.25MB  4.57%  github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite.(*CompositeStateStore).Get
+         0     0% 79.70% 11097.25MB  4.57%  github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos.(*CosmosStateStore).Get
+         0     0% 79.70%  2168.58MB  0.89%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.HashFromByteSlices
+         0     0% 79.70%  1997.06MB  0.82%  github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle.hashFromByteSlices
+         0     0% 79.70%  4134.32MB  1.70%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).Run.func1.2
+         0     0% 79.70%  2895.30MB  1.19%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).enterCommit
+         0     0% 79.70%  2891.30MB  1.19%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).enterCommit.func1
+         0     0% 79.70%  4134.32MB  1.70%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).receiveRoutine
+         0     0% 79.70%  3015.32MB  1.24%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).tryAddVote
+         0     0% 79.70%  2895.02MB  1.19%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus.(*State).tryFinalizeCommit
+         0     0% 79.70%     2945MB  1.21%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).Observe.func3
+         0     0% 79.70%     2956MB  1.22%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).run.func2
+         0     0% 79.70%     2956MB  1.22%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub.(*Server).send
+         0     0% 79.70%  1839.02MB  0.76%  github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv.(*EventSink).IndexTxEvents
+         0     0% 79.70%  5699.55MB  2.35%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.Spawn.func1
+         0     0% 79.70%  5699.55MB  2.35%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.SpawnBg.func1
+         0     0% 79.70%  5480.88MB  2.26%  github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope.Scope.SpawnNamed.func1
+         0     0% 79.70%  6755.11MB  2.78%  github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types.(*Block).XXX_Unmarshal
+         0     0% 79.70%  5332.39MB  2.20%  github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types.(*Part).XXX_Unmarshal
+         0     0% 79.70% 29048.12MB 11.96%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).Block
+         0     0% 79.70% 84230.93MB 34.69%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).BlockResults
+         0     0% 79.70%  9201.05MB  3.79%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).BroadcastTx
+         0     0% 79.70% 10470.16MB  4.31%  github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local.(*Local).Status
+         0     0% 79.70%  2572.22MB  1.06%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*Block).ValidateBasic
+         0     0% 79.70%  1243.05MB  0.51%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*BlockMeta).ValidateBasic
+         0     0% 79.70%  2188.19MB   0.9%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*Data).Hash
+         0     0% 79.70%  1306.06MB  0.54%  github.com/sei-protocol/sei-chain/sei-tendermint/types.(*Header).Hash
+         0     0% 79.70%  2188.19MB   0.9%  github.com/sei-protocol/sei-chain/sei-tendermint/types.Txs.Hash
+         0     0% 79.70%  8737.38MB  3.60%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetBalance
+         0     0% 79.70%  1392.73MB  0.57%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetMinimumFeePerGas
+         0     0% 79.70%  7082.33MB  2.92%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetParams (inline)
+         0     0% 79.70%  2800.39MB  1.15%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetPriorityNormalizer
+         0     0% 79.70%  2352.84MB  0.97%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSeiAddress
+         0     0% 79.70%  2851.71MB  1.17%  github.com/sei-protocol/sei-chain/x/evm/keeper.(*Keeper).GetSstoreSetGasEIP2200
+         0     0% 79.70%  2350.72MB  0.97%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Finalize
+         0     0% 79.70%  8039.38MB  3.31%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).GetBalance
+         0     0% 79.70%  3129.10MB  1.29%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).Prepare
+         0     0% 79.70%  4640.61MB  1.91%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).ensureMinimumBalance
+         0     0% 79.70%  1889.25MB  0.78%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).ensureSufficientBalance
+         0     0% 79.70%  2315.71MB  0.95%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).flushCtx (inline)
+         0     0% 79.70%  2315.71MB  0.95%  github.com/sei-protocol/sei-chain/x/evm/state.(*DBImpl).flushCtxs
+         0     0% 79.70% 13042.05MB  5.37%  github.com/sei-protocol/sei-chain/x/evm/types._Msg_EVMTransaction_Handler.func1
+         0     0% 79.70%  1789.05MB  0.74%  github.com/syndtr/goleveldb/leveldb.(*Batch).Put (inline)
+         0     0% 79.70% 27850.02MB 11.47%  github.com/syndtr/goleveldb/leveldb.(*DB).Get
+         0     0% 79.70%  1940.73MB   0.8%  github.com/syndtr/goleveldb/leveldb.(*DB).NewIterator
+         0     0% 79.70%  1783.52MB  0.73%  github.com/syndtr/goleveldb/leveldb.(*DB).compactionTransact
+         0     0% 79.70%  1615.32MB  0.67%  github.com/syndtr/goleveldb/leveldb.(*DB).tCompaction
+         0     0% 79.70%  1615.32MB  0.67%  github.com/syndtr/goleveldb/leveldb.(*DB).tableAutoCompaction
+         0     0% 79.70%  1614.82MB  0.67%  github.com/syndtr/goleveldb/leveldb.(*DB).tableCompaction
+         0     0% 79.70%  1610.84MB  0.66%  github.com/syndtr/goleveldb/leveldb.(*dbIter).Last
+         0     0% 79.70%  1614.82MB  0.67%  github.com/syndtr/goleveldb/leveldb.(*tableCompactionBuilder).run
+         0     0% 79.70%  1259.68MB  0.52%  github.com/syndtr/goleveldb/leveldb/iterator.(*indexedIterator).Last
+         0     0% 79.70%  1864.45MB  0.77%  github.com/syndtr/goleveldb/leveldb/iterator.(*indexedIterator).setData
+         0     0% 79.70%  1259.68MB  0.52%  github.com/syndtr/goleveldb/leveldb/iterator.(*mergedIterator).Last
+         0     0% 79.70%  1516.53MB  0.62%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).getDataIter
+         0     0% 79.70%  1459.16MB   0.6%  github.com/syndtr/goleveldb/leveldb/table.(*Reader).getDataIterErr
+         0     0% 79.70%  1459.16MB   0.6%  github.com/syndtr/goleveldb/leveldb/table.(*indexIter).Get
+         0     0% 79.70%  4069.91MB  1.68%  github.com/tendermint/go-amino.(*Codec).UnmarshalJSON
+         0     0% 79.70%  4069.91MB  1.68%  github.com/tendermint/go-amino.(*Codec).decodeReflectJSON
+         0     0% 79.70% 27850.02MB 11.47%  github.com/tendermint/tm-db.(*GoLevelDB).Get
+         0     0% 79.70%  1479.76MB  0.61%  github.com/tendermint/tm-db.(*GoLevelDB).Iterator
+         0     0% 79.70%  3312.10MB  1.36%  github.com/tendermint/tm-db.(*GoLevelDB).ReverseIterator
+         0     0% 79.70%  1789.05MB  0.74%  github.com/tendermint/tm-db.(*goLevelDBBatch).Set
+         0     0% 79.70%  2537.31MB  1.05%  go.opentelemetry.io/otel/attribute.NewSet (inline)
+         0     0% 79.70%  2537.31MB  1.05%  go.opentelemetry.io/otel/attribute.NewSetWithFiltered
+         0     0% 79.70%  2537.31MB  1.05%  go.opentelemetry.io/otel/attribute.newSet
+         0     0% 79.70%  2045.28MB  0.84%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Range
+         0     0% 79.70%  2136.70MB  0.88%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Store (inline)
+         0     0% 79.70%  2136.70MB  0.88%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Swap
+         0     0% 79.70%  3325.51MB  1.37%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).init (inline)
+         0     0% 79.70%  3325.51MB  1.37%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).initSlow
+         0     0% 79.70% 187885.02MB 77.39%  reflect.Value.Call
+         0     0% 79.70%  2045.28MB  0.84%  sync.(*Map).Range (inline)
+         0     0% 79.70%  2136.70MB  0.88%  sync.(*Map).Store (inline)
+         0     0% 79.70%  8175.77MB  3.37%  sync.(*Once).Do (inline)
+         0     0% 79.70%  8175.77MB  3.37%  sync.(*Once).doSlow
