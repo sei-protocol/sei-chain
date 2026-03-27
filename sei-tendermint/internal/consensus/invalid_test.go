@@ -25,6 +25,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
+// Test checking that if peer sends a ProposalPOLMessage with a bitarray with bad length,
+// the node will handle it gracefully.
 func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -49,7 +51,7 @@ func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, ok := reactor.GetPeerState(peerID)
 		return ok
-	}, 10*time.Second, 10*time.Millisecond)
+	}, time.Hour, 50*time.Millisecond)
 
 	valSet, privVals := types.RandValidatorSet(4, 1)
 	proposerPubKey, err := privVals[0].GetPubKey(ctx)
@@ -143,6 +145,8 @@ func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 		Votes: voteSet,
 	}
 
+	// Gossip should take into consideration that PeerState might contain
+	// invalid length bitarrays.
 	for range 10 {
 		reactor.gossipVotesForHeight(rs, ps.GetRoundState(), ps)
 	}

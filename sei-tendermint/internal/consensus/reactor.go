@@ -470,8 +470,11 @@ func (r *Reactor) pickSendVote(ps *PeerState, votes types.VoteSetReader) bool {
 	}
 	r.channels.vote.Send(MsgToProto(&VoteMessage{Vote: vote}), ps.peerID)
 
+	// SetHasVote can fail because ps state (in particular the bitarrays)
+	// is not verified and it depends what peer has sent us.
 	if err := ps.SetHasVote(vote); err != nil {
-		panic(fmt.Errorf("ps.SetHasVote(): %w", err))
+		logger.Info("ps.SetHasVote()", "peerID", ps.peerID, "err", err)
+		return false
 	}
 
 	return true
