@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"reflect"
+	"sort"
 
+	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -49,14 +50,12 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 		switch msg := m.Msg.(type) {
 		case *ProposalMessage:
 			p := msg.Proposal
-			logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header",
-				p.BlockID.PartSetHeader, "pol", p.POLRound, "peer", peerID)
+			logger.Info("Replay: Proposal", "height", p.Height, "round", p.Round, "header", p.BlockID.PartSetHeader, "pol", p.POLRound, "peer", peerID)
 		case *BlockPartMessage:
 			logger.Info("Replay: BlockPart", "height", msg.Height, "round", msg.Round, "peer", peerID)
 		case *VoteMessage:
 			v := msg.Vote
-			logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type,
-				"blockID", v.BlockID, "peer", peerID)
+			logger.Info("Replay: Vote", "height", v.Height, "round", v.Round, "type", v.Type, "blockID", v.BlockID, "peer", peerID)
 		}
 
 		cs.handleMsg(ctx, m, false)
@@ -65,7 +64,7 @@ func (cs *State) readReplayMessage(ctx context.Context, msg WALMessage) error {
 		roundState := cs.roundState.CopyInternal()
 		cs.handleTimeout(ctx, m, *roundState)
 	default:
-		return fmt.Errorf("replay: Unknown TimedWALMessage type: %v", reflect.TypeOf(msg))
+		return fmt.Errorf("replay: Unknown TimedWALMessage type")
 	}
 	return nil
 }
@@ -100,32 +99,6 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 	logger.Info("Replay: Done")
 	return nil
 }
-
-//--------------------------------------------------------------------------------
-
-// Parses marker lines of the form:
-// #ENDHEIGHT: 12345
-/*
-func makeHeightSearchFunc(height int64) auto.SearchFunc {
-	return func(line string) (int, error) {
-		line = strings.TrimRight(line, "\n")
-		parts := strings.Split(line, " ")
-		if len(parts) != 2 {
-			return -1, errors.New("line did not have 2 parts")
-		}
-		i, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return -1, errors.New("failed to parse INFO: " + err.Error())
-		}
-		if height < i {
-			return 1, nil
-		} else if height == i {
-			return 0, nil
-		} else {
-			return -1, nil
-		}
-	}
-}*/
 
 //---------------------------------------------------
 // 2. Recover from failure while applying the block.
@@ -166,8 +139,6 @@ func (h *Handshaker) NBlocks() int {
 
 // TODO: retry the handshake/replay if it fails ?
 func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) error {
-
-	// Handshake is done via ABCI Info on the query conn.
 	res, err := appClient.Info(ctx, &proxy.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("error calling Info: %w", err)
@@ -219,34 +190,39 @@ func (h *Handshaker) ReplayBlocks(
 	storeBlockBase := h.store.Base()
 	storeBlockHeight := h.store.Height()
 	stateBlockHeight := state.LastBlockHeight
-	logger.Info(
-		"ABCI Replay Blocks",
-		"appHeight",
-		appBlockHeight,
-		"storeHeight",
-		storeBlockHeight,
-		"stateHeight",
-		stateBlockHeight)
+	logger.Info("ABCI Replay Blocks", "appHeight", appBlockHeight, "storeHeight", storeBlockHeight, "stateHeight", stateBlockHeight)
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-		validators := make([]*types.Validator, len(h.genDoc.Validators))
-		for i, val := range h.genDoc.Validators {
-			validators[i] = types.NewValidator(val.PubKey, val.Power)
-		}
-		validatorSet := types.NewValidatorSet(validators)
-		nextVals := types.TM2PB.ValidatorUpdates(validatorSet)
+
 		pbParams := h.genDoc.ConsensusParams.ToProto()
 		res, err := appClient.InitChain(ctx, &abci.RequestInitChain{
 			Time:            h.genDoc.GenesisTime,
 			ChainId:         h.genDoc.ChainID,
 			InitialHeight:   h.genDoc.InitialHeight,
 			ConsensusParams: &pbParams,
-			Validators:      nextVals,
 			AppStateBytes:   h.genDoc.AppState,
 		})
 		if err != nil {
 			return nil, err
+		}
+		// The validator set from genesis is expected to match the output of InitChain.
+		if len(h.genDoc.Validators) > 0 {
+			valUpdates := h.genDoc.ValidatorUpdates()
+			if len(valUpdates) != len(res.Validators) {
+				return nil, fmt.Errorf(
+					"len(GenesisValidators) != len(ResponseInitChain.Validators) (%d != %d)",
+					len(valUpdates), len(res.Validators),
+				)
+			}
+			sort.Sort(abci.ValidatorUpdates(valUpdates))
+			sort.Sort(abci.ValidatorUpdates(res.Validators))
+
+			for i := range res.Validators {
+				if !proto.Equal(&res.Validators[i], &valUpdates[i]) {
+					return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
+				}
+			}
 		}
 
 		appHash = res.AppHash
@@ -258,23 +234,19 @@ func (h *Handshaker) ReplayBlocks(
 			if len(res.AppHash) > 0 {
 				state.AppHash = res.AppHash
 			}
-			// If the app returned validators or consensus params, update the state.
-			if len(res.Validators) > 0 {
-				vals, err := types.PB2TM.ValidatorUpdates(res.Validators)
-				if err != nil {
-					return nil, err
-				}
-				state.Validators = types.NewValidatorSet(vals)
-				state.NextValidators = types.NewValidatorSet(vals).CopyIncrementProposerPriority(1)
-			} else if len(h.genDoc.Validators) == 0 {
+			// If the app returned validators, update the state.
+			if len(res.Validators) == 0 {
 				// If validator set is not set in genesis and still empty after InitChain, exit.
 				return nil, fmt.Errorf("validator set is nil in genesis and still empty after InitChain")
 			}
 
-			if res.ConsensusParams != nil {
-				state.ConsensusParams = state.ConsensusParams.UpdateConsensusParams(res.ConsensusParams)
-				state.Version.Consensus.App = state.ConsensusParams.Version.AppVersion
+			vals, err := types.PB2TM.ValidatorUpdates(res.Validators)
+			if err != nil {
+				return nil, err
 			}
+			state.Validators = types.NewValidatorSet(vals)
+			state.NextValidators = types.NewValidatorSet(vals).CopyIncrementProposerPriority(1)
+
 			// We update the last results hash with the empty hash, to conform with RFC-6962.
 			state.LastResultsHash = merkle.HashFromByteSlices(nil)
 			if err := h.stateStore.Save(state); err != nil {

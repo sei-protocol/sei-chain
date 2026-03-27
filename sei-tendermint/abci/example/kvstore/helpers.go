@@ -1,7 +1,6 @@
 package kvstore
 
 import (
-	"context"
 	mrand "math/rand"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -30,14 +29,4 @@ func RandVals(cnt int) []types.ValidatorUpdate {
 		}
 	}
 	return res
-}
-
-// InitKVStore initializes the kvstore app with some data,
-// which allows tests to pass and is fine as long as you
-// don't make any tx that modify the validator state
-func InitKVStore(ctx context.Context, app *PersistentKVStoreApplication) error {
-	_, err := app.InitChain(ctx, &types.RequestInitChain{
-		Validators: RandVals(1),
-	})
-	return err
 }
