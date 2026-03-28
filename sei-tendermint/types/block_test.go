@@ -270,8 +270,11 @@ func TestCommit(t *testing.T) {
 
 	require.NotNil(t, commit.BitArray())
 	assert.Equal(t, bits.NewBitArray(10).Size(), commit.BitArray().Size())
-
-	assert.Equal(t, voteSet.GetByIndex(0), commit.GetByIndex(0))
+	vsv, ok := voteSet.GetByIndex(0)
+	require.True(t, ok)
+	cv, ok := commit.GetByIndex(0)
+	require.True(t, ok)
+	assert.Equal(t, vsv, cv)
 	assert.True(t, commit.IsCommit())
 }
 
@@ -665,8 +668,10 @@ func TestVoteSetToCommit(t *testing.T) {
 	ec := voteSet.MakeCommit()
 
 	for i := int32(0); int(i) < len(vals); i++ {
-		vote1 := voteSet.GetByIndex(i)
-		vote2 := ec.GetVote(i)
+		vote1, ok := voteSet.GetByIndex(i)
+		require.True(t, ok)
+		vote2, ok := ec.GetVote(i)
+		require.True(t, ok)
 
 		vote1bz, err := vote1.ToProto().Marshal()
 		require.NoError(t, err)
@@ -694,9 +699,12 @@ func TestCommitToVoteSet(t *testing.T) {
 	voteSet2 := commit.ToVoteSet(chainID, valSet)
 
 	for i := int32(0); int(i) < len(vals); i++ {
-		vote1 := voteSet.GetByIndex(i)
-		vote2 := voteSet2.GetByIndex(i)
-		vote3 := commit.GetVote(i)
+		vote1, ok := voteSet.GetByIndex(i)
+		require.True(t, ok)
+		vote2, ok := voteSet2.GetByIndex(i)
+		require.True(t, ok)
+		vote3, ok := commit.GetVote(i)
+		require.True(t, ok)
 
 		vote1bz, err := vote1.ToProto().Marshal()
 		require.NoError(t, err)

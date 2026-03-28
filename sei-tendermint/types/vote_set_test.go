@@ -27,7 +27,8 @@ func TestVoteSet_AddVote_Good(t *testing.T) {
 	require.NoError(t, err)
 	val0Addr := val0p.Address()
 
-	assert.Nil(t, voteSet.GetByAddress(val0Addr))
+	_, ok := voteSet.GetByAddress(val0Addr)
+	assert.False(t, ok)
 	assert.False(t, voteSet.BitArray().GetIndex(0))
 	blockID, ok := voteSet.TwoThirdsMajority()
 	assert.False(t, ok || !blockID.IsNil(), "there should be no 2/3 majority")
@@ -44,7 +45,8 @@ func TestVoteSet_AddVote_Good(t *testing.T) {
 	_, err = signAddVote(ctx, val0, vote, voteSet)
 	require.NoError(t, err)
 
-	assert.NotNil(t, voteSet.GetByAddress(val0Addr))
+	_, ok = voteSet.GetByAddress(val0Addr)
+	require.True(t, ok)
 	assert.True(t, voteSet.BitArray().GetIndex(0))
 	blockID, ok = voteSet.TwoThirdsMajority()
 	assert.False(t, ok || !blockID.IsNil(), "there should be no 2/3 majority")
