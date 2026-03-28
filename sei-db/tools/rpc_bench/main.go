@@ -410,9 +410,6 @@ func buildBlockNumbers(latestBlock int64, blockCount int, startBlock, endBlock i
 		if startBlock > endBlock {
 			return nil, fmt.Errorf("start-block (%d) cannot be greater than end-block (%d)", startBlock, endBlock)
 		}
-		if startBlock < 1 {
-			return nil, fmt.Errorf("start-block must be >= 1")
-		}
 		if endBlock > latestBlock {
 			return nil, fmt.Errorf("end-block (%d) cannot exceed latest block (%d)", endBlock, latestBlock)
 		}
