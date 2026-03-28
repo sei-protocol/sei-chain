@@ -482,9 +482,7 @@ func (c Context) WithIsTracing(it bool) Context {
 // debug_trace* RPCs without paying the per-access StoreTracer overhead.
 func (c Context) WithTraceMode(it bool) Context {
 	c.isTracing = it
-	if !it {
-		c.storeTracer = nil
-	}
+	c.storeTracer = nil
 	return c
 }
 
