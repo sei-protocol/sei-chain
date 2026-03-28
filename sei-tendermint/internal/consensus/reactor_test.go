@@ -261,7 +261,8 @@ func TestReactorWithEvidence(t *testing.T) {
 
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+		app.SetValidators(vals)
+		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
 		require.NoError(t, err)
 
 		pv := privVals[i]
@@ -474,7 +475,6 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		nVals,
 		nPeers,
 		func() TimeoutTicker { return NewTimeoutTicker() },
-		newEpehemeralKVStore,
 	)
 	t.Cleanup(cleanup)
 

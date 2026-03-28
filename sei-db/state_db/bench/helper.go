@@ -427,7 +427,11 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				if !ok {
 					break
 				}
-				err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
+				entry := &proto.ChangelogEntry{
+					Version:    baseVersion + block,
+					Changesets: []*proto.NamedChangeSet{changeset},
+				}
+				err := cs.ApplyChangeSets(entry)
 				require.NoError(b, err)
 				version, err := cs.Commit()
 				require.NoError(b, err)

@@ -52,7 +52,6 @@ func NewTestApp(t *testing.T) *App {
 		Time:            time.Now(),
 		ChainId:         "tendermint_test",
 		ConsensusParams: &cp,
-		Validators:      []types.ValidatorUpdate{},
 		InitialHeight:   1,
 		AppStateBytes:   gbz,
 	})

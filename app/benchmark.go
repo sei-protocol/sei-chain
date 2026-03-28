@@ -7,7 +7,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -29,24 +28,6 @@ func (app *App) InitBenchmark(ctx context.Context, chainID string, evmChainID in
 
 	app.benchmarkManager = manager
 	logger.Info("Benchmark system initialized")
-}
-
-// PrepareProposalBenchmarkHandler generates benchmark transactions during PrepareProposal.
-func (app *App) PrepareProposalBenchmarkHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	if app.benchmarkManager == nil {
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
-
-	select {
-	case proposal, ok := <-app.benchmarkManager.ProposalChannel():
-		if proposal == nil || !ok {
-			return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-		}
-		app.benchmarkManager.Logger.Increment(int64(len(proposal.TxRecords)), req.Header.Time, req.Header.Height)
-		return proposal, nil
-	default:
-		return &abci.ResponsePrepareProposal{TxRecords: []*abci.TxRecord{}}, nil
-	}
 }
 
 // ProcessBenchmarkReceipts extracts receipts from the block and forwards them to

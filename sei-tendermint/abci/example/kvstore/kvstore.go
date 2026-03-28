@@ -95,17 +95,7 @@ func NewApplication() *Application {
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	for _, v := range req.Validators {
-		r := app.updateValidator(v)
-		if r.IsErr() {
-			logger.Error("error updating validators", "err", r)
-			panic("problem updating validators")
-		}
-	}
-	return &types.ResponseInitChain{}, nil
+	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }
 
 func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
@@ -131,7 +121,7 @@ func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	}
 
 	if isPrepareTx(tx) {
-		return app.execPrepareTx(tx)
+		return &types.ExecTxResult{}
 	}
 
 	var key, value string
@@ -285,15 +275,6 @@ func (app *Application) Query(_ context.Context, reqQuery *types.RequestQuery) (
 	return &resQuery, nil
 }
 
-func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	return &types.ResponsePrepareProposal{
-		TxRecords: app.substPrepareTx(req.Txs, req.MaxTxBytes),
-	}, nil
-}
-
 func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	for _, tx := range req.Txs {
 		if len(tx) == 0 {
@@ -305,6 +286,16 @@ func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcess
 
 //---------------------------------------------
 // update validators
+
+func (app *Application) SetValidators(validators []types.ValidatorUpdate) {
+	for _, v := range app.Validators() {
+		v.Power = 0
+		app.updateValidator(v)
+	}
+	for _, v := range validators {
+		app.updateValidator(v)
+	}
+}
 
 func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	app.mu.Lock()
@@ -434,43 +425,4 @@ const PreparePrefix = "prepare"
 
 func isPrepareTx(tx []byte) bool {
 	return bytes.HasPrefix(tx, []byte(PreparePrefix))
-}
-
-// execPrepareTx is noop. tx data is considered as placeholder
-// and is substitute at the PrepareProposal.
-func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
-	// noop
-	return &types.ExecTxResult{}
-}
-
-// substPrepareTx substitutes all the transactions prefixed with 'prepare' in the
-// proposal for transactions with the prefix stripped.
-// It marks all of the original transactions as 'REMOVED' so that
-// Tendermint will remove them from its mempool.
-func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*types.TxRecord {
-	trs := make([]*types.TxRecord, 0, len(blockData))
-	var removed []*types.TxRecord
-	var totalBytes int64
-	for _, tx := range blockData {
-		txMod := tx
-		action := types.TxRecord_UNMODIFIED
-		if isPrepareTx(tx) {
-			removed = append(removed, &types.TxRecord{
-				Tx:     tx,
-				Action: types.TxRecord_UNMODIFIED,
-			})
-			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_UNMODIFIED
-		}
-		totalBytes += int64(len(txMod))
-		if totalBytes > maxTxBytes {
-			break
-		}
-		trs = append(trs, &types.TxRecord{
-			Tx:     txMod,
-			Action: action,
-		})
-	}
-
-	return append(trs, removed...)
 }

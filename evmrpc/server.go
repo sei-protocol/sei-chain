@@ -97,6 +97,8 @@ func NewEVMHTTPServer(
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
+	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
+
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 
@@ -218,6 +220,7 @@ func NewEVMHTTPServer(
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
 		DenyList:           config.DenyList,
+		SeiLegacyAllowlist: seiLegacyAllowlist,
 	}); err != nil {
 		return nil, err
 	}
