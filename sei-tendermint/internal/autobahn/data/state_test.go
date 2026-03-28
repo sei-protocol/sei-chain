@@ -51,7 +51,7 @@ func TestState(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -117,7 +117,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 3)
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -223,7 +223,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 3)
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -269,7 +269,7 @@ func TestExecution(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -308,7 +308,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 
 	state := NewState(&Config{
 		Committee: committee,
-	}, utils.None[BlockStore]())
+	}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
@@ -322,6 +322,51 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
+func TestStateRecoveryFromWAL(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// Build two sequential QCs with their blocks.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+
+	// First run: push both QCs through State so the WALs are populated.
+	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir)))
+	state1 := NewState(&Config{Committee: committee}, utils.None[BlockStore](), dw1)
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
+	require.Equal(t, gr2.Next, state1.NextBlock())
+	require.NoError(t, dw1.Close())
+
+	// Second run: reopen from the same directory.
+	// NewState should recover blocks and QCs, and updateNextBlock
+	// should advance nextBlock using preloaded QCs.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir)))
+	state2 := NewState(&Config{Committee: committee}, utils.None[BlockStore](), dw2)
+
+	// nextBlock should already be at the end — no PushQC needed.
+	require.Equal(t, gr2.Next, state2.NextBlock())
+
+	// All blocks should be available.
+	for n := gr1.First; n < gr2.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+
+	// All QCs should be available.
+	for n := gr1.First; n < gr2.Next; n++ {
+		got, err := state2.QC(ctx, n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+	require.NoError(t, dw2.Close())
+}
+
 func TestPushBlockWaitsForQC(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
@@ -330,7 +375,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 		state := NewState(&Config{
 			Committee: committee,
-		}, utils.None[BlockStore]())
+		}, utils.None[BlockStore](), utils.OrPanic1(NewDataWAL(utils.None[string]())))
 
 		// Push first QC covering [0, N).
 		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())

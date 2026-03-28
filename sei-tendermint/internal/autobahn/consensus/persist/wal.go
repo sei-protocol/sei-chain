@@ -151,6 +151,15 @@ func (w *indexedWAL[T]) TruncateAll() error {
 	return nil
 }
 
+// ReadAt returns the entry at the given WAL index.
+func (w *indexedWAL[T]) ReadAt(walIdx uint64) (T, error) {
+	if walIdx < w.firstIdx || walIdx >= w.nextIdx {
+		var zero T
+		return zero, fmt.Errorf("WAL index %d out of range [%d, %d)", walIdx, w.firstIdx, w.nextIdx)
+	}
+	return w.wal.ReadAt(walIdx)
+}
+
 // Close shuts down the underlying WAL.
 func (w *indexedWAL[T]) Close() error {
 	return w.wal.Close()
