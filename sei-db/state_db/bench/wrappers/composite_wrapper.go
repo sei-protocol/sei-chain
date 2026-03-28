@@ -21,8 +21,8 @@ func NewCompositeWrapper(store *composite.CompositeCommitStore) DBWrapper {
 	}
 }
 
-func (c *compositeWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	return c.base.ApplyChangeSets(cs)
+func (c *compositeWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	return c.base.ApplyChangeSets(entry.Changesets)
 }
 
 func (c *compositeWrapper) Commit() (int64, error) {

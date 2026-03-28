@@ -129,6 +129,7 @@ type ValidatorInfo struct {
 	VotingPower int64
 }
 
+// CosmJS compatible response, which contains a public key = 0 in case of non-validator nodes.
 type validatorInfoJSON struct {
 	Address     bytes.HexBytes  `json:"address"`
 	PubKey      json.RawMessage `json:"pub_key"`
@@ -136,25 +137,28 @@ type validatorInfoJSON struct {
 }
 
 func (v ValidatorInfo) MarshalJSON() ([]byte, error) {
-	j := validatorInfoJSON{VotingPower: v.VotingPower}
-	if k, ok := v.PubKey.Get(); ok {
-		pk, err := jsontypes.Marshal(k)
-		if err != nil {
-			return nil, err
-		}
-		j.PubKey = pk
-		j.Address = k.Address()
+	k := v.PubKey.Or(crypto.PubKey{})
+	pk, err := jsontypes.Marshal(k)
+	if err != nil {
+		return nil, err
 	}
-	return json.Marshal(j)
+	return json.Marshal(validatorInfoJSON{
+		VotingPower: v.VotingPower,
+		PubKey:      pk,
+		Address:     k.Address(),
+	})
 }
 
 func (v *ValidatorInfo) UnmarshalJSON(data []byte) error {
 	var val validatorInfoJSON
-	if len(val.PubKey) != 0 {
-		var pk crypto.PubKey
-		if err := jsontypes.Unmarshal(val.PubKey, &pk); err != nil {
-			return err
-		}
+	if err := json.Unmarshal(data, &val); err != nil {
+		return err
+	}
+	var pk crypto.PubKey
+	if err := jsontypes.Unmarshal(val.PubKey, &pk); err != nil {
+		return err
+	}
+	if pk != (crypto.PubKey{}) {
 		v.PubKey = utils.Some(pk)
 	}
 	v.VotingPower = val.VotingPower

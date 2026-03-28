@@ -72,7 +72,6 @@ func TestImportExportQueues(t *testing.T) {
 
 	app2.InitChain(
 		context.Background(), &abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: seiapp.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},

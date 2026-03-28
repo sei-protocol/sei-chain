@@ -56,7 +56,6 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 	wasmApp.InitChain(
 		context.Background(),
 		&abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: seiapp.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},

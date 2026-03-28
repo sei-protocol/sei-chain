@@ -128,7 +128,7 @@ func TestEVMRPCSpec(t *testing.T) {
 				if debug {
 					t.Logf("[DEBUG] pair %d: request %s", i+1, req)
 				}
-				body, status, err := client.call(req)
+				body, status, respHdr, err := client.call(req)
 				if err != nil {
 					t.Fatalf("pair %d: call: %v", i+1, err)
 				}
@@ -152,6 +152,8 @@ func TestEVMRPCSpec(t *testing.T) {
 					if !sameBlockResult(t, body, responses[refIdx]) {
 						t.Fatalf("pair %d: ref_pair %d check failed", i+1, pair.RefPair)
 					}
+					assertPairBodyDirectives(t, pair, body)
+					assertPairHeaderDirectives(t, pair, respHdr)
 					continue
 				}
 				if len(pair.Expected) > 0 {
@@ -159,6 +161,8 @@ func TestEVMRPCSpec(t *testing.T) {
 						logActualResponse(t, body)
 						t.Fatalf("pair %d: spec-only check failed", i+1)
 					}
+					assertPairBodyDirectives(t, pair, body)
+					assertPairHeaderDirectives(t, pair, respHdr)
 					continue
 				}
 				var m map[string]json.RawMessage
@@ -170,6 +174,8 @@ func TestEVMRPCSpec(t *testing.T) {
 						t.Fatalf("pair %d: response has neither result nor error", i+1)
 					}
 				}
+				assertPairBodyDirectives(t, pair, body)
+				assertPairHeaderDirectives(t, pair, respHdr)
 			}
 		})
 	}
@@ -208,7 +214,7 @@ func rpcURL() string {
 }
 
 func nodeReachable(c *rpcClient) bool {
-	body, status, err := c.call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
+	body, status, _, err := c.call([]byte(`{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`))
 	if err != nil || status != http.StatusOK {
 		return false
 	}

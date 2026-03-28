@@ -617,7 +617,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestOraclePriceSnapshot(t *testing.T) {
+func TestOraclePriceSnapshotNotCreatedFromStaleRates(t *testing.T) {
 	input, h := setup(t)
 
 	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 123))
@@ -636,44 +636,16 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
-	// The value should have a stale height
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
-	ts := input.Ctx.BlockTime().UnixMilli()
 
-	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100)
-	require.NoError(t, err)
-	expected := types.PriceSnapshot{
-		SnapshotTimestamp: 100,
-		PriceSnapshotItems: []types.PriceSnapshotItem{
-			{
-				Denom: utils.MicroAtomDenom,
-				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate:        randomExchangeRate,
-					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
-					LastUpdateTimestamp: ts,
-				},
-			},
-		},
-	}
-	require.Equal(t, expected, snapshot)
+	// MidBlocker no longer creates price snapshots from exchange rates,
+	// preventing stale prices from being presented as recent data in TWAPs.
+	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100))
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(200, 0))
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	expected2 := types.PriceSnapshot{
-		SnapshotTimestamp: 200,
-		PriceSnapshotItems: []types.PriceSnapshotItem{
-			{
-				Denom: utils.MicroAtomDenom,
-				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate:        randomExchangeRate,
-					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
-					LastUpdateTimestamp: ts,
-				},
-			},
-		},
-	}
-	require.Equal(t, expected2, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
+	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
 func makeAggregateVote(t *testing.T, input testutils.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {

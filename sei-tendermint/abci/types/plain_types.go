@@ -1,8 +1,56 @@
 package types
 
 import (
+	"time"
+
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
+
+type RequestInfo struct {
+	Version      string
+	BlockVersion uint64
+	P2PVersion   uint64
+	AbciVersion  string
+}
+
+// RequestInitChain carries the genesis-time initialization inputs passed from
+// consensus into the application when bootstrapping a chain.
+type RequestInitChain struct {
+	Time            time.Time
+	ChainId         string
+	ConsensusParams *tmproto.ConsensusParams
+	AppStateBytes   []byte
+	InitialHeight   int64
+}
+
+type RequestQuery struct {
+	Data   []byte
+	Path   string
+	Height int64
+	Prove  bool
+}
+
+type RequestBeginBlock struct {
+	Hash                []byte
+	Header              tmproto.Header
+	LastCommitInfo      LastCommitInfo
+	ByzantineValidators []Evidence
+	Simulate            bool
+}
+
+type RequestEndBlock struct {
+	Height       int64
+	BlockGasUsed int64
+}
+
+type ResponseInitChain struct {
+	Validators []ValidatorUpdate
+	AppHash    []byte
+}
+
+type ResponseGetTxPriorityHint struct {
+	Priority int64
+}
 
 // RequestListSnapshots is emitted at the start of state sync to ask the application
 // which previously committed snapshots are available for peers to download.
@@ -174,4 +222,48 @@ type RequestFinalizeBlock struct {
 	Hash                []byte
 
 	Header *tmproto.Header
+}
+
+type CommitInfo struct {
+	Round int32
+	Votes []VoteInfo
+}
+
+type LastCommitInfo struct {
+	Round int32
+	Votes []VoteInfo
+}
+
+type Validator struct {
+	Address []byte
+	Power   int64
+}
+
+type VoteInfo struct {
+	Validator       Validator
+	SignedLastBlock bool
+}
+
+type Misbehavior struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
+}
+
+type Evidence struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
+}
+
+type Snapshot struct {
+	Height   uint64
+	Format   uint32
+	Chunks   uint32
+	Hash     []byte
+	Metadata []byte
 }

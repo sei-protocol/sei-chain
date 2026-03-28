@@ -41,7 +41,7 @@ const genesisBlockHashHex = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD88
 
 var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 
-// genesisBlockTxCount is the eth_getBlockTransactionCountByHash result for the genesis block (0 transactions).
+// genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
 
 func encodeGenesisBlock() map[string]any {
@@ -152,6 +152,10 @@ func NewSei2BlockAPI(
 }
 
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+	// Match eth_getBlockByNumber("0x0"): synthetic genesis, not the Tendermint block at height 0.
+	if number == 0 {
+		return encodeGenesisBlock(), nil
+	}
 	// exclude synthetic txs
 	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
 }
@@ -164,6 +168,9 @@ func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockH
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	if number == 0 {
+		return genesisBlockTxCount, nil
+	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -256,6 +263,10 @@ func (a *BlockAPI) getBlockByNumber(
 	}
 
 	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +283,14 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
 		return nil, nil
+	}
+	// Synthetic genesis (eth_getBlockByNumber("0x0")): empty receipts without TM/watermarks.
+	// Callers may pass the genesis hash or the literal block number 0x0 (parsed as number, not hash).
+	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
+		return []map[string]any{}, nil
+	}
+	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
+		return []map[string]any{}, nil
 	}
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
