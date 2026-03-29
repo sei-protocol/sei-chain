@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/armon/go-metrics"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -40,6 +41,9 @@ type Keeper struct {
 	upgradeHandlers    map[string]types.UpgradeHandler // map of plan name to upgrade handler
 	versionSetter      xp.ProtocolVersionSetter        // implements setting the protocol version field on BaseApp
 	downgradeVerified  bool                            // tells if we've already sanity checked that this binary version isn't being used against an old state.
+	// doneHeightCache is a pointer so that value-receiver copies of Keeper all share the same underlying map.
+	// Done-heights are immutable once set, so cached values are always valid for the lifetime of the process.
+	doneHeightCache *sync.Map // upgrade name -> int64 done height
 }
 
 // NewKeeper constructs an upgrade Keeper which requires the following arguments:
@@ -56,6 +60,7 @@ func NewKeeper(skipUpgradeHeights map[int64]bool, storeKey sdk.StoreKey, cdc cod
 		cdc:                cdc,
 		upgradeHandlers:    map[string]types.UpgradeHandler{},
 		versionSetter:      vs,
+		doneHeightCache:    &sync.Map{},
 	}
 }
 
@@ -278,13 +283,17 @@ func parseDoneKey(key []byte) string {
 
 // GetDoneHeight returns the height at which the given upgrade was executed
 func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
+	if v, ok := k.doneHeightCache.Load(name); ok {
+		return v.(int64)
+	}
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	bz := store.Get([]byte(name))
 	if len(bz) == 0 {
 		return 0
 	}
-
-	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
+	height := int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
+	k.doneHeightCache.Store(name, height)
+	return height
 }
 
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
@@ -346,6 +355,7 @@ func (k Keeper) SetDone(ctx sdk.Context, name string) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec // block heights are always non-negative
 	store.Set([]byte(name), bz)
+	k.doneHeightCache.Store(name, ctx.BlockHeight())
 }
 
 // HasHandler returns true iff there is a handler registered for this name
