@@ -95,8 +95,12 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s1 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitMixedState(t, s1, 1)
@@ -110,13 +114,20 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	require.NoError(t, err)
 
 	metaDBPath := filepath.Join(snapDir, metadataDir)
-	db, err := pebbledb.Open(t.Context(), metaDBPath, types.OpenOptions{}, false)
+	metaCfg := pebbledb.DefaultConfig()
+	metaCfg.DataDir = metaDBPath
+	metaCfg.EnableMetrics = false
+	db, err := pebbledb.Open(t.Context(), &metaCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Reopen -- catchup should replay version 2 from WAL
-	s2 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dbDir
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -131,8 +142,12 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s1 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 10; i++ {
@@ -142,7 +157,11 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen and verify
-	s2 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dbDir
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -236,8 +255,12 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s1 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitMixedState(t, s1, 1)
@@ -255,7 +278,11 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	}
 	require.NoError(t, s1.Close())
 
-	s2 := NewCommitStore(t.Context(), dbDir, DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dbDir
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -297,8 +324,12 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -333,8 +364,12 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitMixedState(t, s, 1)
@@ -358,8 +393,12 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitMixedState(t, s, 1)
@@ -388,8 +427,12 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	var pairs []*iavl.KVPair

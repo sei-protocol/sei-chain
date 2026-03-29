@@ -46,12 +46,18 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	return NewMemIAVLWrapper(cs), nil
 }
 
-func newFlatKVCommitStore(ctx context.Context, dbDir string) (DBWrapper, error) {
-	cfg := flatkv.DefaultConfig()
-	cfg.Fsync = false
+func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkv.Config) (DBWrapper, error) {
+	if config == nil {
+		config = flatkv.DefaultConfig()
+	}
+	config.DataDir = dbDir
+
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs := flatkv.NewCommitStore(ctx, dbDir, cfg)
-	_, err := cs.LoadVersion(0, false)
+	cs, err := flatkv.NewCommitStore(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
+	}
+	_, err = cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
@@ -119,12 +125,12 @@ func newCombinedCompositeDualSSComposite(ctx context.Context, dbDir string) (DBW
 }
 
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
-func NewDBImpl(ctx context.Context, dbType DBType, dataDir string) (DBWrapper, error) {
+func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any) (DBWrapper, error) {
 	switch dbType {
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
-		return newFlatKVCommitStore(ctx, dataDir)
+		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkv.Config))
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
 	case CompositeSplit:
