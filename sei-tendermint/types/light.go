@@ -94,6 +94,9 @@ func (lb *LightBlock) ToProto() (*tmproto.LightBlock, error) {
 		if err != nil {
 			return nil, err
 		}
+		if lbp.ValidatorSet == nil {
+			return nil, ErrValidatorSetEmpty
+		}
 	}
 
 	return lbp, nil

@@ -811,7 +811,7 @@ func (valz ValidatorsByAddress) Swap(i, j int) {
 // ToProto converts ValidatorSet to protobuf
 func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 	if vals.IsNilOrEmpty() {
-		return &tmproto.ValidatorSet{}, nil // validator set should never be nil
+		return nil, nil
 	}
 
 	vp := new(tmproto.ValidatorSet)
@@ -857,12 +857,15 @@ func ValidatorSetFromProto(vp *tmproto.ValidatorSet) (*ValidatorSet, error) {
 	}
 	vals.Validators = valsProto
 
-	p, err := ValidatorFromProto(vp.GetProposer())
-	if err != nil {
-		return nil, fmt.Errorf("fromProto: validatorSet proposer error: %w", err)
+	if vp.GetProposer() != nil {
+		p, err := ValidatorFromProto(vp.GetProposer())
+		if err != nil {
+			return nil, fmt.Errorf("fromProto: validatorSet proposer error: %w", err)
+		}
+		vals.Proposer = p
+	} else if len(vals.Validators) > 0 {
+		vals.Proposer = vals.findProposer()
 	}
-
-	vals.Proposer = p
 
 	// NOTE: We can't trust the total voting power given to us by other peers. If someone were to
 	// inject a non-zeo value that wasn't the correct voting power we could assume a wrong total

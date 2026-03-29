@@ -1459,6 +1459,56 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 	}
 }
 
+func TestValidatorSetFromProto_NilProposerWithValidators(t *testing.T) {
+	pk1 := ed25519.GenerateSecretKey().Public()
+	pk2 := ed25519.GenerateSecretKey().Public()
+
+	protoValSet := &tmproto.ValidatorSet{
+		Validators: []*tmproto.Validator{
+			{
+				Address:          pk1.Address(),
+				PubKey:           crypto.PubKeyToProto(pk1),
+				VotingPower:      50,
+				ProposerPriority: 10,
+			},
+			{
+				Address:          pk2.Address(),
+				PubKey:           crypto.PubKeyToProto(pk2),
+				VotingPower:      50,
+				ProposerPriority: -10,
+			},
+		},
+		Proposer: nil,
+	}
+
+	valSet, err := ValidatorSetFromProto(protoValSet)
+	require.NoError(t, err)
+	require.NotNil(t, valSet.Proposer, "proposer should be derived when nil in proto")
+	require.Len(t, valSet.Validators, 2)
+
+	found := false
+	for _, v := range valSet.Validators {
+		if bytes.Equal(v.Address, valSet.Proposer.Address) {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "derived proposer must be a member of the validator set")
+
+	require.Equal(t, valSet.Proposer.Address, pk1.Address(),
+		"proposer should be the validator with highest ProposerPriority")
+}
+
+func TestValidatorSetFromProto_EmptyProtoRoundtrip(t *testing.T) {
+	empty := &ValidatorSet{}
+	proto, err := empty.ToProto()
+	require.NoError(t, err)
+	require.Nil(t, proto, "ToProto on empty set should return nil")
+
+	_, err = ValidatorSetFromProto(proto)
+	require.Error(t, err, "FromProto(nil) should return error")
+}
+
 // ---------------------
 // Sort validators by priority and address
 type validatorsByPriority []*Validator
