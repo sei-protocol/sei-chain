@@ -312,6 +312,39 @@ func (s *KeeperTestSuite) TestGetClosestUpgrade() {
 	}
 }
 
+// TestGetDoneHeight covers both the cache-hit and cache-miss paths of GetDoneHeight.
+func (s *KeeperTestSuite) TestGetDoneHeight() {
+	// Unknown upgrade returns 0 and must NOT be cached — SetDone may be called later.
+	s.Require().Equal(int64(0), s.app.UpgradeKeeper.GetDoneHeight(s.ctx, "no-such-upgrade"))
+	s.app.UpgradeKeeper.SetUpgradeHandler("no-such-upgrade", func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		return vm, nil
+	})
+	s.app.UpgradeKeeper.ApplyUpgrade(s.ctx, types.Plan{Name: "no-such-upgrade", Height: s.ctx.BlockHeight()})
+	s.Require().NotEqual(int64(0), s.app.UpgradeKeeper.GetDoneHeight(s.ctx, "no-such-upgrade"))
+
+	// SetDone writes to KV and populates the cache.
+	s.app.UpgradeKeeper.SetUpgradeHandler("test-upgrade", func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		return vm, nil
+	})
+	s.app.UpgradeKeeper.ApplyUpgrade(s.ctx, types.Plan{Name: "test-upgrade", Height: s.ctx.BlockHeight()})
+
+	// Cache hit: same keeper instance — the value was stored by SetDone.
+	s.Require().Equal(s.ctx.BlockHeight(), s.app.UpgradeKeeper.GetDoneHeight(s.ctx, "test-upgrade"))
+
+	// Cache miss: fresh keeper with empty cache but value present in the KV store.
+	freshKeeper := keeper.NewKeeper(
+		make(map[int64]bool),
+		s.app.GetKey(types.StoreKey),
+		s.app.AppCodec(),
+		s.homeDir,
+		s.app.BaseApp,
+	)
+	s.Require().Equal(s.ctx.BlockHeight(), freshKeeper.GetDoneHeight(s.ctx, "test-upgrade"))
+
+	// Second call on fresh keeper should now hit the cache.
+	s.Require().Equal(s.ctx.BlockHeight(), freshKeeper.GetDoneHeight(s.ctx, "test-upgrade"))
+}
+
 func TestKeeperTestSuite(t *testing.T) {
 	suite.Run(t, new(KeeperTestSuite))
 }

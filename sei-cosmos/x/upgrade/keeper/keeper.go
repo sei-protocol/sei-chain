@@ -41,7 +41,9 @@ type Keeper struct {
 	upgradeHandlers    map[string]types.UpgradeHandler // map of plan name to upgrade handler
 	versionSetter      xp.ProtocolVersionSetter        // implements setting the protocol version field on BaseApp
 	downgradeVerified  bool                            // tells if we've already sanity checked that this binary version isn't being used against an old state.
-	doneHeightCache    *sync.Map                       // cache of upgrade name -> done height (immutable once set)
+	// doneHeightCache is a pointer so that value-receiver copies of Keeper all share the same underlying map.
+	// Done-heights are immutable once set, so cached values are always valid for the lifetime of the process.
+	doneHeightCache *sync.Map // upgrade name -> int64 done height
 }
 
 // NewKeeper constructs an upgrade Keeper which requires the following arguments:
