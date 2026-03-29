@@ -173,6 +173,7 @@ func initRootCmd(
 		keys.Commands(app.DefaultNodeHome),
 		ReplayCmd(app.DefaultNodeHome),
 		BlocktestCmd(app.DefaultNodeHome),
+		TestUtilsCmd(),
 	)
 }
 
