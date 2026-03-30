@@ -850,10 +850,11 @@ func (x *View) GetNumber() uint64 {
 
 type Proposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                            // required.
-	CreatedAt     *Timestamp             `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"` // required
-	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`    // Sorted by lane.
-	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                              // optional
+	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                // required.
+	CreatedAt     *Timestamp             `protobuf:"bytes,2,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"`     // required
+	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                  // optional
+	FirstBlock    *uint64                `protobuf:"varint,5,opt,name=first_block,json=firstBlock,proto3,oneof" json:"first_block,omitempty"` // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -914,6 +915,13 @@ func (x *Proposal) GetApp() *AppProposal {
 		return x.App
 	}
 	return nil
+}
+
+func (x *Proposal) GetFirstBlock() uint64 {
+	if x != nil && x.FirstBlock != nil {
+		return *x.FirstBlock
+	}
+	return 0
 }
 
 type FullProposal struct {
@@ -2003,17 +2011,20 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\xf8\x01\n" +
+	"\a_number\"\xae\x02\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x127\n" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x13.autobahn.TimestampH\x01R\tcreatedAt\x88\x01\x01\x124\n" +
 	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeR\n" +
 	"laneRanges\x12,\n" +
-	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
+	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01\x12$\n" +
+	"\vfirst_block\x18\x05 \x01(\x04H\x03R\n" +
+	"firstBlock\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\r\n" +
 	"\v_created_atB\x06\n" +
-	"\x04_app\"\xec\x01\n" +
+	"\x04_appB\x0e\n" +
+	"\f_first_block\"\xec\x01\n" +
 	"\fFullProposal\x12/\n" +
 	"\bproposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\bproposal\x12+\n" +
 	"\blane_qcs\x18\x02 \x03(\v2\x10.autobahn.LaneQCR\alaneQcs\x12+\n" +

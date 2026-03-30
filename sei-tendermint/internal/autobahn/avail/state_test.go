@@ -334,6 +334,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 func TestStateMismatchedQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
+	initialBlock := committee.FirstBlock()
 
 	ds := data.NewState(&data.Config{
 		Committee: committee,
@@ -373,13 +374,13 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
-	require.Equal(t, types.GlobalBlockNumber(0), qc0.GlobalRange().First)
-	require.Equal(t, types.GlobalBlockNumber(1), qc0.GlobalRange().Next)
+	require.Equal(t, initialBlock, qc0.GlobalRange().First)
+	require.Equal(t, initialBlock+1, qc0.GlobalRange().Next)
 
 	t.Run("PushAppQC mismatch", func(t *testing.T) {
 		require := require.New(t)
 		// AppQC for index 1, but paired with CommitQC for index 0
-		appProposal1 := types.NewAppProposal(0, 1, types.GenAppHash(rng))
+		appProposal1 := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
 		appQC1 := types.NewAppQC(makeAppVotes(keys, appProposal1))
 
 		err := state.PushAppQC(appQC1, qc0)
@@ -434,6 +435,7 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 func TestNewStateWithPersistence(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
+	initialBlock := committee.FirstBlock()
 
 	t.Run("empty dir loads fresh state", func(t *testing.T) {
 		dir := t.TempDir()
@@ -641,7 +643,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		}
 
 		// Persist prune anchor (AppQC + CommitQC pair at road index 0).
-		appProposal := types.NewAppProposal(0, 0, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(initialBlock, 0, types.GenAppHash(rng))
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
 		require.NoError(t, err)

@@ -114,6 +114,7 @@ message Proposal {
   optional Timestamp created_at = 2; // required
   repeated LaneRange lane_ranges = 3; // Sorted by lane.
   optional AppProposal app = 4; // optional
+  optional uint64 first_block = 5; // required
 }
 
 message FullProposal {

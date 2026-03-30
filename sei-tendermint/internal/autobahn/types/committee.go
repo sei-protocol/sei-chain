@@ -63,7 +63,8 @@ func (s SortedSet[T]) At(i int) T {
 
 // Committee represents the consensus committee.
 type Committee struct {
-	replicas SortedSet[PublicKey]
+	replicas   SortedSet[PublicKey]
+	firstBlock GlobalBlockNumber
 }
 
 // Lanes is the list of nodes which are eligible to produce blocks.
@@ -71,6 +72,9 @@ func (c *Committee) Lanes() SortedSet[LaneID] { return c.replicas }
 
 // Replicas is the list of nodes which are eligible to participate in the consensus.
 func (c *Committee) Replicas() SortedSet[PublicKey] { return c.replicas }
+
+// FirstBlock is the index of the first global block finalized by this committee.
+func (c *Committee) FirstBlock() GlobalBlockNumber { return c.firstBlock }
 
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {
@@ -114,12 +118,13 @@ func (c *Committee) LaneQuorum() int {
 	return c.Faulty() + 1
 }
 
-// NewRoundRobinElection creates a Committee with round robin election.
-func NewRoundRobinElection(replicas []PublicKey) (*Committee, error) {
+// NewRoundRobinElection creates a Committee with round robin election starting at firstBlock.
+func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber) (*Committee, error) {
 	if len(replicas) == 0 {
 		return nil, errors.New("replicas cannot be empty")
 	}
 	return &Committee{
-		replicas: NewSortedSet(replicas),
+		replicas:   NewSortedSet(replicas),
+		firstBlock: firstBlock,
 	}, nil
 }
