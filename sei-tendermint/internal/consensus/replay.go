@@ -194,15 +194,7 @@ func (h *Handshaker) ReplayBlocks(
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-
-		pbParams := h.genDoc.ConsensusParams.ToProto()
-		res, err := appClient.InitChain(ctx, &abci.RequestInitChain{
-			Time:            h.genDoc.GenesisTime,
-			ChainId:         h.genDoc.ChainID,
-			InitialHeight:   h.genDoc.InitialHeight,
-			ConsensusParams: &pbParams,
-			AppStateBytes:   h.genDoc.AppState,
-		})
+		res, err := appClient.InitChain(ctx, h.genDoc.ToRequestInitChain())
 		if err != nil {
 			return nil, err
 		}

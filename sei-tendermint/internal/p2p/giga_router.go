@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 
 type GigaNodeAddr struct {
@@ -69,6 +70,77 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error)
 	},nil
 }
 
+func (r *GigaRouter) runExecute(ctx context.Context) error {
+	info,err := r.cfg.App.Info(ctx, &version.RequestInfo)
+	if err!=nil { return fmt.Errorf("App.Info(): %w",err) }
+	appHash := info.LastBlockAppHash
+	last := atypes.GlobalBlockNumber(info.LastBlockHeight)
+	if last==0 {
+		if r.cfg.GenDoc.InitialHeight<1 {
+			return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1",r.cfg.GenDoc.InitialHeight)
+		}
+		resp,err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain())
+		if err!=nil {
+			return fmt.Errorf("App.InitChain(): %w",err)
+		}
+		last = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight-1)
+		appHash = resp.AppHash
+	}
+
+	// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
+	// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
+	if err := r.data.PushAppHash(last,appHash); err!=nil {
+		return fmt.Errorf("r.data.PushAppHash(): %w",err)
+	}
+	for n:=last+1;; n += 1 {
+		b,err := r.data.Block(ctx,n)
+		if err!=nil { return err }
+		
+		hash := b.Header().Hash()
+		var proposerAddress types.Address
+		if vals := r.cfg.App.GetValidators(); len(vals)>0 {
+			// Deterministically select a proposer from the validator committee.
+			keyPb := vals[0].PubKey
+			for _,u := range vals {
+				if u.PubKey.Compare(keyPb) < 0 {
+					keyPb = u.PubKey
+				}
+			}
+			key,err := crypto.PubKeyFromProto(keyPb) 
+			if err!=nil { return fmt.Errorf("crypto.PubKeyFromProto(): %w",err) }
+			proposerAddress = key.Address()
+		}
+		resp,err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock {
+			Txs: b.Payload().Txs(),
+			// Empty DecidedLastCommit is does not indicate missing votes. 
+			
+			// WARNING: this is a hash of the autobahn block header.
+			// It is used to identify block processed optimistically
+			// and is fed as block hash to EVM contracts.
+			Hash: hash[:],
+			Header: (&types.Header{
+				ChainID: r.cfg.GenDoc.ChainID,
+				Height: int64(n),  
+				Time: b.Payload().CreatedAt(),
+				// We set proposerAddress to an active validator, so that app does not emit error logs.
+				// WARNING: the reward distribution has corner cases where it forgets the proposer,
+				// because reward is distributed with a delay. This is not our problem here though. 
+				ProposerAddress: proposerAddress,
+			}).ToProto(),
+		})
+		appHash = resp.AppHash		
+		// TODO: we need the block to be persisted before we vote for apphash.
+		if err := r.data.PushAppHash(n, appHash); err!=nil {
+			return fmt.Errorf("r.data.PushAppHash(%v): %w",n,err)
+		}
+		commitResp,err := r.cfg.App.Commit(ctx)
+		if err!=nil {
+			return fmt.Errorf("r.cfg.App.Commit(): %w",err)
+		}
+		r.data.PruneBefore(atypes.GlobalBlockNumber(commitResp.RetainHeight))
+	}
+}
+
 func (r *GigaRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {	
 		// Spawn outbound connections dialing.
@@ -85,69 +157,8 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 		}
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
-		
-		info,err := r.cfg.App.Info(ctx, &version.RequestInfo)
-		if err!=nil { return fmt.Errorf("App.Info(): %w",err) }
-		appHash := info.LastBlockAppHash
-		last := atypes.GlobalBlockNumber(info.LastBlockHeight)
-		if last==0 {
-			if r.cfg.GenDoc.InitialHeight<1 {
-				return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1",r.cfg.GenDoc.InitialHeight)
-			}
-			resp,err := r.cfg.App.InitChain(ctx, &abci.RequestInitChain {
-				Time: r.cfg.GenDoc.GenesisTime,
-				ChainId: r.cfg.GenDoc.ChainID,
-				InitialHeight: r.cfg.GenDoc.InitialHeight,
-				ConsensusParams: utils.Alloc(r.cfg.GenDoc.ConsensusParams.ToProto()),
-				AppStateBytes: r.cfg.GenDoc.AppState,
-			})
-			if err!=nil {
-				return fmt.Errorf("App.InitChain(): %w",err)
-			}
-			last = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight-1)
-			appHash = resp.AppHash
-		}
-
-		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
-		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
-		if err := r.data.PushAppHash(last,appHash); err!=nil {
-			return fmt.Errorf("r.data.PushAppHash(): %w",err)
-		}
-		for n:=last+1;; n += 1 {
-			b,err := r.data.Block(ctx,n)
-			hash := b.Header().Hash()
-			if err!=nil { return err }
-			var proposerAddress types.Address
-			if vals := r.cfg.App.GetValidators(); len(vals)>0 {
-				// TODO: select a proposer deterministically.
-			}
-			resp,err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock {
-				Txs: b.Payload().Txs(),
-				// Unset DecidedLastCommit does not affect jailing at all. 
-				
-				// WARNING: this is a hash of the autobahn block header.
-				// It is used to identify block processed optimistically
-				// and is fed as block hash to EVM contracts.
-				Hash: hash[:],
-				Header: (&types.Header{
-					ChainID: r.cfg.GenDoc.ChainID,
-					Height: int64(n),  
-					Time: b.Payload().CreatedAt(),
-					// We set proposerAddress to an active validator, so that app does not emit error logs.
-					ProposerAddress: proposerAddress,
-				}).ToProto(),
-			})
-			appHash = resp.AppHash		
-			if err := r.data.PushAppHash(n, appHash); err!=nil {
-				return fmt.Errorf("r.data.PushAppHash(%v): %w",n,err)
-			}
-			commitResp,err := r.cfg.App.Commit(ctx)
-			if err!=nil {
-				return fmt.Errorf("r.cfg.App.Commit(): %w",err)
-			}
-			// TODO: prune blocks
-			r.data.PruneBefore(atypes.GlobalBlockNumber(commitResp.RetainHeight))
-		}
+		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })	
+		return nil
 	})
 }
 
