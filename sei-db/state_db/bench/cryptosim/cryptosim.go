@@ -128,7 +128,7 @@ func NewCryptoSim(
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir)
+	db, err := wrappers.NewDBImplWithSSConfig(ctx, config.Backend, config.DataDir, config.StateStoreConfig)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)

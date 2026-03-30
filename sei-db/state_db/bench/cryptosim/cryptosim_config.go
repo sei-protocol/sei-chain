@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
@@ -96,6 +97,11 @@ type CryptoSimConfig struct {
 
 	// The backend to use for the benchmark database.
 	Backend wrappers.DBType
+
+	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
+	// The default preserves the prior cryptosim behavior: pebbledb, synchronous
+	// writes, dual_write, and evm_first reads.
+	StateStoreConfig config.StateStoreConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
@@ -199,6 +205,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
+		StateStoreConfig:                  wrappers.DefaultBenchStateStoreConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -301,6 +308,18 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
+	switch c.StateStoreConfig.Backend {
+	case config.PebbleDBBackend, config.RocksDBBackend:
+	default:
+		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
+			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
+	}
+	if c.StateStoreConfig.WriteMode != "" && !c.StateStoreConfig.WriteMode.IsValid() {
+		return fmt.Errorf("StateStoreConfig.WriteMode must be valid (got %q)", c.StateStoreConfig.WriteMode)
+	}
+	if c.StateStoreConfig.ReadMode != "" && !c.StateStoreConfig.ReadMode.IsValid() {
+		return fmt.Errorf("StateStoreConfig.ReadMode must be valid (got %q)", c.StateStoreConfig.ReadMode)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

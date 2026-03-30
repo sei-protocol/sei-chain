@@ -1,6 +1,20 @@
 {
   "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
   "Backend": "FlatKV",
+  "StateStoreConfig": {
+    "Enable": true,
+    "DBDirectory": "",
+    "Backend": "pebbledb",
+    "AsyncWriteBuffer": 0,
+    "KeepRecent": 100000,
+    "PruneIntervalSeconds": 600,
+    "ImportNumWorkers": 1,
+    "KeepLastVersion": true,
+    "UseDefaultComparer": false,
+    "WriteMode": "dual_write",
+    "ReadMode": "evm_first",
+    "EVMDBDirectory": ""
+  },
   "BlocksPerCommit": 32,
   "CannedRandomSize": 1073741824,
   "ConstantThreadCount": 0,
