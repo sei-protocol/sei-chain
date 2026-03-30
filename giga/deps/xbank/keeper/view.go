@@ -89,35 +89,18 @@ func (k BaseViewKeeper) LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Co
 	return sdk.NewCoins()
 }
 
-// GetAllBalances returns all the balances for a given account address.
-func (k BaseViewKeeper) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	accountStore := k.getAccountStore(ctx, addr)
-
-	balances := sdk.NewCoins()
-	iterator := accountStore.Iterator(nil, nil)
-	defer func() { _ = iterator.Close() }()
-
-	for ; iterator.Valid(); iterator.Next() {
-		var balance sdk.Coin
-		k.cdc.MustUnmarshal(iterator.Value(), &balance)
-		balances = append(balances, balance)
-	}
-
-	return balances.Sort()
-}
-
 // SpendableCoins returns the total balances of spendable coins for an account
 // by address. If the account has no spendable coins, an empty Coins slice is
 // returned.
 func (k BaseViewKeeper) SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	total := k.GetAllBalances(ctx, addr)
-	locked := k.LockedCoins(ctx, addr)
+	total := k.GetBalance(ctx, addr, "usei").Amount
+	locked := k.LockedCoins(ctx, addr).AmountOf("usei")
 
-	spendable, hasNeg := total.SafeSub(locked)
-	if hasNeg {
+	spendable := total.Sub(locked)
+	if spendable.IsNegative() {
 		return sdk.NewCoins()
 	}
-	return spendable
+	return sdk.NewCoins(sdk.NewCoin("usei", spendable))
 }
 
 // getAccountStore gets the account store of the given address.

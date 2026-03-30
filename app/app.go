@@ -139,7 +139,6 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -1809,7 +1808,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	chainID := cache.chainID
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
-	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
+	sender, seiAddr, _, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
 	if recoverErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1841,26 +1840,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	if !isAssociated {
-		// Set address mapping
-		app.GigaEvmKeeper.SetAddressMapping(ctx, seiAddr, sender)
-		// Set pubkey on account if not already set
-		if acc := app.AccountKeeper.GetAccount(ctx, seiAddr); acc != nil && acc.GetPubKey() == nil {
-			if err := acc.SetPubKey(pubkey); err != nil {
-				return &abci.ExecTxResult{
-					Code: 1,
-					Log:  fmt.Sprintf("failed to set pubkey: %v", err),
-				}, nil
-			}
-			app.AccountKeeper.SetAccount(ctx, acc)
-		}
-		// Migrate balance from cast address
-		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.GigaBankKeeper, &app.AccountKeeper)
-		if err := associateHelper.MigrateBalance(ctx, sender, seiAddr, false); err != nil {
-			return &abci.ExecTxResult{
-				Code: 1,
-				Log:  fmt.Sprintf("failed to migrate balance: %v", err),
-			}, nil
-		}
+		// Unassociated addresses require balance migration (iterating all balances),
+		// which giga's cachekv doesn't support. Fall back to v2 for this tx.
+		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
 
 	// Create state DB for this transaction (only for valid transactions)

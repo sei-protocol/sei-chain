@@ -34,7 +34,6 @@ import (
 // Consensus sentinel errors
 var (
 	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
-	ErrInvalidProposalPOLRound      = errors.New("error invalid proposal POL round")
 	ErrAddingVote                   = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
 	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
@@ -2045,7 +2044,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 
 	for _, ev := range block.Evidence {
 		if dve, ok := ev.(*types.DuplicateVoteEvidence); ok {
-			if _, val := cs.roundState.Validators().GetByAddress(dve.VoteA.ValidatorAddress); val != nil {
+			if _, val, ok := cs.roundState.Validators().GetByAddress(dve.VoteA.ValidatorAddress); ok {
 				byzantineValidatorsCount++
 				byzantineValidatorsPower += val.VotingPower
 			}
@@ -2103,7 +2102,10 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 	if cs.roundState.Proposal() != nil || proposal == nil {
 		return nil
 	}
-
+	// Preemptively re-verify the proposal.
+	if err := proposal.ValidateBasic(); err != nil {
+		return err
+	}
 	// Does not apply
 	if proposal.Height != cs.roundState.Height() || proposal.Round != cs.roundState.Round() {
 		return nil
@@ -2123,12 +2125,6 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 			)
 			return nil
 		}
-	}
-
-	// Verify POLRound, which must be -1 or in range [0, proposal.Round).
-	if proposal.POLRound < -1 ||
-		(proposal.POLRound >= 0 && proposal.POLRound >= proposal.Round) {
-		return ErrInvalidProposalPOLRound
 	}
 
 	p := proposal.ToProto()
@@ -2491,7 +2487,10 @@ func (cs *State) addVote(
 	}
 	if vote.Round == cs.roundState.Round() {
 		vals := cs.state.Validators
-		_, val := vals.GetByIndex(vote.ValidatorIndex)
+		_, val, ok := vals.GetByIndex(vote.ValidatorIndex)
+		if !ok {
+			panic(fmt.Errorf("validator index %v out of range", vote.ValidatorIndex))
+		}
 		cs.metrics.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
 	}
 
@@ -2619,8 +2618,10 @@ func (cs *State) signVote(
 	}
 
 	addr := privValidatorPubKey.Address()
-	valIdx, _ := cs.roundState.Validators().GetByAddress(addr)
-
+	valIdx, _, ok := cs.roundState.Validators().GetByAddress(addr)
+	if !ok {
+		panic(fmt.Errorf("validator %v not in committee", addr))
+	}
 	vote := &types.Vote{
 		ValidatorAddress: addr,
 		ValidatorIndex:   valIdx,
@@ -2748,7 +2749,10 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 
 	var votingPowerSeen int64
 	for _, v := range pl {
-		_, val := cs.roundState.Validators().GetByAddress(v.ValidatorAddress)
+		_, val, ok := cs.roundState.Validators().GetByAddress(v.ValidatorAddress)
+		if !ok {
+			panic(fmt.Errorf("validator %v not in committee", v.ValidatorAddress))
+		}
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.roundState.Validators().TotalVotingPower()*2/3+1 {
 			cs.metrics.QuorumPrevoteDelay.With("proposer_address", cs.roundState.Validators().GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())

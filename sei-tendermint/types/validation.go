@@ -191,11 +191,12 @@ func verifyCommitBatch(
 				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
 			}
 		} else {
-			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
+			var ok bool
+			valIdx, val, ok = vals.GetByAddress(commitSig.ValidatorAddress)
 
 			// if the signature doesn't belong to anyone in the validator set
 			// then we just skip over it
-			if val == nil {
+			if !ok {
 				continue
 			}
 
@@ -209,7 +210,10 @@ func verifyCommitBatch(
 		}
 
 		// Validate signature.
-		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		voteSignBytes, ok := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		if !ok {
+			panic("VoteSignBytes() failed unexpectedly")
+		}
 
 		// add the key, sig and message to the verifier
 		sig, ok := commitSig.Signature.Get()
@@ -272,7 +276,6 @@ func verifyCommitSingle(
 		val                *Validator
 		valIdx             int32
 		talliedVotingPower int64
-		voteSignBytes      []byte
 		seenVals           = make(map[int32]int, len(commit.Signatures))
 	)
 	for idx, commitSig := range commit.Signatures {
@@ -288,11 +291,12 @@ func verifyCommitSingle(
 				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
 			}
 		} else {
-			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
+			var ok bool
+			valIdx, val, ok = vals.GetByAddress(commitSig.ValidatorAddress)
 
 			// if the signature doesn't belong to anyone in the validator set
 			// then we just skip over it
-			if val == nil {
+			if !ok {
 				continue
 			}
 
@@ -305,7 +309,10 @@ func verifyCommitSingle(
 			seenVals[valIdx] = idx
 		}
 
-		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		voteSignBytes, ok := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		if !ok {
+			panic("VoteSignBytes() failed unexpectedly")
+		}
 		sig, ok := commitSig.Signature.Get()
 		if !ok {
 			return fmt.Errorf("missing signature at idx %v", idx)
