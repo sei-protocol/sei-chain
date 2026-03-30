@@ -24,8 +24,8 @@ func NewFlatKVWrapper(store flatkv.Store) DBWrapper {
 	}
 }
 
-func (f *flatKVWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	err := f.base.ApplyChangeSets(cs)
+func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	err := f.base.ApplyChangeSets(entry.Changesets)
 	if err == nil {
 		f.hasPending = true
 	}
