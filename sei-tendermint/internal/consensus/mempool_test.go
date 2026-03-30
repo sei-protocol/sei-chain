@@ -97,15 +97,16 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 		Power:      10,
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
+	height, round := cs.roundState.Height(), cs.roundState.Round()
 
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
-	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
+	startTestRound(ctx, cs, height, round)
 
 	ensureNewEventOnChannel(t, newBlockCh)   // first block gets committed
-	ensureNoNewEventOnChannel(t, newBlockCh) // then we dont make a block ...
-	ensureNewEventOnChannel(t, newBlockCh)   // until the CreateEmptyBlocksInterval has passed
+	ensureNoNewEventOnChannel(t, newBlockCh) // then we don't make a block ...
+	ensureNewBlockHeightEventually(t, newBlockCh, height+1) // until the CreateEmptyBlocksInterval has passed
 }
 
 func TestMempoolProgressInHigherRound(t *testing.T) {
