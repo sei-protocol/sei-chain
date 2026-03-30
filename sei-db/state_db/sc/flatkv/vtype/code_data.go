@@ -27,7 +27,6 @@ const (
 	codeVersionStart     = 0
 	codeBlockHeightStart = 1
 	codeBytecodeStart    = 9
-	codeHeaderLength     = 9
 )
 
 // Used for encapsulating and serializing contract bytecode in the FlatKV code database.
@@ -40,7 +39,7 @@ type CodeData struct {
 
 // Create a new CodeData with the given bytecode.
 func NewCodeData(bytecode []byte) *CodeData {
-	data := make([]byte, codeHeaderLength+len(bytecode))
+	data := make([]byte, codeBytecodeStart+len(bytecode))
 	copy(data[codeBytecodeStart:], bytecode)
 	return &CodeData{data: data}
 }
@@ -67,9 +66,9 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
 	}
 
-	if len(data) < codeHeaderLength {
+	if len(data) < codeBytecodeStart {
 		return nil, fmt.Errorf("data length at version %d should be at least %d, got %d",
-			serializationVersion, codeHeaderLength, len(data))
+			serializationVersion, codeBytecodeStart, len(data))
 	}
 
 	return codeData, nil
@@ -93,7 +92,7 @@ func (c *CodeData) GetBytecode() []byte {
 // Check if this code data signifies a deletion operation. A deletion operation is automatically
 // performed when the bytecode is empty (with the exception of the serialization version and block height).
 func (c *CodeData) IsDelete() bool {
-	return len(c.data) == codeHeaderLength
+	return len(c.data) == codeBytecodeStart
 }
 
 // Set the block height when this code was last modified/touched. Returns self.

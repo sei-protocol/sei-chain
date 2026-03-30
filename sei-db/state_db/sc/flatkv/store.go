@@ -82,10 +82,10 @@ type CommitStore struct {
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
-	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
-	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
+	accountDB  seidbtypes.KeyValueDB // addr(20) → vtype.AccountData
+	codeDB     seidbtypes.KeyValueDB // addr(20) → vtype.CodeData
+	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → vtype.StorageData
+	legacyDB   seidbtypes.KeyValueDB // key → vtype.LegacyValue
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
