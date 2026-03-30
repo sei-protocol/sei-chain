@@ -67,7 +67,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		ReadMode:          CosmosOnlyRead,
 		EnableLatticeHash: false,
 		MemIAVLConfig:     memiavl.DefaultConfig(),
-		FlatKVConfig:      flatkv.DefaultConfig(),
+		FlatKVConfig:      *flatkv.DefaultConfig(),
 
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,

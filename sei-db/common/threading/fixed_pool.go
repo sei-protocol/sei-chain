@@ -26,6 +26,10 @@ func NewFixedPool(
 	queueSize int,
 ) Pool {
 
+	if workers <= 0 {
+		workers = 1
+	}
+
 	workQueue := make(chan func(), queueSize)
 	fp := &fixedPool{
 		workQueue: workQueue,

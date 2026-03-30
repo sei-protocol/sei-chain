@@ -68,8 +68,12 @@ func NewCompositeCommitStore(
 	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
-		flatkvPath := filepath.Join(homeDir, "data", "flatkv")
-		store.evmCommitter = flatkv.NewCommitStore(ctx, flatkvPath, cfg.FlatKVConfig)
+		cfg.FlatKVConfig.DataDir = filepath.Join(homeDir, "data", "flatkv")
+		var err error
+		store.evmCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
+		if err != nil {
+			panic(fmt.Errorf("failed to create FlatKV commit store: %w", err))
+		}
 	}
 
 	return store
