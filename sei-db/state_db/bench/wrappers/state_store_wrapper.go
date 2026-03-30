@@ -30,11 +30,10 @@ func NewStateStoreWrapper(store dbTypes.StateStore) DBWrapper {
 }
 
 func (s *stateStoreWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	nextVersion := s.version.Load() + 1
+	nextVersion := s.version.Add(1)
 	if err := s.base.ApplyChangesetAsync(nextVersion, cs); err != nil {
 		return err
 	}
-	s.version.Store(nextVersion)
 	return nil
 }
 
