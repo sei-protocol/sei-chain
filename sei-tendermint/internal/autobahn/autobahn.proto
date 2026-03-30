@@ -112,8 +112,9 @@ message Proposal {
   option (hashable.hashable) = true;
   optional View view = 1; // required.
   optional Timestamp created_at = 2; // required
-  repeated LaneRange lane_ranges = 3; // Sorted by lane.
-  optional AppProposal app = 4; // optional
+  optional uint64 first_block = 3; // required
+  repeated LaneRange lane_ranges = 4; // Sorted by lane.
+  optional AppProposal app = 5; // optional
 }
 
 message FullProposal {

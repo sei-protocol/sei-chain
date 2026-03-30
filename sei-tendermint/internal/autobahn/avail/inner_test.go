@@ -16,6 +16,7 @@ import (
 func TestPruneMismatchedIndices(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
+	initialBlock := committee.FirstBlock()
 	ds := data.NewState(&data.Config{
 		Committee: committee,
 	}, utils.None[data.BlockStore]())
@@ -44,7 +45,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	_ = makeQC(1, utils.Some(qc0)) // show we can generate index 1
 
 	// Create an AppQC for index 1
-	appProposal1 := types.NewAppProposal(0, 1, types.GenAppHash(rng))
+	appProposal1 := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
 	appQC1 := types.NewAppQC(makeAppVotes(keys, appProposal1))
 
 	// Now call PushAppQC with appQC1 (index 1) and qc0 (index 0)
@@ -79,8 +80,8 @@ func TestNewInnerFreshStart(t *testing.T) {
 	require.NotNil(t, i.nextBlockToPersist)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
-	require.Equal(t, types.GlobalBlockNumber(0), i.appVotes.first)
-	require.Equal(t, types.GlobalBlockNumber(0), i.appVotes.next)
+	require.Equal(t, committee.FirstBlock(), i.appVotes.first)
+	require.Equal(t, committee.FirstBlock(), i.appVotes.next)
 	for _, lane := range committee.Lanes().All() {
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].first)
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].next)
@@ -112,10 +113,10 @@ func TestNewInnerLoadedNoAnchor(t *testing.T) {
 	i, err := newInner(committee, utils.Some(loaded))
 	require.NoError(t, err)
 
-	// No anchor loaded, queues should start at 0.
+	// No anchor loaded, app votes should start at the committee's first block.
 	require.False(t, i.latestAppQC.IsPresent())
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
-	require.Equal(t, types.GlobalBlockNumber(0), i.appVotes.first)
+	require.Equal(t, committee.FirstBlock(), i.appVotes.first)
 }
 
 func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
@@ -761,6 +762,7 @@ func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
 func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
+	initialBlock := committee.FirstBlock()
 
 	// Build CommitQCs 0-2.
 	qcs := make([]*types.CommitQC, 3)
@@ -771,7 +773,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	}
 
 	// AppQC at road index 2, prune anchor is CommitQC[2].
-	appProposal := types.NewAppProposal(0, 2, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(initialBlock, 2, types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 	pruneQC := qcs[2]
 
@@ -809,6 +811,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
+	initialBlock := committee.FirstBlock()
 
 	// Build CommitQCs 0-2.
 	qcs := make([]*types.CommitQC, 3)
@@ -819,7 +822,7 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	}
 
 	// AppQC at road index 1, prune anchor is CommitQC[1].
-	appProposal := types.NewAppProposal(0, 1, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{

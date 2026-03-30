@@ -54,6 +54,22 @@ func GlobalRangeOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T]
 	return GlobalRange{}
 }
 
+// GlobalRangeOptAt defaults to an empty initial range starting at firstBlock.
+func GlobalRangeOptAt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], firstBlock GlobalBlockNumber) GlobalRange {
+	if v, ok := mv.Get(); ok {
+		return v.GlobalRange()
+	}
+	return GlobalRange{First: firstBlock, Next: firstBlock}
+}
+
+// FirstBlockOpt returns the first block of an optional finalized global range.
+func FirstBlockOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], fallback GlobalBlockNumber) GlobalBlockNumber {
+	if v, ok := mv.Get(); ok {
+		return v.GlobalRange().Next
+	}
+	return fallback
+}
+
 // AppOpt defaults to None.
 func AppOpt[T interface {
 	App() utils.Option[*AppProposal]

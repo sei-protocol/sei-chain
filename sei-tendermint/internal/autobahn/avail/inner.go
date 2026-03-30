@@ -73,6 +73,8 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 	}
+	i.appVotes.first = c.FirstBlock()
+	i.appVotes.next = c.FirstBlock()
 
 	l, ok := loaded.Get()
 	if !ok {

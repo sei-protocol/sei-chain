@@ -61,15 +61,15 @@ type inner struct {
 	nextQC          types.GlobalBlockNumber
 }
 
-func newInner() *inner {
+func newInner(firstBlock types.GlobalBlockNumber) *inner {
 	return &inner{
 		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
 		appProposals:    map[types.GlobalBlockNumber]appProposalWithTimestamp{},
-		first:           0,
-		nextAppProposal: 0,
-		nextBlock:       0,
-		nextQC:          0,
+		first:           firstBlock,
+		nextAppProposal: firstBlock,
+		nextBlock:       firstBlock,
+		nextQC:          firstBlock,
 	}
 }
 
@@ -101,7 +101,7 @@ func NewState(cfg *Config, blockStore utils.Option[BlockStore]) *State {
 	return &State{
 		cfg:        cfg,
 		metrics:    newDataMetrics(),
-		inner:      utils.NewWatch(newInner()),
+		inner:      utils.NewWatch(newInner(cfg.Committee.FirstBlock())),
 		blockStore: blockStore,
 	}
 }
@@ -372,7 +372,7 @@ func (s *State) Run(ctx context.Context) error {
 			// TODO(gprusak): writing to blockStore is best effort now,
 			// since the blocks may get pruned before they are written.
 			scope.SpawnNamed("blockStore", func() error {
-				for idx := types.GlobalBlockNumber(0); ; idx += 1 {
+				for idx := s.cfg.Committee.FirstBlock(); ; idx += 1 {
 					b, err := s.GlobalBlock(ctx, idx)
 					if err != nil {
 						return fmt.Errorf("s.Blocks(): %w", err)

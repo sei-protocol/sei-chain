@@ -27,12 +27,18 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 // GenCommittee generates a random Committee of the given size.
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
+	return GenCommitteeAt(rng, size, GenInitialGlobalBlockNumber(rng))
+}
+
+// GenCommitteeAt generates a random Committee of the given size at firstBlock.
+// Returns the generated secret keys as well.
+func GenCommitteeAt(rng utils.Rng, size int, firstBlock GlobalBlockNumber) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
 	pks := make([]PublicKey, size)
 	for i, sk := range sks {
 		pks[i] = sk.Public()
 	}
-	c, err := NewRoundRobinElection(pks)
+	c, err := NewRoundRobinElectionAt(pks, firstBlock)
 	if err != nil {
 		panic(err)
 	}
@@ -154,12 +160,12 @@ func GenView(rng utils.Rng) View {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(GenView(rng), time.Now(), GenGlobalBlockNumber(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(view, time.Now(), GenGlobalBlockNumber(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
 // GenAppHash generates a random AppHash.
@@ -203,6 +209,11 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 // GenGlobalBlockNumber generates a random GlobalBlockNumber.
 func GenGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
 	return GlobalBlockNumber(rng.Uint64())
+}
+
+// GenInitialGlobalBlockNumber generates a non-zero initial GlobalBlockNumber.
+func GenInitialGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
+	return GlobalBlockNumber(rng.Uint64()%1_000_000 + 1)
 }
 
 // GenGlobalBlock generates a random GlobalBlock.
