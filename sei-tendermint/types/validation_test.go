@@ -46,7 +46,7 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 		round  = int32(0)
 		height = int64(100)
 
-		blockID    = makeBlockID([]byte("blockhash"), 1000, []byte("partshash"))
+		blockID    = makeBlockID([]byte("blockhash"), MaxBlockPartsCount, []byte("partshash"))
 		chainID    = "Lalande21185"
 		trustLevel = tmmath.Fraction{Numerator: 2, Denominator: 3}
 	)
@@ -199,7 +199,8 @@ func TestValidatorSet_VerifyCommit_CheckAllSignatures(t *testing.T) {
 	require.NoError(t, valSet.VerifyCommit(chainID, blockID, h, commit))
 
 	// malleate 4th signature
-	vote := voteSet.GetByIndex(3)
+	vote, ok := voteSet.GetByIndex(3)
+	require.True(t, ok)
 	v := vote.ToProto()
 	require.NoError(t, vals[3].SignVote(ctx, "CentaurusA", v))
 	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
@@ -227,7 +228,8 @@ func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajorityOfVotingPowerSign
 	require.NoError(t, valSet.VerifyCommit(chainID, blockID, h, commit))
 
 	// malleate 4th signature (3 signatures are enough for 2/3+)
-	vote := voteSet.GetByIndex(3)
+	vote, ok := voteSet.GetByIndex(3)
+	require.True(t, ok)
 	v := vote.ToProto()
 	require.NoError(t, vals[3].SignVote(ctx, "CentaurusA", v))
 	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
@@ -252,7 +254,8 @@ func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelOfVotin
 	require.NoError(t, valSet.VerifyCommit(chainID, blockID, h, commit))
 
 	// malleate 3rd signature (2 signatures are enough for 1/3+ trust level)
-	vote := voteSet.GetByIndex(2)
+	vote, ok := voteSet.GetByIndex(2)
+	require.True(t, ok)
 	v := vote.ToProto()
 	require.NoError(t, vals[2].SignVote(ctx, "CentaurusA", v))
 	vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))

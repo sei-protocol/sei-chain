@@ -30,7 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -515,27 +514,6 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 	ps := NewPeerState(testPeerID)
 	ps.PRS.Height = 1
 	ps.PRS.Round = 0
-
-	// Create an invalid proposal with excessive PartSetHeader.Total
-	invalidProposal := &types.Proposal{
-		Type:     tmproto.ProposalType,
-		Height:   1,
-		Round:    0,
-		POLRound: -1,
-		BlockID: types.BlockID{
-			Hash: make([]byte, 32),
-			PartSetHeader: types.PartSetHeader{
-				Total: types.MaxBlockPartsCount + 1, // Exceeds limit
-				Hash:  make([]byte, 32),
-			},
-		},
-		Timestamp: time.Now(),
-		Signature: makeSig("test-signature"),
-	}
-
-	// Test direct SetHasProposal call (this is what reactor calls)
-	ps.SetHasProposal(invalidProposal)
-	require.False(t, ps.PRS.Proposal, "SetHasProposal should silently ignore proposal with excessive Total")
 
 	// Test that reactor would handle this silently by verifying the defensive programming approach
 	// This provides coverage for the silent handling in handleDataMessage
