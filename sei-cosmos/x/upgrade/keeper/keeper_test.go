@@ -314,7 +314,7 @@ func (s *KeeperTestSuite) TestGetClosestUpgrade() {
 
 // TestGetDoneHeight covers both the cache-hit and cache-miss paths of GetDoneHeight.
 func (s *KeeperTestSuite) TestGetDoneHeight() {
-	// Unknown upgrade returns 0 and must NOT be cached — SetDone may be called later.
+	// Unknown upgrade: first lookup returns 0 and caches it; ApplyUpgrade/SetDone then overwrites cache and KV.
 	s.Require().Equal(int64(0), s.app.UpgradeKeeper.GetDoneHeight(s.ctx, "no-such-upgrade"))
 	s.app.UpgradeKeeper.SetUpgradeHandler("no-such-upgrade", func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
 		return vm, nil
