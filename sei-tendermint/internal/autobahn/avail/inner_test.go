@@ -127,7 +127,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	// Build 3 contiguous blocks: 0, 1, 2.
 	var parent types.BlockHeaderHash
 	var bs []persist.LoadedBlock
-	for n := types.BlockNumber(0); n < 3; n++ {
+	for n := range types.BlockNumber(3) {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
 		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: b})
@@ -205,7 +205,7 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 
 	var parent0 types.BlockHeaderHash
 	var bs0 []persist.LoadedBlock
-	for n := types.BlockNumber(0); n < 2; n++ {
+	for n := range types.BlockNumber(2) {
 		b := testSignedBlock(keys[0], lane0, n, parent0, rng)
 		parent0 = b.Msg().Block().Header().Hash()
 		bs0 = append(bs0, persist.LoadedBlock{Number: n, Proposal: b})
@@ -213,7 +213,7 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 
 	var parent1 types.BlockHeaderHash
 	var bs1 []persist.LoadedBlock
-	for n := types.BlockNumber(0); n < 3; n++ {
+	for n := range types.BlockNumber(3) {
 		b := testSignedBlock(keys[1], lane1, n, parent1, rng)
 		parent1 = b.Msg().Block().Header().Hash()
 		bs1 = append(bs1, persist.LoadedBlock{Number: n, Proposal: b})
@@ -355,7 +355,7 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 	// Blocks 0-2 on one lane (nil laneQCs → lr.First()=0 after prune).
 	var parent types.BlockHeaderHash
 	var bs []persist.LoadedBlock
-	for n := types.BlockNumber(0); n < 3; n++ {
+	for n := range types.BlockNumber(3) {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
 		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: b})
@@ -401,7 +401,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 
 	// Push blocks 0-4 on one lane.
 	var parent types.BlockHeaderHash
-	for n := types.BlockNumber(0); n < 5; n++ {
+	for n := range types.BlockNumber(5) {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
 		i.blocks[lane].pushBack(b)

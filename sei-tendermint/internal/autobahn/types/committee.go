@@ -118,13 +118,8 @@ func (c *Committee) LaneQuorum() int {
 	return c.Faulty() + 1
 }
 
-// NewRoundRobinElection creates a Committee with round robin election.
-func NewRoundRobinElection(replicas []PublicKey) (*Committee, error) {
-	return NewRoundRobinElectionAt(replicas, 0)
-}
-
-// NewRoundRobinElectionAt creates a Committee with round robin election starting at firstBlock.
-func NewRoundRobinElectionAt(replicas []PublicKey, firstBlock GlobalBlockNumber) (*Committee, error) {
+// NewRoundRobinElection creates a Committee with round robin election starting at firstBlock.
+func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber) (*Committee, error) {
 	if len(replicas) == 0 {
 		return nil, errors.New("replicas cannot be empty")
 	}

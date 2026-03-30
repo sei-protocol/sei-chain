@@ -27,18 +27,12 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 // GenCommittee generates a random Committee of the given size.
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
-	return GenCommitteeAt(rng, size, GenInitialGlobalBlockNumber(rng))
-}
-
-// GenCommitteeAt generates a random Committee of the given size at firstBlock.
-// Returns the generated secret keys as well.
-func GenCommitteeAt(rng utils.Rng, size int, firstBlock GlobalBlockNumber) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
 	pks := make([]PublicKey, size)
 	for i, sk := range sks {
 		pks[i] = sk.Public()
 	}
-	c, err := NewRoundRobinElectionAt(pks, firstBlock)
+	c, err := NewRoundRobinElection(pks, GenGlobalBlockNumber(rng)%1000000)
 	if err != nil {
 		panic(err)
 	}
@@ -209,11 +203,6 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 // GenGlobalBlockNumber generates a random GlobalBlockNumber.
 func GenGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
 	return GlobalBlockNumber(rng.Uint64())
-}
-
-// GenInitialGlobalBlockNumber generates a non-zero initial GlobalBlockNumber.
-func GenInitialGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
-	return GlobalBlockNumber(rng.Uint64()%1_000_000 + 1)
 }
 
 // GenGlobalBlock generates a random GlobalBlock.

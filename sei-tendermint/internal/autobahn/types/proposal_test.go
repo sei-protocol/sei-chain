@@ -441,10 +441,10 @@ func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
 	initialBlock := committee.FirstBlock()
 
 	// Build a valid proposal with an AppQC, then swap in a different one.
-	goodAppQC := makeAppQCFor(keys, initialBlock-1, 0, GenAppHash(rng))
+	goodAppQC := makeAppQCFor(keys, initialBlock, 0, GenAppHash(rng))
 	fp := utils.OrPanic1(NewProposal(leader, committee, vs, time.Now(), nil, utils.Some(goodAppQC)))
 
-	differentAppQC := makeAppQCFor(keys, initialBlock-1, 0, GenAppHash(rng))
+	differentAppQC := makeAppQCFor(keys, initialBlock, 0, GenAppHash(rng))
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
 		appQC:    utils.Some(differentAppQC),
@@ -461,7 +461,7 @@ func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	initialBlock := committee.FirstBlock()
 
 	appHash := GenAppHash(rng)
-	goodAppQC := makeAppQCFor(keys, initialBlock-1, 0, appHash)
+	goodAppQC := makeAppQCFor(keys, initialBlock, 0, appHash)
 	fp := utils.OrPanic1(NewProposal(leader, committee, vs, time.Now(), nil, utils.Some(goodAppQC)))
 
 	// Swap in an AppQC signed by NON-committee keys (same hash).
@@ -469,7 +469,7 @@ func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	for i := range otherKeys {
 		otherKeys[i] = GenSecretKey(rng)
 	}
-	badAppQC := makeAppQCFor(otherKeys, initialBlock-1, 0, appHash)
+	badAppQC := makeAppQCFor(otherKeys, initialBlock, 0, appHash)
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
 		appQC:    utils.Some(badAppQC),

@@ -47,27 +47,11 @@ func LaneRangeOpt[T interface {
 }
 
 // GlobalRangeOpt defaults to an empty initial range.
-func GlobalRangeOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T]) GlobalRange {
+func GlobalRangeOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], c *Committee) GlobalRange {
 	if v, ok := mv.Get(); ok {
 		return v.GlobalRange()
 	}
-	return GlobalRange{}
-}
-
-// GlobalRangeOptAt defaults to an empty initial range starting at firstBlock.
-func GlobalRangeOptAt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], firstBlock GlobalBlockNumber) GlobalRange {
-	if v, ok := mv.Get(); ok {
-		return v.GlobalRange()
-	}
-	return GlobalRange{First: firstBlock, Next: firstBlock}
-}
-
-// FirstBlockOpt returns the first block of an optional finalized global range.
-func FirstBlockOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], fallback GlobalBlockNumber) GlobalBlockNumber {
-	if v, ok := mv.Get(); ok {
-		return v.GlobalRange().Next
-	}
-	return fallback
+	return GlobalRange{First: c.FirstBlock(), Next: c.FirstBlock()}
 }
 
 // AppOpt defaults to None.

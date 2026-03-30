@@ -253,7 +253,7 @@ func NewProposal(
 	proposal := newProposal(
 		viewSpec.View(),
 		createdAt,
-		FirstBlockOpt(viewSpec.CommitQC, committee.FirstBlock()),
+		GlobalRangeOpt(viewSpec.CommitQC, committee).Next,
 		laneRanges,
 		app,
 	)
@@ -291,7 +291,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
 		}
-		if got, want := m.proposal.Msg().FirstBlock(), FirstBlockOpt(vs.CommitQC, c.FirstBlock()); got != want {
+		if got, want := m.proposal.Msg().FirstBlock(), GlobalRangeOpt(vs.CommitQC, c).Next; got != want {
 			return fmt.Errorf("firstBlock = %v, want %v", got, want)
 		}
 		// Is proposer valid?
@@ -380,7 +380,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				}
 				return nil
 			})
-			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOptAt(vs.CommitQC, c.FirstBlock()).Next; got >= want {
+			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOpt(vs.CommitQC, c).Next; got >= want {
 				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
 		}
