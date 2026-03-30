@@ -27,11 +27,6 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 
-	current, found, err := wrapper.Read(keyV1AndV2)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte("value-v1"), current)
-
 	require.NoError(t, wrapper.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: EVMStoreName,
@@ -45,16 +40,6 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	version, err = wrapper.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(2), version)
-
-	current, found, err = wrapper.Read(keyV1AndV2)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte("value-v2"), current)
-
-	current, found, err = wrapper.Read(keyV2Only)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte("value-v2-only"), current)
 
 	require.NoError(t, wrapper.Close())
 

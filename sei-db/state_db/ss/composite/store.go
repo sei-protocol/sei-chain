@@ -34,10 +34,6 @@ type CompositeStateStore struct {
 	closeErr       error
 }
 
-type pendingWriteWaiter interface {
-	WaitForPendingWrites()
-}
-
 // NewCompositeStateStore creates a new composite state store.
 // Backend (PebbleDB or RocksDB) is resolved at compile time via build-tag-gated files in db_engine/backend.
 func NewCompositeStateStore(
@@ -235,15 +231,6 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		}
 	}
 	return nil
-}
-
-func (s *CompositeStateStore) WaitForPendingWrites() {
-	if waiter, ok := s.cosmosStore.(pendingWriteWaiter); ok {
-		waiter.WaitForPendingWrites()
-	}
-	if waiter, ok := s.evmStore.(pendingWriteWaiter); ok {
-		waiter.WaitForPendingWrites()
-	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

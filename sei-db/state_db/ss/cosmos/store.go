@@ -14,10 +14,6 @@ type CosmosStateStore struct {
 	db types.StateStore
 }
 
-type pendingWriteWaiter interface {
-	WaitForPendingWrites()
-}
-
 // NewCosmosStateStore wraps an existing StateStore as a CosmosStateStore.
 func NewCosmosStateStore(db types.StateStore) types.StateStore {
 	return &CosmosStateStore{db: db}
@@ -65,12 +61,6 @@ func (s *CosmosStateStore) ApplyChangesetSync(version int64, changesets []*proto
 
 func (s *CosmosStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	return s.db.ApplyChangesetAsync(version, changesets)
-}
-
-func (s *CosmosStateStore) WaitForPendingWrites() {
-	if waiter, ok := s.db.(pendingWriteWaiter); ok {
-		waiter.WaitForPendingWrites()
-	}
 }
 
 func (s *CosmosStateStore) Prune(version int64) error {
