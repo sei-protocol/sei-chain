@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -25,7 +27,7 @@ import (
 
 const parityTestHeight int64 = 771
 
-// Tendermint client stub: only Block(height) and Status are used by GetBlockTransactionCountByNumber.
+// Tendermint client stub for Block / BlockByHash / Status (count by number and by hash).
 type parityTxCountTMClient struct {
 	tmmock.Client
 	block *coretypes.ResultBlock
@@ -38,6 +40,13 @@ func (c *parityTxCountTMClient) Block(_ context.Context, h *int64) (*coretypes.R
 	return nil, fmt.Errorf("unexpected height %v", h)
 }
 
+func (c *parityTxCountTMClient) BlockByHash(_ context.Context, hash tmbytes.HexBytes) (*coretypes.ResultBlock, error) {
+	if c.block != nil && hash.String() == c.block.BlockID.Hash.String() {
+		return c.block, nil
+	}
+	return nil, fmt.Errorf("unexpected hash %s", hash.String())
+}
+
 func (c *parityTxCountTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
@@ -47,6 +56,8 @@ func (c *parityTxCountTMClient) Status(context.Context) (*coretypes.ResultStatus
 	}, nil
 }
 
+// GetBlockTransactionCountByNumber and GetBlockTransactionCountByHash both use getEvmTxCount; this
+// checks both match EncodeTmBlock's transaction list for the same fixture block.
 func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
@@ -121,6 +132,12 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rpcCount)
 	require.Equal(t, len(list), int(*rpcCount))
+
+	rpcCountByHash, err := api.GetBlockTransactionCountByHash(context.Background(), common.BytesToHash(block.BlockID.Hash))
+	require.NoError(t, err)
+	require.NotNil(t, rpcCountByHash)
+	require.Equal(t, len(list), int(*rpcCountByHash))
+
 	require.Greater(t, decodeOnly, len(list))
 }
 
