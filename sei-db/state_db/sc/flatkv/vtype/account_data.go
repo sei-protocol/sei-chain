@@ -26,12 +26,12 @@ Data is stored in big-endian order.
 */
 
 const (
-	accountVersionStart    = 0
+	accountVersionStart     = 0
 	accountBlockHeightStart = 1
-	accountBalanceStart    = 9
-	accountNonceStart      = 41
-	accountCodeHashStart   = 49
-	accountDataLength      = 81
+	accountBalanceStart     = 9
+	accountNonceStart       = 41
+	accountCodeHashStart    = 49
+	accountDataLength       = 81
 )
 
 // Used for encapsulating and serializating account data in the FlatKV accounts database.
