@@ -219,8 +219,11 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	// Accessing tracersAPI from the embedded DebugAPI
-	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	}
 	if returnErr != nil {
 		return
 	}
@@ -248,8 +251,11 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	}
 	defer done()
 
-	// Accessing tracersAPI from the embedded DebugAPI
-	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	}
 	if returnErr != nil {
 		return
 	}
@@ -335,7 +341,11 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	}
 	return
 }
 
@@ -349,7 +359,11 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if shouldUseProfiledBlockTrace(config) {
+		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
+	} else {
+		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	}
 	return
 }
 
@@ -408,8 +422,12 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	tracingBackend := *api.backend
+	tracingBackend.ctxProvider = func(height int64) sdk.Context {
+		return api.ctxProvider(height).WithIsTracing(true)
+	}
 	ctx = WithReceiptTraces(ctx, receiptTraces)
-	_, tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	_, tx, blockHash, blockNumber, index, err := tracingBackend.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -421,11 +439,11 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if blockNumber == 0 {
 		return nil, errors.New("genesis is not traceable")
 	}
-	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	block, _, err := tracingBackend.BlockByHash(ctx, blockHash)
 	if err != nil {
 		return nil, err
 	}
-	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
+	stateDB, _, err := tracingBackend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}

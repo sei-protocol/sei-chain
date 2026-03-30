@@ -668,6 +668,37 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	return nil
 }
 
+// PrepareTxNoFlush is like PrepareTx but uses ResetForTracer instead of
+// CleanupForTracer, avoiding CacheMultiStore flushes. This is required in the
+// parallel block trace path where copies of the statedb are concurrently read
+// by worker goroutines; flushing would write to shared CacheMultiStore layers
+// and cause data races.
+func (b *Backend) PrepareTxNoFlush(statedb vm.StateDB, tx *ethtypes.Transaction) error {
+	typedStateDB := state.GetDBImpl(statedb)
+	typedStateDB.ResetForTracer()
+	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	ctx = ctx.WithIsEVM(true)
+	if noSignatureSet(tx) {
+		return nil
+	}
+	txData, err := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to TxData due to %s", err)
+	}
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
+	}
+	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
+	_ = tb.SetMsgs(msg)
+	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	if err != nil {
+		return fmt.Errorf("transaction failed ante handler due to %s", err)
+	}
+	typedStateDB.WithCtx(newCtx)
+	return nil
+}
+
 func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
 	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
