@@ -86,18 +86,28 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 }
 
 // FilterLogs queries logs across a range of blocks.
-// Checks the cache first for recent blocks, then delegates to the backend.
+// When the cache fully covers the requested range the backend is skipped
+// entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
-	// First get logs from backend (parquet closed files)
-	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, toBlock, crit)
+	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
+
+	cacheMin := s.cache.LogMinBlock()
+	if cacheMin > 0 && fromBlock >= cacheMin {
+		sortLogs(cacheLogs)
+		return cacheLogs, nil
+	}
+
+	// Narrow the backend query to only the block range not covered by cache.
+	backendTo := toBlock
+	if cacheMin > 0 && cacheMin <= toBlock && cacheMin > fromBlock {
+		backendTo = cacheMin - 1
+	}
+
+	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, backendTo, crit)
 	if err != nil {
 		return nil, err
 	}
 
-	// Then check cache for blocks that might not be in closed files yet
-	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
-
-	// Merge results, avoiding duplicates by tracking seen (blockNum, txIndex, logIndex)
 	if len(cacheLogs) == 0 {
 		return backendLogs, nil
 	}
@@ -106,7 +116,6 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		return cacheLogs, nil
 	}
 
-	// Build set of backend log keys to deduplicate
 	type logKey struct {
 		blockNum uint64
 		txIndex  uint
@@ -117,7 +126,6 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		seen[logKey{lg.BlockNumber, lg.TxIndex, lg.Index}] = struct{}{}
 	}
 
-	// Add cache logs that aren't already in backend results
 	result := backendLogs
 	for _, lg := range cacheLogs {
 		key := logKey{lg.BlockNumber, lg.TxIndex, lg.Index}
