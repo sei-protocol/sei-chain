@@ -69,58 +69,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				if err != nil {
 					return fmt.Errorf("failed to apply EVM account field change: %w", err)
 				}
-
 			case evm.EVMKeyCode:
-				// Code: keyBytes = addr(20) - per x/evm/types/keys.go
-				keyStr := string(keyBytes)
-				oldValue := codeOld[keyStr].Value
-
-				if pair.Delete {
-					s.codeWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					codeOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.codeWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
-				}
-
-				// LtHash pair: internal key directly
-				codePairs = append(codePairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
-
+				codePairs = s.applyEvmCodeChange(keyBytes, pair, codeOld, codePairs)
 			case evm.EVMKeyLegacy:
-				keyStr := string(keyBytes)
-				oldValue := legacyOld[keyStr].Value
-
-				if pair.Delete {
-					s.legacyWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					legacyOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.legacyWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					legacyOld[keyStr] = types.BatchGetResult{Value: pair.Value}
-				}
-
-				legacyPairs = append(legacyPairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
+				legacyPairs = s.applyEvmLegacyChange(keyBytes, pair, legacyOld, legacyPairs)
 			}
 		}
 	}
@@ -207,8 +159,81 @@ func (s *CommitStore) applyEvmStorageChange(
 		storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
 	}
 
-	// LtHash pair: internal key directly
 	return append(storagePairs, lthash.KVPairWithLastValue{
+		Key:       keyBytes,
+		Value:     pair.Value,
+		LastValue: oldValue,
+		Delete:    pair.Delete,
+	})
+}
+
+// Apply a single change to the evm code db.
+func (s *CommitStore) applyEvmCodeChange(
+	// The key with the prefix stripped (addr, 20 bytes).
+	keyBytes []byte,
+	// The change to apply.
+	pair *iavl.KVPair,
+	// This map stores the old value to the key prior to this change. This function updates it
+	// with the new value, so that the next change will see this value as the previous value.
+	codeOld map[string]types.BatchGetResult,
+	// This slice stores both the new and old values for each key modified in this block.
+	codePairs []lthash.KVPairWithLastValue,
+) []lthash.KVPairWithLastValue {
+	keyStr := string(keyBytes)
+	oldValue := codeOld[keyStr].Value
+
+	if pair.Delete {
+		s.codeWrites[keyStr] = &pendingKVWrite{
+			key:      keyBytes,
+			isDelete: true,
+		}
+		codeOld[keyStr] = types.BatchGetResult{Value: nil}
+	} else {
+		s.codeWrites[keyStr] = &pendingKVWrite{
+			key:   keyBytes,
+			value: pair.Value,
+		}
+		codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+	}
+
+	return append(codePairs, lthash.KVPairWithLastValue{
+		Key:       keyBytes,
+		Value:     pair.Value,
+		LastValue: oldValue,
+		Delete:    pair.Delete,
+	})
+}
+
+// Apply a single change to the evm legacy db.
+func (s *CommitStore) applyEvmLegacyChange(
+	// The key with the prefix stripped.
+	keyBytes []byte,
+	// The change to apply.
+	pair *iavl.KVPair,
+	// This map stores the old value to the key prior to this change. This function updates it
+	// with the new value, so that the next change will see this value as the previous value.
+	legacyOld map[string]types.BatchGetResult,
+	// This slice stores both the new and old values for each key modified in this block.
+	legacyPairs []lthash.KVPairWithLastValue,
+) []lthash.KVPairWithLastValue {
+	keyStr := string(keyBytes)
+	oldValue := legacyOld[keyStr].Value
+
+	if pair.Delete {
+		s.legacyWrites[keyStr] = &pendingKVWrite{
+			key:      keyBytes,
+			isDelete: true,
+		}
+		legacyOld[keyStr] = types.BatchGetResult{Value: nil}
+	} else {
+		s.legacyWrites[keyStr] = &pendingKVWrite{
+			key:   keyBytes,
+			value: pair.Value,
+		}
+		legacyOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+	}
+
+	return append(legacyPairs, lthash.KVPairWithLastValue{
 		Key:       keyBytes,
 		Value:     pair.Value,
 		LastValue: oldValue,
