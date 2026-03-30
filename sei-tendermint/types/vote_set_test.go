@@ -27,7 +27,8 @@ func TestVoteSet_AddVote_Good(t *testing.T) {
 	require.NoError(t, err)
 	val0Addr := val0p.Address()
 
-	assert.Nil(t, voteSet.GetByAddress(val0Addr))
+	_, ok := voteSet.GetByAddress(val0Addr)
+	assert.False(t, ok)
 	assert.False(t, voteSet.BitArray().GetIndex(0))
 	blockID, ok := voteSet.TwoThirdsMajority()
 	assert.False(t, ok || !blockID.IsNil(), "there should be no 2/3 majority")
@@ -44,7 +45,8 @@ func TestVoteSet_AddVote_Good(t *testing.T) {
 	_, err = signAddVote(ctx, val0, vote, voteSet)
 	require.NoError(t, err)
 
-	assert.NotNil(t, voteSet.GetByAddress(val0Addr))
+	_, ok = voteSet.GetByAddress(val0Addr)
+	require.True(t, ok)
 	assert.True(t, voteSet.BitArray().GetIndex(0))
 	blockID, ok = voteSet.TwoThirdsMajority()
 	assert.False(t, ok || !blockID.IsNil(), "there should be no 2/3 majority")
@@ -187,7 +189,7 @@ func TestVoteSet_2_3MajorityRedux(t *testing.T) {
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 100, 1)
 
 	blockHash := crypto.CRandBytes(32)
-	blockPartsTotal := uint32(123)
+	blockPartsTotal := MaxBlockPartsCount - 1
 	blockPartSetHeader := PartSetHeader{blockPartsTotal, crypto.CRandBytes(32)}
 
 	voteProto := &Vote{
@@ -419,7 +421,7 @@ func TestVoteSet_MakeCommit(t *testing.T) {
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrecommitType, 10, 1)
 
-	blockHash, blockPartSetHeader := crypto.CRandBytes(32), PartSetHeader{123, crypto.CRandBytes(32)}
+	blockHash, blockPartSetHeader := crypto.CRandBytes(32), PartSetHeader{MaxBlockPartsCount, crypto.CRandBytes(32)}
 
 	voteProto := &Vote{
 		ValidatorAddress: nil,
@@ -453,7 +455,7 @@ func TestVoteSet_MakeCommit(t *testing.T) {
 		addr := pv.Address()
 		vote := withValidator(voteProto, addr, 6)
 		vote = withBlockHash(vote, tmrand.Bytes(32))
-		vote = withBlockPartSetHeader(vote, PartSetHeader{123, tmrand.Bytes(32)})
+		vote = withBlockPartSetHeader(vote, PartSetHeader{MaxBlockPartsCount, tmrand.Bytes(32)})
 
 		_, err = signAddVote(ctx, privValidators[6], vote, voteSet)
 		require.NoError(t, err)

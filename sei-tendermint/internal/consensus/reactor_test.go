@@ -15,6 +15,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
+<<<<<<< HEAD
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/example/kvstore"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -34,6 +35,24 @@ import (
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+=======
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
+	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 )
 
 var (
@@ -523,6 +542,7 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 	ps.PRS.Height = 1
 	ps.PRS.Round = 0
 
+<<<<<<< HEAD
 	// Create an invalid proposal with excessive PartSetHeader.Total
 	invalidProposal := &types.Proposal{
 		Type:     tmproto.ProposalType,
@@ -544,6 +564,8 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 	ps.SetHasProposal(invalidProposal)
 	require.False(t, ps.PRS.Proposal, "SetHasProposal should silently ignore proposal with excessive Total")
 
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	// Test that reactor would handle this silently by verifying the defensive programming approach
 	// This provides coverage for the silent handling in handleDataMessage
 	t.Log("Coverage test: reactor silently ignores invalid proposals via PeerState validation")

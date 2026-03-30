@@ -67,8 +67,8 @@ func (p *Proposal) ValidateBasic() error {
 	if p.Round < 0 {
 		return errors.New("negative Round")
 	}
-	if p.POLRound < -1 {
-		return errors.New("negative POLRound (exception: -1)")
+	if p.POLRound < -1 || p.POLRound >= p.Round {
+		return fmt.Errorf("invalid POLRound: got %v, want [-1,%v)", p.POLRound, p.Round)
 	}
 	if err := p.BlockID.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong BlockID: %w", err)

@@ -132,12 +132,25 @@ func logNodeStartupInfo(state sm.State, pubKey crypto.PubKey, logger log.Logger,
 	}
 }
 
+<<<<<<< HEAD
 func onlyValidatorIsUs(state sm.State, pubKey crypto.PubKey) bool {
 	if state.Validators.Size() > 1 {
 		return false
 	}
 	addr, _ := state.Validators.GetByIndex(0)
 	return pubKey != nil && bytes.Equal(pubKey.Address(), addr)
+=======
+func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool {
+	k, ok := pubKey.Get()
+	if !ok {
+		return false
+	}
+	if state.Validators.Size() != 1 {
+		return false
+	}
+	addr, _, ok := state.Validators.GetByIndex(0)
+	return ok && bytes.Equal(k.Address(), addr)
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 }
 
 func createMempoolReactor(

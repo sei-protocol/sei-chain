@@ -96,12 +96,15 @@ func (ps *PeerState) SetHasProposal(proposal *types.Proposal) {
 		return
 	}
 
+<<<<<<< HEAD
 	// Check memory limits before acquiring lock or setting any state
 	if proposal.BlockID.PartSetHeader.Total > types.MaxBlockPartsCount {
 		ps.logger.Debug("PartSetHeader.Total exceeds maximum", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
 		return
 	}
 
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
 
@@ -190,12 +193,15 @@ func (ps *PeerState) PickVoteToSend(votes types.VoteSetReader) (*types.Vote, boo
 	}
 
 	if index, ok := votes.BitArray().Sub(psVotes).PickRandom(); ok {
+<<<<<<< HEAD
 		vote := votes.GetByIndex(int32(index))
 		if vote != nil {
 			return vote, true
 		}
+=======
+		return votes.GetByIndex(int32(index)) //nolint:gosec // index is bounded by validator set size which fits in int32
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	}
-
 	return nil, false
 }
 

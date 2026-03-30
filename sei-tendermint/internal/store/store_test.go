@@ -64,6 +64,26 @@ func newInMemoryBlockStore() (*BlockStore, dbm.DB) {
 	return NewBlockStore(db), db
 }
 
+// makeValidMultiPartSet chooses a small enough part size to keep the block
+// split across multiple parts without exceeding types.MaxBlockPartsCount.
+func makeValidMultiPartSet(t *testing.T, block *types.Block) *types.PartSet {
+	t.Helper()
+
+	blockSize := block.Size()
+	partSize := uint32(1)
+	if blockSize > 1 {
+		partSize = uint32((blockSize + int(types.MaxBlockPartsCount) - 1) / int(types.MaxBlockPartsCount))
+		if partSize >= uint32(blockSize) {
+			partSize = uint32(blockSize - 1)
+		}
+	}
+
+	partSet, err := block.MakePartSet(partSize)
+	require.NoError(t, err)
+	require.LessOrEqual(t, partSet.Total(), uint32(types.MaxBlockPartsCount))
+	return partSet
+}
+
 // TODO: This test should be simplified ...
 func TestBlockStoreSaveLoadBlock(t *testing.T) {
 	state, bs, cleanup, err := makeStateAndBlockStore(t.TempDir())
@@ -82,8 +102,7 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 
 	// save a block
 	block := factory.MakeBlock(state, bs.Height()+1, new(types.Commit))
-	validPartSet, err := block.MakePartSet(2)
-	require.NoError(t, err)
+	validPartSet := makeValidMultiPartSet(t, block)
 	part2 := validPartSet.GetPart(1)
 
 	seenCommit := makeTestCommit(block.Header.Height, tmtime.Now())
@@ -288,8 +307,7 @@ func TestLoadBaseMeta(t *testing.T) {
 
 	for h := int64(1); h <= 10; h++ {
 		block := factory.MakeBlock(state, h, new(types.Commit))
-		partSet, err := block.MakePartSet(2)
-		require.NoError(t, err)
+		partSet := makeValidMultiPartSet(t, block)
 		seenCommit := makeTestCommit(h, tmtime.Now())
 		bs.SaveBlock(block, partSet, seenCommit)
 	}
@@ -335,8 +353,7 @@ func TestLoadBlockPart(t *testing.T) {
 
 	// 3. A good block serialized and saved to the DB should be retrievable
 	block := factory.MakeBlock(state, height, new(types.Commit))
-	partSet, err := block.MakePartSet(2)
-	require.NoError(t, err)
+	partSet := makeValidMultiPartSet(t, block)
 	part1 := partSet.GetPart(0)
 
 	require.NoError(t, db.Set(blockPartKey(height, index), mustEncode(part1.ToProto())))
@@ -366,8 +383,7 @@ func TestPruneBlocks(t *testing.T) {
 	// make more than 1000 blocks, to test batch deletions
 	for h := int64(1); h <= 1500; h++ {
 		block := factory.MakeBlock(state, h, new(types.Commit))
-		partSet, err := block.MakePartSet(2)
-		require.NoError(t, err)
+		partSet := makeValidMultiPartSet(t, block)
 		seenCommit := makeTestCommit(h, tmtime.Now())
 		bs.SaveBlock(block, partSet, seenCommit)
 	}
@@ -474,8 +490,7 @@ func TestBlockFetchAtHeight(t *testing.T) {
 	require.Equal(t, bs.Height(), int64(0), "initially the height should be zero")
 	block := factory.MakeBlock(state, bs.Height()+1, new(types.Commit))
 
-	partSet, err := block.MakePartSet(2)
-	require.NoError(t, err)
+	partSet := makeValidMultiPartSet(t, block)
 	seenCommit := makeTestCommit(block.Header.Height, tmtime.Now())
 	bs.SaveBlock(block, partSet, seenCommit)
 	require.Equal(t, bs.Height(), block.Header.Height, "expecting the new height to be changed")
@@ -518,8 +533,7 @@ func TestSeenAndCanonicalCommit(t *testing.T) {
 	for h := int64(3); h <= 5; h++ {
 		blockCommit := makeTestCommit(h-1, tmtime.Now())
 		block := factory.MakeBlock(state, h, blockCommit)
-		partSet, err := block.MakePartSet(2)
-		require.NoError(t, err)
+		partSet := makeValidMultiPartSet(t, block)
 		seenCommit := makeTestCommit(h, tmtime.Now())
 		store.SaveBlock(block, partSet, seenCommit)
 		c3 := store.LoadSeenCommit()
