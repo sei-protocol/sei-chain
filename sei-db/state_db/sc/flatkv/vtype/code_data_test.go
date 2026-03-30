@@ -55,12 +55,12 @@ func TestCodeNewEmpty(t *testing.T) {
 func TestCodeSerializeLength(t *testing.T) {
 	bytecode := []byte{0x01, 0x02, 0x03}
 	cd := NewCodeData(bytecode)
-	require.Len(t, cd.Serialize(), codeHeaderLength+len(bytecode))
+	require.Len(t, cd.Serialize(), codeBytecodeStart+len(bytecode))
 }
 
 func TestCodeSerializeLength_Empty(t *testing.T) {
 	cd := NewCodeData(nil)
-	require.Len(t, cd.Serialize(), codeHeaderLength)
+	require.Len(t, cd.Serialize(), codeBytecodeStart)
 }
 
 func TestCodeRoundTrip_WithBytecode(t *testing.T) {
@@ -132,7 +132,7 @@ func TestCodeDeserialize_HeaderOnly(t *testing.T) {
 }
 
 func TestCodeDeserialize_UnsupportedVersion(t *testing.T) {
-	data := make([]byte, codeHeaderLength+1)
+	data := make([]byte, codeBytecodeStart+1)
 	data[0] = 0xff
 	_, err := DeserializeCodeData(data)
 	require.Error(t, err)
@@ -147,7 +147,7 @@ func TestCodeSetterChaining(t *testing.T) {
 }
 
 func TestCodeConstantLayout_V0(t *testing.T) {
-	require.Equal(t, 9, codeHeaderLength)
+	require.Equal(t, 9, codeBytecodeStart)
 }
 
 func TestCodeNewCopiesBytecode(t *testing.T) {

@@ -65,68 +65,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			case evm.EVMKeyStorage:
 				storagePairs = s.applyEvmStorageChange(keyBytes, pair, storageOld, storagePairs)
 			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				// Account data: keyBytes = addr(20)
-				addr, ok := AddressFromBytes(keyBytes)
-				if !ok {
-					return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
-				}
-				addrStr := string(addr[:])
-				addrKey := string(AccountKey(addr))
-
-				if _, seen := oldAccountRawValues[addrStr]; !seen {
-					if paw, ok := s.accountWrites[addrStr]; ok {
-						if paw.isDelete {
-							oldAccountRawValues[addrStr] = nil
-						} else {
-							oldAccountRawValues[addrStr] = paw.value.Encode()
-						}
-					} else if result, ok := accountOld[addrKey]; ok {
-						oldAccountRawValues[addrStr] = result.Value
-					} else {
-						oldAccountRawValues[addrStr] = nil
-					}
-				}
-
-				paw := s.accountWrites[addrStr]
-				if paw == nil {
-					var existingValue AccountValue
-					result := accountOld[addrKey]
-					if result.IsFound() && result.Value != nil {
-						av, err := DecodeAccountValue(result.Value)
-						if err != nil {
-							return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
-						}
-						existingValue = av
-					}
-					paw = &pendingAccountWrite{
-						addr:  addr,
-						value: existingValue,
-					}
-					s.accountWrites[addrStr] = paw
-				}
-
-				if pair.Delete {
-					if kind == evm.EVMKeyNonce {
-						paw.value.Nonce = 0
-					} else {
-						paw.value.CodeHash = CodeHash{}
-					}
-					paw.isDelete = paw.value.IsEmpty()
-				} else {
-					if kind == evm.EVMKeyNonce {
-						if len(pair.Value) != NonceLen {
-							return fmt.Errorf("invalid nonce value length: got %d, expected %d",
-								len(pair.Value), NonceLen)
-						}
-						paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
-					} else {
-						if len(pair.Value) != CodeHashLen {
-							return fmt.Errorf("invalid codehash value length: got %d, expected %d",
-								len(pair.Value), CodeHashLen)
-						}
-						copy(paw.value.CodeHash[:], pair.Value)
-					}
-					paw.isDelete = paw.value.IsEmpty()
+				err := s.applyEvmAccountFieldChange(kind, keyBytes, pair, accountOld, oldAccountRawValues)
+				if err != nil {
+					return fmt.Errorf("failed to apply EVM account field change: %w", err)
 				}
 
 			case evm.EVMKeyCode:
@@ -273,6 +214,85 @@ func (s *CommitStore) applyEvmStorageChange(
 		LastValue: oldValue,
 		Delete:    pair.Delete,
 	})
+}
+
+// Apply a single nonce or codehash change to the account db.
+func (s *CommitStore) applyEvmAccountFieldChange(
+	// Whether this is a nonce or codehash change.
+	kind evm.EVMKeyKind,
+	// The key with the prefix stripped (addr, 20 bytes).
+	keyBytes []byte,
+	// The change to apply.
+	pair *iavl.KVPair,
+	// Old account values.
+	accountOld map[string]types.BatchGetResult,
+	// Snapshots of old encoded account bytes for LtHash delta computation.
+	// This function populates entries the first time each address is seen.
+	oldAccountRawValues map[string][]byte,
+) error {
+	addr, ok := AddressFromBytes(keyBytes)
+	if !ok {
+		return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
+	}
+	addrStr := string(addr[:])
+	addrKey := string(AccountKey(addr))
+
+	// Snapshot the old encoded bytes the first time we touch this address,
+	// so the LtHash delta uses the correct baseline across multiple
+	// ApplyChangeSets calls before Commit.
+	if _, seen := oldAccountRawValues[addrStr]; !seen {
+		if paw, ok := s.accountWrites[addrStr]; ok {
+			if paw.isDelete {
+				oldAccountRawValues[addrStr] = nil
+			} else {
+				oldAccountRawValues[addrStr] = paw.value.Encode()
+			}
+		} else if result, ok := accountOld[addrKey]; ok {
+			oldAccountRawValues[addrStr] = result.Value
+		} else {
+			oldAccountRawValues[addrStr] = nil
+		}
+	}
+
+	paw := s.accountWrites[addrStr]
+	if paw == nil {
+		var existingValue AccountValue
+		result := accountOld[addrKey]
+		if result.IsFound() && result.Value != nil {
+			av, err := DecodeAccountValue(result.Value)
+			if err != nil {
+				return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
+			}
+			existingValue = av
+		}
+		paw = &pendingAccountWrite{addr: addr, value: existingValue}
+		s.accountWrites[addrStr] = paw
+	}
+
+	if pair.Delete {
+		if kind == evm.EVMKeyNonce {
+			paw.value.Nonce = 0
+		} else {
+			paw.value.CodeHash = CodeHash{}
+		}
+		paw.isDelete = paw.value.IsEmpty()
+	} else {
+		if kind == evm.EVMKeyNonce {
+			if len(pair.Value) != NonceLen {
+				return fmt.Errorf("invalid nonce value length: got %d, expected %d",
+					len(pair.Value), NonceLen)
+			}
+			paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
+		} else {
+			if len(pair.Value) != CodeHashLen {
+				return fmt.Errorf("invalid codehash value length: got %d, expected %d",
+					len(pair.Value), CodeHashLen)
+			}
+			copy(paw.value.CodeHash[:], pair.Value)
+		}
+		paw.isDelete = paw.value.IsEmpty()
+	}
+	return nil
 }
 
 // Commit persists buffered writes and advances the version.
