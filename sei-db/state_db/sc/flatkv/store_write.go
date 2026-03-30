@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
@@ -56,37 +57,13 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 			if kind == evm.EVMKeyUnknown {
 				// Skip non-EVM keys silently
-				continue
+				continue // NO!
 			}
 
 			// Route to appropriate DB based on key type
 			switch kind {
 			case evm.EVMKeyStorage:
-				// Storage: keyBytes = addr(20) || slot(32)
-				keyStr := string(keyBytes)
-				oldValue := storageOld[keyStr].Value
-
-				if pair.Delete {
-					s.storageWrites[keyStr] = &pendingKVWrite{
-						key:      keyBytes,
-						isDelete: true,
-					}
-					storageOld[keyStr] = types.BatchGetResult{Value: nil}
-				} else {
-					s.storageWrites[keyStr] = &pendingKVWrite{
-						key:   keyBytes,
-						value: pair.Value,
-					}
-					storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
-				}
-
-				// LtHash pair: internal key directly
-				storagePairs = append(storagePairs, lthash.KVPairWithLastValue{
-					Key:       keyBytes,
-					Value:     pair.Value,
-					LastValue: oldValue,
-					Delete:    pair.Delete,
-				})
+				storagePairs = s.applyEvmStorageChange(keyBytes, pair, storageOld, storagePairs)
 
 			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 				// Account data: keyBytes = addr(20)
@@ -259,6 +236,39 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
+}
+
+// Apply a single change
+func (s *CommitStore) applyEvmStorageChange(
+	keyBytes []byte,
+	pair *iavl.KVPair,
+	storageOld map[string]types.BatchGetResult,
+	storagePairs []lthash.KVPairWithLastValue,
+) []lthash.KVPairWithLastValue {
+	keyStr := string(keyBytes)
+	oldValue := storageOld[keyStr].Value
+
+	if pair.Delete {
+		s.storageWrites[keyStr] = &pendingKVWrite{
+			key:      keyBytes,
+			isDelete: true,
+		}
+		storageOld[keyStr] = types.BatchGetResult{Value: nil}
+	} else {
+		s.storageWrites[keyStr] = &pendingKVWrite{
+			key:   keyBytes,
+			value: pair.Value,
+		}
+		storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+	}
+
+	// LtHash pair: internal key directly
+	return append(storagePairs, lthash.KVPairWithLastValue{
+		Key:       keyBytes,
+		Value:     pair.Value,
+		LastValue: oldValue,
+		Delete:    pair.Delete,
+	})
 }
 
 // Commit persists buffered writes and advances the version.
