@@ -618,7 +618,8 @@ func TestEmptyPrepareProposal(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	_, err = blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.NoError(t, err)
@@ -666,7 +667,8 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.ErrorContains(t, err, "new transaction incorrectly marked as removed")
@@ -713,7 +715,8 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.NoError(t, err)
@@ -766,7 +769,8 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.ErrorContains(t, err, "transaction data size exceeds maximum")
@@ -806,7 +810,8 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.Nil(t, block)
@@ -898,7 +903,8 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	)
 
 	// Get proposer address
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 
 	// Create commit
 	lastCommit := &types.Commit{}
