@@ -3,6 +3,7 @@ package receipt
 import (
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -86,7 +87,10 @@ func (s *cachedReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (s *cachedReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+	start := time.Now()
+	receipt, ok := s.cache.GetReceipt(txHash)
+	s.reportCacheGetDuration(time.Since(start).Seconds())
+	if ok {
 		s.reportCacheHit()
 		return receipt, nil
 	}
@@ -108,6 +112,7 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 		return err
 	}
 	s.cacheReceipts(receipts)
+	s.reportCacheCounts()
 	return nil
 }
 
@@ -115,7 +120,9 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 // When the cache fully covers the requested range the backend is skipped
 // entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	scanStart := time.Now()
 	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
+	s.reportCacheFilterScanDuration(time.Since(scanStart).Seconds())
 
 	cacheMin := s.cache.LogMinBlock()
 	if cacheMin > 0 && fromBlock >= cacheMin {
@@ -279,5 +286,24 @@ func (s *cachedReceiptStore) reportLogFilterCacheHit() {
 func (s *cachedReceiptStore) reportLogFilterCacheMiss() {
 	if s.readObserver != nil {
 		s.readObserver.ReportLogFilterCacheMiss()
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheFilterScanDuration(seconds float64) {
+	if s.readObserver != nil {
+		s.readObserver.RecordCacheFilterScanDuration(seconds)
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheGetDuration(seconds float64) {
+	if s.readObserver != nil {
+		s.readObserver.RecordCacheGetDuration(seconds)
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheCounts() {
+	if s.readObserver != nil {
+		s.readObserver.RecordCacheLogCount(s.cache.LogCount())
+		s.readObserver.RecordCacheReceiptCount(s.cache.ReceiptCount())
 	}
 }

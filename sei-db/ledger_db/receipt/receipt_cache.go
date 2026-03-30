@@ -253,6 +253,38 @@ func (c *ledgerCache) LogMinBlock() uint64 {
 	return min
 }
 
+// LogCount returns the total number of individual log entries across all cache chunks.
+func (c *ledgerCache) LogCount() int64 {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+	var total int64
+	for i := 0; i < numCacheChunks; i++ {
+		chunk := c.logChunks[i].Load()
+		if chunk == nil {
+			continue
+		}
+		for _, logs := range chunk.logs {
+			total += int64(len(logs))
+		}
+	}
+	return total
+}
+
+// ReceiptCount returns the total number of receipts across all cache chunks.
+func (c *ledgerCache) ReceiptCount() int64 {
+	c.receiptMu.RLock()
+	defer c.receiptMu.RUnlock()
+	var total int64
+	for i := int32(0); i < numCacheChunks; i++ {
+		chunk := c.receiptChunks[i].Load()
+		if chunk == nil {
+			continue
+		}
+		total += int64(len(chunk.receiptIndex))
+	}
+	return total
+}
+
 // matchLog checks if a log matches the filter criteria.
 func matchLog(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
 	// Check address filter
