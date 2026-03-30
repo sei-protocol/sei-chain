@@ -115,6 +115,13 @@ func (a *AccountData) IsDelete() bool {
 	return true
 }
 
+// Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
+func (a *AccountData) Copy() *AccountData {
+	cp := make([]byte, len(a.data))
+	copy(cp, a.data)
+	return &AccountData{data: cp}
+}
+
 // Set the account's block height when this account was last modified/touched. Returns self.
 func (a *AccountData) SetBlockHeight(blockHeight uint64) *AccountData {
 	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], blockHeight)
