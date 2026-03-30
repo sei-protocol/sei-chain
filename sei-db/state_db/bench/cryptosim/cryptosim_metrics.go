@@ -25,6 +25,12 @@ var receiptWriteLatencyBuckets = []float64{
 	0.1, 0.25, 0.5, 0.75, 1, 2.5, 5,
 }
 
+var receiptReadLatencyBuckets = []float64{
+	0.00001, 0.00005, 0.0001, 0.00025, 0.0005,
+	0.001, 0.0025, 0.005, 0.01, 0.025,
+	0.05, 0.1, 0.25, 0.5, 1,
+}
+
 // CryptosimMetrics holds OpenTelemetry metrics for the cryptosim benchmark.
 // Metrics are exported via whatever exporter is configured on the global OTel
 // MeterProvider (e.g., Prometheus, OTLP). This package does not import Prometheus.
@@ -49,10 +55,20 @@ type CryptosimMetrics struct {
 	uptimeSeconds              metric.Float64Gauge
 
 	// Receipt metrics
-	receiptBlockWriteDuration metric.Float64Histogram
-	receiptChannelDepth       metric.Int64Gauge
-	receiptsWrittenTotal      metric.Int64Counter
-	receiptErrorsTotal        metric.Int64Counter
+	receiptBlockWriteDuration      metric.Float64Histogram
+	receiptChannelDepth            metric.Int64Gauge
+	receiptsWrittenTotal           metric.Int64Counter
+	receiptErrorsTotal             metric.Int64Counter
+	receiptReadDuration            metric.Float64Histogram
+	receiptReadsTotal              metric.Int64Counter
+	receiptCacheHitsTotal          metric.Int64Counter
+	receiptCacheMissesTotal        metric.Int64Counter
+	receiptReadsFoundTotal         metric.Int64Counter
+	receiptReadsNotFoundTotal      metric.Int64Counter
+	receiptLogFilterDuration       metric.Float64Histogram
+	receiptLogFilterCacheHitsTotal metric.Int64Counter
+	receiptLogFilterCacheMissTotal metric.Int64Counter
+	receiptLogFilterLogsReturned   metric.Int64Histogram
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -179,6 +195,58 @@ func NewCryptosimMetrics(
 		metric.WithDescription("Total receipt processing errors (marshal or write failures)"),
 		metric.WithUnit("{count}"),
 	)
+	receiptReadDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_read_duration_seconds",
+		metric.WithDescription("End-to-end receipt read latency (includes cache layer)"),
+		metric.WithExplicitBucketBoundaries(receiptReadLatencyBuckets...),
+		metric.WithUnit("s"),
+	)
+	receiptReadsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_total",
+		metric.WithDescription("Total receipt read attempts"),
+		metric.WithUnit("{count}"),
+	)
+	receiptCacheHitsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_cache_hits_total",
+		metric.WithDescription("Receipt reads served from the ledger cache"),
+		metric.WithUnit("{count}"),
+	)
+	receiptCacheMissesTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_cache_misses_total",
+		metric.WithDescription("Receipt reads that missed the in-memory ledger cache and fell through to the backend"),
+		metric.WithUnit("{count}"),
+	)
+	receiptReadsFoundTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_found_total",
+		metric.WithDescription("Receipt reads that returned a receipt"),
+		metric.WithUnit("{count}"),
+	)
+	receiptReadsNotFoundTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_reads_not_found_total",
+		metric.WithDescription("Receipt reads that returned no receipt because the hash was absent or pruned"),
+		metric.WithUnit("{count}"),
+	)
+	receiptLogFilterDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_log_filter_duration_seconds",
+		metric.WithDescription("DuckDB eth_getLogs filter query latency"),
+		metric.WithUnit("s"),
+	)
+	receiptLogFilterCacheHitsTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_log_filter_cache_hits_total",
+		metric.WithDescription("Log filter queries where the in-memory cache contributed results"),
+		metric.WithUnit("{count}"),
+	)
+	receiptLogFilterCacheMissTotal, _ := meter.Int64Counter(
+		"cryptosim_receipt_log_filter_cache_miss_total",
+		metric.WithDescription("Log filter queries served entirely from the backend (cache contributed nothing)"),
+		metric.WithUnit("{count}"),
+	)
+	receiptLogFilterLogsReturned, _ := meter.Int64Histogram(
+		"cryptosim_receipt_log_filter_logs_returned",
+		metric.WithDescription("Number of log entries returned per FilterLogs query"),
+		metric.WithExplicitBucketBoundaries(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000),
+		metric.WithUnit("{count}"),
+	)
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
@@ -188,29 +256,39 @@ func NewCryptosimMetrics(
 	transactionPhaseTimerFactory := metrics.NewPhaseTimerFactory(meter, "transaction")
 
 	m := &CryptosimMetrics{
-		ctx:                          ctx,
-		blocksFinalizedTotal:         blocksFinalizedTotal,
-		transactionsProcessedTotal:   transactionsProcessedTotal,
-		totalAccounts:                totalAccounts,
-		hotAccounts:                  hotAccounts,
-		coldAccounts:                 coldAccounts,
-		dormantAccounts:              dormantAccounts,
-		totalErc20Contracts:          totalErc20Contracts,
-		dbCommitsTotal:               dbCommitsTotal,
-		dataDirSizeBytes:             dataDirSizeBytes,
-		dataDirAvailableBytes:        dataDirAvailableBytes,
-		logDirSizeBytes:              logDirSizeBytes,
-		processReadBytesTotal:        processReadBytesTotal,
-		processWriteBytesTotal:       processWriteBytesTotal,
-		processReadCountTotal:        processReadCountTotal,
-		processWriteCountTotal:       processWriteCountTotal,
-		uptimeSeconds:                uptimeSeconds,
-		receiptBlockWriteDuration:    receiptBlockWriteDuration,
-		receiptChannelDepth:          receiptChannelDepth,
-		receiptsWrittenTotal:         receiptsWrittenTotal,
-		receiptErrorsTotal:           receiptErrorsTotal,
-		mainThreadPhase:              mainThreadPhase,
-		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
+		ctx:                            ctx,
+		blocksFinalizedTotal:           blocksFinalizedTotal,
+		transactionsProcessedTotal:     transactionsProcessedTotal,
+		totalAccounts:                  totalAccounts,
+		hotAccounts:                    hotAccounts,
+		coldAccounts:                   coldAccounts,
+		dormantAccounts:                dormantAccounts,
+		totalErc20Contracts:            totalErc20Contracts,
+		dbCommitsTotal:                 dbCommitsTotal,
+		dataDirSizeBytes:               dataDirSizeBytes,
+		dataDirAvailableBytes:          dataDirAvailableBytes,
+		logDirSizeBytes:                logDirSizeBytes,
+		processReadBytesTotal:          processReadBytesTotal,
+		processWriteBytesTotal:         processWriteBytesTotal,
+		processReadCountTotal:          processReadCountTotal,
+		processWriteCountTotal:         processWriteCountTotal,
+		uptimeSeconds:                  uptimeSeconds,
+		receiptBlockWriteDuration:      receiptBlockWriteDuration,
+		receiptChannelDepth:            receiptChannelDepth,
+		receiptsWrittenTotal:           receiptsWrittenTotal,
+		receiptErrorsTotal:             receiptErrorsTotal,
+		receiptReadDuration:            receiptReadDuration,
+		receiptReadsTotal:              receiptReadsTotal,
+		receiptCacheHitsTotal:          receiptCacheHitsTotal,
+		receiptCacheMissesTotal:        receiptCacheMissesTotal,
+		receiptReadsFoundTotal:         receiptReadsFoundTotal,
+		receiptReadsNotFoundTotal:      receiptReadsNotFoundTotal,
+		receiptLogFilterDuration:       receiptLogFilterDuration,
+		receiptLogFilterCacheHitsTotal: receiptLogFilterCacheHitsTotal,
+		receiptLogFilterCacheMissTotal: receiptLogFilterCacheMissTotal,
+		receiptLogFilterLogsReturned:   receiptLogFilterLogsReturned,
+		mainThreadPhase:                mainThreadPhase,
+		transactionPhaseTimerFactory:   transactionPhaseTimerFactory,
 	}
 
 	if config.BackgroundMetricsScrapeInterval > 0 {
@@ -482,6 +560,76 @@ func (m *CryptosimMetrics) ReportReceiptError() {
 		return
 	}
 	m.receiptErrorsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordReceiptReadDuration(seconds float64) {
+	if m == nil || m.receiptReadDuration == nil {
+		return
+	}
+	m.receiptReadDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) ReportReceiptRead() {
+	if m == nil || m.receiptReadsTotal == nil {
+		return
+	}
+	m.receiptReadsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptCacheHit() {
+	if m == nil || m.receiptCacheHitsTotal == nil {
+		return
+	}
+	m.receiptCacheHitsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptCacheMiss() {
+	if m == nil || m.receiptCacheMissesTotal == nil {
+		return
+	}
+	m.receiptCacheMissesTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptReadFound() {
+	if m == nil || m.receiptReadsFoundTotal == nil {
+		return
+	}
+	m.receiptReadsFoundTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportReceiptReadNotFound() {
+	if m == nil || m.receiptReadsNotFoundTotal == nil {
+		return
+	}
+	m.receiptReadsNotFoundTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordReceiptLogFilterDuration(seconds float64) {
+	if m == nil || m.receiptLogFilterDuration == nil {
+		return
+	}
+	m.receiptLogFilterDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) ReportLogFilterCacheHit() {
+	if m == nil || m.receiptLogFilterCacheHitsTotal == nil {
+		return
+	}
+	m.receiptLogFilterCacheHitsTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) ReportLogFilterCacheMiss() {
+	if m == nil || m.receiptLogFilterCacheMissTotal == nil {
+		return
+	}
+	m.receiptLogFilterCacheMissTotal.Add(context.Background(), 1)
+}
+
+func (m *CryptosimMetrics) RecordLogFilterLogsReturned(count int64) {
+	if m == nil || m.receiptLogFilterLogsReturned == nil {
+		return
+	}
+	m.receiptLogFilterLogsReturned.Record(context.Background(), count)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

@@ -158,6 +158,38 @@ type CryptoSimConfig struct {
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
 
+	// Number of concurrent reader goroutines issuing receipt lookups. 0 disables reads.
+	ReceiptReadConcurrency int
+
+	// Target total receipt reads per second across all reader goroutines.
+	// Reads are distributed evenly across readers.
+	ReceiptReadsPerSecond int
+
+	// Controls which block range receipt-by-hash reads target.
+	// "cache" = only read receipts in the cache window (guaranteed cache hit).
+	// "duckdb" = only read receipts older than the cache window (guaranteed cache miss, DuckDB fallback).
+	// Required when ReceiptReadConcurrency > 0.
+	ReceiptReadMode string
+
+	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
+	// These goroutines are independent from the receipt reader goroutines.
+	ReceiptLogFilterReadConcurrency int
+
+	// Target total log filter reads per second across all log filter goroutines.
+	ReceiptLogFilterReadsPerSecond int
+
+	// Controls which block range log filter reads target.
+	// "cache" = only query blocks in the cache window (DuckDB skipped).
+	// "duckdb" = only query blocks older than the cache window (cache returns nothing).
+	// Required when ReceiptLogFilterReadConcurrency > 0.
+	ReceiptLogFilterReadMode string
+
+	// Minimum number of blocks in a log filter query range. Default 1.
+	ReceiptLogFilterMinBlockRange int
+
+	// Maximum number of blocks in a log filter query range. Default 10.
+	ReceiptLogFilterMaxBlockRange int
+
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
 	ReceiptKeepRecent int64
 
@@ -215,6 +247,14 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
 		MaxTPS:                            0,
+		ReceiptReadConcurrency:            0,
+		ReceiptReadsPerSecond:             100,
+		ReceiptReadMode:                   "cache",
+		ReceiptLogFilterReadConcurrency:   0,
+		ReceiptLogFilterReadsPerSecond:    100,
+		ReceiptLogFilterReadMode:          "cache",
+		ReceiptLogFilterMinBlockRange:     1,
+		ReceiptLogFilterMaxBlockRange:     10,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 		LogLevel:                          "info",
@@ -302,12 +342,38 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
 	}
+	if c.ReceiptReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
+	}
+	if c.ReceiptReadConcurrency > 0 {
+		switch c.ReceiptReadMode {
+		case "cache", "duckdb":
+		default:
+			return fmt.Errorf("ReceiptReadMode must be \"cache\" or \"duckdb\" (got %q)", c.ReceiptReadMode)
+		}
+	}
+	if c.ReceiptLogFilterReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptLogFilterReadConcurrency must be non-negative (got %d)", c.ReceiptLogFilterReadConcurrency)
+	}
+	if c.ReceiptLogFilterReadConcurrency > 0 {
+		switch c.ReceiptLogFilterReadMode {
+		case "cache", "duckdb":
+		default:
+			return fmt.Errorf("ReceiptLogFilterReadMode must be \"cache\" or \"duckdb\" (got %q)", c.ReceiptLogFilterReadMode)
+		}
+	}
+	if c.ReceiptLogFilterMinBlockRange < 1 {
+		return fmt.Errorf("ReceiptLogFilterMinBlockRange must be at least 1 (got %d)", c.ReceiptLogFilterMinBlockRange)
+	}
+	if c.ReceiptLogFilterMaxBlockRange < c.ReceiptLogFilterMinBlockRange {
+		return fmt.Errorf("ReceiptLogFilterMaxBlockRange must be >= ReceiptLogFilterMinBlockRange (got %d < %d)",
+			c.ReceiptLogFilterMaxBlockRange, c.ReceiptLogFilterMinBlockRange)
+	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
 	}
-
 	return nil
 }
 

@@ -171,7 +171,7 @@ func NewCryptoSim(
 	var recieptsChan chan *block
 	if config.GenerateReceipts {
 		recieptsChan = make(chan *block, config.RecieptChannelCapacity)
-		_, err := NewRecieptStoreSimulator(ctx, config, recieptsChan, metrics)
+		_, err := NewRecieptStoreSimulator(ctx, config, recieptsChan, metrics, rand.Clone(false))
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create receipt store simulator: %w", err)

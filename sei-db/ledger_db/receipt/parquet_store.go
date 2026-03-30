@@ -90,6 +90,9 @@ func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*
 		return receipt, nil
 	}
 
+	if s.storeKey == nil {
+		return nil, ErrNotFound
+	}
 	store := ctx.KVStore(s.storeKey)
 	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
