@@ -39,7 +39,7 @@ func exampleVote(tb testing.TB, t byte) *Vote {
 		BlockID: BlockID{
 			Hash: crypto.Checksum([]byte("blockID_hash")),
 			PartSetHeader: PartSetHeader{
-				Total: 1000000,
+				Total: MaxBlockPartsCount,
 				Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
 			},
 		},

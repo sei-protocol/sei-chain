@@ -1,7 +1,6 @@
 package types
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -169,7 +168,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
 	}
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
@@ -179,7 +178,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			pubKey, err := privVal.GetPubKey(ctx)
 			require.NoError(t, err)
 			prop := NewProposal(
-				4, 2, 2,
+				4, 2, 1,
 				blockID, tmtime.Now(), txKeys,
 				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
@@ -194,7 +193,7 @@ func TestProposalValidateBasic(t *testing.T) {
 
 func TestProposalProtoBuf(t *testing.T) {
 	var txKeys []TxKey
-	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	proposal := NewProposal(1, 3, 2, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 	proposal.Signature = testKey.Sign([]byte("sig"))
 	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 

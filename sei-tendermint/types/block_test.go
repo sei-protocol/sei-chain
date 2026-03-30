@@ -718,7 +718,7 @@ func TestCommitToVoteSet(t *testing.T) {
 }
 
 func TestCommitToVoteSetWithVotesForNilBlock(t *testing.T) {
-	blockID := makeBlockID([]byte("blockhash"), 1000, []byte("partshash"))
+	blockID := makeBlockID([]byte("blockhash"), MaxBlockPartsCount, []byte("partshash"))
 
 	const (
 		height = int64(3)
