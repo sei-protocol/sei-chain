@@ -163,7 +163,7 @@ func NewRecieptStoreSimulator(
 		crand:                    crand,
 		txRing:                   txRing,
 		metrics:                  metrics,
-		receiptCacheWindowBlocks: receipt.EstimatedReceiptCacheWindowBlocks(store),
+		receiptCacheWindowBlocks: receipt.StableReceiptCacheWindowBlocks(store),
 	}
 	go r.mainLoop()
 
