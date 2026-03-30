@@ -10,6 +10,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -19,6 +20,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 )
 
 type GigaNodeAddr struct {
@@ -31,9 +33,10 @@ func (a GigaNodeAddr) String() string {
 }
 
 type GigaRouterConfig struct {
-	Consensus     *consensus.Config
-	App           abci.Application
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
+	Consensus     *consensus.Config
+	Producer      *producer.Config
+	App           abci.Application
 	GenDoc *types.GenesisDoc
 }
 
@@ -42,10 +45,15 @@ type GigaRouter struct {
 	committee *atypes.Committee
 	key     NodeSecretKey
 	data     *data.State
+	producer *producer.State
 	consensus *consensus.State
 	service *giga.Service
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+}
+
+func (r *GigaRouter) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
+	return r.producer.PushToMempool(ctx,tx)
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error) {
@@ -59,11 +67,13 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter,error)
 	if err!=nil {
 		return nil,fmt.Errorf("consensus.NewState(): %w",err)
 	}
+	producerState := producer.NewState(cfg.Producer,consensusState)
 	return &GigaRouter{
 		cfg:     cfg,
 		key:     key,
 		data: dataState,
 		consensus: consensusState,
+		producer: producerState,
 		service: giga.NewService(consensusState),
 		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
@@ -157,6 +167,7 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 		}
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })	
 		return nil
 	})
