@@ -21,13 +21,20 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	keyV1AndV2 := commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyNonce, bytes.Repeat([]byte{0x11}, 20))
 	keyV2Only := commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyCodeHash, bytes.Repeat([]byte{0x22}, 20))
 
-	require.NoError(t, wrapper.ApplyChangeSets(namedChangeSet(keyV1AndV2, []byte("value-v1"))))
+	require.NoError(t, wrapper.ApplyChangeSets(changelogEntry(1, []*proto.NamedChangeSet{
+		{
+			Name: EVMStoreName,
+			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: keyV1AndV2, Value: []byte("value-v1")},
+			}},
+		},
+	})))
 
 	version, err := wrapper.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 
-	require.NoError(t, wrapper.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, wrapper.ApplyChangeSets(changelogEntry(2, []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreName,
 			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
@@ -35,7 +42,7 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 				{Key: keyV2Only, Value: []byte("value-v2-only")},
 			}},
 		},
-	}))
+	})))
 
 	version, err = wrapper.Commit()
 	require.NoError(t, err)
@@ -66,13 +73,9 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	require.Equal(t, []byte("value-v2-only"), latestOnly)
 }
 
-func namedChangeSet(key, value []byte) []*proto.NamedChangeSet {
-	return []*proto.NamedChangeSet{
-		{
-			Name: EVMStoreName,
-			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-				{Key: key, Value: value},
-			}},
-		},
+func changelogEntry(version int64, changesets []*proto.NamedChangeSet) *proto.ChangelogEntry {
+	return &proto.ChangelogEntry{
+		Version:    version,
+		Changesets: changesets,
 	}
 }
