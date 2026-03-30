@@ -98,7 +98,8 @@ func getBothSigners(suite *TendermintTestSuite, altVal *tmtypes.Validator, altPr
 	// Create bothValSet with both suite validator and altVal. Would be valid update
 	bothValSet := tmtypes.NewValidatorSet(append(suite.valSet.Validators, altVal))
 	// Create signer array and ensure it is in same order as bothValSet
-	_, suiteVal := suite.valSet.GetByIndex(0)
+	_, suiteVal, ok := suite.valSet.GetByIndex(0)
+	suite.Require().True(ok)
 	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
 	return bothValSet, bothSigners
 }

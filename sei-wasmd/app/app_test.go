@@ -21,17 +21,11 @@ func TestWasmdExport(t *testing.T) {
 	gapp := NewWasmApp(db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, emptyWasmOpts)
 
 	genesisState := NewDefaultGenesisState()
-	stateBytes, err := json.MarshalIndent(genesisState, "", "  ")
+	stateBytes, err := json.Marshal(genesisState)
 	require.NoError(t, err)
 
 	// Initialize the chain
-	gapp.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			Validators:    []abci.ValidatorUpdate{},
-			AppStateBytes: stateBytes,
-		},
-	)
+	gapp.InitChain(t.Context(), &abci.RequestInitChain{AppStateBytes: stateBytes})
 	gapp.SetDeliverStateToCommit()
 	gapp.Commit(context.Background())
 
@@ -89,25 +83,4 @@ func TestGetEnabledProposals(t *testing.T) {
 			assert.Equal(t, tc.expected, proposals)
 		})
 	}
-}
-
-func setGenesis(gapp *WasmApp) error {
-	genesisState := NewDefaultGenesisState()
-	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
-	if err != nil {
-		return err
-	}
-
-	// Initialize the chain
-	gapp.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			Validators:    []abci.ValidatorUpdate{},
-			AppStateBytes: stateBytes,
-		},
-	)
-
-	gapp.SetDeliverStateToCommit()
-	gapp.Commit(context.Background())
-	return nil
 }
