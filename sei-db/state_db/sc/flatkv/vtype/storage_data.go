@@ -81,8 +81,8 @@ func (s *StorageData) GetSerializationVersion() StorageDataVersion {
 }
 
 // Get the block height when this storage slot was last modified.
-func (s *StorageData) GetBlockHeight() uint64 {
-	return binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])
+func (s *StorageData) GetBlockHeight() int64 {
+	return int64(binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])) //nolint:gosec // block height is always within int64 range
 }
 
 // Get the storage slot value.
@@ -102,8 +102,8 @@ func (s *StorageData) IsDelete() bool {
 }
 
 // Set the block height when this storage slot was last modified/touched. Returns self.
-func (s *StorageData) SetBlockHeight(blockHeight uint64) *StorageData {
-	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], blockHeight)
+func (s *StorageData) SetBlockHeight(blockHeight int64) *StorageData {
+	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
 	return s
 }
 

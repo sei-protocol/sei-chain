@@ -3,6 +3,7 @@ package vtype
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,7 +35,7 @@ func TestStorageSerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeStorageData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, uint64(100), rt.GetBlockHeight())
+	require.Equal(t, int64(100), rt.GetBlockHeight())
 	require.Equal(t, val, rt.GetValue())
 }
 
@@ -42,7 +43,7 @@ func TestStorageNewZeroInitialized(t *testing.T) {
 	sd := NewStorageData()
 	var zero [32]byte
 	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
-	require.Equal(t, uint64(0), sd.GetBlockHeight())
+	require.Equal(t, int64(0), sd.GetBlockHeight())
 	require.Equal(t, &zero, sd.GetValue())
 }
 
@@ -59,7 +60,7 @@ func TestStorageRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, uint64(999), rt.GetBlockHeight())
+	require.Equal(t, int64(999), rt.GetBlockHeight())
 	require.Equal(t, val, rt.GetValue())
 }
 
@@ -68,13 +69,13 @@ func TestStorageRoundTrip_ZeroValues(t *testing.T) {
 	rt, err := DeserializeStorageData(sd.Serialize())
 	require.NoError(t, err)
 	var zero [32]byte
-	require.Equal(t, uint64(0), rt.GetBlockHeight())
+	require.Equal(t, int64(0), rt.GetBlockHeight())
 	require.Equal(t, &zero, rt.GetValue())
 }
 
 func TestStorageRoundTrip_MaxValues(t *testing.T) {
 	maxVal := toArray32(bytes.Repeat([]byte{0xff}, 32))
-	maxBlockHeight := uint64(0xffffffffffffffff)
+	maxBlockHeight := int64(math.MaxInt64)
 
 	sd := NewStorageData().
 		SetBlockHeight(maxBlockHeight).
@@ -128,7 +129,7 @@ func TestStorageSetterChaining(t *testing.T) {
 		SetBlockHeight(1).
 		SetValue(toArray32(leftPad32([]byte{2})))
 
-	require.Equal(t, uint64(1), sd.GetBlockHeight())
+	require.Equal(t, int64(1), sd.GetBlockHeight())
 }
 
 func TestStorageConstantLayout_V0(t *testing.T) {

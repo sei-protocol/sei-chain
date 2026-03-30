@@ -8,6 +8,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // Get returns the value for the given memiavl key.
@@ -235,7 +236,24 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.codeWrites, s.codeDB, "codeDB")
+	pendingWrite, hasPending := s.codeWrites[string(key)]
+	if hasPending {
+		return pendingWrite.GetBytecode(), nil
+	}
+
+	value, err := s.codeDB.Get(key)
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)
+	}
+
+	codeData, err := vtype.DeserializeCodeData(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize code data: %w", err)
+	}
+	return codeData.GetBytecode(), nil
 }
 
 func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {

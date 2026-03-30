@@ -17,6 +17,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
@@ -104,7 +105,7 @@ type CommitStore struct {
 	// accountWrites: key = address string (20 bytes), value = AccountValue
 	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
 	accountWrites map[string]*pendingAccountWrite
-	codeWrites    map[string]*pendingKVWrite
+	codeWrites    map[string]*vtype.CodeData
 	storageWrites map[string]*pendingKVWrite
 	legacyWrites  map[string]*pendingKVWrite
 
@@ -168,7 +169,7 @@ func NewCommitStore(
 		config:             *cfg,
 		localMeta:          make(map[string]*LocalMeta),
 		accountWrites:      make(map[string]*pendingAccountWrite),
-		codeWrites:         make(map[string]*pendingKVWrite),
+		codeWrites:         make(map[string]*vtype.CodeData),
 		storageWrites:      make(map[string]*pendingKVWrite),
 		legacyWrites:       make(map[string]*pendingKVWrite),
 		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),

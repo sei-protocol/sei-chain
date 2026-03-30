@@ -3,6 +3,7 @@ package vtype
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +34,7 @@ func TestLegacySerializationGoldenFile_V0(t *testing.T) {
 
 	rt, err := DeserializeLegacyData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, uint64(100), rt.GetBlockHeight())
+	require.Equal(t, int64(100), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
@@ -41,14 +42,14 @@ func TestLegacyNewWithValue(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
 	ld := NewLegacyData(value)
 	require.Equal(t, LegacyDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, uint64(0), ld.GetBlockHeight())
+	require.Equal(t, int64(0), ld.GetBlockHeight())
 	require.Equal(t, value, ld.GetValue())
 }
 
 func TestLegacyNewEmpty(t *testing.T) {
 	ld := NewLegacyData(nil)
 	require.Equal(t, LegacyDataVersion0, ld.GetSerializationVersion())
-	require.Equal(t, uint64(0), ld.GetBlockHeight())
+	require.Equal(t, int64(0), ld.GetBlockHeight())
 	require.Empty(t, ld.GetValue())
 }
 
@@ -70,7 +71,7 @@ func TestLegacyRoundTrip_WithValue(t *testing.T) {
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, uint64(999), rt.GetBlockHeight())
+	require.Equal(t, int64(999), rt.GetBlockHeight())
 	require.Equal(t, value, rt.GetValue())
 }
 
@@ -80,17 +81,17 @@ func TestLegacyRoundTrip_EmptyValue(t *testing.T) {
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, uint64(42), rt.GetBlockHeight())
+	require.Equal(t, int64(42), rt.GetBlockHeight())
 	require.Empty(t, rt.GetValue())
 }
 
 func TestLegacyRoundTrip_MaxBlockHeight(t *testing.T) {
 	ld := NewLegacyData([]byte{0xff}).
-		SetBlockHeight(0xffffffffffffffff)
+		SetBlockHeight(math.MaxInt64)
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, uint64(0xffffffffffffffff), rt.GetBlockHeight())
+	require.Equal(t, int64(math.MaxInt64), rt.GetBlockHeight())
 	require.Equal(t, []byte{0xff}, rt.GetValue())
 }
 
@@ -142,7 +143,7 @@ func TestLegacySetterChaining(t *testing.T) {
 	ld := NewLegacyData([]byte{0x01}).
 		SetBlockHeight(42)
 
-	require.Equal(t, uint64(42), ld.GetBlockHeight())
+	require.Equal(t, int64(42), ld.GetBlockHeight())
 	require.Equal(t, []byte{0x01}, ld.GetValue())
 }
 

@@ -85,8 +85,8 @@ func (a *AccountData) GetSerializationVersion() AccountDataVersion {
 }
 
 // Get the account's block height.
-func (a *AccountData) GetBlockHeight() uint64 {
-	return binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])
+func (a *AccountData) GetBlockHeight() int64 {
+	return int64(binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])) //nolint:gosec // block height is always within int64 range
 }
 
 // Get the account's balance.
@@ -123,8 +123,8 @@ func (a *AccountData) Copy() *AccountData {
 }
 
 // Set the account's block height when this account was last modified/touched. Returns self.
-func (a *AccountData) SetBlockHeight(blockHeight uint64) *AccountData {
-	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], blockHeight)
+func (a *AccountData) SetBlockHeight(blockHeight int64) *AccountData {
+	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
 	return a
 }
 

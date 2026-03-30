@@ -38,9 +38,9 @@ type CodeData struct {
 }
 
 // Create a new CodeData with the given bytecode.
-func NewCodeData(bytecode []byte) *CodeData {
-	data := make([]byte, codeBytecodeStart+len(bytecode))
-	copy(data[codeBytecodeStart:], bytecode)
+func NewCodeData() *CodeData {
+	data := make([]byte, codeBytecodeStart)
+	data[codeVersionStart] = byte(CodeDataVersion0)
 	return &CodeData{data: data}
 }
 
@@ -80,13 +80,22 @@ func (c *CodeData) GetSerializationVersion() CodeDataVersion {
 }
 
 // Get the block height when this code was last modified.
-func (c *CodeData) GetBlockHeight() uint64 {
-	return binary.BigEndian.Uint64(c.data[codeBlockHeightStart:codeBytecodeStart])
+func (c *CodeData) GetBlockHeight() int64 {
+	return int64(binary.BigEndian.Uint64(c.data[codeBlockHeightStart:codeBytecodeStart])) //nolint:gosec // block height is always within int64 range
 }
 
 // Get the contract bytecode.
 func (c *CodeData) GetBytecode() []byte {
 	return c.data[codeBytecodeStart:]
+}
+
+// Set the contract bytecode.
+func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
+	newData := make([]byte, codeBytecodeStart+len(bytecode))
+	copy(newData, c.data[:codeBytecodeStart])
+	copy(newData[codeBytecodeStart:], bytecode)
+	c.data = newData
+	return c
 }
 
 // Check if this code data signifies a deletion operation. A deletion operation is automatically
@@ -96,7 +105,7 @@ func (c *CodeData) IsDelete() bool {
 }
 
 // Set the block height when this code was last modified/touched. Returns self.
-func (c *CodeData) SetBlockHeight(blockHeight uint64) *CodeData {
-	binary.BigEndian.PutUint64(c.data[codeBlockHeightStart:codeBytecodeStart], blockHeight)
+func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
+	binary.BigEndian.PutUint64(c.data[codeBlockHeightStart:codeBytecodeStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
 	return c
 }

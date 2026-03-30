@@ -3,6 +3,7 @@ package vtype
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +42,7 @@ func TestSerializationGoldenFile_V0(t *testing.T) {
 	// Verify round-trip from the golden bytes.
 	rt, err := DeserializeAccountData(wantBytes)
 	require.NoError(t, err)
-	require.Equal(t, uint64(100), rt.GetBlockHeight())
+	require.Equal(t, int64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
 	require.Equal(t, toArray32(leftPad32([]byte{1})), rt.GetBalance())
 	require.Equal(t, toArray32(bytes.Repeat([]byte{0xaa}, 32)), rt.GetCodeHash())
@@ -51,7 +52,7 @@ func TestNewAccountData_ZeroInitialized(t *testing.T) {
 	ad := NewAccountData()
 	var zero [32]byte
 	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
-	require.Equal(t, uint64(0), ad.GetBlockHeight())
+	require.Equal(t, int64(0), ad.GetBlockHeight())
 	require.Equal(t, uint64(0), ad.GetNonce())
 	require.Equal(t, &zero, ad.GetBalance())
 	require.Equal(t, &zero, ad.GetCodeHash())
@@ -74,7 +75,7 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 
 	rt, err := DeserializeAccountData(ad.Serialize())
 	require.NoError(t, err)
-	require.Equal(t, uint64(999), rt.GetBlockHeight())
+	require.Equal(t, int64(999), rt.GetBlockHeight())
 	require.Equal(t, uint64(12345), rt.GetNonce())
 	require.Equal(t, balance, rt.GetBalance())
 	require.Equal(t, codeHash, rt.GetCodeHash())
@@ -85,7 +86,7 @@ func TestRoundTrip_ZeroValues(t *testing.T) {
 	rt, err := DeserializeAccountData(ad.Serialize())
 	require.NoError(t, err)
 	var zero [32]byte
-	require.Equal(t, uint64(0), rt.GetBlockHeight())
+	require.Equal(t, int64(0), rt.GetBlockHeight())
 	require.Equal(t, uint64(0), rt.GetNonce())
 	require.Equal(t, &zero, rt.GetBalance())
 	require.Equal(t, &zero, rt.GetCodeHash())
@@ -95,7 +96,7 @@ func TestRoundTrip_MaxValues(t *testing.T) {
 	maxBalance := toArray32(bytes.Repeat([]byte{0xff}, 32))
 	maxCodeHash := toArray32(bytes.Repeat([]byte{0xff}, 32))
 	maxNonce := uint64(0xffffffffffffffff)
-	maxBlockHeight := uint64(0xffffffffffffffff)
+	maxBlockHeight := int64(math.MaxInt64)
 
 	ad := NewAccountData().
 		SetBlockHeight(maxBlockHeight).
@@ -165,7 +166,7 @@ func TestSetterChaining(t *testing.T) {
 		SetNonce(3).
 		SetCodeHash(toArray32(leftPad32([]byte{4})))
 
-	require.Equal(t, uint64(1), ad.GetBlockHeight())
+	require.Equal(t, int64(1), ad.GetBlockHeight())
 	require.Equal(t, uint64(3), ad.GetNonce())
 }
 

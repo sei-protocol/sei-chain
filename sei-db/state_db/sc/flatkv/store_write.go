@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
@@ -47,6 +48,9 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	// nil means the account didn't exist (no phantom MixOut for new accounts).
 	oldAccountRawValues := make(map[string][]byte)
 
+	s.phaseTimer.SetPhase("apply_change_sets_collect_storage_pairs")
+
+	// For each entry in the change set, accumulate changes for the appropriate DB.
 	for _, namedCS := range cs {
 		if namedCS.Changeset.Pairs == nil {
 			continue
@@ -182,19 +186,17 @@ func (s *CommitStore) applyEvmCodeChange(
 	keyStr := string(keyBytes)
 	oldValue := codeOld[keyStr].Value
 
+	newCodeData := vtype.NewCodeData().SetBlockHeight(s.committedVersion + 1)
+
 	if pair.Delete {
-		s.codeWrites[keyStr] = &pendingKVWrite{
-			key:      keyBytes,
-			isDelete: true,
-		}
+		newCodeData.SetBytecode([]byte{})
 		codeOld[keyStr] = types.BatchGetResult{Value: nil}
 	} else {
-		s.codeWrites[keyStr] = &pendingKVWrite{
-			key:   keyBytes,
-			value: pair.Value,
-		}
+		newCodeData.SetBytecode(pair.Value)
 		codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
 	}
+
+	s.codeWrites[keyStr] = newCodeData
 
 	return append(codePairs, lthash.KVPairWithLastValue{
 		Key:       keyBytes,
@@ -405,7 +407,7 @@ func (s *CommitStore) flushAllDBs() error {
 // clearPendingWrites clears all pending write buffers
 func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*pendingAccountWrite)
-	s.codeWrites = make(map[string]*pendingKVWrite)
+	s.codeWrites = make(map[string]*vtype.CodeData)
 	s.storageWrites = make(map[string]*pendingKVWrite)
 	s.legacyWrites = make(map[string]*pendingKVWrite)
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
@@ -451,6 +453,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		pending = append(pending, pendingCommit{accountDBDir, batch})
 	}
 
+	batch, err := s.prepareBatchCodeDB(version)
+	if err != nil {
+		return fmt.Errorf("codeDB commit: %w", err)
+	}
+	pending = append(pending, pendingCommit{codeDBDir, batch})
+
 	// Commit to codeDB, storageDB, legacyDB (identical logic per KV DB).
 	kvDBs := [...]struct {
 		dir    string
@@ -458,7 +466,6 @@ func (s *CommitStore) commitBatches(version int64) error {
 		writes map[string]*pendingKVWrite
 		db     types.KeyValueDB
 	}{
-		{codeDBDir, "commit_code_db_prepare", s.codeWrites, s.codeDB},
 		{storageDBDir, "commit_storage_db_prepare", s.storageWrites, s.storageDB},
 		{legacyDBDir, "commit_legacy_db_prepare", s.legacyWrites, s.legacyDB},
 	}
@@ -522,6 +529,39 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 	return nil
+}
+
+// Prepare a batch of writes for the codeDB.
+func (s *CommitStore) prepareBatchCodeDB(version int64) (types.Batch, error) {
+	if len(s.codeWrites) == 0 && version <= s.localMeta[codeDBDir].CommittedVersion {
+		return nil, nil
+	}
+
+	s.phaseTimer.SetPhase("commit_code_db_prepare")
+
+	batch := s.codeDB.NewBatch()
+
+	for keyStr, cw := range s.codeWrites {
+		key := []byte(keyStr)
+		if cw.IsDelete() {
+			if err := batch.Delete(key); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("codeDB delete: %w", err)
+			}
+		} else {
+			if err := batch.Set(key, cw.Serialize()); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("codeDB set: %w", err)
+			}
+		}
+	}
+
+	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[codeDBDir]); err != nil {
+		_ = batch.Close()
+		return nil, fmt.Errorf("codeDB local meta: %w", err)
+	}
+
+	return batch, nil
 }
 
 // batchReadOldValues scans all changeset pairs and returns one result map per
@@ -596,7 +636,11 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 					continue
 				}
 				if pw, ok := s.codeWrites[k]; ok {
-					codeOld[k] = pendingKVResult(pw)
+					if pw.IsDelete() {
+						codeOld[k] = types.BatchGetResult{Value: nil}
+					} else {
+						codeOld[k] = types.BatchGetResult{Value: pw.Serialize()}
+					}
 				} else {
 					codeBatch[k] = types.BatchGetResult{}
 				}

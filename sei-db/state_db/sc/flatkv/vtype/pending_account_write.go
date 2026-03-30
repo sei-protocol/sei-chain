@@ -59,7 +59,7 @@ func (p *PendingAccountWrite) SetCodeHash(codeHash *[32]byte) *PendingAccountWri
 // Merge applies the pending field changes onto a copy of the base AccountData, updating the
 // block height. Only fields that have been set via Set* methods are overwritten; all other
 // fields are carried over from the base. The base is not modified.
-func (p *PendingAccountWrite) Merge(base *AccountData, blockHeight uint64) *AccountData {
+func (p *PendingAccountWrite) Merge(base *AccountData, blockHeight int64) *AccountData {
 	result := base.Copy().SetBlockHeight(blockHeight)
 
 	if p.balance != nil {

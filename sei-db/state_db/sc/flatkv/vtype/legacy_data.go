@@ -81,8 +81,8 @@ func (l *LegacyData) GetSerializationVersion() LegacyDataVersion {
 }
 
 // Get the block height when this legacy data was last modified.
-func (l *LegacyData) GetBlockHeight() uint64 {
-	return binary.BigEndian.Uint64(l.data[legacyBlockHeightStart:legacyValueStart])
+func (l *LegacyData) GetBlockHeight() int64 {
+	return int64(binary.BigEndian.Uint64(l.data[legacyBlockHeightStart:legacyValueStart])) //nolint:gosec // block height is always within int64 range
 }
 
 // Get the legacy value.
@@ -97,7 +97,7 @@ func (l *LegacyData) IsDelete() bool {
 }
 
 // Set the block height when this legacy data was last modified/touched. Returns self.
-func (l *LegacyData) SetBlockHeight(blockHeight uint64) *LegacyData {
-	binary.BigEndian.PutUint64(l.data[legacyBlockHeightStart:legacyValueStart], blockHeight)
+func (l *LegacyData) SetBlockHeight(blockHeight int64) *LegacyData {
+	binary.BigEndian.PutUint64(l.data[legacyBlockHeightStart:legacyValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
 	return l
 }

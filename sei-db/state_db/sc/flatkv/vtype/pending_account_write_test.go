@@ -14,7 +14,7 @@ func TestPAW_SetNonce_MergeOntoZeroBase(t *testing.T) {
 	result := paw.Merge(base, 100)
 
 	require.Equal(t, uint64(42), result.GetNonce())
-	require.Equal(t, uint64(100), result.GetBlockHeight())
+	require.Equal(t, int64(100), result.GetBlockHeight())
 	var zero [32]byte
 	require.Equal(t, &zero, result.GetBalance())
 	require.Equal(t, &zero, result.GetCodeHash())
@@ -38,7 +38,7 @@ func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
 	require.Equal(t, toArray32(leftPad32([]byte{0xff})), result.GetBalance())
 	require.Equal(t, uint64(10), result.GetNonce())
 	// Block height updated
-	require.Equal(t, uint64(100), result.GetBlockHeight())
+	require.Equal(t, int64(100), result.GetBlockHeight())
 }
 
 func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
@@ -54,7 +54,7 @@ func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
 
 	require.Equal(t, newBalance, result.GetBalance())
 	require.Equal(t, uint64(5), result.GetNonce())
-	require.Equal(t, uint64(60), result.GetBlockHeight())
+	require.Equal(t, int64(60), result.GetBlockHeight())
 }
 
 func TestPAW_MultipleFields(t *testing.T) {
@@ -76,7 +76,7 @@ func TestPAW_MultipleFields(t *testing.T) {
 	require.Equal(t, newBalance, result.GetBalance())
 	require.Equal(t, uint64(99), result.GetNonce())
 	require.Equal(t, newCodeHash, result.GetCodeHash())
-	require.Equal(t, uint64(200), result.GetBlockHeight())
+	require.Equal(t, int64(200), result.GetBlockHeight())
 }
 
 func TestPAW_ZeroNonce(t *testing.T) {
@@ -86,7 +86,7 @@ func TestPAW_ZeroNonce(t *testing.T) {
 	result := paw.Merge(base, 10)
 
 	require.Equal(t, uint64(0), result.GetNonce())
-	require.Equal(t, uint64(10), result.GetBlockHeight())
+	require.Equal(t, int64(10), result.GetBlockHeight())
 }
 
 func TestPAW_ZeroBalance(t *testing.T) {
@@ -134,7 +134,7 @@ func TestPAW_MergeDoesNotModifyBase(t *testing.T) {
 	_ = paw.Merge(base, 100)
 
 	// Base must be unchanged
-	require.Equal(t, uint64(50), base.GetBlockHeight())
+	require.Equal(t, int64(50), base.GetBlockHeight())
 	require.Equal(t, uint64(10), base.GetNonce())
 }
 
