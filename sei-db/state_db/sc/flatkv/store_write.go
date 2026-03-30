@@ -613,17 +613,35 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 		return
 	}
 
-	// Merge DB results into the result maps.
+	// Merge DB results into the result maps, failing on any per-key errors.
+	// BatchGet converts ErrNotFound into nil Value (no error), but surfaces
+	// real read errors.
 	for k, v := range storageBatch {
+		if v.Error != nil {
+			err = fmt.Errorf("storageDB batch read error for key %x: %w", k, v.Error)
+			return
+		}
 		storageOld[k] = v
 	}
 	for k, v := range accountBatch {
+		if v.Error != nil {
+			err = fmt.Errorf("accountDB batch read error for key %x: %w", k, v.Error)
+			return
+		}
 		accountOld[k] = v
 	}
 	for k, v := range codeBatch {
+		if v.Error != nil {
+			err = fmt.Errorf("codeDB batch read error for key %x: %w", k, v.Error)
+			return
+		}
 		codeOld[k] = v
 	}
 	for k, v := range legacyBatch {
+		if v.Error != nil {
+			err = fmt.Errorf("legacyDB batch read error for key %x: %w", k, v.Error)
+			return
+		}
 		legacyOld[k] = v
 	}
 
