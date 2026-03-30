@@ -27,6 +27,10 @@ type EVMStateStore struct {
 	dir    string
 }
 
+type pendingWriteWaiter interface {
+	WaitForPendingWrites()
+}
+
 // NewEVMStateStore opens 5 StateStore instances (one per EVM sub-type) using the
 // backend resolved from ssConfig.Backend (PebbleDB by default, RocksDB with build tag).
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
@@ -153,6 +157,14 @@ func (s *EVMStateStore) ApplyChangesetAsync(version int64, changesets []*proto.N
 		return nil
 	}
 	return s.applyGrouped(version, grouped, true)
+}
+
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.subDBs {
+		if waiter, ok := db.(pendingWriteWaiter); ok {
+			waiter.WaitForPendingWrites()
+		}
+	}
 }
 
 func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[EVMStoreType][]*iavl.KVPair {

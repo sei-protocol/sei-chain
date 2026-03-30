@@ -12,10 +12,15 @@ import (
 
 var _ DBWrapper = (*stateStoreWrapper)(nil)
 
+type pendingWriteWaiter interface {
+	WaitForPendingWrites()
+}
+
 // stateStoreWrapper adapts a versioned StateStore (SS layer) to the DBWrapper
 // interface used by the cryptosim benchmark. Each ApplyChangeSets call maps to
-// a single ApplyChangesetSync at an incrementing version. The SS layer persists
-// on every apply, so Commit is a no-op.
+// a single ApplyChangesetAsync at an incrementing version, then waits for the
+// async writer so the next block can immediately read the just-written state.
+// Commit remains a no-op because persistence happens during ApplyChangeSets.
 type stateStoreWrapper struct {
 	base    dbTypes.StateStore
 	version atomic.Int64
@@ -30,8 +35,15 @@ func NewStateStoreWrapper(store dbTypes.StateStore) DBWrapper {
 }
 
 func (s *stateStoreWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	nextVersion := s.version.Add(1)
-	return s.base.ApplyChangesetSync(nextVersion, cs)
+	nextVersion := s.version.Load() + 1
+	if err := s.base.ApplyChangesetAsync(nextVersion, cs); err != nil {
+		return err
+	}
+	if waiter, ok := s.base.(pendingWriteWaiter); ok {
+		waiter.WaitForPendingWrites()
+	}
+	s.version.Store(nextVersion)
+	return nil
 }
 
 func (s *stateStoreWrapper) Read(key []byte) (data []byte, found bool, err error) {
