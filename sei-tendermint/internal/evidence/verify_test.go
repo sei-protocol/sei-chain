@@ -242,7 +242,7 @@ func TestVerifyLightClientAttack_Equivocation(t *testing.T) {
 		Timestamp:           defaultEvidenceTime,
 	}
 
-	trustedBlockID := makeBlockID(trustedHeader.Hash(), 1000, []byte("partshash"))
+	trustedBlockID := makeBlockID(trustedHeader.Hash(), types.MaxBlockPartsCount, []byte("partshash"))
 	trustedVoteSet := types.NewVoteSet(evidenceChainID, 10, 1, tmproto.SignedMsgType(2), conflictingVals)
 	trustedCommit, err := factory.MakeCommit(ctx, trustedBlockID, 10, 1,
 		trustedVoteSet, conflictingPrivVals, defaultEvidenceTime)
@@ -321,7 +321,7 @@ func TestVerifyLightClientAttack_Amnesia(t *testing.T) {
 
 	// we are simulating an amnesia attack where all the validators in the conflictingVals set
 	// except the last validator vote twice. However this time the commits are of different rounds.
-	blockID := makeBlockID(conflictingHeader.Hash(), 1000, []byte("partshash"))
+	blockID := makeBlockID(conflictingHeader.Hash(), types.MaxBlockPartsCount, []byte("partshash"))
 	voteSet := types.NewVoteSet(evidenceChainID, height, 0, tmproto.SignedMsgType(2), conflictingVals)
 	commit, err := factory.MakeCommit(ctx, blockID, height, 0, voteSet, conflictingPrivVals, defaultEvidenceTime)
 	require.NoError(t, err)
@@ -340,7 +340,7 @@ func TestVerifyLightClientAttack_Amnesia(t *testing.T) {
 		Timestamp:           defaultEvidenceTime,
 	}
 
-	trustedBlockID := makeBlockID(trustedHeader.Hash(), 1000, []byte("partshash"))
+	trustedBlockID := makeBlockID(trustedHeader.Hash(), types.MaxBlockPartsCount, []byte("partshash"))
 	trustedVoteSet := types.NewVoteSet(evidenceChainID, height, 1, tmproto.SignedMsgType(2), conflictingVals)
 	trustedCommit, err := factory.MakeCommit(ctx, trustedBlockID, height, 1,
 		trustedVoteSet, conflictingPrivVals, defaultEvidenceTime)

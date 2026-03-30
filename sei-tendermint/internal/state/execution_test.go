@@ -151,7 +151,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	defaultEvidenceTime := time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 	privVal := privVals[state.Validators.Validators[0].Address.String()]
-	blockID := makeBlockID([]byte("headerhash"), 1000, []byte("partshash"))
+	blockID := makeBlockID([]byte("headerhash"), types.MaxBlockPartsCount, []byte("partshash"))
 	header := &types.Header{
 		Version:            version.Consensus{Block: version.BlockProtocol, App: 1},
 		ChainID:            state.ChainID,
@@ -179,7 +179,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 				Header: header,
 				Commit: &types.Commit{
 					Height:  10,
-					BlockID: makeBlockID(header.Hash(), 100, []byte("partshash")),
+					BlockID: makeBlockID(header.Hash(), types.MaxBlockPartsCount, []byte("partshash")),
 					Signatures: []types.CommitSig{{
 						BlockIDFlag:      types.BlockIDFlagNil,
 						ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
