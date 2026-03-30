@@ -64,7 +64,6 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			switch kind {
 			case evm.EVMKeyStorage:
 				storagePairs = s.applyEvmStorageChange(keyBytes, pair, storageOld, storagePairs)
-
 			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 				// Account data: keyBytes = addr(20)
 				addr, ok := AddressFromBytes(keyBytes)
@@ -238,11 +237,16 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	return nil
 }
 
-// Apply a single change
+// Apply a single change to the evm storage db.
 func (s *CommitStore) applyEvmStorageChange(
+	// The key with the prefix stripped.
 	keyBytes []byte,
+	// The change to apply.
 	pair *iavl.KVPair,
+	// This map stores the old value to the key prior to this change. This function updates it
+	// with the new value, so that the next change will see this value as the previous value.
 	storageOld map[string]types.BatchGetResult,
+	// This slice stores both the new and old values for each key modified in this block.
 	storagePairs []lthash.KVPairWithLastValue,
 ) []lthash.KVPairWithLastValue {
 	keyStr := string(keyBytes)
