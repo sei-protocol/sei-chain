@@ -69,6 +69,10 @@ type CryptosimMetrics struct {
 	receiptLogFilterCacheHitsTotal metric.Int64Counter
 	receiptLogFilterCacheMissTotal metric.Int64Counter
 	receiptLogFilterLogsReturned   metric.Int64Histogram
+	cacheFilterScanDuration        metric.Float64Histogram
+	cacheGetDuration               metric.Float64Histogram
+	cacheLogCount                  metric.Int64Gauge
+	cacheReceiptCount              metric.Int64Gauge
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -248,6 +252,29 @@ func NewCryptosimMetrics(
 		metric.WithUnit("{count}"),
 	)
 
+	cacheFilterScanDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_cache_filter_scan_duration_seconds",
+		metric.WithDescription("Time spent scanning the in-memory log cache during FilterLogs (excludes backend)"),
+		metric.WithExplicitBucketBoundaries(receiptReadLatencyBuckets...),
+		metric.WithUnit("s"),
+	)
+	cacheGetDuration, _ := meter.Float64Histogram(
+		"cryptosim_receipt_cache_get_duration_seconds",
+		metric.WithDescription("Time spent in cache.GetReceipt (includes clone cost, excludes backend)"),
+		metric.WithExplicitBucketBoundaries(receiptReadLatencyBuckets...),
+		metric.WithUnit("s"),
+	)
+	cacheLogCount, _ := meter.Int64Gauge(
+		"cryptosim_receipt_cache_log_count",
+		metric.WithDescription("Total number of log entries across all ledger cache chunks"),
+		metric.WithUnit("{count}"),
+	)
+	cacheReceiptCount, _ := meter.Int64Gauge(
+		"cryptosim_receipt_cache_receipt_count",
+		metric.WithDescription("Total number of receipts across all ledger cache chunks"),
+		metric.WithUnit("{count}"),
+	)
+
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
 		mainThreadPhase = metrics.NewPhaseTimer(meter, "seidb_main_thread")
@@ -287,6 +314,10 @@ func NewCryptosimMetrics(
 		receiptLogFilterCacheHitsTotal: receiptLogFilterCacheHitsTotal,
 		receiptLogFilterCacheMissTotal: receiptLogFilterCacheMissTotal,
 		receiptLogFilterLogsReturned:   receiptLogFilterLogsReturned,
+		cacheFilterScanDuration:        cacheFilterScanDuration,
+		cacheGetDuration:               cacheGetDuration,
+		cacheLogCount:                  cacheLogCount,
+		cacheReceiptCount:              cacheReceiptCount,
 		mainThreadPhase:                mainThreadPhase,
 		transactionPhaseTimerFactory:   transactionPhaseTimerFactory,
 	}
@@ -630,6 +661,34 @@ func (m *CryptosimMetrics) RecordLogFilterLogsReturned(count int64) {
 		return
 	}
 	m.receiptLogFilterLogsReturned.Record(context.Background(), count)
+}
+
+func (m *CryptosimMetrics) RecordCacheFilterScanDuration(seconds float64) {
+	if m == nil || m.cacheFilterScanDuration == nil {
+		return
+	}
+	m.cacheFilterScanDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) RecordCacheGetDuration(seconds float64) {
+	if m == nil || m.cacheGetDuration == nil {
+		return
+	}
+	m.cacheGetDuration.Record(context.Background(), seconds)
+}
+
+func (m *CryptosimMetrics) RecordCacheLogCount(count int64) {
+	if m == nil || m.cacheLogCount == nil {
+		return
+	}
+	m.cacheLogCount.Record(context.Background(), count)
+}
+
+func (m *CryptosimMetrics) RecordCacheReceiptCount(count int64) {
+	if m == nil || m.cacheReceiptCount == nil {
+		return
+	}
+	m.cacheReceiptCount.Record(context.Background(), count)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

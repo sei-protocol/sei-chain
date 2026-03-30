@@ -60,6 +60,10 @@ type ReceiptReadObserver interface {
 	ReportReceiptCacheMiss()
 	ReportLogFilterCacheHit()
 	ReportLogFilterCacheMiss()
+	RecordCacheFilterScanDuration(seconds float64)
+	RecordCacheGetDuration(seconds float64)
+	RecordCacheLogCount(count int64)
+	RecordCacheReceiptCount(count int64)
 }
 
 type receiptStore struct {
