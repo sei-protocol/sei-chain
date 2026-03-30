@@ -2325,3 +2325,114 @@ func TestGigaValidation_AllModes(t *testing.T) {
 		})
 	}
 }
+
+// createUnassociatedEVMTx creates a signed EVM transfer without calling SetAddressMapping,
+// so the sender remains unassociated and triggers balance migration on first use.
+func createUnassociatedEVMTx(t testing.TB, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address, value *big.Int, nonce uint64) []byte {
+	tc := app.MakeEncodingConfig().TxConfig
+
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		GasFeeCap: new(big.Int).SetUint64(100000000000),
+		GasTipCap: new(big.Int).SetUint64(100000000000),
+		Gas:       21000,
+		ChainID:   big.NewInt(config.DefaultChainID),
+		To:        &to,
+		Value:     value,
+		Nonce:     nonce,
+	}), signer.EvmSigner, signer.EvmPrivateKey)
+	require.NoError(t, err)
+
+	txData, err := ethtx.NewTxDataFromTx(signedTx)
+	require.NoError(t, err)
+
+	msg, err := types.NewMsgEVMTransaction(txData)
+	require.NoError(t, err)
+
+	txBuilder := tc.NewTxBuilder()
+	err = txBuilder.SetMsgs(msg)
+	require.NoError(t, err)
+	txBuilder.SetGasLimit(10000000000)
+
+	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	return txBytes
+}
+
+// TestGigaVsGeth_BalanceMigrationMultipleDenoms verifies that when giga encounters an
+// unassociated address holding multiple token denominations, it correctly aborts and
+// falls back to v2, which performs the full balance migration. The results must match
+// a pure v2 execution for consensus parity.
+func TestGigaVsGeth_BalanceMigrationMultipleDenoms(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+
+	// The cast address is the EVM address bytes interpreted as a Cosmos address.
+	// Before association, funds sent to this "address" need to be migrated.
+	castAddr := sdk.AccAddress(signer.EvmAddress[:])
+
+	// Fund the cast address with MULTIPLE denominations — this is the key scenario.
+	// Balance migration must move all denoms, not just usei.
+	multiDenomCoins := sdk.NewCoins(
+		sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), // 1e18 usei (enough for gas + transfer)
+		sdk.NewCoin("uusdc", sdk.NewInt(500000000)),          // 500 uusdc
+	)
+
+	// --- V2 baseline (handles migration natively) ---
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	err := v2Ctx.TestApp.BankKeeper.MintCoins(v2Ctx.Ctx, "mint", multiDenomCoins)
+	require.NoError(t, err)
+	err = v2Ctx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(v2Ctx.Ctx, "mint", castAddr, multiDenomCoins)
+	require.NoError(t, err)
+	// DO NOT associate — this forces the preprocess ante handler to migrate balances
+
+	v2Tx := createUnassociatedEVMTx(t, v2Ctx, signer, recipient.EvmAddress, big.NewInt(1000), 0)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+	require.NoError(t, v2Err)
+	require.Len(t, v2Results, 1)
+
+	// --- Giga Sequential (should abort and fall back to v2) ---
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	err = gigaCtx.TestApp.BankKeeper.MintCoins(gigaCtx.Ctx, "mint", multiDenomCoins)
+	require.NoError(t, err)
+	err = gigaCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(gigaCtx.Ctx, "mint", castAddr, multiDenomCoins)
+	require.NoError(t, err)
+	// DO NOT associate — giga should detect this and abort
+
+	gigaTx := createUnassociatedEVMTx(t, gigaCtx, signer, recipient.EvmAddress, big.NewInt(1000), 0)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+	require.NoError(t, gigaErr)
+	require.Len(t, gigaResults, 1)
+
+	// Both should succeed — giga fell back to v2 which handled migration
+	require.Equal(t, uint32(0), v2Results[0].Code, "V2 tx should succeed: %s", v2Results[0].Log)
+	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga tx should succeed (via v2 fallback): %s", gigaResults[0].Log)
+
+	// Consensus-critical: deterministic fields must match
+	require.Equal(t, v2Results[0].Code, gigaResults[0].Code, "Code mismatch")
+	require.Equal(t, v2Results[0].GasUsed, gigaResults[0].GasUsed, "GasUsed mismatch")
+	require.Equal(t, v2Results[0].GasWanted, gigaResults[0].GasWanted, "GasWanted mismatch")
+	CompareLastResultsHash(t, "BalanceMigrationMultipleDenoms", v2Results, gigaResults)
+
+	// Verify migration happened in V2: cast address should be empty,
+	// real sei address should hold the non-usei denoms.
+	v2CastUsdc := v2Ctx.TestApp.BankKeeper.GetBalance(v2Ctx.Ctx, castAddr, "uusdc")
+	v2RealUsdc := v2Ctx.TestApp.BankKeeper.GetBalance(v2Ctx.Ctx, signer.AccountAddress, "uusdc")
+	require.True(t, v2CastUsdc.IsZero(), "V2: cast address uusdc should be 0 after migration, got %s", v2CastUsdc)
+	require.Equal(t, int64(500000000), v2RealUsdc.Amount.Int64(),
+		"V2: real sei address should hold migrated uusdc")
+
+	// Verify migration also happened in the Giga (v2-fallback) path
+	gigaCastUsdc := gigaCtx.TestApp.BankKeeper.GetBalance(gigaCtx.Ctx, castAddr, "uusdc")
+	gigaRealUsdc := gigaCtx.TestApp.BankKeeper.GetBalance(gigaCtx.Ctx, signer.AccountAddress, "uusdc")
+	require.True(t, gigaCastUsdc.IsZero(), "Giga: cast address uusdc should be 0 after migration, got %s", gigaCastUsdc)
+	require.Equal(t, int64(500000000), gigaRealUsdc.Amount.Int64(),
+		"Giga: real sei address should hold migrated uusdc")
+
+	t.Logf("Balance migration with multiple denoms verified: V2 and Giga (v2-fallback) produce identical results")
+	t.Logf("  V2 cast uusdc: %s, real uusdc: %s", v2CastUsdc, v2RealUsdc)
+	t.Logf("  Giga cast uusdc: %s, real uusdc: %s", gigaCastUsdc, gigaRealUsdc)
+}
