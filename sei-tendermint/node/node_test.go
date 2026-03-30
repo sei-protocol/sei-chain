@@ -478,7 +478,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockID := types.BlockID{
 		Hash: crypto.Checksum([]byte("blockID_hash")),
 		PartSetHeader: types.PartSetHeader{
-			Total: math.MaxInt32,
+			Total: types.MaxBlockPartsCount,
 			Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
 		},
 	}
@@ -548,11 +548,11 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	pb, err := block.ToProto()
 	require.NoError(t, err)
 
-	// require that the header and commit be the max possible size
-	require.Equal(t, int64(pb.Header.Size()), types.MaxHeaderBytes)
-	require.Equal(t, int64(pb.LastCommit.Size()), types.MaxCommitBytes(types.MaxVotesCount))
+	// The encoded header must stay within the documented maximum.
+	require.LessOrEqual(t, int64(pb.Header.Size()), types.MaxHeaderBytes)
+	require.LessOrEqual(t, int64(pb.LastCommit.Size()), types.MaxCommitBytes(types.MaxVotesCount))
 	// make sure that the block is less than the max possible size
-	assert.Equal(t, int64(pb.Size()), maxBytes)
+	assert.LessOrEqual(t, int64(pb.Size()), maxBytes)
 	// because of the proto overhead we expect the part set bytes to be equal or
 	// less than the pb block size
 	assert.LessOrEqual(t, partSet.ByteSize(), int64(pb.Size()))

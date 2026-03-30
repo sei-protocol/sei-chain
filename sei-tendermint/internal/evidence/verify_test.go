@@ -397,10 +397,10 @@ func TestVerifyDuplicateVoteEvidence(t *testing.T) {
 	val2 := types.NewMockPV()
 	valSet := types.NewValidatorSet([]*types.Validator{val.ExtractIntoValidator(ctx, 1)})
 
-	blockID := makeBlockID([]byte("blockhash"), 1000, []byte("partshash"))
-	blockID2 := makeBlockID([]byte("blockhash2"), 1000, []byte("partshash"))
-	blockID3 := makeBlockID([]byte("blockhash"), 10000, []byte("partshash"))
-	blockID4 := makeBlockID([]byte("blockhash"), 10000, []byte("partshash2"))
+	blockID := makeBlockID([]byte("blockhash"), types.MaxBlockPartsCount, []byte("partshash"))
+	blockID2 := makeBlockID([]byte("blockhash2"), types.MaxBlockPartsCount, []byte("partshash"))
+	blockID3 := makeBlockID([]byte("blockhash"), types.MaxBlockPartsCount-1, []byte("partshash"))
+	blockID4 := makeBlockID([]byte("blockhash"), types.MaxBlockPartsCount, []byte("partshash2"))
 
 	const chainID = "mychain"
 

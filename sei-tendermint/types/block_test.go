@@ -216,7 +216,7 @@ func makeBlockIDRandom() BlockID {
 	)
 	rand.Read(blockHash)   //nolint: errcheck // ignore errcheck for read
 	rand.Read(partSetHash) //nolint: errcheck // ignore errcheck for read
-	return BlockID{blockHash, PartSetHeader{123, partSetHash}}
+	return BlockID{blockHash, PartSetHeader{MaxBlockPartsCount, partSetHash}}
 }
 
 func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) BlockID {
