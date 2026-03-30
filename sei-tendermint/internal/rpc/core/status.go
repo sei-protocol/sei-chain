@@ -132,6 +132,14 @@ func (env *Environment) validatorAtHeight(h int64) *types.Validator {
 		}
 	}
 
+<<<<<<< HEAD
 	_, val := valsWithH.GetByAddress(privValAddress)
 	return val
+=======
+	_, val, ok := valsWithH.GetByAddress(privValAddress)
+	if ok {
+		return utils.Some(val)
+	}
+	return none
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 }

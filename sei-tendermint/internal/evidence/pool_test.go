@@ -562,7 +562,7 @@ func initializeBlockStore(db dbm.DB, state sm.State, valAddr []byte) (*store.Blo
 
 		block.Header.Time = defaultEvidenceTime.Add(time.Duration(i) * time.Minute)
 		block.Header.Version = version.Consensus{Block: version.BlockProtocol, App: 1}
-		const parts = 1
+		const parts = types.BlockPartSizeBytes
 		partSet, err := block.MakePartSet(parts)
 		if err != nil {
 			return nil, err

@@ -187,11 +187,12 @@ func verifyCommitBatch(
 		if lookUpByIndex {
 			val = vals.Validators[idx]
 		} else {
-			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
+			var ok bool
+			valIdx, val, ok = vals.GetByAddress(commitSig.ValidatorAddress)
 
 			// if the signature doesn't belong to anyone in the validator set
 			// then we just skip over it
-			if val == nil {
+			if !ok {
 				continue
 			}
 
@@ -205,7 +206,14 @@ func verifyCommitBatch(
 		}
 
 		// Validate signature.
+<<<<<<< HEAD
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
+=======
+		voteSignBytes, ok := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		if !ok {
+			panic("VoteSignBytes() failed unexpectedly")
+		}
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 
 		// add the key, sig and message to the verifier
 		if err := bv.Add(val.PubKey, voteSignBytes, commitSig.Signature); err != nil {
@@ -278,7 +286,6 @@ func verifyCommitSingle(
 		val                *Validator
 		valIdx             int32
 		talliedVotingPower int64
-		voteSignBytes      []byte
 		seenVals           = make(map[int32]int, len(commit.Signatures))
 	)
 	for idx, commitSig := range commit.Signatures {
@@ -291,11 +298,12 @@ func verifyCommitSingle(
 		if lookUpByIndex {
 			val = vals.Validators[idx]
 		} else {
-			valIdx, val = vals.GetByAddress(commitSig.ValidatorAddress)
+			var ok bool
+			valIdx, val, ok = vals.GetByAddress(commitSig.ValidatorAddress)
 
 			// if the signature doesn't belong to anyone in the validator set
 			// then we just skip over it
-			if val == nil {
+			if !ok {
 				continue
 			}
 
@@ -308,10 +316,23 @@ func verifyCommitSingle(
 			seenVals[valIdx] = idx
 		}
 
+<<<<<<< HEAD
 		voteSignBytes = commit.VoteSignBytes(chainID, int32(idx))
 
 		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
 			return errBadSig{fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)}
+=======
+		voteSignBytes, ok := commit.VoteSignBytes(chainID, int32(idx)) //nolint:gosec // idx is bounded by len(commit.Signatures) which is validated against validator set size
+		if !ok {
+			panic("VoteSignBytes() failed unexpectedly")
+		}
+		sig, ok := commitSig.Signature.Get()
+		if !ok {
+			return fmt.Errorf("missing signature at idx %v", idx)
+		}
+		if err := val.PubKey.Verify(voteSignBytes, sig); err != nil {
+			return errBadSig{fmt.Errorf("wrong signature (#%d): %v", idx, sig)}
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 		}
 
 		// If this signature counts then add the voting power of the validator

@@ -56,7 +56,7 @@ func makeEvidences(
 		BlockID: types.BlockID{
 			Hash: crypto.Checksum(tmrand.Bytes(crypto.HashSize)),
 			PartSetHeader: types.PartSetHeader{
-				Total: 1000,
+				Total: types.MaxBlockPartsCount,
 				Hash:  crypto.Checksum([]byte("partset")),
 			},
 		},

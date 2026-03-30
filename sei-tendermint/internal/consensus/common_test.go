@@ -302,8 +302,8 @@ func validatePrevote(
 
 	address := pubKey.Address()
 
-	vote := prevotes.GetByAddress(address)
-	require.NotNil(t, vote, "Failed to find prevote from validator")
+	vote, ok := prevotes.GetByAddress(address)
+	require.True(t, ok, "Failed to find prevote from validator")
 
 	if blockHash == nil {
 		require.Nil(t, vote.BlockID.Hash, "Expected prevote to be for nil, got %X", vote.BlockID.Hash)
@@ -320,8 +320,8 @@ func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal
 	require.NoError(t, err)
 	address := pv.Address()
 
-	vote := votes.GetByAddress(address)
-	require.NotNil(t, vote)
+	vote, ok := votes.GetByAddress(address)
+	require.True(t, ok)
 
 	require.True(t, bytes.Equal(vote.BlockID.Hash, blockHash),
 		"Expected precommit to be for %X, got %X", blockHash, vote.BlockID.Hash)
@@ -344,8 +344,8 @@ func validatePrecommit(
 	require.NoError(t, err)
 	address := pv.Address()
 
-	vote := precommits.GetByAddress(address)
-	require.NotNil(t, vote, "Failed to find precommit from validator")
+	vote, ok := precommits.GetByAddress(address)
+	require.True(t, ok, "Failed to find precommit from validator")
 
 	if votedBlockHash == nil {
 		require.Nil(t, vote.BlockID.Hash, "Expected precommit to be for nil")

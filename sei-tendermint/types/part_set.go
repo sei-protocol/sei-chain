@@ -113,6 +113,10 @@ func (psh PartSetHeader) ValidateBasic() error {
 	if err := ValidateHash(psh.Hash); err != nil {
 		return fmt.Errorf("wrong Hash: %w", err)
 	}
+	// Check memory limits before acquiring lock or setting any state
+	if psh.Total > MaxBlockPartsCount {
+		return fmt.Errorf("Total = %v, want <=%v", psh.Total, MaxBlockPartsCount)
+	}
 	return nil
 }
 
@@ -169,8 +173,13 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 	total := (uint32(len(data)) + partSize - 1) / partSize
 	parts := make([]*Part, total)
 	partsBytes := make([][]byte, total)
+<<<<<<< HEAD
 	partsBitArray := bits.NewBitArray(int(total))
 	for i := uint32(0); i < total; i++ {
+=======
+	partsBitArray := bits.NewBitArray(int(total)) //nolint:gosec // total fits in int since it's derived from block-bounded data
+	for i := range total {
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 		part := &Part{
 			Index: i,
 			Bytes: data[i*partSize : tmmath.MinInt(len(data), int((i+1)*partSize))],

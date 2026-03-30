@@ -2,8 +2,13 @@ package consensus
 
 import (
 	"testing"
-	"time"
 
+<<<<<<< HEAD
+=======
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -25,6 +30,7 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 		{"very_large_total", 4294967295, true},
 	}
 
+<<<<<<< HEAD
 	// Test SetHasProposal memory limits
 	t.Run("SetHasProposal", func(t *testing.T) {
 		for _, tc := range testCases {
@@ -59,6 +65,8 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 		}
 	})
 
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	// Test InitProposalBlockParts memory limits
 	t.Run("InitProposalBlockParts", func(t *testing.T) {
 		for _, tc := range testCases {

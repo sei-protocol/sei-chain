@@ -126,6 +126,7 @@ func TestSetHasProposal(t *testing.T) {
 	ps.SetHasProposal(invalidProposal)
 	require.True(t, ps.PRS.Proposal, "Valid structure proposal should be accepted regardless of signature")
 
+<<<<<<< HEAD
 	// Test PartSetHeader.Total too large - should be silently ignored
 	// Create a new peer state for this test
 	ps3 := peerStateSetup(1, 1, 1)
@@ -146,6 +147,8 @@ func TestSetHasProposal(t *testing.T) {
 	ps3.SetHasProposal(tooLargeTotalProposal)
 	require.False(t, ps3.PRS.Proposal, "Proposal with too large Total should be silently ignored")
 
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	// Test valid proposal
 	validProposal := &types.Proposal{
 		Type:     tmproto.ProposalType,
@@ -184,6 +187,7 @@ func TestSetHasProposal(t *testing.T) {
 	require.True(t, ps2.PRS.Proposal, "Proposal with matching height should be accepted")
 }
 
+<<<<<<< HEAD
 func TestSetHasProposalMemoryLimit(t *testing.T) {
 	logger := log.NewTestingLogger(t)
 	peerID := types.NodeID("aa")
@@ -253,6 +257,8 @@ func TestSetHasProposalMemoryLimit(t *testing.T) {
 	}
 }
 
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 func TestInitProposalBlockPartsMemoryLimit(t *testing.T) {
 	logger := log.NewTestingLogger(t)
 	peerID := types.NodeID("test-peer")
@@ -331,6 +337,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 		expectPanic    bool
 	}{
 		{
+<<<<<<< HEAD
 			name: "memory limit exceeded - should silently ignore",
 			setupPeerState: func(ps *PeerState) {
 				ps.PRS.Height = 1
@@ -355,6 +362,8 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 			expectPanic:    false,
 		},
 		{
+=======
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 			name: "wrong height - should ignore",
 			setupPeerState: func(ps *PeerState) {
 				ps.PRS.Height = 1

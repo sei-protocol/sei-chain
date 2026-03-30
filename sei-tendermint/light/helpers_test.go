@@ -83,8 +83,16 @@ func (pkz privKeys) signHeader(t testing.TB, header *types.Header, valSet *types
 func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, key crypto.PrivKey, blockID types.BlockID) *types.Vote {
 	t.Helper()
 
+<<<<<<< HEAD
 	addr := key.PubKey().Address()
 	idx, _ := valset.GetByAddress(addr)
+=======
+	addr := key.Public().Address()
+	idx, _, ok := valset.GetByAddress(addr)
+	if !ok {
+		panic("validator missing")
+	}
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 	vote := &types.Vote{
 		ValidatorAddress: addr,
 		ValidatorIndex:   idx,

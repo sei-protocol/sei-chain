@@ -86,7 +86,10 @@ func makeValidCommit(
 	sigs := make([]types.CommitSig, vals.Size())
 	votes := make([]*types.Vote, vals.Size())
 	for i := 0; i < vals.Size(); i++ {
-		_, val := vals.GetByIndex(int32(i))
+		_, val, ok := vals.GetByIndex(int32(i))
+		if !ok {
+			panic("validator missing")
+		}
 		vote, err := factory.MakeVote(ctx, privVals[val.Address.String()], chainID, int32(i), height, 0, 2, blockID, time.Now())
 		require.NoError(t, err)
 		sigs[i] = vote.CommitSig()
@@ -152,12 +155,22 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	block := sf.MakeBlock(state, state.LastBlockHeight+1, new(types.Commit))
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
+<<<<<<< HEAD
 	_, val := state.NextValidators.GetByIndex(0)
 	if !bytes.Equal(pubkey.Bytes(), val.PubKey.Bytes()) {
 		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
 		require.NoError(t, err)
 		pbPk, err := encoding.PubKeyToProto(pubkey)
 		require.NoError(t, err)
+=======
+	_, val, ok := state.NextValidators.GetByIndex(0)
+	if !ok {
+		panic("validator missing")
+	}
+	if pubkey != val.PubKey {
+		vPbPk := crypto.PubKeyToProto(val.PubKey)
+		pbPk := crypto.PubKeyToProto(pubkey)
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 
 		finalizeBlockResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			{PubKey: vPbPk, Power: 0},
@@ -179,7 +192,10 @@ func makeHeaderPartsResponsesValPowerChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 
 	// If the pubkey is new, remove the old and add the new.
-	_, val := state.NextValidators.GetByIndex(0)
+	_, val, ok := state.NextValidators.GetByIndex(0)
+	if !ok {
+		panic("validator missing")
+	}
 	if val.VotingPower != power {
 		vPbPk, err := encoding.PubKeyToProto(val.PubKey)
 		require.NoError(t, err)

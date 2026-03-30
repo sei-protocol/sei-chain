@@ -275,25 +275,29 @@ func (vals *ValidatorSet) HasAddress(address []byte) bool {
 
 // GetByAddress returns an index of the validator with address and validator
 // itself (copy) if found. Otherwise, -1 and nil are returned.
-func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator) {
+func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator, ok bool) {
 	for idx, val := range vals.Validators {
 		if bytes.Equal(val.Address, address) {
+<<<<<<< HEAD
 			return int32(idx), val.Copy()
+=======
+			return int32(idx), val.Copy(), true //nolint:gosec // validator set size is consensus-bounded, fits in int32
+>>>>>>> d201e89 (fix to ProposalPOLMessage poisoning (CON-222) (#3129))
 		}
 	}
-	return -1, nil
+	return 0, nil, false
 }
 
 // GetByIndex returns the validator's address and validator itself (copy) by
 // index.
 // It returns nil values if index is less than 0 or greater or equal to
 // len(ValidatorSet.Validators).
-func (vals *ValidatorSet) GetByIndex(index int32) (address []byte, val *Validator) {
+func (vals *ValidatorSet) GetByIndex(index int32) (address []byte, val *Validator, ok bool) {
 	if index < 0 || int(index) >= len(vals.Validators) {
-		return nil, nil
+		return nil, nil, false
 	}
 	val = vals.Validators[index]
-	return val.Address, val.Copy()
+	return val.Address, val.Copy(), true
 }
 
 // Size returns the length of the validator set.
@@ -456,8 +460,8 @@ func verifyUpdates(
 ) (tvpAfterUpdatesBeforeRemovals int64, err error) {
 
 	delta := func(update *Validator, vals *ValidatorSet) int64 {
-		_, val := vals.GetByAddress(update.Address)
-		if val != nil {
+		_, val, ok := vals.GetByAddress(update.Address)
+		if ok {
 			return update.VotingPower - val.VotingPower
 		}
 		return update.VotingPower
@@ -503,8 +507,8 @@ func numNewValidators(updates []*Validator, vals *ValidatorSet) int {
 func computeNewPriorities(updates []*Validator, vals *ValidatorSet, updatedTotalVotingPower int64) {
 	for _, valUpdate := range updates {
 		address := valUpdate.Address
-		_, val := vals.GetByAddress(address)
-		if val == nil {
+		_, val, ok := vals.GetByAddress(address)
+		if !ok {
 			// add val
 			// Set ProposerPriority to -C*totalVotingPower (with C ~= 1.125) to make sure validators can't
 			// un-bond and then re-bond to reset their (potentially previously negative) ProposerPriority to zero.
@@ -568,8 +572,8 @@ func verifyRemovals(deletes []*Validator, vals *ValidatorSet) (votingPower int64
 	removedVotingPower := int64(0)
 	for _, valUpdate := range deletes {
 		address := valUpdate.Address
-		_, val := vals.GetByAddress(address)
-		if val == nil {
+		_, val, ok := vals.GetByAddress(address)
+		if !ok {
 			return removedVotingPower, fmt.Errorf("failed to find validator %X to remove", address)
 		}
 		removedVotingPower += val.VotingPower
@@ -972,7 +976,7 @@ func RandValidatorSet(numValidators int, votingPower int64) (*ValidatorSet, []Pr
 		privValidators = make([]PrivValidator, numValidators)
 	)
 
-	for i := 0; i < numValidators; i++ {
+	for i := range numValidators {
 		val, privValidator := RandValidator(false, votingPower)
 		valz[i] = val
 		privValidators[i] = privValidator
