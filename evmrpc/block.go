@@ -22,7 +22,6 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -179,7 +178,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
+	return a.getEvmTxCount(block), nil
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
@@ -192,7 +191,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
+	return a.getEvmTxCount(block), nil
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -512,17 +511,49 @@ func FullBloom() ethtypes.Bloom {
 	return ethtypes.BytesToBloom(bz)
 }
 
-// filters out non-evm txs
-func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
-	cnt := 0
-	// Only count eth txs
-	for _, tx := range txs {
-		ethtx := getEthTxForTxBz(tx, a.txConfigProvider(height).TxDecoder())
-		if ethtx != nil {
-			cnt += 1
-		}
-
-	}
-	cntHex := hexutil.Uint(cnt) //nolint:gosec
+// getEvmTxCount returns the same transaction count as EncodeTmBlock exposes: filterTransactions
+// plus the same per-msg rules as EncodeTmBlock (EVM messages need GetReceipt to succeed).
+func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
+	n := countBlockTxsLikeEncodeTmBlock(
+		a.ctxProvider,
+		a.txConfigProvider,
+		block,
+		a.keeper,
+		a.includeShellReceipts,
+		a.includeBankTransfers,
+		a.cacheCreationMutex,
+		a.globalBlockCache,
+	)
+	cntHex := hexutil.Uint(n) //nolint:gosec
 	return &cntHex
+}
+
+func countBlockTxsLikeEncodeTmBlock(
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	block *coretypes.ResultBlock,
+	k *keeper.Keeper,
+	includeShellReceipts bool,
+	includeBankTransfers bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) int {
+	latestCtx := ctxProvider(LatestCtxHeight)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeShellReceipts, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	n := 0
+	for _, msg := range msgs {
+		switch m := msg.msg.(type) {
+		case *types.MsgEVMTransaction:
+			ethtx, _ := m.AsTransaction()
+			if _, err := k.GetReceipt(latestCtx, ethtx.Hash()); err != nil {
+				continue
+			}
+			n++
+		case *wasmtypes.MsgExecuteContract:
+			n++
+		case *banktypes.MsgSend:
+			n++
+		}
+	}
+	return n
 }
