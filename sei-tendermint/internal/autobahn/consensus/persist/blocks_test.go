@@ -191,8 +191,24 @@ func TestNoOpBlockPersister(t *testing.T) {
 
 	rng := utils.TestRng()
 	key := types.GenSecretKey(rng)
-	testPersistBlock(t, bp, testSignedProposal(rng, key, 0))
-	require.NoError(t, bp.MaybePruneAndPersistLane(types.LaneID{}, utils.None[*types.CommitQC](), nil, noBlockCB)) // no-op persister returns early
+	lane := key.Public()
+
+	proposals := make([]*types.Signed[*types.LaneProposal], 5)
+	for i := range proposals {
+		proposals[i] = testSignedProposal(rng, key, types.BlockNumber(i))
+	}
+
+	// Persist and prune with anchor + new proposals in no-op mode.
+	// Verify afterEach is still invoked for every proposal.
+	var called int
+	cb := utils.Some(func(_ *types.Signed[*types.LaneProposal]) { called++ })
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals[:3], cb))
+	require.Equal(t, 3, called)
+
+	called = 0
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals[3:], cb))
+	require.Equal(t, 2, called)
+
 	require.NoError(t, bp.close())
 }
 

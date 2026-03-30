@@ -71,15 +71,23 @@ func testPersistCommitQC(t *testing.T, cp *CommitQCPersister, qc *types.CommitQC
 	))
 }
 
-// testDeleteCommitQCsBefore exercises the lock-free deleteBefore on
-// commitQCState. Production code always goes through MaybePruneAndPersist,
-// but tests need to truncate without an anchor QC to verify edge cases.
-func testDeleteCommitQCsBefore(t *testing.T, cp *CommitQCPersister, idx types.RoadIndex, anchor utils.Option[*types.CommitQC]) {
+// testDeleteCommitQCsBefore truncates the WAL below the anchor's index and
+// re-persists the anchor for crash recovery.
+func testDeleteCommitQCsBefore(t *testing.T, cp *CommitQCPersister, anchor *types.CommitQC) {
 	t.Helper()
 	for s := range cp.state.Lock() {
-		require.NoError(t, s.deleteBefore(idx, anchor))
+		require.NoError(t, s.deleteBefore(anchor))
 		return
 	}
+}
+
+// clearCommitQCWAL removes all WAL files to simulate a crash between
+// WAL truncation and the subsequent anchor write.
+func clearCommitQCWAL(t *testing.T, dir string) {
+	t.Helper()
+	walDir := filepath.Join(dir, commitqcsDir)
+	require.NoError(t, os.RemoveAll(walDir))
+	require.NoError(t, os.MkdirAll(walDir, 0700))
 }
 
 func TestNewCommitQCPersisterEmptyDir(t *testing.T) {
@@ -136,7 +144,7 @@ func TestCommitQCDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 		testPersistCommitQC(t, cp, qc)
 	}
 
-	testDeleteCommitQCsBefore(t, cp, 3, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[3])
 	require.NoError(t, cp.Close())
 
 	_, loaded, err := NewCommitQCPersister(utils.Some(dir))
@@ -151,19 +159,26 @@ func TestCommitQCDeleteBeforeZero(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	dir := t.TempDir()
 
-	qcs := makeSequentialCommitQCs(committee, keys, 2)
+	qcs := makeSequentialCommitQCs(committee, keys, 3)
+
 	cp, _, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
-	for _, qc := range qcs {
+	for _, qc := range qcs[:2] {
 		testPersistCommitQC(t, cp, qc)
 	}
 
-	testDeleteCommitQCsBefore(t, cp, 0, noQC)
+	// deleteBefore with anchor at index 0 should persist the anchor
+	// (which is a duplicate here) and leave everything intact.
+	testDeleteCommitQCsBefore(t, cp, qcs[0])
 	require.NoError(t, cp.Close())
 
-	_, loaded, err := NewCommitQCPersister(utils.Some(dir))
+	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(loaded))
+
+	testPersistCommitQC(t, cp2, qcs[2])
+	require.Equal(t, types.RoadIndex(3), cp2.LoadNext())
+	require.NoError(t, cp2.Close())
 }
 
 func TestCommitQCPersistDuplicateIsNoOp(t *testing.T) {
@@ -225,17 +240,35 @@ func TestLoadAllDetectsCommitQCGap(t *testing.T) {
 }
 
 func TestNoOpCommitQCPersister(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 4)
+	qcs := makeSequentialCommitQCs(committee, keys, 11)
+
+	// Fresh no-op persister: prune with anchor at index 0 (idx==0,
+	// s.next==0). Should persist the anchor and advance to 1.
 	cp, loaded, err := NewCommitQCPersister(utils.None[string]())
 	require.NoError(t, err)
 	require.NotNil(t, cp)
 	require.Equal(t, 0, len(loaded))
+	require.NoError(t, cp.MaybePruneAndPersist(
+		utils.Some(qcs[0]),
+		qcs[1:5],
+		noCommitQCCB,
+	))
+	require.Equal(t, types.RoadIndex(5), cp.LoadNext())
 
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
-	qcs := makeSequentialCommitQCs(committee, keys, 1)
-	testPersistCommitQC(t, cp, qcs[0])
-	require.Equal(t, types.RoadIndex(1), cp.LoadNext())
-	testDeleteCommitQCsBefore(t, cp, 0, noQC)
+	// Prune with a future anchor (index 8 > s.next=5). deleteBefore
+	// advances s.next to 8, then persistCommitQC persists the anchor
+	// and advances s.next to 9. The remaining QCs (9,10) follow.
+	// Before the fix, deleteBefore in no-op mode wouldn't advance
+	// s.next, so re-persisting the anchor QC would fail with "out of
+	// sequence".
+	require.NoError(t, cp.MaybePruneAndPersist(
+		utils.Some(qcs[8]),
+		qcs[9:],
+		noCommitQCCB,
+	))
+	require.Equal(t, types.RoadIndex(11), cp.LoadNext())
 	require.NoError(t, cp.Close())
 }
 
@@ -244,21 +277,19 @@ func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 	committee, keys := types.GenCommittee(rng, 4)
 	dir := t.TempDir()
 
-	qcs := makeSequentialCommitQCs(committee, keys, 3)
+	qcs := makeSequentialCommitQCs(committee, keys, 12)
 	cp, _, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
-	for _, qc := range qcs {
-		testPersistCommitQC(t, cp, qc)
+	for i := range 3 {
+		testPersistCommitQC(t, cp, qcs[i])
 	}
-	// next is 3; prune past everything. deleteBefore advances the cursor
-	// to 10 and truncates the WAL.
-	testDeleteCommitQCsBefore(t, cp, 10, noQC)
-	require.Equal(t, types.RoadIndex(10), cp.LoadNext())
+	// next is 3; deleteBefore with anchor at 10 truncates the WAL,
+	// advances the cursor to 10, and re-persists the anchor (next → 11).
+	testDeleteCommitQCsBefore(t, cp, qcs[10])
+	require.Equal(t, types.RoadIndex(11), cp.LoadNext())
 
-	// New writes starting from 10 should work.
-	moreQCs := makeSequentialCommitQCs(committee, keys, 12)
-	testPersistCommitQC(t, cp, moreQCs[10])
-	testPersistCommitQC(t, cp, moreQCs[11])
+	// New write starting from 11 should work.
+	testPersistCommitQC(t, cp, qcs[11])
 	require.NoError(t, cp.Close())
 
 	// Reopen — should see only the post-TruncateAll entries.
@@ -270,23 +301,24 @@ func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 }
 
 // TestCommitQCDeleteBeforePastAllCrashRecovery simulates a crash between WAL
-// TruncateAll and new write: on restart the WAL is empty but the anchor is far ahead.
-// deleteBefore must still advance the cursor so subsequent persists succeed.
+// TruncateAll and the anchor write: on restart the WAL is empty and the anchor
+// must re-establish the cursor so subsequent persists succeed.
 func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
 	dir := t.TempDir()
 
-	qcs := makeSequentialCommitQCs(committee, keys, 3)
+	qcs := makeSequentialCommitQCs(committee, keys, 12)
 	cp, _, err := NewCommitQCPersister(utils.Some(dir))
 	require.NoError(t, err)
-	for _, qc := range qcs {
-		testPersistCommitQC(t, cp, qc)
+	for i := range 3 {
+		testPersistCommitQC(t, cp, qcs[i])
 	}
+	require.NoError(t, cp.Close())
 
-	// deleteBefore truncates the WAL (past all), then "crash" before writing.
-	testDeleteCommitQCsBefore(t, cp, 10, noQC)
-	require.NoError(t, cp.Close()) // simulate crash — no new QCs written
+	// Simulate crash: clear the WAL as if TruncateAll completed but the
+	// subsequent anchor write never happened.
+	clearCommitQCWAL(t, dir)
 
 	// Restart: WAL is empty, next will be 0.
 	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
@@ -294,14 +326,14 @@ func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 	require.Empty(t, loaded)
 	require.Equal(t, types.RoadIndex(0), cp2.LoadNext())
 
-	// Second deleteBefore on the empty WAL must advance the cursor.
-	testDeleteCommitQCsBefore(t, cp2, 10, noQC)
-	require.Equal(t, types.RoadIndex(10), cp2.LoadNext())
-
-	// Writing from index 10 should now succeed.
-	moreQCs := makeSequentialCommitQCs(committee, keys, 12)
-	testPersistCommitQC(t, cp2, moreQCs[10])
-	testPersistCommitQC(t, cp2, moreQCs[11])
+	// MaybePruneAndPersist with anchor at 10 re-establishes the cursor
+	// and appends new QCs.
+	require.NoError(t, cp2.MaybePruneAndPersist(
+		utils.Some(qcs[10]),
+		[]*types.CommitQC{qcs[11]},
+		noCommitQCCB,
+	))
+	require.Equal(t, types.RoadIndex(12), cp2.LoadNext())
 	require.NoError(t, cp2.Close())
 
 	_, loaded, err = NewCommitQCPersister(utils.Some(dir))
@@ -311,9 +343,9 @@ func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 	require.Equal(t, types.RoadIndex(11), loaded[1].Index)
 }
 
-// TestCommitQCDeleteBeforeWithAnchorRecovers verifies that passing an anchor
-// QC to deleteBefore re-persists it after a WAL reset, so the caller doesn't
-// need to handle crash recovery separately.
+// TestCommitQCDeleteBeforeWithAnchorRecovers verifies that after a crash
+// leaves the WAL empty, passing an anchor QC re-persists it and
+// re-establishes the cursor for subsequent writes.
 func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
@@ -325,10 +357,10 @@ func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	for _, qc := range qcs {
 		testPersistCommitQC(t, cp, qc)
 	}
-
-	// Truncate past all, then "crash".
-	testDeleteCommitQCsBefore(t, cp, 10, noQC)
 	require.NoError(t, cp.Close())
+
+	// Simulate crash: clear WAL.
+	clearCommitQCWAL(t, dir)
 
 	// Restart: WAL is empty. Pass the anchor QC (index 4) through deleteBefore.
 	cp2, loaded, err := NewCommitQCPersister(utils.Some(dir))
@@ -336,7 +368,7 @@ func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	require.Empty(t, loaded)
 
 	// deleteBefore advances cursor to 4, then re-persists qcs[4] via anchor.
-	testDeleteCommitQCsBefore(t, cp2, 4, utils.Some(qcs[4]))
+	testDeleteCommitQCsBefore(t, cp2, qcs[4])
 	require.Equal(t, types.RoadIndex(5), cp2.LoadNext())
 
 	// Continue writing from 5.
@@ -365,7 +397,7 @@ func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {
 	for i := range 5 {
 		testPersistCommitQC(t, cp, qcs[i])
 	}
-	testDeleteCommitQCsBefore(t, cp, 3, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[3])
 	testPersistCommitQC(t, cp, qcs[5])
 	require.NoError(t, cp.Close())
 
@@ -390,11 +422,11 @@ func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
 	}
 
 	// Prune up to index 3.
-	testDeleteCommitQCsBefore(t, cp, 3, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[3])
 
 	// Pruning at or below the current first should be a no-op.
-	testDeleteCommitQCsBefore(t, cp, 2, noQC)
-	testDeleteCommitQCsBefore(t, cp, 3, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[2])
+	testDeleteCommitQCsBefore(t, cp, qcs[3])
 	require.NoError(t, cp.Close())
 
 	// Verify nothing extra was pruned.
@@ -418,11 +450,11 @@ func TestCommitQCProgressiveDeleteBefore(t *testing.T) {
 	}
 
 	// First prune: remove 0, 1.
-	testDeleteCommitQCsBefore(t, cp, 2, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[2])
 	require.Equal(t, types.RoadIndex(8), cp.LoadNext())
 
 	// Second prune: remove 2, 3, 4.
-	testDeleteCommitQCsBefore(t, cp, 5, noQC)
+	testDeleteCommitQCsBefore(t, cp, qcs[5])
 	require.NoError(t, cp.Close())
 
 	// Verify indices 5, 6, 7 survive.

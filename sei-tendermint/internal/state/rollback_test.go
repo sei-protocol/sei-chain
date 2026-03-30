@@ -286,7 +286,7 @@ func makeBlockIDRandom() types.BlockID {
 	return types.BlockID{
 		Hash: blockHash,
 		PartSetHeader: types.PartSetHeader{
-			Total: 123,
+			Total: types.MaxBlockPartsCount,
 			Hash:  partSetHash,
 		},
 	}

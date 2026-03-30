@@ -301,8 +301,8 @@ func validatePrevote(
 
 	address := pubKey.Address()
 
-	vote := prevotes.GetByAddress(address)
-	require.NotNil(t, vote, "Failed to find prevote from validator")
+	vote, ok := prevotes.GetByAddress(address)
+	require.True(t, ok, "Failed to find prevote from validator")
 
 	if blockHash == nil {
 		require.Nil(t, vote.BlockID.Hash, "Expected prevote to be for nil, got %X", vote.BlockID.Hash)
@@ -319,8 +319,8 @@ func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal
 	require.NoError(t, err)
 	address := pv.Address()
 
-	vote := votes.GetByAddress(address)
-	require.NotNil(t, vote)
+	vote, ok := votes.GetByAddress(address)
+	require.True(t, ok)
 
 	require.True(t, bytes.Equal(vote.BlockID.Hash, blockHash),
 		"Expected precommit to be for %X, got %X", blockHash, vote.BlockID.Hash)
@@ -343,8 +343,8 @@ func validatePrecommit(
 	require.NoError(t, err)
 	address := pv.Address()
 
-	vote := precommits.GetByAddress(address)
-	require.NotNil(t, vote, "Failed to find precommit from validator")
+	vote, ok := precommits.GetByAddress(address)
+	require.True(t, ok, "Failed to find precommit from validator")
 
 	if votedBlockHash == nil {
 		require.Nil(t, vote.BlockID.Hash, "Expected precommit to be for nil")
@@ -812,8 +812,9 @@ func makeConsensusState(
 		closeFuncs = append(closeFuncs, app.Close)
 
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
 		require.NoError(t, err)
+		app.SetValidators(vals)
 
 		css[i] = newStateWithConfigAndBlockStore(ctx, thisConfig, state, privVals[i], app, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
@@ -837,7 +838,6 @@ func randConsensusNetWithPeers(
 	nValidators int,
 	nPeers int,
 	tickerFunc func() TimeoutTicker,
-	appFunc func(string) abci.Application,
 ) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
 	t.Helper()
 
@@ -871,15 +871,12 @@ func randConsensusNetWithPeers(
 			require.NoError(t, err)
 		}
 
-		app := appFunc(filepath.Join(cfg.DBDir(), fmt.Sprintf("%s_%d", t.Name(), i)))
+		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		switch app.(type) {
-		// simulate handshake, receive app version. If don't do this, replay test will fail
-		case *kvstore.PersistentKVStoreApplication, *kvstore.Application:
-			state.Version.Consensus.App = kvstore.ProtocolVersion
-		}
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+		state.Version.Consensus.App = kvstore.ProtocolVersion
+		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
 		require.NoError(t, err)
+		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
 		css[i] = newStateWithConfig(ctx, thisConfig, state, privVal, app)
@@ -955,10 +952,6 @@ func (m *mockTicker) ScheduleTimeout(ti timeoutInfo) {
 
 func (m *mockTicker) Chan() <-chan timeoutInfo {
 	return m.c
-}
-
-func newEpehemeralKVStore(_ string) abci.Application {
-	return kvstore.NewApplication()
 }
 
 func signDataIsEqual(v1 *types.Vote, v2 *tmproto.Vote) bool {

@@ -180,7 +180,11 @@ func (d *Database) FinalizeBlock(
 	})
 	d.nextBlockNumber++
 
-	err := d.db.ApplyChangeSets(changeSets)
+	entry := &proto.ChangelogEntry{
+		Version:    d.db.Version() + 1,
+		Changesets: changeSets,
+	}
+	err := d.db.ApplyChangeSets(entry)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}

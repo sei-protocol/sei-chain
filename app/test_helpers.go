@@ -390,7 +390,6 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
@@ -460,7 +459,6 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
@@ -509,7 +507,6 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
@@ -566,7 +563,6 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
@@ -611,7 +607,6 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 
 		_, err = app.InitChain(
 			context.Background(), &abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				ChainId:         "sei-test",
 				AppStateBytes:   stateBytes,
@@ -739,7 +734,6 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// init chain will set the validator set and initialize the genesis accounts
 	_, _ = app.InitChain(
 		context.Background(), &abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,
@@ -782,7 +776,6 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 
 	_, _ = app.InitChain(
 		context.Background(), &abci.RequestInitChain{
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			ChainId:         "sei-test",
 			AppStateBytes:   stateBytes,

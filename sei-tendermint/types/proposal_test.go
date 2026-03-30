@@ -1,7 +1,6 @@
 package types
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -51,7 +50,7 @@ func getTestProposal(t testing.TB) *Proposal {
 		Height: 12345,
 		Round:  23456,
 		BlockID: BlockID{Hash: []byte("--June_15_2020_amino_was_removed"),
-			PartSetHeader: PartSetHeader{Total: 111, Hash: []byte("--June_15_2020_amino_was_removed")}},
+			PartSetHeader: PartSetHeader{Total: MaxBlockPartsCount, Hash: []byte("--June_15_2020_amino_was_removed")}},
 		POLRound:  -1,
 		Timestamp: stamp,
 	}
@@ -69,7 +68,7 @@ func TestProposalSignable(t *testing.T) {
 
 func TestProposalString(t *testing.T) {
 	str := getTestProposal(t).String()
-	expected := `Proposal{12345/23456 (2D2D4A756E655F31355F323032305F616D696E6F5F7761735F72656D6F766564:111:2D2D4A756E65, -1) 000000000000 @ 2018-02-11T07:09:22.765Z}`
+	expected := `Proposal{12345/23456 (2D2D4A756E655F31355F323032305F616D696E6F5F7761735F72656D6F766564:101:2D2D4A756E65, -1) 000000000000 @ 2018-02-11T07:09:22.765Z}`
 	if str != expected {
 		t.Errorf("got unexpected string for Proposal. Expected:\n%v\nGot:\n%v", expected, str)
 	}
@@ -84,8 +83,8 @@ func TestProposalVerifySignature(t *testing.T) {
 
 	txKeys := make([]TxKey, 0)
 	prop := NewProposal(
-		4, 2, 2,
-		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{777, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now(), txKeys, generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
+		4, 2, 1,
+		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{MaxBlockPartsCount, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now(), txKeys, generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 	p := prop.ToProto()
 	signBytes := ProposalSignBytes("test_chain_id", p)
 
@@ -169,7 +168,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
 	}
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
@@ -179,7 +178,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			pubKey, err := privVal.GetPubKey(ctx)
 			require.NoError(t, err)
 			prop := NewProposal(
-				4, 2, 2,
+				4, 2, 1,
 				blockID, tmtime.Now(), txKeys,
 				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
@@ -194,7 +193,7 @@ func TestProposalValidateBasic(t *testing.T) {
 
 func TestProposalProtoBuf(t *testing.T) {
 	var txKeys []TxKey
-	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	proposal := NewProposal(1, 3, 2, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 	proposal.Signature = testKey.Sign([]byte("sig"))
 	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 
