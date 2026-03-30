@@ -29,10 +29,13 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 }
 
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
-	// Enable both SC and SS with default configs (pebbledb backend, async writes)
+	// Enable both SC and SS, but make SC WAL writes synchronous so the
+	// historical proof query below cannot race memIAVL durability.
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 
