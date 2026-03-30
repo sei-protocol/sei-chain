@@ -9,10 +9,10 @@
     "GenerateReceipts": true,
     "ReceiptReadConcurrency": 4,
     "ReceiptReadsPerSecond": 1000,
-    "ReceiptReadMode": "duckdb",
+    "ReceiptReadMode": "cache",
     "ReceiptLogFilterReadConcurrency": 4,
     "ReceiptLogFilterReadsPerSecond": 200,
-    "ReceiptLogFilterReadMode": "duckdb",
+    "ReceiptLogFilterReadMode": "cache",
     "ReceiptLogFilterMinBlockRange": 1,
     "ReceiptLogFilterMaxBlockRange": 10
 }

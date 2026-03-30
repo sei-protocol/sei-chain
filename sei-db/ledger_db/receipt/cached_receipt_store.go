@@ -119,6 +119,7 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 
 	cacheMin := s.cache.LogMinBlock()
 	if cacheMin > 0 && fromBlock >= cacheMin {
+		s.reportLogFilterCacheHit()
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
