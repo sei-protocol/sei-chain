@@ -41,9 +41,15 @@ type Keeper struct {
 	upgradeHandlers    map[string]types.UpgradeHandler // map of plan name to upgrade handler
 	versionSetter      xp.ProtocolVersionSetter        // implements setting the protocol version field on BaseApp
 	downgradeVerified  bool                            // tells if we've already sanity checked that this binary version isn't being used against an old state.
-	// doneHeightCache is a pointer so that value-receiver copies of Keeper all share the same underlying map.
+	// doneHeightCache is a pointer so that value-receiver copies of Keeper all share the same underlying cache.
 	// Done-heights are immutable once set, so cached values are always valid for the lifetime of the process.
-	doneHeightCache *sync.Map // upgrade name -> int64 done height
+	doneHeightCache *doneHeightCache
+}
+
+// doneHeightCache is a thread-safe cache of upgrade name -> done height.
+type doneHeightCache struct {
+	mu      sync.RWMutex
+	heights map[string]int64
 }
 
 // NewKeeper constructs an upgrade Keeper which requires the following arguments:
@@ -60,7 +66,7 @@ func NewKeeper(skipUpgradeHeights map[int64]bool, storeKey sdk.StoreKey, cdc cod
 		cdc:                cdc,
 		upgradeHandlers:    map[string]types.UpgradeHandler{},
 		versionSetter:      vs,
-		doneHeightCache:    &sync.Map{},
+		doneHeightCache:    &doneHeightCache{heights: make(map[string]int64)},
 	}
 }
 
@@ -281,18 +287,30 @@ func parseDoneKey(key []byte) string {
 	return string(key[1:])
 }
 
-// GetDoneHeight returns the height at which the given upgrade was executed
+// GetDoneHeight returns the height at which the given upgrade was executed.
+// For historical contexts (ctx.BlockHeight() is before the upgrade), 0 is returned
+// even if the cache holds a later done-height, preserving context-specific correctness.
 func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
-	if v, ok := k.doneHeightCache.Load(name); ok {
-		return v.(int64)
+	k.doneHeightCache.mu.RLock()
+	cachedHeight, ok := k.doneHeightCache.heights[name]
+	k.doneHeightCache.mu.RUnlock()
+	if ok {
+		// A non-zero cached height that is after the context's block height means
+		// the upgrade had not yet executed at the requested height.
+		if cachedHeight > ctx.BlockHeight() {
+			return 0
+		}
+		return cachedHeight
 	}
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	bz := store.Get([]byte(name))
-	if len(bz) == 0 {
-		return 0
+	var height int64
+	if len(bz) != 0 {
+		height = int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 	}
-	height := int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
-	k.doneHeightCache.Store(name, height)
+	k.doneHeightCache.mu.Lock()
+	k.doneHeightCache.heights[name] = height
+	k.doneHeightCache.mu.Unlock()
 	return height
 }
 
@@ -355,7 +373,9 @@ func (k Keeper) SetDone(ctx sdk.Context, name string) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec // block heights are always non-negative
 	store.Set([]byte(name), bz)
-	k.doneHeightCache.Store(name, ctx.BlockHeight())
+	k.doneHeightCache.mu.Lock()
+	k.doneHeightCache.heights[name] = ctx.BlockHeight()
+	k.doneHeightCache.mu.Unlock()
 }
 
 // HasHandler returns true iff there is a handler registered for this name

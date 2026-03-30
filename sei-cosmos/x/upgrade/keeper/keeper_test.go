@@ -345,6 +345,32 @@ func (s *KeeperTestSuite) TestGetDoneHeight() {
 	s.Require().Equal(s.ctx.BlockHeight(), freshKeeper.GetDoneHeight(s.ctx, "test-upgrade"))
 }
 
+// TestGetDoneHeightHistoricalContext verifies that a cache entry populated by a
+// recent-block call does not cause GetDoneHeight to return the wrong answer for
+// a historical context that predates the upgrade.
+func (s *KeeperTestSuite) TestGetDoneHeightHistoricalContext() {
+	const upgradeName = "history-test-upgrade"
+	upgradeHeight := int64(100)
+
+	// Apply the upgrade at block 100 — this warms the cache with height 100.
+	upgradeCtx := s.ctx.WithBlockHeight(upgradeHeight)
+	s.app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(_ sdk.Context, _ types.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		return vm, nil
+	})
+	s.app.UpgradeKeeper.ApplyUpgrade(upgradeCtx, types.Plan{Name: upgradeName, Height: upgradeHeight})
+
+	// Historical context before the upgrade: must return 0, not the cached 100.
+	beforeCtx := s.ctx.WithBlockHeight(upgradeHeight - 1)
+	s.Require().Equal(int64(0), s.app.UpgradeKeeper.GetDoneHeight(beforeCtx, upgradeName))
+
+	// Context exactly at the upgrade height: must return 100.
+	s.Require().Equal(upgradeHeight, s.app.UpgradeKeeper.GetDoneHeight(upgradeCtx, upgradeName))
+
+	// Context after the upgrade: must return 100.
+	afterCtx := s.ctx.WithBlockHeight(upgradeHeight + 50)
+	s.Require().Equal(upgradeHeight, s.app.UpgradeKeeper.GetDoneHeight(afterCtx, upgradeName))
+}
+
 func TestKeeperTestSuite(t *testing.T) {
 	suite.Run(t, new(KeeperTestSuite))
 }
