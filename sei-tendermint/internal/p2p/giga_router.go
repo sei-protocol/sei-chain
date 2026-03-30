@@ -57,7 +57,13 @@ func (r *GigaRouter) PushToMempool(ctx context.Context, tx *pb.Transaction) erro
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
-	committee, err := atypes.NewRoundRobinElection(slices.Collect(maps.Keys(cfg.ValidatorAddrs)))
+	if cfg.GenDoc.InitialHeight < 1 {
+		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
+	}
+	committee, err := atypes.NewRoundRobinElection(
+		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
+		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
@@ -89,17 +95,11 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	last := atypes.GlobalBlockNumber(info.LastBlockHeight)
 	next := last + 1
 	if last == 0 {
-		if r.cfg.GenDoc.InitialHeight < 1 {
-			return fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", r.cfg.GenDoc.InitialHeight)
-		}
 		resp, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain())
 		if err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
-		last = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight - 1)
 		appHash = resp.AppHash
-		// Fresh chains have no executed blocks yet, while autobahn numbering starts at 0.
-		next = 0
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
@@ -117,14 +117,10 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		hash := b.Header().Hash()
 		var proposerAddress types.Address
 		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
-			// Deterministically select a proposer from the validator committee.
-			keyPb := vals[0].PubKey
-			for _, u := range vals {
-				if u.PubKey.Compare(keyPb) < 0 {
-					keyPb = u.PubKey
-				}
-			}
-			key, err := crypto.PubKeyFromProto(keyPb)
+			// Deterministically select a proposer from the app's validator committee.
+			// We need it so that app does not emit error logs.
+			proposer := slices.MinFunc(vals, func(a,b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+			key, err := crypto.PubKeyFromProto(proposer.PubKey)
 			if err != nil {
 				return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 			}
@@ -142,7 +138,6 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 				ChainID: r.cfg.GenDoc.ChainID,
 				Height:  int64(n),
 				Time:    b.Payload().CreatedAt(),
-				// We set proposerAddress to an active validator, so that app does not emit error logs.
 				// WARNING: the reward distribution has corner cases where it forgets the proposer,
 				// because reward is distributed with a delay. This is not our problem here though.
 				ProposerAddress: proposerAddress,

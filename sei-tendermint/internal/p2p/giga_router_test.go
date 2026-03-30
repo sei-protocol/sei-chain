@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"encoding/json"
 	"testing"
+	"slices"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -21,102 +23,112 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 
-const (
-	gigaRouterTestBlocks         = 20
-	gigaRouterTestBlockInterval  = 10 * time.Millisecond
-)
-
-type gigaRouterTestAppState struct {
-	blocks  [][][]byte
-	txs     [][]byte
-	appHash []byte
-}
-
-type gigaRouterTestAppSnapshot struct {
-	blocks  [][][]byte
-	txs     [][]byte
-	appHash []byte
-}
-
-type gigaRouterTestApp struct {
-	abci.BaseApplication
-
+type testAppState struct {
+	init    utils.Option[*abci.RequestInitChain]
 	validators []abci.ValidatorUpdate
-	state      utils.Watch[*gigaRouterTestAppState]
+	blocks  []*abci.RequestFinalizeBlock
+	appHash [sha256.Size]byte
 }
 
-func newGigaRouterTestApp(validators []abci.ValidatorUpdate) *gigaRouterTestApp {
-	return &gigaRouterTestApp{
-		validators: append([]abci.ValidatorUpdate(nil), validators...),
-		state: utils.NewWatch(&gigaRouterTestAppState{
-			blocks:  [][][]byte{},
-			txs:     [][]byte{},
-			appHash: nil,
-		}),
+func (s *testAppState) NextHeight() (int64,bool) {
+	if n:=len(s.blocks); n>0 {
+		return s.blocks[n-1].Header.Height+1,true
 	}
+	if init,ok := s.init.Get(); ok {
+		return init.InitialHeight,true
+	}
+	return 0,false
 }
 
-func (a *gigaRouterTestApp) GetValidators() []abci.ValidatorUpdate {
-	return append([]abci.ValidatorUpdate(nil), a.validators...)
+func testAppStateJSON(rng utils.Rng) json.RawMessage {
+	return utils.OrPanic1(json.Marshal(&abci.ValidatorUpdate{
+		PubKey: crypto.PubKeyToProto(ed25519.TestSecretKey(utils.GenBytes(rng,32)).Public()),
+		Power: rng.Int63(), 
+	}))
 }
 
-func (a *gigaRouterTestApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseInfo, error) {
+type testApp struct {
+	abci.Application
+	state utils.Watch[*testAppState]
+}
+
+func newTestApp() *testApp {
+	return &testApp{state: utils.NewWatch(&testAppState{})}
+}
+
+func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	for state := range a.state.Lock() {
+		return slices.Clone(state.validators)
+	}
+	panic("unreachable")
+}
+
+func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseInfo, error) {
+	for state := range a.state.Lock() {
+		init,ok := state.init.Get()
+		if !ok { return nil,fmt.Errorf("chain not initialized") }
 		return &abci.ResponseInfo{
-			LastBlockHeight:  int64(len(state.blocks)),
-			LastBlockAppHash: append([]byte(nil), state.appHash...),
+			LastBlockHeight:  init.InitialHeight + int64(len(state.blocks)) -1,
+			LastBlockAppHash: slices.Clone(state.appHash[:]),
 		}, nil
 	}
 	panic("unreachable")
 }
 
-func (a *gigaRouterTestApp) InitChain(context.Context, *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
-	return &abci.ResponseInitChain{
-		AppHash:    nil,
-		Validators: append([]abci.ValidatorUpdate(nil), a.validators...),
-	}, nil
+func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+	for state,ctrl := range a.state.Lock() {
+		if state.init.IsPresent() { return nil,fmt.Errorf("chain already initialized") }
+		if req.InitialHeight<1 { return nil,fmt.Errorf("InitialHeight = %v, want >=1",req.InitialHeight) }
+		var val abci.ValidatorUpdate
+		if err := json.Unmarshal(req.AppStateBytes,&val); err!=nil {
+			return nil,fmt.Errorf("proto.Unmarshal(): %w",err)
+		}
+		state.init = utils.Some(req)
+		state.appHash = sha256.Sum256(req.AppStateBytes)
+		state.validators = utils.Slice(val)
+		ctrl.Updated()
+		return &abci.ResponseInitChain{
+			AppHash:    slices.Clone(state.appHash[:]),
+			Validators: slices.Clone(state.validators),
+		}, nil
+	}
+	panic("unreachable")	
 }
 
-func (a *gigaRouterTestApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	blockTxs := cloneTxList(req.Txs)
-	txResults := make([]*abci.ExecTxResult, len(req.Txs))
-	for i := range req.Txs {
-		txResults[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
-	}
+func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
-		state.blocks = append(state.blocks, blockTxs)
-		state.txs = append(state.txs, blockTxs...)
-		state.appHash = gigaRouterTestMerkle(state.txs)
-		resp := &abci.ResponseFinalizeBlock{
-			AppHash:   append([]byte(nil), state.appHash...),
-			TxResults: txResults,
-		}
+		state.blocks = append(state.blocks, req)
+		state.appHash = sha256.Sum256(slices.Concat(req.Hash,state.appHash[:])) 
 		ctrl.Updated()
-		return resp, nil
+		return &abci.ResponseFinalizeBlock{
+			AppHash:   slices.Clone(state.appHash[:]),
+			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}},len(req.Txs)),
+		},nil
 	}
 	panic("unreachable")
 }
 
-func (a *gigaRouterTestApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	return &abci.ResponseCommit{}, nil
 }
 
-func (a *gigaRouterTestApp) WaitForHeight(ctx context.Context, height int) error {
+func (a *testApp) WaitForHeight(ctx context.Context, height int64) error {
 	for state, ctrl := range a.state.Lock() {
-		return ctrl.WaitUntil(ctx, func() bool { return len(state.blocks) >= height })
+		return ctrl.WaitUntil(ctx, func() bool {
+			n,ok := state.NextHeight()
+			return ok && n>height
+		})
 	}
 	panic("unreachable")
 }
 
-func (a *gigaRouterTestApp) Snapshot() gigaRouterTestAppSnapshot {
+func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
-		return gigaRouterTestAppSnapshot{
-			blocks:  cloneBlocks(state.blocks),
-			txs:     cloneTxList(state.txs),
-			appHash: append([]byte(nil), state.appHash...),
-		}
+		return *state
 	}
 	panic("unreachable")
 }
@@ -126,10 +138,15 @@ type gigaRouterTestNode struct {
 	validatorKey atypes.SecretKey
 	endpoint     Endpoint
 	router      *Router
-	app         *gigaRouterTestApp
+	app         *testApp
 }
 
 func TestGigaRouter_FinalizesSame20Blocks(t *testing.T) {
+	const (
+		gigaRouterTestBlocks         = 20
+		gigaRouterTestBlockInterval  = 10 * time.Millisecond
+	)
+
 	ctx := t.Context()
 	rng := utils.TestRng()
 	_,keys := atypes.GenCommittee(rng,4)
@@ -147,23 +164,23 @@ func TestGigaRouter_FinalizesSame20Blocks(t *testing.T) {
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:       "giga-router-test",
-		InitialHeight: 1234,
+		InitialHeight: rng.Int63n(100000),
+		AppState: testAppStateJSON(rng),
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for _, node := range nodes {
-			app := newGigaRouterTestApp(validatorUpdates)
-			nodeInfo := makeInfo(node.privKey)
-			nodeInfo.ListenAddr = node.endpoint.String()
-
+		for _, key := range keys {
+			nodeKey := nodeKeys[key.Public()]
+			nodeInfo := makeInfo(nodeKey)
+			nodeInfo.ListenAddr = addrs[key.Public()].HostPort.String()
 			router, err := NewRouter(
 				NopMetrics(),
-				node.privKey,
+				nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
 				dbm.NewMemDB(),
 				&RouterOptions{
-					SelfAddress:              utils.Some(node.endpoint.NodeAddress(node.privKey.Public().NodeID())),
+					SelfAddress:              utils.Some(node.endpoint.NodeAddress(nodeKey.Public().NodeID())),
 					Endpoint:                 node.endpoint,
 					Connection:               conn.DefaultMConnConfig(),
 					IncomingConnectionWindow: utils.Some(time.Duration(0)),
@@ -184,7 +201,7 @@ func TestGigaRouter_FinalizesSame20Blocks(t *testing.T) {
 							BlockInterval:    0,
 							AllowEmptyBlocks: false,
 						},
-						App:    app,
+						App: newTestApp(),
 						GenDoc: genDoc,
 					}),
 				},
@@ -229,44 +246,6 @@ func TestGigaRouter_FinalizesSame20Blocks(t *testing.T) {
 
 	for _, node := range nodes {
 		got := node.app.Snapshot()
-		require.Len(t, got.blocks, gigaRouterTestBlocks)
-		require.Len(t, got.txs, gigaRouterTestBlocks)
-		require.Equal(t, want.blocks, got.blocks)
-		require.Equal(t, want.txs, got.txs)
-		require.Equal(t, want.appHash, got.appHash)
+		require.NoError(t, utils.TestDiff(want, got))
 	}
-}
-
-func gigaRouterTestMerkle(txs [][]byte) []byte {
-	switch len(txs) {
-	case 0:
-		return nil
-	case 1:
-		sum := sha256.Sum256(txs[0])
-		return sum[:]
-	default:
-		last := sha256.Sum256(txs[len(txs)-1])
-		earlier := gigaRouterTestMerkle(txs[:len(txs)-1])
-		input := make([]byte, 0, len(last)+len(earlier))
-		input = append(input, last[:]...)
-		input = append(input, earlier...)
-		sum := sha256.Sum256(input)
-		return sum[:]
-	}
-}
-
-func cloneTxList(txs [][]byte) [][]byte {
-	out := make([][]byte, len(txs))
-	for i, tx := range txs {
-		out[i] = append([]byte(nil), tx...)
-	}
-	return out
-}
-
-func cloneBlocks(blocks [][][]byte) [][][]byte {
-	out := make([][][]byte, len(blocks))
-	for i, block := range blocks {
-		out[i] = cloneTxList(block)
-	}
-	return out
 }
