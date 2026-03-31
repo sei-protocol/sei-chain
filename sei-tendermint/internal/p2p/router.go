@@ -103,9 +103,9 @@ func NewRouter(
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
-		gr,err := NewGigaRouter(gigaCfg, privKey)
-		if err!=nil {
-			return nil,fmt.Errorf("NewGigaRouter(): %w",err)
+		gr, err := NewGigaRouter(gigaCfg, privKey)
+		if err != nil {
+			return nil, fmt.Errorf("NewGigaRouter(): %w", err)
 		}
 		router.giga = utils.Some(gr)
 	}

@@ -121,7 +121,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
 			// Deterministically select a proposer from the app's validator committee.
 			// We need it so that app does not emit error logs.
-			proposer := slices.MinFunc(vals, func(a,b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+			proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 			key, err := crypto.PubKeyFromProto(proposer.PubKey)
 			if err != nil {
 				return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)

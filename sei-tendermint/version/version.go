@@ -1,10 +1,9 @@
 package version
 
 import (
-	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/version"
 )
-
 
 const (
 	// TMVersionDefault is the used as the fallback version of Tendermint Core
@@ -14,8 +13,8 @@ const (
 	ABCISemVer = "0.17.0"
 
 	ABCIVersion = ABCISemVer
-	TMVersion = TMVersionDefault
-	
+	TMVersion   = TMVersionDefault
+
 	// P2PProtocol versions all p2p behavior and msgs.
 	// This includes proposer selection.
 	P2PProtocol uint64 = 8

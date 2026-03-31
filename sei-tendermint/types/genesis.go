@@ -11,10 +11,10 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -79,12 +79,12 @@ type GenesisDoc struct {
 }
 
 func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
-	return &abci.RequestInitChain {
-		Time: genDoc.GenesisTime,
-		ChainId: genDoc.ChainID,
-		InitialHeight: genDoc.InitialHeight,
+	return &abci.RequestInitChain{
+		Time:            genDoc.GenesisTime,
+		ChainId:         genDoc.ChainID,
+		InitialHeight:   genDoc.InitialHeight,
 		ConsensusParams: utils.Alloc(genDoc.ConsensusParams.ToProto()),
-		AppStateBytes: genDoc.AppState,
+		AppStateBytes:   genDoc.AppState,
 	}
 }
 

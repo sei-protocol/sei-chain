@@ -345,8 +345,8 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 func (s *State) PruneBefore(n types.GlobalBlockNumber) {
 	pruningTime := time.Now()
 	for inner, ctrl := range s.inner.Lock() {
-		for inner.first < min(n,inner.nextAppProposal) {
-			inner.pruneFirst(pruningTime,s.metrics)
+		for inner.first < min(n, inner.nextAppProposal) {
+			inner.pruneFirst(pruningTime, s.metrics)
 		}
 		ctrl.Updated()
 	}
@@ -358,7 +358,7 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune entries at pruningTime.
 			for inner.first < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[inner.first].timestamp) >= after {
-				inner.pruneFirst(pruningTime,s.metrics)
+				inner.pruneFirst(pruningTime, s.metrics)
 				ctrl.Updated()
 			}
 			// Compute the next pruning time.
