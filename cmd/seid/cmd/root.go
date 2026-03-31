@@ -59,12 +59,6 @@ type Option func(*rootOptions)
 //nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct{}
 
-func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
-	for _, o := range options {
-		o(s)
-	}
-}
-
 // NewRootCmd creates a new root command for a Cosmos SDK application
 func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 	encodingConfig := app.MakeEncodingConfig()

@@ -2,7 +2,6 @@ package stats
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
@@ -284,18 +283,4 @@ func RecordAPIInvocation(method string, connectionType string, startTime time.Ti
 		}
 		wsTracker.TrackMessage(method, connectionType, startTime, success)
 	}
-}
-
-// extractMethod extracts method from JSON payload.
-func extractMethod(body []byte) string {
-	var tmp struct {
-		Method string `json:"method"`
-	}
-	if err := json.Unmarshal(body, &tmp); err == nil {
-		if tmp.Method == "" {
-			return "unknown"
-		}
-		return tmp.Method
-	}
-	return "unknown"
 }
