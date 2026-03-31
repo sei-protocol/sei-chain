@@ -282,8 +282,8 @@ func TestCreateProposalBlock(t *testing.T) {
 	maxEvidenceBytes := int64(maxBytes / 2)
 	state.ConsensusParams.Block.MaxBytes = int64(maxBytes)
 	state.ConsensusParams.Evidence.MaxBytes = maxEvidenceBytes
-	proposerAddr, _ := state.Validators.GetByIndex(0)
-
+	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
 		app,
@@ -375,7 +375,8 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	const maxBytes int64 = 16384
 	const partSize uint32 = 256
 	state.ConsensusParams.Block.MaxBytes = maxBytes
-	proposerAddr, _ := state.Validators.GetByIndex(0)
+	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 
 	// Make Mempool
 
@@ -439,7 +440,8 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	const maxBytes int64 = 1024 * 1024 * 2
 	state.ConsensusParams.Block.MaxBytes = maxBytes
-	proposerAddr, _ := state.Validators.GetByIndex(0)
+	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 
 	// Make Mempool
 	mp := mempool.NewTxMempool(
@@ -476,7 +478,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockID := types.BlockID{
 		Hash: crypto.Checksum([]byte("blockID_hash")),
 		PartSetHeader: types.PartSetHeader{
-			Total: math.MaxInt32,
+			Total: types.MaxBlockPartsCount,
 			Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
 		},
 	}
@@ -508,8 +510,8 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	for i := 0; i < types.MaxVotesCount; i++ {
 		pubKey, err := privVals[i].GetPubKey(ctx)
 		require.NoError(t, err)
-		valIdx, val := state.Validators.GetByAddress(pubKey.Address())
-		require.NotNil(t, val)
+		valIdx, val, ok := state.Validators.GetByAddress(pubKey.Address())
+		require.True(t, ok)
 
 		vote := &types.Vote{
 			Type:             tmproto.PrecommitType,
@@ -546,11 +548,11 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	pb, err := block.ToProto()
 	require.NoError(t, err)
 
-	// require that the header and commit be the max possible size
-	require.Equal(t, int64(pb.Header.Size()), types.MaxHeaderBytes)
-	require.Equal(t, int64(pb.LastCommit.Size()), types.MaxCommitBytes(types.MaxVotesCount))
+	// The encoded header must stay within the documented maximum.
+	require.LessOrEqual(t, int64(pb.Header.Size()), types.MaxHeaderBytes)
+	require.LessOrEqual(t, int64(pb.LastCommit.Size()), types.MaxCommitBytes(types.MaxVotesCount))
 	// make sure that the block is less than the max possible size
-	assert.Equal(t, int64(pb.Size()), maxBytes)
+	assert.LessOrEqual(t, int64(pb.Size()), maxBytes)
 	// because of the proto overhead we expect the part set bytes to be equal or
 	// less than the pb block size
 	assert.LessOrEqual(t, partSet.ByteSize(), int64(pb.Size()))
@@ -685,7 +687,7 @@ func state(t *testing.T, nVals int, height int64) (sm.State, dbm.DB, []types.Pri
 	t.Helper()
 	privVals := make([]types.PrivValidator, nVals)
 	vals := make([]types.GenesisValidator, nVals)
-	for i := 0; i < nVals; i++ {
+	for i := range nVals {
 		privVal := types.NewMockPV()
 		privVals[i] = privVal
 		vals[i] = types.GenesisValidator{

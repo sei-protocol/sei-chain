@@ -88,7 +88,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		if _, err := i.prune(anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(c, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -154,7 +154,7 @@ func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumbe
 
 // prune advances the state to account for a new AppQC/CommitQC pair.
 // Returns true if pruning occurred, false if the QC was stale.
-func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
+func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
 	idx := appQC.Proposal().RoadIndex()
 	if idx != commitQC.Proposal().Index() {
 		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
@@ -167,7 +167,7 @@ func (i *inner) prune(appQC *types.AppQC, commitQC *types.CommitQC) (bool, error
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
 	}
-	i.appVotes.prune(commitQC.GlobalRange().First)
+	i.appVotes.prune(commitQC.GlobalRange(c).First)
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
 		i.votes[lr.Lane()].prune(lr.First())

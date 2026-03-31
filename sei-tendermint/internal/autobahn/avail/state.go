@@ -291,7 +291,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(qc); err != nil {
+		if err := v.Msg().Proposal().Verify(s.data.Committee(), qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
@@ -304,7 +304,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(appQC, qc)
+		updated, err := inner.prune(s.data.Committee(), appQC, qc)
 		if err != nil {
 			return err
 		}
@@ -334,7 +334,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(appQC, commitQC)
+		updated, err := inner.prune(s.data.Committee(), appQC, commitQC)
 		if err != nil {
 			return err
 		}

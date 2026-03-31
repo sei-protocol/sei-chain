@@ -101,6 +101,18 @@ func (s *DBImpl) CleanupForTracer() {
 	s.Snapshot()
 }
 
+// ResetForTracer resets in-memory state for a new transaction without flushing
+// the CacheMultiStore hierarchy. This is safe for concurrent use when copies of
+// this statedb are being read from other goroutines, since it never calls
+// CacheMultiStore.Write() on any shared store layer.
+func (s *DBImpl) ResetForTracer() {
+	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
+	s.coinbaseEvmAddress = feeCollector
+	s.tempState = NewTemporaryState()
+	s.journal = []journalEntry{}
+	s.Snapshot()
+}
+
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
@@ -159,9 +171,12 @@ func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
+	snapshots := make([]sdk.Context, len(s.snapshottedCtxs)+1)
+	copy(snapshots, s.snapshottedCtxs)
+	snapshots[len(s.snapshottedCtxs)] = s.ctx
 	return &DBImpl{
 		ctx:                newCtx,
-		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
+		snapshottedCtxs:    snapshots,
 		tempState:          s.tempState.DeepCopy(),
 		journal:            journal,
 		k:                  s.k,

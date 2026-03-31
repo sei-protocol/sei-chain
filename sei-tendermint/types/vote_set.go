@@ -166,8 +166,8 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 	}
 
 	// Ensure that signer is a validator.
-	lookupAddr, val := voteSet.valSet.GetByIndex(valIndex)
-	if val == nil {
+	lookupAddr, val, ok := voteSet.valSet.GetByIndex(valIndex)
+	if !ok {
 		return false, fmt.Errorf(
 			"cannot find validator %d in valSet of size %d: %w",
 			valIndex, voteSet.valSet.Size(), ErrVoteInvalidValidatorIndex)
@@ -356,16 +356,19 @@ func (voteSet *VoteSet) BitArrayByBlockID(blockID BlockID) *bits.BitArray {
 
 // NOTE: if validator has conflicting votes, returns "canonical" vote
 // Implements VoteSetReader.
-func (voteSet *VoteSet) GetByIndex(valIndex int32) *Vote {
+func (voteSet *VoteSet) GetByIndex(valIndex int32) (*Vote, bool) {
 	if voteSet == nil {
-		return nil
+		return nil, false
 	}
 	voteSet.mtx.Lock()
 	defer voteSet.mtx.Unlock()
 	if int(valIndex) >= len(voteSet.votes) {
-		return nil
+		return nil, false
 	}
-	return voteSet.votes[valIndex]
+	if vote := voteSet.votes[valIndex]; vote != nil {
+		return vote, true
+	}
+	return nil, false
 }
 
 // List returns a copy of the list of votes stored by the VoteSet.
@@ -382,17 +385,20 @@ func (voteSet *VoteSet) List() []Vote {
 	return votes
 }
 
-func (voteSet *VoteSet) GetByAddress(address []byte) *Vote {
+func (voteSet *VoteSet) GetByAddress(address []byte) (*Vote, bool) {
 	if voteSet == nil {
-		return nil
+		return nil, false
 	}
 	voteSet.mtx.Lock()
 	defer voteSet.mtx.Unlock()
-	valIndex, val := voteSet.valSet.GetByAddress(address)
-	if val == nil {
-		panic("GetByAddress(address) returned nil")
+	valIndex, _, ok := voteSet.valSet.GetByAddress(address)
+	if !ok {
+		return nil, false
 	}
-	return voteSet.votes[valIndex]
+	if vote := voteSet.votes[valIndex]; vote != nil {
+		return vote, true
+	}
+	return nil, false
 }
 
 func (voteSet *VoteSet) HasTwoThirdsMajority() bool {
@@ -681,6 +687,6 @@ type VoteSetReader interface {
 	Type() byte
 	Size() int
 	BitArray() *bits.BitArray
-	GetByIndex(int32) *Vote
+	GetByIndex(int32) (*Vote, bool)
 	IsCommit() bool
 }

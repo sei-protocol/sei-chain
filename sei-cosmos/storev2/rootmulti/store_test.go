@@ -15,7 +15,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
+	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -29,10 +29,13 @@ func waitUntilSSVersion(t *testing.T, store *Store, target int64) {
 }
 
 func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
-	// Enable both SC and SS with default configs (pebbledb backend, async writes)
+	// Enable both SC and SS, but make SC WAL writes synchronous so the
+	// historical proof query below cannot race memIAVL durability.
 	home := t.TempDir()
 	scCfg := config.DefaultStateCommitConfig()
 	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
 	ssCfg := config.DefaultStateStoreConfig()
 	ssCfg.Enable = true
 

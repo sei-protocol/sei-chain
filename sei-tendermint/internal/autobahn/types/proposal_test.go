@@ -196,7 +196,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 		}
 	}
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, origProposal.firstBlock, tamperedRanges, origProposal.app)
+	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -228,7 +228,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, origP.firstBlock, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -254,7 +254,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		i++
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, origP.firstBlock, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -280,7 +280,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.createdAt, origP.firstBlock, tamperedRanges, origP.app)
+	tamperedProposal := newProposal(origP.view, origP.createdAt, tamperedRanges, origP.app)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 	}
@@ -386,7 +386,7 @@ func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	for _, r := range origP.laneRanges {
 		ranges = append(ranges, r)
 	}
-	tamperedProposal := newProposal(origP.view, origP.createdAt, origP.firstBlock, ranges, utils.None[*AppProposal]())
+	tamperedProposal := newProposal(origP.view, origP.createdAt, ranges, utils.None[*AppProposal]())
 	tamperedFP := &FullProposal{
 		proposal: Sign(leader1, tamperedProposal),
 	}
@@ -605,7 +605,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	for _, r := range origP.laneRanges {
 		ranges = append(ranges, r)
 	}
-	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), origP.firstBlock, ranges, origP.app)
+	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), ranges, origP.app)
 	wrongFP := &FullProposal{
 		proposal:  Sign(leader1, wrongP),
 		timeoutQC: reproposal.timeoutQC,

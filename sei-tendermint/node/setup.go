@@ -135,11 +135,11 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	if !ok {
 		return false
 	}
-	if state.Validators.Size() > 1 {
+	if state.Validators.Size() != 1 {
 		return false
 	}
-	addr, _ := state.Validators.GetByIndex(0)
-	return bytes.Equal(k.Address(), addr)
+	addr, _, ok := state.Validators.GetByIndex(0)
+	return ok && bytes.Equal(k.Address(), addr)
 }
 
 func createMempoolReactor(
