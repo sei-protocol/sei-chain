@@ -152,7 +152,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	defaultEvidenceTime := time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 	privVal := privVals[state.Validators.Validators[0].Address.String()]
-	blockID := makeBlockID([]byte("headerhash"), 1000, []byte("partshash"))
+	blockID := makeBlockID([]byte("headerhash"), types.MaxBlockPartsCount, []byte("partshash"))
 	header := &types.Header{
 		Version:            version.Consensus{Block: version.BlockProtocol, App: 1},
 		ChainID:            state.ChainID,
@@ -180,7 +180,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 				Header: header,
 				Commit: &types.Commit{
 					Height:  10,
-					BlockID: makeBlockID(header.Hash(), 100, []byte("partshash")),
+					BlockID: makeBlockID(header.Hash(), types.MaxBlockPartsCount, []byte("partshash")),
 					Signatures: []types.CommitSig{{
 						BlockIDFlag:      types.BlockIDFlagNil,
 						ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
@@ -523,8 +523,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	require.NoError(t, err)
 	// test new validator was added to NextValidators
 	if assert.Equal(t, state.Validators.Size()+1, state.NextValidators.Size()) {
-		idx, _ := state.NextValidators.GetByAddress(pubkey.Address())
-		if idx < 0 {
+		if _, _, ok := state.NextValidators.GetByAddress(pubkey.Address()); !ok {
 			t.Fatalf("can't find address %v in the set %v", pubkey.Address(), state.NextValidators)
 		}
 	}
@@ -619,7 +618,8 @@ func TestEmptyPrepareProposal(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	_, err = blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.NoError(t, err)
@@ -667,7 +667,8 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.ErrorContains(t, err, "new transaction incorrectly marked as removed")
@@ -714,7 +715,8 @@ func TestPrepareProposalReorderTxs(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.NoError(t, err)
@@ -767,7 +769,8 @@ func TestPrepareProposalErrorOnTooManyTxs(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.ErrorContains(t, err, "transaction data size exceeds maximum")
@@ -807,7 +810,8 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 	)
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.Nil(t, block)
@@ -899,7 +903,8 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 	)
 
 	// Get proposer address
-	pa, _ := state.Validators.GetByIndex(0)
+	pa, _, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
 
 	// Create commit
 	lastCommit := &types.Commit{}

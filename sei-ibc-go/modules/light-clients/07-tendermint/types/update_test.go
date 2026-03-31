@@ -318,7 +318,8 @@ func (suite *TendermintTestSuite) TestCheckHeaderAndUpdateState() {
 			signers = []tmtypes.PrivValidator{suite.privVal}
 
 			// Create signer array and ensure it is in same order as bothValSet
-			_, suiteVal := suite.valSet.GetByIndex(0)
+			_, suiteVal, ok := suite.valSet.GetByIndex(0)
+			suite.Require().True(ok)
 			bothSigners = ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
 
 			consStateHeight = height // must be explicitly changed
