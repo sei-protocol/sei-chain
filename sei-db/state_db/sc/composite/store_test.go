@@ -41,6 +41,12 @@ func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { retur
 func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
 func (f *failingEVMStore) Close() error                                  { return nil }
 
+func padLeft32(val ...byte) []byte {
+	var b [32]byte
+	copy(b[32-len(val):], val)
+	return b[:]
+}
+
 func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
@@ -202,7 +208,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: iavl.ChangeSet{
 					Pairs: []*iavl.KVPair{
-						{Key: evmStorageKey, Value: []byte{round}},
+						{Key: evmStorageKey, Value: padLeft32(round)},
 					},
 				},
 			},
@@ -510,7 +516,7 @@ func TestExportImportSplitWrite(t *testing.T) {
 	slot := flatkv.Slot{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
 		flatkv.StorageKey(addr, slot))
-	storageVal := []byte{0x42}
+	storageVal := padLeft32(0x42)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 10}
@@ -700,7 +706,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: iavl.ChangeSet{
 					Pairs: []*iavl.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},
@@ -767,7 +773,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: []byte("bal"), Value: []byte{i}},
 			}}},
 			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-				{Key: storageKey, Value: []byte{i}},
+				{Key: storageKey, Value: padLeft32(i)},
 			}}},
 		}))
 		_, err = cs.Commit()
@@ -803,7 +809,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: []byte("bal"), Value: v},
 			}}},
 			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-				{Key: storageKey, Value: v},
+				{Key: storageKey, Value: padLeft32(v...)},
 			}}},
 		}))
 		ver, err := cs2.Commit()
@@ -830,7 +836,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 
 	got, found := cs3.evmCommitter.Get(storageKey)
 	require.True(t, found)
-	require.Equal(t, []byte{0xA5}, got)
+	require.Equal(t, padLeft32(0xA5), got)
 }
 
 func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
@@ -861,7 +867,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: iavl.ChangeSet{
 					Pairs: []*iavl.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},

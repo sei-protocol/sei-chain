@@ -51,8 +51,8 @@ func TestExporterStorageKeys(t *testing.T) {
 	addr := Address{0xAA}
 	slot1 := Slot{0x01}
 	slot2 := Slot{0x02}
-	val1 := []byte{0x11}
-	val2 := []byte{0x22}
+	val1 := padLeft32(0x11)
+	val2 := padLeft32(0x22)
 
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot1))
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
@@ -159,7 +159,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
@@ -273,7 +273,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
@@ -377,8 +377,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: storageA, Value: []byte{0x0A}},
-			{Key: storageStale, Value: []byte{0x0C}},
+			{Key: storageA, Value: padLeft32(0x0A)},
+			{Key: storageStale, Value: padLeft32(0x0C)},
 			{Key: nonceA, Value: nonceVal},
 			{Key: nonceStale, Value: nonceVal},
 			{Key: codeHashB, Value: codeHashVal},
@@ -400,7 +400,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	src := setupTestStore(t)
 	defer src.Close()
 
-	newStorageVal := []byte{0xA1}
+	newStorageVal := padLeft32(0xA1)
 	newNonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 5}
 	newCodeHashVal := make([]byte, CodeHashLen)
 	newCodeHashVal[31] = 0xCD

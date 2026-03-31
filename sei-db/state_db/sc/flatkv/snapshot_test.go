@@ -17,11 +17,13 @@ import (
 
 func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, value []byte) int64 {
 	t.Helper()
+	padded := make([]byte, 32)
+	copy(padded[32-len(value):], value)
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: key, Value: value}},
+			Pairs: []*iavl.KVPair{{Key: key, Value: padded}},
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -121,10 +123,10 @@ func TestOpenFromSnapshot(t *testing.T) {
 	key3 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x10}, Slot{0x03}))
 	v, ok := s2.Get(key1)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x01}, v)
+	require.Equal(t, padLeft32(0x01), v)
 	v, ok = s2.Get(key3)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x03}, v)
+	require.Equal(t, padLeft32(0x03), v)
 }
 
 func TestCatchupUpdatesLtHash(t *testing.T) {
@@ -197,7 +199,7 @@ func TestRollbackRewindsState(t *testing.T) {
 	key4 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x30}, Slot{0x04}))
 	v, ok := s.Get(key4)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x04}, v)
+	require.Equal(t, padLeft32(0x04), v)
 
 	require.NoError(t, s.Close())
 }
@@ -474,7 +476,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	// Record baseline value at v2 for the same key.
 	vAtV2, ok := s1.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x01}, vAtV2)
+	require.Equal(t, padLeft32(0x01), vAtV2)
 
 	// Phase 2: advance state beyond the snapshot (v3..v4).
 	commitStorageEntry(t, s1, addr, slot, []byte{0x03}) // v3
@@ -492,7 +494,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, err)
 	gotV2, ok := s2.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x01}, gotV2, "snapshot baseline should remain stable")
+	require.Equal(t, padLeft32(0x01), gotV2, "snapshot baseline should remain stable")
 	require.NoError(t, s2.Close())
 
 	// Phase 4: reopen latest again to ensure catchup/replay still reaches v4.
@@ -507,7 +509,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.Equal(t, int64(4), s3.Version())
 	gotLatest, ok := s3.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x04}, gotLatest)
+	require.Equal(t, padLeft32(0x04), gotLatest)
 }
 
 // TestLoadVersionMixedSequence: load-old -> load-latest -> load-old-again.
@@ -547,7 +549,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.Equal(t, hashAtV2, s1.RootHash())
 	v, ok := s1.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x02}, v)
+	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s1.Close())
 
 	// Round 2: load latest (catches up through v3, v4)
@@ -561,7 +563,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.Equal(t, hashAtV4, s2.RootHash())
 	v, ok = s2.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x04}, v)
+	require.Equal(t, padLeft32(0x04), v)
 	require.NoError(t, s2.Close())
 
 	// Round 3: load v2 AGAIN — snapshot must still be clean.
@@ -575,7 +577,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.Equal(t, hashAtV2, s3.RootHash())
 	v, ok = s3.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x02}, v)
+	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s3.Close())
 }
 
@@ -1231,7 +1233,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	slot := Slot{0xCD}
 
 	pairs := []*iavl.KVPair{
-		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
+		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: padLeft32(0x11)},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
@@ -1258,7 +1260,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	v, ok := s2.Get(storageKey)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x11}, v)
+	require.Equal(t, padLeft32(0x11), v)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	v, ok = s2.Get(nonceKey)
@@ -1330,7 +1332,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: padLeft32(0x11)},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
@@ -1412,7 +1414,7 @@ func TestWALTruncationThenRollback(t *testing.T) {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
 		val, found := s.Get(key)
 		require.True(t, found, "key at block %d should exist after rollback to v5", i)
-		require.Equal(t, []byte{byte(i)}, val)
+		require.Equal(t, padLeft32(byte(i)), val)
 	}
 
 	for i := 6; i <= 10; i++ {
@@ -1459,7 +1461,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
 		val, found := s2.Get(key)
 		require.True(t, found, "key at block %d should exist after reopen", i)
-		require.Equal(t, []byte{byte(i)}, val)
+		require.Equal(t, padLeft32(byte(i)), val)
 	}
 }
 
@@ -1585,7 +1587,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x03}, Slot{0x03}))
 	val, found := s2.Get(key)
 	require.True(t, found)
-	require.Equal(t, []byte{0xCC}, val)
+	require.Equal(t, padLeft32(0xCC), val)
 }
 
 func TestLocalMetaCorruption(t *testing.T) {

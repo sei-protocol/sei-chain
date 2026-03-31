@@ -7,7 +7,6 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -207,32 +206,28 @@ func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
 	return av, nil
 }
 
-// getKVValue returns the value from pending writes or the backing DB.
-// Returns (nil, nil) if not found. Returns (nil, error) on I/O error.
-func (s *CommitStore) getKVValue(
-	key []byte,
-	writes map[string]*pendingKVWrite,
-	db seidbtypes.KeyValueDB,
-	dbName string,
-) ([]byte, error) {
-	if pw, ok := writes[string(key)]; ok {
-		if pw.isDelete {
+func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
+	pendingWrite, hasPending := s.storageWrites[string(key)]
+	if hasPending {
+		if pendingWrite.IsDelete() {
 			return nil, nil
 		}
-		return pw.value, nil
+		return pendingWrite.GetValue()[:], nil
 	}
-	value, err := db.Get(key)
+
+	value, err := s.storageDB.Get(key)
 	if err != nil {
 		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("%s I/O error for key %x: %w", dbName, key, err)
+		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", key, err)
 	}
-	return value, nil
-}
 
-func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.storageWrites, s.storageDB, "storageDB")
+	storageData, err := vtype.DeserializeStorageData(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize storage data: %w", err)
+	}
+	return storageData.GetValue()[:], nil
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
@@ -257,5 +252,25 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.legacyWrites, s.legacyDB, "legacyDB")
+	pendingWrite, hasPending := s.legacyWrites[string(key)]
+	if hasPending {
+		if pendingWrite.IsDelete() {
+			return nil, nil
+		}
+		return pendingWrite.GetValue(), nil
+	}
+
+	value, err := s.legacyDB.Get(key)
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
+	}
+
+	legacyData, err := vtype.DeserializeLegacyData(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize legacy data: %w", err)
+	}
+	return legacyData.GetValue(), nil
 }

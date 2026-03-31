@@ -105,9 +105,11 @@ func codeDeletePair(addr Address) *iavl.KVPair {
 }
 
 func storagePair(addr Address, slot Slot, val []byte) *iavl.KVPair {
+	padded := make([]byte, 32)
+	copy(padded[32-len(val):], val)
 	return &iavl.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
-		Value: val,
+		Value: padded,
 	}
 }
 
@@ -767,7 +769,7 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	val, found := s.Get(key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, val)
+	require.Equal(t, padLeft32(0x33), val)
 }
 
 // TestLtHashCrossApplyCodeOverwrite verifies that overwriting the same code
@@ -912,7 +914,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	storageVal, found := s.Get(storageKey)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, storageVal)
+	require.Equal(t, padLeft32(0x33), storageVal)
 
 	legacyVal, found := s.Get(legacyKey)
 	require.True(t, found)

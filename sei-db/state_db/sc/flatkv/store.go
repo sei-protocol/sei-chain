@@ -53,13 +53,6 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
-// pendingKVWrite tracks a buffered key-value write for code/storage DBs.
-type pendingKVWrite struct {
-	key      []byte // Internal DB key
-	value    []byte
-	isDelete bool
-}
-
 // pendingAccountWrite tracks a buffered account write.
 // Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
 //
@@ -103,12 +96,10 @@ type CommitStore struct {
 	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
-	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
 	accountWrites map[string]*pendingAccountWrite
 	codeWrites    map[string]*vtype.CodeData
-	storageWrites map[string]*pendingKVWrite
-	legacyWrites  map[string]*pendingKVWrite
+	storageWrites map[string]*vtype.StorageData
+	legacyWrites  map[string]*vtype.LegacyData
 
 	changelog         wal.ChangelogWAL
 	pendingChangeSets []*proto.NamedChangeSet
@@ -171,8 +162,8 @@ func NewCommitStore(
 		localMeta:          make(map[string]*LocalMeta),
 		accountWrites:      make(map[string]*pendingAccountWrite),
 		codeWrites:         make(map[string]*vtype.CodeData),
-		storageWrites:      make(map[string]*pendingKVWrite),
-		legacyWrites:       make(map[string]*pendingKVWrite),
+		storageWrites:      make(map[string]*vtype.StorageData),
+		legacyWrites:       make(map[string]*vtype.LegacyData),
 		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),

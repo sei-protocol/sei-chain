@@ -67,16 +67,19 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 			// Route to appropriate DB based on key type
 			switch kind {
 			case evm.EVMKeyStorage:
-				storagePairs = s.applyEvmStorageChange(keyBytes, pair, storageOld, storagePairs)
+				if !pair.Delete && len(pair.Value) != 32 {
+					return fmt.Errorf("invalid storage value length: got %d, expected 32", len(pair.Value))
+				}
+				storagePairs = s.accumulateEvmStorageChanges(keyBytes, pair, storageOld, storagePairs)
 			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				err := s.applyEvmAccountFieldChange(kind, keyBytes, pair, accountOld, oldAccountRawValues)
+				err := s.accumulateEvmAccountFieldChanges(kind, keyBytes, pair, accountOld, oldAccountRawValues)
 				if err != nil {
 					return fmt.Errorf("failed to apply EVM account field change: %w", err)
 				}
 			case evm.EVMKeyCode:
-				codePairs = s.applyEvmCodeChange(keyBytes, pair, codeOld, codePairs)
+				codePairs = s.accumulateEvmCodeChanges(keyBytes, pair, codeOld, codePairs)
 			case evm.EVMKeyLegacy:
-				legacyPairs = s.applyEvmLegacyChange(keyBytes, pair, legacyOld, legacyPairs)
+				legacyPairs = s.accumulateEvmLegacyChanges(keyBytes, pair, legacyOld, legacyPairs)
 			}
 		}
 	}
@@ -135,7 +138,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 }
 
 // Apply a single change to the evm storage db.
-func (s *CommitStore) applyEvmStorageChange(
+func (s *CommitStore) accumulateEvmStorageChanges(
 	// The key with the prefix stripped.
 	keyBytes []byte,
 	// The change to apply.
@@ -149,30 +152,32 @@ func (s *CommitStore) applyEvmStorageChange(
 	keyStr := string(keyBytes)
 	oldValue := storageOld[keyStr].Value
 
+	newStorageData := vtype.NewStorageData().SetBlockHeight(s.committedVersion + 1)
+
 	if pair.Delete {
-		s.storageWrites[keyStr] = &pendingKVWrite{
-			key:      keyBytes,
-			isDelete: true,
-		}
+		// Value stays all-zeros → IsDelete() returns true.
 		storageOld[keyStr] = types.BatchGetResult{Value: nil}
 	} else {
-		s.storageWrites[keyStr] = &pendingKVWrite{
-			key:   keyBytes,
-			value: pair.Value,
-		}
-		storageOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+		newStorageData.SetValue((*[32]byte)(pair.Value))
+		storageOld[keyStr] = types.BatchGetResult{Value: newStorageData.Serialize()}
 	}
 
+	s.storageWrites[keyStr] = newStorageData
+
+	var serializedValue []byte
+	if !pair.Delete {
+		serializedValue = newStorageData.Serialize()
+	}
 	return append(storagePairs, lthash.KVPairWithLastValue{
 		Key:       keyBytes,
-		Value:     pair.Value,
+		Value:     serializedValue,
 		LastValue: oldValue,
 		Delete:    pair.Delete,
 	})
 }
 
 // Apply a single change to the evm code db.
-func (s *CommitStore) applyEvmCodeChange(
+func (s *CommitStore) accumulateEvmCodeChanges(
 	// The key with the prefix stripped (addr, 20 bytes).
 	keyBytes []byte,
 	// The change to apply.
@@ -193,21 +198,25 @@ func (s *CommitStore) applyEvmCodeChange(
 		codeOld[keyStr] = types.BatchGetResult{Value: nil}
 	} else {
 		newCodeData.SetBytecode(pair.Value)
-		codeOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+		codeOld[keyStr] = types.BatchGetResult{Value: newCodeData.Serialize()}
 	}
 
 	s.codeWrites[keyStr] = newCodeData
 
+	var serializedValue []byte
+	if !pair.Delete {
+		serializedValue = newCodeData.Serialize()
+	}
 	return append(codePairs, lthash.KVPairWithLastValue{
 		Key:       keyBytes,
-		Value:     pair.Value,
+		Value:     serializedValue,
 		LastValue: oldValue,
 		Delete:    pair.Delete,
 	})
 }
 
 // Apply a single change to the evm legacy db.
-func (s *CommitStore) applyEvmLegacyChange(
+func (s *CommitStore) accumulateEvmLegacyChanges(
 	// The key with the prefix stripped.
 	keyBytes []byte,
 	// The change to apply.
@@ -221,30 +230,32 @@ func (s *CommitStore) applyEvmLegacyChange(
 	keyStr := string(keyBytes)
 	oldValue := legacyOld[keyStr].Value
 
+	var newLegacyData *vtype.LegacyData
 	if pair.Delete {
-		s.legacyWrites[keyStr] = &pendingKVWrite{
-			key:      keyBytes,
-			isDelete: true,
-		}
+		newLegacyData = vtype.NewLegacyData([]byte{})
 		legacyOld[keyStr] = types.BatchGetResult{Value: nil}
 	} else {
-		s.legacyWrites[keyStr] = &pendingKVWrite{
-			key:   keyBytes,
-			value: pair.Value,
-		}
-		legacyOld[keyStr] = types.BatchGetResult{Value: pair.Value}
+		newLegacyData = vtype.NewLegacyData(pair.Value)
+		legacyOld[keyStr] = types.BatchGetResult{Value: newLegacyData.Serialize()}
 	}
+	newLegacyData.SetBlockHeight(s.committedVersion + 1)
 
+	s.legacyWrites[keyStr] = newLegacyData
+
+	var serializedValue []byte
+	if !pair.Delete {
+		serializedValue = newLegacyData.Serialize()
+	}
 	return append(legacyPairs, lthash.KVPairWithLastValue{
 		Key:       keyBytes,
-		Value:     pair.Value,
+		Value:     serializedValue,
 		LastValue: oldValue,
 		Delete:    pair.Delete,
 	})
 }
 
 // Apply a single nonce or codehash change to the account db.
-func (s *CommitStore) applyEvmAccountFieldChange(
+func (s *CommitStore) accumulateEvmAccountFieldChanges(
 	// Whether this is a nonce or codehash change.
 	kind evm.EVMKeyKind,
 	// The key with the prefix stripped (addr, 20 bytes).
@@ -407,8 +418,8 @@ func (s *CommitStore) flushAllDBs() error {
 func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*pendingAccountWrite)
 	s.codeWrites = make(map[string]*vtype.CodeData)
-	s.storageWrites = make(map[string]*pendingKVWrite)
-	s.legacyWrites = make(map[string]*pendingKVWrite)
+	s.storageWrites = make(map[string]*vtype.StorageData)
+	s.legacyWrites = make(map[string]*vtype.LegacyData)
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
 }
 
@@ -456,42 +467,24 @@ func (s *CommitStore) commitBatches(version int64) error {
 	if err != nil {
 		return fmt.Errorf("codeDB commit: %w", err)
 	}
-	pending = append(pending, pendingCommit{codeDBDir, batch})
-
-	// Commit to codeDB, storageDB, legacyDB (identical logic per KV DB).
-	kvDBs := [...]struct {
-		dir    string
-		phase  string
-		writes map[string]*pendingKVWrite
-		db     types.KeyValueDB
-	}{
-		{storageDBDir, "commit_storage_db_prepare", s.storageWrites, s.storageDB},
-		{legacyDBDir, "commit_legacy_db_prepare", s.legacyWrites, s.legacyDB},
+	if batch != nil {
+		pending = append(pending, pendingCommit{codeDBDir, batch})
 	}
-	for _, spec := range kvDBs {
-		if len(spec.writes) == 0 && version <= s.localMeta[spec.dir].CommittedVersion {
-			continue
-		}
-		s.phaseTimer.SetPhase(spec.phase)
-		batch := spec.db.NewBatch()
-		defer func(b types.Batch) { _ = b.Close() }(batch)
 
-		for _, pw := range spec.writes {
-			if pw.isDelete {
-				if err := batch.Delete(pw.key); err != nil {
-					return fmt.Errorf("%s delete: %w", spec.dir, err)
-				}
-			} else {
-				if err := batch.Set(pw.key, pw.value); err != nil {
-					return fmt.Errorf("%s set: %w", spec.dir, err)
-				}
-			}
-		}
+	batch, err = s.prepareBatchStorageDB(version)
+	if err != nil {
+		return fmt.Errorf("storageDB commit: %w", err)
+	}
+	if batch != nil {
+		pending = append(pending, pendingCommit{storageDBDir, batch})
+	}
 
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[spec.dir]); err != nil {
-			return fmt.Errorf("%s local meta: %w", spec.dir, err)
-		}
-		pending = append(pending, pendingCommit{spec.dir, batch})
+	batch, err = s.prepareBatchLegacyDB(version)
+	if err != nil {
+		return fmt.Errorf("legacyDB commit: %w", err)
+	}
+	if batch != nil {
+		pending = append(pending, pendingCommit{legacyDBDir, batch})
 	}
 
 	if len(pending) == 0 {
@@ -563,6 +556,72 @@ func (s *CommitStore) prepareBatchCodeDB(version int64) (types.Batch, error) {
 	return batch, nil
 }
 
+// Prepare a batch of writes for the storageDB.
+func (s *CommitStore) prepareBatchStorageDB(version int64) (types.Batch, error) {
+	if len(s.storageWrites) == 0 && version <= s.localMeta[storageDBDir].CommittedVersion {
+		return nil, nil
+	}
+
+	s.phaseTimer.SetPhase("commit_storage_db_prepare")
+
+	batch := s.storageDB.NewBatch()
+
+	for keyStr, sw := range s.storageWrites {
+		key := []byte(keyStr)
+		if sw.IsDelete() {
+			if err := batch.Delete(key); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("storageDB delete: %w", err)
+			}
+		} else {
+			if err := batch.Set(key, sw.Serialize()); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("storageDB set: %w", err)
+			}
+		}
+	}
+
+	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[storageDBDir]); err != nil {
+		_ = batch.Close()
+		return nil, fmt.Errorf("storageDB local meta: %w", err)
+	}
+
+	return batch, nil
+}
+
+// Prepare a batch of writes for the legacyDB.
+func (s *CommitStore) prepareBatchLegacyDB(version int64) (types.Batch, error) {
+	if len(s.legacyWrites) == 0 && version <= s.localMeta[legacyDBDir].CommittedVersion {
+		return nil, nil
+	}
+
+	s.phaseTimer.SetPhase("commit_legacy_db_prepare")
+
+	batch := s.legacyDB.NewBatch()
+
+	for keyStr, lw := range s.legacyWrites {
+		key := []byte(keyStr)
+		if lw.IsDelete() {
+			if err := batch.Delete(key); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("legacyDB delete: %w", err)
+			}
+		} else {
+			if err := batch.Set(key, lw.Serialize()); err != nil {
+				_ = batch.Close()
+				return nil, fmt.Errorf("legacyDB set: %w", err)
+			}
+		}
+	}
+
+	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[legacyDBDir]); err != nil {
+		_ = batch.Close()
+		return nil, fmt.Errorf("legacyDB local meta: %w", err)
+	}
+
+	return batch, nil
+}
+
 // batchReadOldValues scans all changeset pairs and returns one result map per
 // DB containing the "old value" for each key. Keys that already have uncommitted
 // pending writes (from a prior ApplyChangeSets call in the same block) are
@@ -586,13 +645,6 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	codeBatch := make(map[string]types.BatchGetResult)
 	legacyBatch := make(map[string]types.BatchGetResult)
 
-	pendingKVResult := func(pw *pendingKVWrite) types.BatchGetResult {
-		if pw.isDelete {
-			return types.BatchGetResult{Value: nil}
-		}
-		return types.BatchGetResult{Value: pw.value}
-	}
-
 	// Partition changeset keys: resolve from pending writes when available
 	// (prior ApplyChangeSets call in the same block), otherwise queue for
 	// a DB batch read.
@@ -609,7 +661,11 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 					continue
 				}
 				if pw, ok := s.storageWrites[k]; ok {
-					storageOld[k] = pendingKVResult(pw)
+					if pw.IsDelete() {
+						storageOld[k] = types.BatchGetResult{Value: nil}
+					} else {
+						storageOld[k] = types.BatchGetResult{Value: pw.Serialize()}
+					}
 				} else {
 					storageBatch[k] = types.BatchGetResult{}
 				}
@@ -650,7 +706,11 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 					continue
 				}
 				if pw, ok := s.legacyWrites[k]; ok {
-					legacyOld[k] = pendingKVResult(pw)
+					if pw.IsDelete() {
+						legacyOld[k] = types.BatchGetResult{Value: nil}
+					} else {
+						legacyOld[k] = types.BatchGetResult{Value: pw.Serialize()}
+					}
 				} else {
 					legacyBatch[k] = types.BatchGetResult{}
 				}

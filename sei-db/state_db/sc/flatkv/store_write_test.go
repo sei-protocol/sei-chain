@@ -64,7 +64,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 		// Storage key
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
-			Value: []byte{0x11, 0x22},
+			Value: padLeft32(0x11, 0x22),
 		},
 		// Account nonce key
 		{
@@ -105,13 +105,13 @@ func TestStoreWriteAllDBs(t *testing.T) {
 		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", name)
 	}
 
-	// Verify storage data was written
-	storageData, err := s.storageDB.Get(StorageKey(addr, slot))
-	require.NoError(t, err)
-	require.Equal(t, []byte{0x11, 0x22}, storageData)
+	// Verify storage data was written (via Store.Get which deserializes)
+	storageMemiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageValue, found := s.Get(storageMemiavlKey)
+	require.True(t, found, "Storage should be found")
+	require.Equal(t, padLeft32(0x11, 0x22), storageValue)
 
 	// Verify account and code data was written
-	// Use Store.Get method which handles the kind prefix correctly
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceValue, found := s.Get(nonceKey)
 	require.True(t, found, "Nonce should be found")
@@ -122,14 +122,9 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
 
-	// Verify bytecode stored directly in codeDB (raw key = addr)
-	codeRaw, err := s.codeDB.Get(addr[:])
-	require.NoError(t, err)
-	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeRaw)
-
-	// Verify legacy data persisted in legacyDB (full key preserved)
-	legacyVal, err := s.legacyDB.Get(legacyKey)
-	require.NoError(t, err)
+	// Verify legacy data persisted (via Store.Get which deserializes)
+	legacyVal, found := s.Get(legacyKey)
+	require.True(t, found, "Legacy should be found")
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
 
@@ -151,7 +146,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	addr := Address{0x99}
 	slot := Slot{0x88}
 	key := memiavlStorageKey(addr, slot)
-	cs := makeChangeSet(key, []byte{0x77}, false)
+	cs := makeChangeSet(key, padLeft32(0x77), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -238,7 +233,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	pairs := []*iavl.KVPair{
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
-			Value: []byte{0x11},
+			Value: padLeft32(0x11),
 		},
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
@@ -382,10 +377,10 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	// Verify legacyDB LocalMeta is updated
 	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 
-	// Verify data persisted in legacyDB (full key preserved)
-	stored, err := s.legacyDB.Get(codeSizeKey)
-	require.NoError(t, err)
-	require.Equal(t, codeSizeValue, stored)
+	// Verify data persisted (via Store.Get which deserializes)
+	got, found := s.Get(codeSizeKey)
+	require.True(t, found)
+	require.Equal(t, codeSizeValue, got)
 }
 
 func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
@@ -399,7 +394,7 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 		// Storage (optimized)
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
-			Value: []byte{0x11, 0x22},
+			Value: padLeft32(0x11, 0x22),
 		},
 		// Nonce (optimized)
 		{
@@ -428,11 +423,11 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	requireAllLocalMetaAt(t, s, 1)
 
-	// Verify legacy data persisted
+	// Verify legacy data persisted (via Store.Get which deserializes)
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
-	stored, err := s.legacyDB.Get(codeSizeKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte{0x00, 0x03}, stored)
+	got, found := s.Get(codeSizeKey)
+	require.True(t, found)
+	require.Equal(t, []byte{0x00, 0x03}, got)
 }
 
 func TestStoreWriteDeleteLegacyKey(t *testing.T) {
@@ -533,14 +528,14 @@ func TestStoreFsyncConfig(t *testing.T) {
 		key := memiavlStorageKey(addr, slot)
 
 		// Write and commit with fsync disabled
-		cs := makeChangeSet(key, []byte{0xCC}, false)
+		cs := makeChangeSet(key, padLeft32(0xCC), false)
 		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, store)
 
 		// Data should be readable
 		got, found := store.Get(key)
 		require.True(t, found)
-		require.Equal(t, []byte{0xCC}, got)
+		require.Equal(t, padLeft32(0xCC), got)
 
 		// Version should be updated
 		require.Equal(t, int64(1), store.Version())
@@ -646,21 +641,21 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 	key1 := memiavlStorageKey(addr, slot1)
 	key2 := memiavlStorageKey(addr, slot2)
 
-	cs1 := makeChangeSet(key1, []byte{0x11}, false)
+	cs1 := makeChangeSet(key1, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 
-	cs2 := makeChangeSet(key2, []byte{0x22}, false)
+	cs2 := makeChangeSet(key2, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	commitAndCheck(t, s)
 
 	v1, ok := s.Get(key1)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x11}, v1)
+	require.Equal(t, padLeft32(0x11), v1)
 
 	v2, ok := s.Get(key2)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x22}, v2)
+	require.Equal(t, padLeft32(0x22), v2)
 }
 
 func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
@@ -726,7 +721,7 @@ func TestLtHashUpdatedByDelete(t *testing.T) {
 	slot := Slot{0xEE}
 	key := memiavlStorageKey(addr, slot)
 
-	cs1 := makeChangeSet(key, []byte{0xFF}, false)
+	cs1 := makeChangeSet(key, padLeft32(0xFF), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 	hashAfterWrite := s.RootHash()
@@ -783,8 +778,8 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	pairs := []*iavl.KVPair{
-		{Key: key, Value: []byte{0x01}},
-		{Key: key, Value: []byte{0x02}},
+		{Key: key, Value: padLeft32(0x01)},
+		{Key: key, Value: padLeft32(0x02)},
 	}
 	cs := &proto.NamedChangeSet{
 		Name:      "evm",
@@ -795,7 +790,7 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 
 	v, ok := s.Get(key)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x02}, v, "last write should win")
+	require.Equal(t, padLeft32(0x02), v, "last write should win")
 }
 
 // =============================================================================
@@ -837,7 +832,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 	v, ok := s.Get(memiavlStorageKey(Address{0x01}, Slot{0x01}))
 	require.True(t, ok)
-	require.Equal(t, []byte{0x01}, v)
+	require.Equal(t, padLeft32(0x01), v)
 }
 
 // =============================================================================
@@ -987,7 +982,7 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 		val, found := s.Get(key)
 		require.True(t, found, "delete-then-write: key should exist")
-		require.Equal(t, []byte{0xBB}, val)
+		require.Equal(t, padLeft32(0xBB), val)
 	})
 
 }
