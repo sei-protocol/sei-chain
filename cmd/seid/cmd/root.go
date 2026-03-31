@@ -22,7 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/debug"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/pruning"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -143,8 +143,6 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
-		pruning.PruningCmd(newApp),
-		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),

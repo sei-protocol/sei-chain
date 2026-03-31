@@ -283,10 +283,6 @@ func startInProcess(
 	}
 
 	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
-	db, err := openDB(home)
-	if err != nil {
-		return err
-	}
 
 	traceWriter, err := openTraceWriter(traceWriterFile)
 	if err != nil {
@@ -303,7 +299,7 @@ func startInProcess(
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	var tmNode service.Service
