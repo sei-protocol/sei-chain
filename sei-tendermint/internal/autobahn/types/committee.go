@@ -63,7 +63,12 @@ func (s SortedSet[T]) At(i int) T {
 
 // Committee represents the consensus committee.
 type Committee struct {
-	replicas   SortedSet[PublicKey]
+	replicas SortedSet[PublicKey]
+	// Number of the first block of the chain.
+	// TODO: firstBlock is not really a part of the committee,
+	// but it does belong to a chain spec (or epoch spec/genesis/etc.),
+	// which should be passed around to verify autobahn messages.
+	// Once we introduce the chain spec it should wrap Committee and firstBlock.
 	firstBlock GlobalBlockNumber
 }
 
