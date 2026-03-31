@@ -136,7 +136,10 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 
 func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
-		return *state
+		s := *state
+		// Txs is derived and the only mutable field.
+		s.Txs = nil
+		return s
 	}
 	panic("unreachable")
 }
@@ -203,6 +206,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxAcceptRate:            utils.Some(rate.Inf),
 					MaxDialRate:              utils.Some(rate.Limit(30)),
 					Giga: utils.Some(&GigaRouterConfig{
+						DialInterval: 100*time.Millisecond,
 						ValidatorAddrs: addrs,
 						Consensus: &consensus.Config{
 							Key:                cfg.validatorKey,
@@ -214,7 +218,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							MaxTxsPerBlock:   maxTxsPerBlock,
 							MaxTxsPerSecond:  utils.None[uint64](),
 							MempoolSize:      100,
-							BlockInterval:    time.Second,
+							BlockInterval:    100 * time.Millisecond,
 							AllowEmptyBlocks: false,
 						},
 						App: app,
@@ -259,7 +263,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()
-		for _, app := range apps {
+		for i, app := range apps {
+			t.Logf("app[%v]",i)
 			if err:=utils.TestDiff(want, app.Snapshot()); err!=nil {
 				return fmt.Errorf("state mismatch: %w",err)
 			}

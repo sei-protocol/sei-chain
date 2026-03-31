@@ -33,6 +33,7 @@ func (a GigaNodeAddr) String() string {
 }
 
 type GigaRouterConfig struct {
+	DialInterval   time.Duration
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	Consensus      *consensus.Config
 	Producer       *producer.Config
@@ -165,7 +166,7 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 				for {
 					err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
 					logger.Info("giga connection failed", "addr", addr, "err", err)
-					if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 						return err
 					}
 				}
