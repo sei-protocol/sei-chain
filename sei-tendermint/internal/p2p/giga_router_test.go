@@ -31,11 +31,11 @@ import (
 type shaHash = [sha256.Size]byte
 
 type testAppState struct {
-	init    utils.Option[*abci.RequestInitChain]
-	validators []abci.ValidatorUpdate
-	blocks  []*abci.RequestFinalizeBlock
-	txs map[shaHash] bool
-	appHash shaHash
+	Init    utils.Option[*abci.RequestInitChain]
+	Validators []abci.ValidatorUpdate
+	Blocks  []*abci.RequestFinalizeBlock
+	Txs map[shaHash] bool
+	AppHash shaHash
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
@@ -52,26 +52,26 @@ type testApp struct {
 
 func newTestApp() *testApp {
 	return &testApp{state: utils.NewWatch(&testAppState{
-		txs: map[shaHash]bool{},
+		Txs: map[shaHash]bool{},
 	})}
 }
 
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	for state := range a.state.Lock() {
-		return slices.Clone(state.validators)
+		return slices.Clone(state.Validators)
 	}
 	panic("unreachable")
 }
 
 func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseInfo, error) {
 	for state := range a.state.Lock() {
-		init,ok := state.init.Get()
+		init,ok := state.Init.Get()
 		if !ok {
 			return &abci.ResponseInfo{},nil
 		}
 		return &abci.ResponseInfo{
-			LastBlockHeight:  init.InitialHeight + int64(len(state.blocks)) -1,
-			LastBlockAppHash: slices.Clone(state.appHash[:]),
+			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) -1,
+			LastBlockAppHash: slices.Clone(state.AppHash[:]),
 		}, nil
 	}
 	panic("unreachable")
@@ -79,19 +79,19 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 
 func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	for state,ctrl := range a.state.Lock() {
-		if state.init.IsPresent() { return nil,fmt.Errorf("chain already initialized") }
+		if state.Init.IsPresent() { return nil,fmt.Errorf("chain already initialized") }
 		if req.InitialHeight<1 { return nil,fmt.Errorf("InitialHeight = %v, want >=1",req.InitialHeight) }
 		var val abci.ValidatorUpdate
 		if err := json.Unmarshal(req.AppStateBytes,&val); err!=nil {
 			return nil,fmt.Errorf("proto.Unmarshal(): %w",err)
 		}
-		state.init = utils.Some(req)
-		state.appHash = sha256.Sum256(req.AppStateBytes)
-		state.validators = utils.Slice(val)
+		state.Init = utils.Some(req)
+		state.AppHash = sha256.Sum256(req.AppStateBytes)
+		state.Validators = utils.Slice(val)
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
-			AppHash:    slices.Clone(state.appHash[:]),
-			Validators: slices.Clone(state.validators),
+			AppHash:    slices.Clone(state.AppHash[:]),
+			Validators: slices.Clone(state.Validators),
 		}, nil
 	}
 	panic("unreachable")	
@@ -99,17 +99,17 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 
 func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
-		init,ok := state.init.Get()
+		init,ok := state.Init.Get()
 		if !ok { return nil,fmt.Errorf("app not initialized") }
-		state.blocks = append(state.blocks, req)
-		state.appHash = sha256.Sum256(slices.Concat(req.Hash,state.appHash[:])) 
+		state.Blocks = append(state.Blocks, req)
+		state.AppHash = sha256.Sum256(slices.Concat(req.Hash,state.AppHash[:])) 
 		for _,tx := range req.Txs {
-			state.txs[sha256.Sum256(tx)] = true
+			state.Txs[sha256.Sum256(tx)] = true
 		}
 		logger.Info("FinalizeBlock","n",req.Header.Height-init.InitialHeight)
 		ctrl.Updated()
 		return &abci.ResponseFinalizeBlock{
-			AppHash:   slices.Clone(state.appHash[:]),
+			AppHash:   slices.Clone(state.AppHash[:]),
 			TxResults: slices.Repeat([]*abci.ExecTxResult{{Code: abci.CodeTypeOK}},len(req.Txs)),
 		},nil
 	}
@@ -127,7 +127,7 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 	h := sha256.Sum256(tx)
 	for state, ctrl := range a.state.Lock() {
 		return ctrl.WaitUntil(ctx, func() bool {
-			_,ok := state.txs[h]
+			_,ok := state.Txs[h]
 			return ok
 		})
 	}
@@ -157,6 +157,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 	const maxTxsPerBlock = 20
 	const blocksPerLane = 5
+	const txGasUsed = 21_000
 
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -209,7 +210,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							PersistentStateDir: utils.None[string](),
 						},
 						Producer: &producer.Config{
-							MaxGasPerBlock:   21_000,
+							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
 							MaxTxsPerBlock:   maxTxsPerBlock,
 							MaxTxsPerSecond:  utils.None[uint64](),
 							MempoolSize:      100,
@@ -225,7 +226,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("NewRouter(): %w",err)
 			}
 			// TODO: startup might be slow here, because of dial backoff.
-			s.SpawnBgNamed(fmt.Sprintf("router[%v]",i), func() error { return router.Run(ctx) })
+			s.SpawnBgNamed(fmt.Sprintf("router[%v]",i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			apps = append(apps,app)
 			var txs [][]byte
 			for range maxTxsPerBlock*blocksPerLane {
@@ -239,7 +240,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				for _,payload := range txs {
 					tx := &apb.Transaction{
 						Payload: payload, 
-						GasUsed: 21_000,
+						GasUsed: txGasUsed,
 					}
 					if err := giga.PushToMempool(ctx, tx); err != nil {
 						return fmt.Errorf("PushToMempool(): %w", err)
