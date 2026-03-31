@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/bitutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
@@ -97,4 +98,117 @@ func TestLegacyBlockBloomCutoffHeight(t *testing.T) {
 	require.Equal(t, int64(0), k.GetLegacyBlockBloomCutoffHeight(ctx))
 	k.SetLegacyBlockBloomCutoffHeight(ctx)
 	require.Equal(t, int64(123), k.GetLegacyBlockBloomCutoffHeight(ctx))
+}
+
+func TestSetEvmOnlyBlockBloom_OptimisedMatchesOriginal(t *testing.T) {
+	tests := []struct {
+		name   string
+		blooms []types.Bloom
+	}{
+		{
+			name:   "empty blooms",
+			blooms: nil,
+		},
+		{
+			name:   "single bloom all zeros",
+			blooms: []types.Bloom{{}},
+		},
+		{
+			name: "single bloom with bits set",
+			blooms: func() []types.Bloom {
+				var b types.Bloom
+				b[0] = 0xAA
+				b[100] = 0xFF
+				b[types.BloomByteLength-1] = 0x01
+				return []types.Bloom{b}
+			}(),
+		},
+		{
+			name: "multiple blooms",
+			blooms: func() []types.Bloom {
+				var b1, b2, b3 types.Bloom
+				b1[0] = 0x0F
+				b1[50] = 0xAB
+				b2[0] = 0xF0
+				b2[75] = 0xCD
+				b3[200] = 0xFF
+				return []types.Bloom{b1, b2, b3}
+			}(),
+		},
+		{
+			name: "overlapping bits",
+			blooms: func() []types.Bloom {
+				var b1, b2 types.Bloom
+				b1[10] = 0b10101010
+				b2[10] = 0b01010101
+				return []types.Bloom{b1, b2}
+			}(),
+		},
+		{
+			name: "all ones",
+			blooms: func() []types.Bloom {
+				var b types.Bloom
+				for i := range b {
+					b[i] = 0xFF
+				}
+				return []types.Bloom{b}
+			}(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := setEvmOnlyBlockBloomOriginal(tc.blooms)
+			optimised := keeper.BloomsToBytes(tc.blooms)
+
+			if len(original) != len(optimised) {
+				t.Fatalf("length mismatch: original=%d optimised=%d", len(original), len(optimised))
+			}
+
+			for i := range original {
+				if original[i] != optimised[i] {
+					t.Fatalf("mismatch at byte %d: original=0x%02X optimised=0x%02X", i, original[i], optimised[i])
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkSetEvmOnlyBlockBloom_Original(b *testing.B) {
+	blooms := makeBenchBlooms()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		setEvmOnlyBlockBloomOriginal(blooms)
+	}
+}
+
+func BenchmarkSetEvmOnlyBlockBloom_Optimised(b *testing.B) {
+	blooms := makeBenchBlooms()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		keeper.BloomsToBytes(blooms)
+	}
+}
+
+func makeBenchBlooms() []types.Bloom {
+	blooms := make([]types.Bloom, 50)
+	for i := range blooms {
+		for j := range blooms[i] {
+			blooms[i][j] = byte((i * j) & 0xFF)
+		}
+	}
+	return blooms
+}
+
+func setEvmOnlyBlockBloomOriginal(blooms []types.Bloom) []byte {
+	// The original implementation left for benchmark comparison.
+	blockBloom := make([]byte, types.BloomByteLength)
+	for _, bloom := range blooms {
+		or := make([]byte, types.BloomByteLength)
+		bitutil.ORBytes(or, blockBloom, bloom[:])
+		blockBloom = or
+	}
+	return blockBloom
 }

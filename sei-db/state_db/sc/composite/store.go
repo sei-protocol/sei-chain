@@ -56,6 +56,10 @@ func NewCompositeCommitStore(
 	homeDir string,
 	cfg config.StateCommitConfig,
 ) *CompositeCommitStore {
+	if err := cfg.Validate(); err != nil {
+		panic(fmt.Sprintf("invalid state commit config: %s", err))
+	}
+
 	// Always initialize the Cosmos backend (creates struct only, not opened)
 	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
@@ -140,6 +144,16 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
+
+		// When loading latest (targetVersion==0), a crash between the
+		// sequential cosmos and EVM commits can leave the backends at
+		// different versions. Detect the mismatch and roll the ahead
+		// backend back so both restart from a consistent point.
+		if targetVersion == 0 {
+			if err := cs.reconcileVersions(); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return cs, nil
@@ -218,6 +232,47 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	}
 
 	return cosmosVersion, nil
+}
+
+// reconcileVersions checks whether the cosmos and EVM backends are at the
+// same version after loading latest. A crash between the sequential Commit
+// calls can leave one backend one version ahead. When a mismatch is found
+// and both backends have committed at least once (version > 0), the ahead
+// backend is rolled back to the behind version. Rollback truncates the WAL
+// so the correction survives subsequent restarts.
+func (cs *CompositeCommitStore) reconcileVersions() error {
+	cosmosVer := cs.cosmosCommitter.Version()
+	evmVer := cs.evmCommitter.Version()
+	if cosmosVer == evmVer {
+		return nil
+	}
+
+	// Skip reconciliation when either backend is at version 0 (fresh
+	// initialization / migration), since that is not a crash artifact.
+	if cosmosVer == 0 || evmVer == 0 {
+		return nil
+	}
+
+	minVer := cosmosVer
+	if evmVer < minVer {
+		minVer = evmVer
+	}
+
+	logger.Warn("version mismatch between cosmos and EVM after loading latest, rolling back to consistent version",
+		"cosmosVersion", cosmosVer, "evmVersion", evmVer, "reconciledVersion", minVer)
+
+	if cosmosVer > minVer {
+		if err := cs.cosmosCommitter.Rollback(minVer); err != nil {
+			return fmt.Errorf("failed to rollback cosmos to reconciled version %d: %w", minVer, err)
+		}
+	}
+	if evmVer > minVer {
+		if err := cs.evmCommitter.Rollback(minVer); err != nil {
+			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w", minVer, err)
+		}
+	}
+
+	return nil
 }
 
 // Version returns the current version
