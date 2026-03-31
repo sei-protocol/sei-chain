@@ -1,8 +1,18 @@
 {
-    "Comment": "For testing with the state store and reciept store both enabled.",
+    "Comment": "For testing with the receipt store only (state store disabled), with concurrent reads, pruning, and cache.",
+    "DisableTransactionExecution": true,
     "DataDir": "data",
+    "LogDir": "logs",
+    "LogLevel": "info",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 1000000,
-    "GenerateReceipts": true
+    "GenerateReceipts": true,
+    "ReceiptReadConcurrency": 4,
+    "ReceiptReadsPerSecond": 1000,
+    "ReceiptReadMode": "duckdb",
+    "ReceiptLogFilterReadConcurrency": 4,
+    "ReceiptLogFilterReadsPerSecond": 200,
+    "ReceiptLogFilterReadMode": "duckdb",
+    "ReceiptLogFilterMinBlockRange": 1,
+    "ReceiptLogFilterMaxBlockRange": 10
 }
-

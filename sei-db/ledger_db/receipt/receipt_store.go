@@ -53,6 +53,19 @@ type ReceiptRecord struct {
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
 }
 
+// ReceiptReadObserver receives callbacks when cached receipt lookups either hit
+// the in-memory ledger cache or fall through to the backend store.
+type ReceiptReadObserver interface {
+	ReportReceiptCacheHit()
+	ReportReceiptCacheMiss()
+	ReportLogFilterCacheHit()
+	ReportLogFilterCacheMiss()
+	RecordCacheFilterScanDuration(seconds float64)
+	RecordCacheGetDuration(seconds float64)
+	RecordCacheLogCount(count int64)
+	RecordCacheReceiptCount(count int64)
+}
+
 type receiptStore struct {
 	db          seidbtypes.StateStore
 	storeKey    sdk.StoreKey
@@ -78,11 +91,21 @@ func normalizeReceiptBackend(backend string) string {
 }
 
 func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	return NewReceiptStoreWithReadObserver(config, storeKey, nil)
+}
+
+// NewReceiptStoreWithReadObserver constructs a receipt store and optionally
+// reports cache hits/misses for receipt-by-hash reads via observer callbacks.
+func NewReceiptStoreWithReadObserver(
+	config dbconfig.ReceiptStoreConfig,
+	storeKey sdk.StoreKey,
+	observer ReceiptReadObserver,
+) (ReceiptStore, error) {
 	backend, err := newReceiptBackend(config, storeKey)
 	if err != nil {
 		return nil, err
 	}
-	return newCachedReceiptStore(backend), nil
+	return newCachedReceiptStore(backend, observer), nil
 }
 
 // BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.

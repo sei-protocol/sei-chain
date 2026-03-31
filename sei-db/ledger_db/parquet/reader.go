@@ -363,6 +363,47 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 	return &rec, nil
 }
 
+// GetReceiptByTxHashInBlock queries for a receipt narrowed to the file covering blockNumber.
+func (r *Reader) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*ReceiptResult, error) {
+	r.pruneMu.RLock()
+	defer r.pruneMu.RUnlock()
+
+	r.mu.RLock()
+	closedFiles := make([]string, len(r.closedReceiptFiles))
+	copy(closedFiles, r.closedReceiptFiles)
+	r.mu.RUnlock()
+
+	var targetFile string
+	for _, f := range closedFiles {
+		startBlock := ExtractBlockNumber(f)
+		if blockNumber >= startBlock && blockNumber < startBlock+r.maxBlocksPerFile {
+			targetFile = f
+			break
+		}
+	}
+	if targetFile == "" {
+		return nil, nil
+	}
+
+	// #nosec G201 -- targetFile derived from local file paths
+	query := fmt.Sprintf(`
+		SELECT tx_hash, block_number, receipt_bytes
+		FROM read_parquet(%s, union_by_name=true)
+		WHERE tx_hash = $1
+		LIMIT 1
+	`, quoteSQLString(targetFile))
+
+	row := r.db.QueryRowContext(ctx, query, txHash[:])
+	var rec ReceiptResult
+	if err := row.Scan(&rec.TxHash, &rec.BlockNumber, &rec.ReceiptBytes); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query receipt: %w", err)
+	}
+	return &rec, nil
+}
+
 // GetLogs queries logs matching the given filter.
 func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, error) {
 	// Hold pruneMu first to prevent file deletion, then snapshot the list.
@@ -382,6 +423,9 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 	for _, f := range closedFiles {
 		startBlock := ExtractBlockNumber(f)
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
+			continue
+		}
+		if filter.FromBlock != nil && startBlock+r.maxBlocksPerFile <= *filter.FromBlock {
 			continue
 		}
 		files = append(files, f)
