@@ -277,6 +277,51 @@ enable_test_api = true
 # Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
 max_concurrent_simulation_calls = 0
 
+# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only).
+# DEPRECATION: All sei_* and sei2_* methods are deprecated and scheduled for removal - no new integrations.
+# HTTP 200; gate errors: JSON-RPC error (data legacy_sei_deprecated). Success: unchanged body; optional header Sei-Legacy-RPC-Deprecation.
+# Docker localnet enables every gated method except sei_sign (integration tests assert the
+# disabled-method path; sei_sign is not in partner telemetry and has no rpc_io_test fixtures).
+# Production defaults from seid init remain the three-method sei_* allowlist - see evmrpc/config.
+enabled_legacy_sei_apis = [
+#  "sei_sign",
+  "sei_associate",
+  "sei_getBlockByHash",
+  "sei_getBlockByHashExcludeTraceFail",
+  "sei_getBlockByNumber",
+  "sei_getBlockByNumberExcludeTraceFail",
+  "sei_getBlockReceipts",
+  "sei_getBlockTransactionCountByHash",
+  "sei_getBlockTransactionCountByNumber",
+  "sei_getCosmosTx",
+  "sei_getEVMAddress",
+  "sei_getEvmTx",
+  "sei_getFilterChanges",
+  "sei_getFilterLogs",
+  "sei_getLogs",
+  "sei_getSeiAddress",
+  "sei_getTransactionByBlockHashAndIndex",
+  "sei_getTransactionByBlockNumberAndIndex",
+  "sei_getTransactionByHash",
+  "sei_getTransactionCount",
+  "sei_getTransactionErrorByHash",
+  "sei_getTransactionReceipt",
+  "sei_getTransactionReceiptExcludeTraceFail",
+  "sei_getVMError",
+  "sei_newBlockFilter",
+  "sei_newFilter",
+  "sei_traceBlockByHashExcludeTraceFail",
+  "sei_traceBlockByNumberExcludeTraceFail",
+  "sei_uninstallFilter",
+  "sei2_getBlockByHash",
+  "sei2_getBlockByHashExcludeTraceFail",
+  "sei2_getBlockByNumber",
+  "sei2_getBlockByNumberExcludeTraceFail",
+  "sei2_getBlockReceipts",
+  "sei2_getBlockTransactionCountByHash",
+  "sei2_getBlockTransactionCountByNumber",
+]
+
 ###############################################################################
 ###                       Admin Configuration (Auto-managed)                ###
 ###############################################################################
