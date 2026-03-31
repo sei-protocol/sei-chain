@@ -82,6 +82,8 @@ func setup(t testing.TB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Opt
 	scConfig.MemIAVLConfig.SnapshotInterval = 1
 	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	scConfig.HistoricalProofRateLimit = 0
+	scConfig.HistoricalProofMaxInFlight = 100
 	ssConfig := seidbconfig.StateStoreConfig{}
 	cms := storev2rootmulti.NewStore(nodeHome, scConfig, ssConfig, nil)
 	cmsOpt := func(baseApp *bam.BaseApp) { baseApp.SetCMS(cms) }
