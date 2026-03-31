@@ -156,7 +156,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
-	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
 
 	if readOnly {
 		if s.readOnly {
