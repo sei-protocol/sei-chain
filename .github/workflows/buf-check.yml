@@ -15,4 +15,7 @@ jobs:
       - uses: bufbuild/buf-action@v1
         with:
           version: 1.58.0
+          # TODO: re-enable after sei-iavl/proto removal merges to main.
+          # buf breaking fails when module count differs between branch and base
+          # (8 modules on this branch vs 9 on main). This is a one-time issue.
           breaking: false
