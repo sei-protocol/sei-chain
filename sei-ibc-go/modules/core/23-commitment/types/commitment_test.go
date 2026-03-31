@@ -3,8 +3,8 @@ package types_test
 import (
 	"testing"
 
-	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/stretchr/testify/suite"
 )
