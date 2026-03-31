@@ -690,7 +690,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 	}()
 
 	if params.db != nil {
-		db = dbm.NewPrefixDB(params.db, []byte("s/_/"))
+		db = dbm.NewPrefixDB(params.db, []byte("s/k:"+params.key.Name()+"/"))
 	} else if rs.shouldUseArchivalDb(id.Version) {
 		tag := []byte("s/k:" + params.key.Name() + "/")
 		prefix := make([]byte, 8, 8+len(tag))

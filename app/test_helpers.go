@@ -92,6 +92,12 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
 	}
+	if s == FlagSSEnable {
+		return true
+	}
+	if s == FlagSSBackend {
+		return "pebbledb"
+	}
 	if s == gigaconfig.FlagEnabled {
 		return t.EnableGiga
 	}
