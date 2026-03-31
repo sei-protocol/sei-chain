@@ -49,26 +49,31 @@ type Config struct {
 
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
+
 	// AccountCacheConfig defines the cache configuration for the account database.
 	AccountCacheConfig dbcache.CacheConfig
 
 	// CodeDBConfig defines the PebbleDB configuration for the code database.
 	CodeDBConfig pebbledb.PebbleDBConfig
+
 	// CodeCacheConfig defines the cache configuration for the code database.
 	CodeCacheConfig dbcache.CacheConfig
 
 	// StorageDBConfig defines the PebbleDB configuration for the storage database.
 	StorageDBConfig pebbledb.PebbleDBConfig
+
 	// StorageCacheConfig defines the cache configuration for the storage database.
 	StorageCacheConfig dbcache.CacheConfig
 
 	// LegacyDBConfig defines the PebbleDB configuration for the legacy database.
 	LegacyDBConfig pebbledb.PebbleDBConfig
+
 	// LegacyCacheConfig defines the cache configuration for the legacy database.
 	LegacyCacheConfig dbcache.CacheConfig
 
 	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
 	MetadataDBConfig pebbledb.PebbleDBConfig
+
 	// MetadataCacheConfig defines the cache configuration for the metadata database.
 	MetadataCacheConfig dbcache.CacheConfig
 
@@ -154,6 +159,21 @@ func (c *Config) InitializeDataDirectories() {
 
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *Config) Validate() error {
+	if err := c.AccountCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("account cache config is invalid: %w", err)
+	}
+	if err := c.CodeCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("code cache config is invalid: %w", err)
+	}
+	if err := c.StorageCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("storage cache config is invalid: %w", err)
+	}
+	if err := c.LegacyCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("legacy cache config is invalid: %w", err)
+	}
+	if err := c.MetadataCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("metadata cache config is invalid: %w", err)
+	}
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
@@ -173,7 +193,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("metadata db config is invalid: %w", err)
 	}
 
-	if c.ReaderThreadsPerCore < 0 {
+	if c.ReaderThreadsPerCore <= 0 {
 		return fmt.Errorf("reader threads per core must be greater than 0")
 	}
 	if c.ReaderConstantThreadCount < 0 {

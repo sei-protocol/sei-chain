@@ -3,6 +3,8 @@
     "DataDir": "data",
     "LogDir": "logs",
     "DeleteDataDirOnStartup": true,
-    "DeleteDataDirOnShutdown": true
+    "DeleteLogDirOnStartup": true,
+    "DeleteDataDirOnShutdown": true,
+    "DeleteLogDirOnShutdown": true
 }
 

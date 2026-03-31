@@ -94,24 +94,23 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 				if !ok {
 					return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
 				}
-				addrStr := string(addr[:])
 				addrKey := string(AccountKey(addr))
 
-				if _, seen := oldAccountRawValues[addrStr]; !seen {
-					if paw, ok := s.accountWrites[addrStr]; ok {
+				if _, seen := oldAccountRawValues[addrKey]; !seen {
+					if paw, ok := s.accountWrites[addrKey]; ok {
 						if paw.isDelete {
-							oldAccountRawValues[addrStr] = nil
+							oldAccountRawValues[addrKey] = nil
 						} else {
-							oldAccountRawValues[addrStr] = paw.value.Encode()
+							oldAccountRawValues[addrKey] = paw.value.Encode()
 						}
 					} else if result, ok := accountOld[addrKey]; ok {
-						oldAccountRawValues[addrStr] = result.Value
+						oldAccountRawValues[addrKey] = result.Value
 					} else {
-						oldAccountRawValues[addrStr] = nil
+						oldAccountRawValues[addrKey] = nil
 					}
 				}
 
-				paw := s.accountWrites[addrStr]
+				paw := s.accountWrites[addrKey]
 				if paw == nil {
 					var existingValue AccountValue
 					result := accountOld[addrKey]
@@ -126,7 +125,7 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 						addr:  addr,
 						value: existingValue,
 					}
-					s.accountWrites[addrStr] = paw
+					s.accountWrites[addrKey] = paw
 				}
 
 				if pair.Delete {
@@ -326,8 +325,8 @@ func (s *CommitStore) flushAllDBs() error {
 	wg.Add(4)
 	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
 		err := s.miscPool.Submit(s.ctx, func() {
+			defer wg.Done()
 			errs[i] = db.Flush()
-			wg.Done()
 		})
 		if err != nil {
 			return fmt.Errorf("failed to submit flush: %w", err)
@@ -521,7 +520,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 				if !ok {
 					continue
 				}
-				k := string(AccountKey(addr))
+				k := string(addr[:])
 				if _, done := accountOld[k]; done {
 					continue
 				}
@@ -567,8 +566,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 			storageErr = s.storageDB.BatchGet(storageBatch)
 		})
 		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
 		}
 	}
 
@@ -579,8 +577,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 			accountErr = s.accountDB.BatchGet(accountBatch)
 		})
 		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
 		}
 	}
 
@@ -591,8 +588,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 			codeErr = s.codeDB.BatchGet(codeBatch)
 		})
 		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
 		}
 	}
 
@@ -603,8 +599,7 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 			legacyErr = s.legacyDB.BatchGet(legacyBatch)
 		})
 		if err != nil {
-			err = fmt.Errorf("failed to submit batch get: %w", err)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
 		}
 	}
 
@@ -618,29 +613,25 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 	// real read errors.
 	for k, v := range storageBatch {
 		if v.Error != nil {
-			err = fmt.Errorf("storageDB batch read error for key %x: %w", k, v.Error)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("storageDB batch read error for key %x: %w", k, v.Error)
 		}
 		storageOld[k] = v
 	}
 	for k, v := range accountBatch {
 		if v.Error != nil {
-			err = fmt.Errorf("accountDB batch read error for key %x: %w", k, v.Error)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("accountDB batch read error for key %x: %w", k, v.Error)
 		}
 		accountOld[k] = v
 	}
 	for k, v := range codeBatch {
 		if v.Error != nil {
-			err = fmt.Errorf("codeDB batch read error for key %x: %w", k, v.Error)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("codeDB batch read error for key %x: %w", k, v.Error)
 		}
 		codeOld[k] = v
 	}
 	for k, v := range legacyBatch {
 		if v.Error != nil {
-			err = fmt.Errorf("legacyDB batch read error for key %x: %w", k, v.Error)
-			return
+			return nil, nil, nil, nil, fmt.Errorf("legacyDB batch read error for key %x: %w", k, v.Error)
 		}
 		legacyOld[k] = v
 	}
