@@ -149,23 +149,23 @@ func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {
 func loadStateAndBlockStore(cfg *tmcfg.Config) (*store.BlockStore, state.Store, error) {
 	dbType := dbm.BackendType(cfg.DBBackend)
 
-	if !os.FileExists(filepath.Join(cfg.DBDir(), "blockstore.db")) {
+	blockstoreDir := tmcfg.ResolveDBDir("blockstore", cfg.DBDir())
+	if !os.FileExists(filepath.Join(blockstoreDir, "blockstore.db")) {
 		return nil, nil, fmt.Errorf("no blockstore found in %v", cfg.DBDir())
 	}
 
-	// Get BlockStore
-	blockStoreDB, err := dbm.NewDB("blockstore", dbType, cfg.DBDir())
+	blockStoreDB, err := dbm.NewDB("blockstore", dbType, blockstoreDir)
 	if err != nil {
 		return nil, nil, err
 	}
 	blockStore := store.NewBlockStore(blockStoreDB)
 
-	if !os.FileExists(filepath.Join(cfg.DBDir(), "state.db")) {
-		return nil, nil, fmt.Errorf("no blockstore found in %v", cfg.DBDir())
+	stateDir := tmcfg.ResolveDBDir("state", cfg.DBDir())
+	if !os.FileExists(filepath.Join(stateDir, "state.db")) {
+		return nil, nil, fmt.Errorf("no state store found in %v", cfg.DBDir())
 	}
 
-	// Get StateStore
-	stateDB, err := dbm.NewDB("state", dbType, cfg.DBDir())
+	stateDB, err := dbm.NewDB("state", dbType, stateDir)
 	if err != nil {
 		return nil, nil, err
 	}

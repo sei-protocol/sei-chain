@@ -1,9 +1,9 @@
 package app
 
 import (
-	"path/filepath"
-
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 const (
@@ -20,7 +20,7 @@ func readReceiptStoreConfig(homePath string, appOpts seidbconfig.AppOptions) (se
 		return receiptConfig, err
 	}
 	if receiptConfig.DBDirectory == "" {
-		receiptConfig.DBDirectory = filepath.Join(homePath, "data", "receipt.db")
+		receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath)
 	}
 	return receiptConfig, nil
 }

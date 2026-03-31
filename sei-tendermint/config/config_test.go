@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -163,4 +165,90 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+}
+
+// --- WalFile legacy fallback tests ---
+
+func TestWalFile_NewDefault_NoLegacy(t *testing.T) {
+	root := t.TempDir()
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+
+	expected := filepath.Join(root, "data", "tendermint", "cs.wal", "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"new node with new default should use data/tendermint/cs.wal/wal")
+}
+
+func TestWalFile_NewDefault_LegacyExists(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "data", "cs.wal")
+	require.NoError(t, os.MkdirAll(legacyDir, 0755))
+
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+
+	expected := filepath.Join(legacyDir, "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"should fall back to legacy cs.wal when it exists on disk")
+}
+
+func TestWalFile_OldDefault_NoLegacy(t *testing.T) {
+	root := t.TempDir()
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+	cfg.WalPath = filepath.Join("data", "cs.wal", "wal")
+
+	expected := filepath.Join(root, "data", "tendermint", "cs.wal", "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"old default in config.toml on a new node should redirect to new path")
+}
+
+func TestWalFile_OldDefault_LegacyExists(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "data", "cs.wal")
+	require.NoError(t, os.MkdirAll(legacyDir, 0755))
+
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+	cfg.WalPath = filepath.Join("data", "cs.wal", "wal")
+
+	expected := filepath.Join(legacyDir, "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"old default in config.toml with legacy data should use legacy path")
+}
+
+func TestWalFile_CustomPath(t *testing.T) {
+	root := t.TempDir()
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+	cfg.WalPath = "/custom/wal/path"
+
+	assert.Equal(t, "/custom/wal/path", cfg.WalFile(),
+		"absolute custom path should be returned unchanged")
+}
+
+func TestWalFile_CustomRelativePath(t *testing.T) {
+	root := t.TempDir()
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+	cfg.WalPath = filepath.Join("data", "mywal", "wal")
+
+	expected := filepath.Join(root, "data", "mywal", "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"non-default custom relative path should be resolved normally")
+}
+
+func TestWalFile_BothExist_LegacyWins(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "data", "cs.wal")
+	require.NoError(t, os.MkdirAll(legacyDir, 0755))
+	newDir := filepath.Join(root, "data", "tendermint", "cs.wal")
+	require.NoError(t, os.MkdirAll(newDir, 0755))
+
+	cfg := DefaultConsensusConfig()
+	cfg.RootDir = root
+
+	expected := filepath.Join(legacyDir, "wal")
+	assert.Equal(t, expected, cfg.WalFile(),
+		"legacy should win when both locations exist")
 }
