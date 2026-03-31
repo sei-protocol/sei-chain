@@ -11,7 +11,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
@@ -223,5 +222,5 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 }
 
 type mockNonQueryableMultiStore struct {
-	types.CommitMultiStore
+	sdk.CommitMultiStore
 }
