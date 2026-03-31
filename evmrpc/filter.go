@@ -152,15 +152,6 @@ type logCollector interface {
 	Append(*ethtypes.Log)
 }
 
-// sliceCollector for direct slice append
-type sliceCollector struct {
-	logs []*ethtypes.Log
-}
-
-func (c *sliceCollector) Append(log *ethtypes.Log) {
-	c.logs = append(c.logs, log)
-}
-
 // pooledCollector for reused slice
 type pooledCollector struct {
 	logs *[]*ethtypes.Log

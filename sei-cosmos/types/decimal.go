@@ -89,12 +89,12 @@ func precisionMultiplier(prec int64) *big.Int {
 	return precisionMultipliers[prec]
 }
 
-// create a new Dec from integer assuming whole number
+// NewDec creates a new Dec from integer assuming whole number.
 func NewDec(i int64) Dec {
 	return NewDecWithPrec(i, 0)
 }
 
-// create a new Dec from integer with decimal place at prec
+// NewDecWithPrec creates a new Dec from integer with decimal place at prec.
 // CONTRACT: prec <= Precision
 func NewDecWithPrec(i, prec int64) Dec {
 	return Dec{
@@ -118,13 +118,13 @@ func NewDecFromBigIntWithPrec(i *big.Int, prec int64) Dec {
 	return result
 }
 
-// create a new Dec from big integer assuming whole numbers
+// NewDecFromInt creates a new Dec from Int assuming whole numbers.
 // CONTRACT: prec <= Precision
 func NewDecFromInt(i Int) Dec {
 	return NewDecFromIntWithPrec(i, 0)
 }
 
-// create a new Dec from big integer with decimal place at prec
+// NewDecFromIntWithPrec creates a new Dec from Int with decimal place at prec.
 // CONTRACT: prec <= Precision
 func NewDecFromIntWithPrec(i Int, prec int64) Dec {
 	return Dec{
@@ -234,7 +234,7 @@ func (d Dec) BigInt() *big.Int {
 	return cp.Set(d.i)
 }
 
-// addition
+// Add returns the sum of two Dec values.
 func (d Dec) Add(d2 Dec) Dec {
 	res := new(big.Int).Add(d.i, d2.i)
 	result := Dec{res}
@@ -242,7 +242,7 @@ func (d Dec) Add(d2 Dec) Dec {
 	return result
 }
 
-// subtraction
+// Sub returns the difference of two Dec values.
 func (d Dec) Sub(d2 Dec) Dec {
 	res := new(big.Int).Sub(d.i, d2.i)
 	result := Dec{res}
@@ -250,7 +250,7 @@ func (d Dec) Sub(d2 Dec) Dec {
 	return result
 }
 
-// multiplication
+// Mul returns the product of two Dec values with rounding.
 func (d Dec) Mul(d2 Dec) Dec {
 	mul := new(big.Int).Mul(d.i, d2.i)
 	chopped := chopPrecisionAndRound(mul)
@@ -729,6 +729,11 @@ func (d *Dec) MarshalTo(data []byte) (n int, err error) {
 
 // Unmarshal implements the gogo proto custom type interface.
 func (d *Dec) Unmarshal(data []byte) error {
+	// The maximum valid Dec value requires ~95 decimal digits (315 bits), so 100 is
+	// a safe upper bound.
+	if len(data) > 100 {
+		return fmt.Errorf("decimal string too long: got %d, max 100", len(data))
+	}
 	if len(data) == 0 {
 		d = nil
 		return nil
