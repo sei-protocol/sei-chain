@@ -29,7 +29,7 @@ func TestLoadConfigFromFile_StateStoreConfigOverridePreservesBenchmarkDefaults(t
 	require.NoError(t, err)
 	require.Equal(t, wrappers.SSComposite, cfg.Backend)
 	require.Equal(t, config.RocksDBBackend, cfg.StateStoreConfig.Backend)
-	require.Equal(t, 0, cfg.StateStoreConfig.AsyncWriteBuffer)
+	require.Equal(t, config.DefaultSSAsyncBuffer, cfg.StateStoreConfig.AsyncWriteBuffer)
 	require.Equal(t, config.DualWrite, cfg.StateStoreConfig.WriteMode)
 	require.Equal(t, config.EVMFirstRead, cfg.StateStoreConfig.ReadMode)
 }

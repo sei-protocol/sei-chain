@@ -99,8 +99,8 @@ type CryptoSimConfig struct {
 	Backend wrappers.DBType
 
 	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
-	// The default preserves the prior cryptosim behavior: pebbledb, synchronous
-	// writes, dual_write, and evm_first reads.
+	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100,
+	// dual_write, and evm_first reads.
 	StateStoreConfig config.StateStoreConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.

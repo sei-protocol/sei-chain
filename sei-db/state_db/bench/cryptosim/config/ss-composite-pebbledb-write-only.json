@@ -5,7 +5,7 @@
     "Enable": true,
     "DBDirectory": "",
     "Backend": "pebbledb",
-    "AsyncWriteBuffer": 0,
+    "AsyncWriteBuffer": 100,
     "KeepRecent": 100000,
     "PruneIntervalSeconds": 600,
     "ImportNumWorkers": 1,
