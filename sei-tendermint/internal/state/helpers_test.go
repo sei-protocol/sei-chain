@@ -84,7 +84,10 @@ func makeValidCommit(
 	sigs := make([]types.CommitSig, vals.Size())
 	votes := make([]*types.Vote, vals.Size())
 	for i := 0; i < vals.Size(); i++ {
-		_, val := vals.GetByIndex(int32(i))
+		_, val, ok := vals.GetByIndex(int32(i))
+		if !ok {
+			panic("validator missing")
+		}
 		vote, err := factory.MakeVote(ctx, privVals[val.Address.String()], chainID, int32(i), height, 0, 2, blockID, time.Now())
 		require.NoError(t, err)
 		sigs[i] = vote.CommitSig()
@@ -153,7 +156,10 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	block := sf.MakeBlock(state, state.LastBlockHeight+1, new(types.Commit))
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
-	_, val := state.NextValidators.GetByIndex(0)
+	_, val, ok := state.NextValidators.GetByIndex(0)
+	if !ok {
+		panic("validator missing")
+	}
 	if pubkey != val.PubKey {
 		vPbPk := crypto.PubKeyToProto(val.PubKey)
 		pbPk := crypto.PubKeyToProto(pubkey)
@@ -178,7 +184,10 @@ func makeHeaderPartsResponsesValPowerChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 
 	// If the pubkey is new, remove the old and add the new.
-	_, val := state.NextValidators.GetByIndex(0)
+	_, val, ok := state.NextValidators.GetByIndex(0)
+	if !ok {
+		panic("validator missing")
+	}
 	if val.VotingPower != power {
 		vPbPk := crypto.PubKeyToProto(val.PubKey)
 
