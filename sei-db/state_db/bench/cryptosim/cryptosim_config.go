@@ -161,6 +161,11 @@ type CryptoSimConfig struct {
 	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
 	DisableTransactionExecution bool
 
+	// If true, skip transaction-time database reads and only issue writes. Useful
+	// when benchmarking write-path overhead for backends that are not consulted by
+	// execution-time reads in production.
+	DisableTransactionReads bool
+
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
 
@@ -221,6 +226,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
+		DisableTransactionReads:           false,
 		MaxTPS:                            0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,

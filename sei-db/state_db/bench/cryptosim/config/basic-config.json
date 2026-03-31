@@ -45,6 +45,7 @@
   "TransactionMetricsSampleRate": 0.001,
   "BackgroundMetricsScrapeInterval": 60,
   "BlockChannelCapacity": 8,
+  "DisableTransactionReads": false,
   "LogDir": "logs",
   "LogLevel": "info"
 }

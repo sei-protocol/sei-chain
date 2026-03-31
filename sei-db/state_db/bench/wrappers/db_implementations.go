@@ -18,6 +18,7 @@ const EVMStoreName = commonevm.EVMStoreKey
 type DBType string
 
 const (
+	NoOp            DBType = "NoOp"
 	MemIAVL         DBType = "MemIAVL"
 	FlatKV          DBType = "FlatKV"
 	CompositeDual   DBType = "CompositeDual"
@@ -130,6 +131,8 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string) (DBWrapper, e
 // provided StateStoreConfig for SS-backed benchmark backends.
 func NewDBImplWithSSConfig(ctx context.Context, dbType DBType, dataDir string, ssConfig config.StateStoreConfig) (DBWrapper, error) {
 	switch dbType {
+	case NoOp:
+		return NewNoOpWrapper(), nil
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:

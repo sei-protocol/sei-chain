@@ -169,3 +169,24 @@ func TestStateStoreWrapperApplyChangeSetsUsesEntryVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, entry.Version, version)
 }
+
+func TestNoOpWrapperTracksVersionWithoutReadsOrWrites(t *testing.T) {
+	wrapper := NewNoOpWrapper()
+
+	entry := &proto.ChangelogEntry{
+		Version:    9,
+		Changesets: []*proto.NamedChangeSet{{Name: EVMStoreName}},
+	}
+
+	require.NoError(t, wrapper.ApplyChangeSets(entry))
+	require.Equal(t, int64(9), wrapper.Version())
+
+	data, found, err := wrapper.Read([]byte("key"))
+	require.NoError(t, err)
+	require.Nil(t, data)
+	require.False(t, found)
+
+	version, err := wrapper.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(9), version)
+}

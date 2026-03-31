@@ -50,3 +50,21 @@ func TestLoadConfigFromFile_InvalidStateStoreBackend(t *testing.T) {
 	_, err = LoadConfigFromFile(configPath)
 	require.ErrorContains(t, err, `StateStoreConfig.Backend must be one of "pebbledb" or "rocksdb"`)
 }
+
+func TestLoadConfigFromFile_DisableTransactionReadsOverride(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "cryptosim.json")
+	err := os.WriteFile(configPath, []byte(`{
+  "Backend": "NoOp",
+  "DisableTransactionReads": true,
+  "DataDir": "data",
+  "LogDir": "logs"
+}`), 0o600)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfigFromFile(configPath)
+	require.NoError(t, err)
+	require.Equal(t, wrappers.NoOp, cfg.Backend)
+	require.True(t, cfg.DisableTransactionReads)
+}

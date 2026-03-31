@@ -99,96 +99,64 @@ func (txn *transaction) Execute(
 	feeCollectionAddress []byte,
 	phaseTimer *metrics.PhaseTimer,
 ) error {
+	if !database.config.DisableTransactionReads {
+		phaseTimer.SetPhase("read_erc20")
 
-	phaseTimer.SetPhase("read_erc20")
+		// Read the simulated ERC20 contract.
+		if _, _, err := database.Get(txn.erc20Contract); err != nil {
+			return fmt.Errorf("failed to get ERC20 contract: %w", err)
+		}
 
-	// Read the simulated ERC20 contract.
-	_, found, err := database.Get(txn.erc20Contract)
-	if err != nil {
-		return fmt.Errorf("failed to get ERC20 contract: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("ERC20 contract not found")
-	}
+		// Read the following:
+		// - the sender's native balance / nonce / codehash
+		// - the receiver's native balance
+		// - the sender's storage slot for the ERC20 contract
+		// - the receiver's storage slot for the ERC20 contract
+		// - the fee collection account's native balance
 
-	// Read the following:
-	// - the sender's native balance / nonce / codehash
-	// - the receiver's native balance
-	// - the sender's storage slot for the ERC20 contract
-	// - the receiver's storage slot for the ERC20 contract
-	// - the fee collection account's native balance
+		phaseTimer.SetPhase("read_src_account")
 
-	phaseTimer.SetPhase("read_src_account")
+		// Read the sender's native balance / nonce / codehash.
+		// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
+		// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
+		// returned to the caller.
+		if _, _, err := database.Get(txn.srcAccount); err != nil {
+			return fmt.Errorf("failed to get source account: %w", err)
+		}
 
-	// Read the sender's native balance / nonce / codehash.
-	// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
-	// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
-	// returned to the caller.
-	_, found, err = database.Get(txn.srcAccount)
-	if err != nil {
-		return fmt.Errorf("failed to get source account: %w", err)
-	}
+		phaseTimer.SetPhase("read_dst_account")
 
-	if txn.isSrcNew {
-		// This is a new account, so we should not find it in the DB.
-		// Ignore this benchmark sanity check for now so runs can continue even if
-		// account tracking briefly drifts during long stress tests.
-	} else {
-		// This is an existing account, so we should find it in the DB.
-		// Ignore this benchmark sanity check for now so runs can continue even if
-		// account tracking briefly drifts during long stress tests.
-	}
+		// Read the receiver's native balance / nonce / codehash.
+		if _, _, err := database.Get(txn.dstAccount); err != nil {
+			return fmt.Errorf("failed to get destination account: %w", err)
+		}
 
-	phaseTimer.SetPhase("read_dst_account")
+		phaseTimer.SetPhase("read_src_account_slot")
 
-	// Read the receiver's native balance / nonce / codehash
-	// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
-	// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
-	// returned to the caller..
-	_, found, err = database.Get(txn.dstAccount)
-	if err != nil {
-		return fmt.Errorf("failed to get destination account: %w", err)
-	}
-	if txn.isDstNew {
-		// This is a new account, so we should not find it in the DB.
-		// Ignore this benchmark sanity check for now so runs can continue even if
-		// account tracking briefly drifts during long stress tests.
-	} else {
-		// This is an existing account, so we should find it in the DB.
-		// Ignore this benchmark sanity check for now so runs can continue even if
-		// account tracking briefly drifts during long stress tests.
-	}
+		// Read the sender's storage slot for the ERC20 contract.
+		// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
+		if _, _, err := database.Get(txn.srcAccountSlot); err != nil {
+			return fmt.Errorf("failed to get source account slot: %w", err)
+		}
 
-	phaseTimer.SetPhase("read_src_account_slot")
+		phaseTimer.SetPhase("read_dst_account_slot")
 
-	// Read the sender's storage slot for the ERC20 contract.
-	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-	_, _, err = database.Get(txn.srcAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to get source account slot: %w", err)
-	}
+		// Read the receiver's storage slot for the ERC20 contract.
+		// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
+		if _, _, err := database.Get(txn.dstAccountSlot); err != nil {
+			return fmt.Errorf("failed to get destination account slot: %w", err)
+		}
 
-	phaseTimer.SetPhase("read_dst_account_slot")
+		phaseTimer.SetPhase("read_fee_collection_account")
 
-	// Read the receiver's storage slot for the ERC20 contract.
-	// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-	_, _, err = database.Get(txn.dstAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to get destination account slot: %w", err)
-	}
-
-	phaseTimer.SetPhase("read_fee_collection_account")
-
-	// Read the fee collection account's native balance.
-	_, found, err = database.Get(feeCollectionAddress)
-	if err != nil {
-		return fmt.Errorf("failed to get fee collection account: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("fee collection account not found")
+		// Read the fee collection account's native balance.
+		if _, _, err := database.Get(feeCollectionAddress); err != nil {
+			return fmt.Errorf("failed to get fee collection account: %w", err)
+		}
 	}
 
 	phaseTimer.SetPhase("update_balances")
+	var err error
 
 	// Write the following:
 	// - the sender's native balance
