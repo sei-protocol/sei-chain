@@ -429,6 +429,8 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 		c.database.IncrementTransactionCount()
 	}
 
+	// TODO: skip executor dispatch and FinalizeBlock when DisableTransactionExecution
+	// is true and only receipts are being benchmarked. FlatKV commits waste I/O here.
 	for txn := range blk.Iterator() {
 		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
 		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
