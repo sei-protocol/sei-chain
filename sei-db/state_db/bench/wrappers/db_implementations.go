@@ -32,7 +32,7 @@ const (
 func DefaultBenchStateStoreConfig() config.StateStoreConfig {
 	cfg := config.DefaultStateStoreConfig()
 	cfg.AsyncWriteBuffer = config.DefaultSSAsyncBuffer
-	cfg.WriteMode = config.DualWrite
+	cfg.WriteMode = config.SplitWrite
 	cfg.ReadMode = config.EVMFirstRead
 	return cfg
 }
