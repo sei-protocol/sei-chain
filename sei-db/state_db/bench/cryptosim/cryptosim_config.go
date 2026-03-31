@@ -138,11 +138,17 @@ type CryptoSimConfig struct {
 	// If false, Enter has no effect.
 	EnableSuspension bool
 
-	// If true, the data directory and log directory will be deleted on startup if they exist.
+	// If true, the data directory will be deleted on startup if it exists.
 	DeleteDataDirOnStartup bool
 
-	// If true, the data directory and log directory will be deleted on a clean shutdown.
+	// If true, the log directory will be deleted on startup if it exists.
+	DeleteLogDirOnStartup bool
+
+	// If true, the data directory will be deleted on a clean shutdown.
 	DeleteDataDirOnShutdown bool
+
+	// If true, the log directory will be deleted on a clean shutdown.
+	DeleteLogDirOnShutdown bool
 
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
 	FlatKVConfig *flatkv.Config
@@ -221,7 +227,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
 		DeleteDataDirOnStartup:            false,
+		DeleteLogDirOnStartup:             false,
 		DeleteDataDirOnShutdown:           false,
+		DeleteLogDirOnShutdown:            false,
 		FlatKVConfig:                      flatkv.DefaultConfig(),
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,

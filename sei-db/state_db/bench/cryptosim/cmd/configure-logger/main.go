@@ -42,7 +42,7 @@ func run() error {
 		return fmt.Errorf("LogDir is empty, refusing to proceed")
 	}
 
-	if cfg.DeleteDataDirOnStartup {
+	if cfg.DeleteLogDirOnStartup {
 		resolved, err := filepath.Abs(cfg.LogDir)
 		if err != nil {
 			return fmt.Errorf("failed to resolve log directory: %w", err)

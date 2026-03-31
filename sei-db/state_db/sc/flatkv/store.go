@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
@@ -205,7 +206,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
-	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
 
 	if readOnly {
 		if s.readOnly {
@@ -265,10 +266,20 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 }
 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
-// requested version.
+// requested version. If the writer lock has not yet been acquired (e.g. the
+// store was freshly constructed), CleanupOrphanedReadOnlyDirs is called
+// lazily to acquire it and clean up any leftover directories. When the lock
+// is acquired lazily, ownership is transferred to the returned clone so that
+// closing the clone releases it; this prevents leaking the lock when the
+// caller never explicitly closes the parent store.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
-	roCfg := s.config.Copy()
-	ro, err := NewCommitStore(s.ctx, roCfg)
+	lazyLock := s.fileLock == nil
+	if lazyLock {
+		if err := s.CleanupOrphanedReadOnlyDirs(); err != nil {
+			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
+		}
+	}
+	ro, err := NewCommitStore(s.ctx, &s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -284,6 +295,13 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	ro.config.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
 	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+
+	// Transfer the lazily-acquired lock to the clone so that ro.Close()
+	// releases it, preventing a leak when the parent is never closed.
+	if lazyLock && s.fileLock != nil {
+		ro.fileLock = s.fileLock
+		s.fileLock = nil
+	}
 
 	defer func() {
 		if retErr != nil {
@@ -444,10 +462,13 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	}
 	locked, err := fl.TryLock()
 	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
+		}
 		return fmt.Errorf("acquire file lock: %w", err)
 	}
 	if !locked {
-		return fmt.Errorf("acquire file lock: already held by another process (%s)", lockPath)
+		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
 	}
 	s.fileLock = fl
 	return nil
