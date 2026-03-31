@@ -63,7 +63,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
-		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight),
+		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
 	)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
@@ -94,18 +94,15 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	last := atypes.GlobalBlockNumber(info.LastBlockHeight)
 	next := last + 1
-	appHash := info.LastBlockAppHash
 	if last == 0 {
-		resp, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain())
-		if err != nil {
+		if _, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
-		next = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight)
-		appHash = resp.AppHash
+		next = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
-		if err := r.data.PushAppHash(last, appHash); err != nil {
+		if err := r.data.PushAppHash(last, info.LastBlockAppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
@@ -138,16 +135,18 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 			Hash: hash[:],
 			Header: (&types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
-				Height:  int64(n),
+				Height:  int64(n), // nolint:gosec // different representations of the same value
 				Time:    b.Payload().CreatedAt(),
 				// WARNING: the reward distribution has corner cases where it forgets the proposer,
 				// because reward is distributed with a delay. This is not our problem here though.
 				ProposerAddress: proposerAddress,
 			}).ToProto(),
 		})
-		appHash = resp.AppHash
+		if err != nil {
+			return fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+		}
 		// TODO: we need the block to be persisted before we vote for apphash.
-		if err := r.data.PushAppHash(n, appHash); err != nil {
+		if err := r.data.PushAppHash(n, resp.AppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 		commitResp, err := r.cfg.App.Commit(ctx)
