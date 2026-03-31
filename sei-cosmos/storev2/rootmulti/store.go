@@ -94,7 +94,11 @@ func NewStore(
 	ctx := context.Background()
 	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
-		panic(err)
+		if commonerrors.IsFileLockError(err) {
+			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)
+		} else {
+			panic(err)
+		}
 	}
 	store := &Store{
 		scStore:          scStore,
@@ -434,7 +438,7 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	}
 	rs.scStore.Initialize(initialStores)
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
-		return nil
+		return err
 	}
 
 	storesKeysForDeletion := make(map[types.StoreKey]struct{})
