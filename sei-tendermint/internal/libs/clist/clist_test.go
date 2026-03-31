@@ -156,7 +156,11 @@ func TestGCRandom(t *testing.T) {
 	for _, i := range mrand.Perm(numElements) {
 		el := els[i]
 		l.Remove(el)
-		_ = el.Next()
+		// Break references to neighboring nodes after removal so random
+		// deletion order does not keep removed chains reachable and block
+		// the finalizers this test is waiting on.
+		el.DetachPrev()
+		el.detachNext()
 		els[i] = nil // Clear reference to allow GC
 	}
 	els = nil // Clear the slice to allow GC of all elements
