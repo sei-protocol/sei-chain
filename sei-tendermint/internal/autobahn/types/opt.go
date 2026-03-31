@@ -47,9 +47,11 @@ func LaneRangeOpt[T interface {
 }
 
 // GlobalRangeOpt defaults to an empty initial range.
-func GlobalRangeOpt[T interface{ GlobalRange() GlobalRange }](mv utils.Option[T], c *Committee) GlobalRange {
+func GlobalRangeOpt[T interface {
+	GlobalRange(c *Committee) GlobalRange
+}](mv utils.Option[T], c *Committee) GlobalRange {
 	if v, ok := mv.Get(); ok {
-		return v.GlobalRange()
+		return v.GlobalRange(c)
 	}
 	return GlobalRange{First: c.FirstBlock(), Next: c.FirstBlock()}
 }

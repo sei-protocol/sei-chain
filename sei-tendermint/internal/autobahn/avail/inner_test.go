@@ -55,7 +55,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	// Get the inner state
 	for inner := range state.inner.Lock() {
 		// Now call prune with mismatched QCs directly to test the safety check
-		updated, err := inner.prune(appQC1, qc0)
+		updated, err := inner.prune(committee, appQC1, qc0)
 
 		require.Error(t, err)
 		require.False(t, updated, "prune should not update for mismatched indices")
@@ -433,7 +433,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	updated, err := i.prune(appQC, qcs[2])
+	updated, err := i.prune(committee, appQC, qcs[2])
 	require.NoError(t, err)
 	require.True(t, updated)
 

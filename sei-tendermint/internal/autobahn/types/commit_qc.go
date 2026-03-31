@@ -41,8 +41,8 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 }
 
 // GlobalRange returns the finalized global block range.
-func (m *CommitQC) GlobalRange() GlobalRange {
-	return m.Proposal().GlobalRange()
+func (m *CommitQC) GlobalRange(c *Committee) GlobalRange {
+	return m.Proposal().GlobalRange(c)
 }
 
 // Verify verifies the CommitQC against the committee.
@@ -60,8 +60,12 @@ type FullCommitQC struct {
 
 // NewFullCommitQC constructs a new FullCommitQC.
 func NewFullCommitQC(qc *CommitQC, headers []*BlockHeader) *FullCommitQC {
-	if gr := qc.GlobalRange(); len(headers) != int(gr.Next-gr.First) { //nolint:gosec // global range is a small bounded value representing block count in a QC
-		panic(fmt.Sprintf("headers length %d != global range %d", len(headers), gr.Next-gr.First))
+	n := uint64(0)
+	for _, lr := range qc.Proposal().laneRanges {
+		n += lr.Len()
+	}
+	if len(headers) != int(n) { //nolint:gosec // total lane range len is a small bounded value representing block count in a QC
+		panic(fmt.Sprintf("headers length %d != finalized blocks %d", len(headers), n))
 	}
 	return &FullCommitQC{qc: qc, headers: headers}
 }
@@ -83,7 +87,7 @@ func (m *FullCommitQC) Verify(c *Committee) error {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
+	if want, got := int(m.qc.GlobalRange(c).Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for _, lane := range c.Lanes().All() {
