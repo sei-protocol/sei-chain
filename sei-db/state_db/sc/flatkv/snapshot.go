@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -185,11 +186,17 @@ func removeTmpDirs(dir string) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() && (strings.HasSuffix(name, tmpSuffix) || strings.HasSuffix(name, removingSuffix)) {
-			_ = os.RemoveAll(filepath.Join(dir, name))
+			if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+				errs = append(errs, fmt.Errorf("remove tmp dir %s: %w", name, err))
+			}
 		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }

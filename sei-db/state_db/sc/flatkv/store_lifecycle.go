@@ -81,7 +81,9 @@ func (s *CommitStore) Close() error {
 	}
 
 	if s.readOnlyWorkDir != "" {
-		_ = os.RemoveAll(s.readOnlyWorkDir)
+		if rmErr := os.RemoveAll(s.readOnlyWorkDir); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove readonly workdir: %w", rmErr))
+		}
 	}
 
 	if err != nil {
@@ -110,13 +112,19 @@ func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return fmt.Errorf("read flatkv dir: %w", err)
 	}
+	var errs []error
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), readOnlyDirPrefix) {
 			logger.Info("removing orphaned readonly dir", "dir", e.Name())
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				errs = append(errs, fmt.Errorf("remove orphaned dir %s: %w", e.Name(), err))
+			}
 		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 	return nil
 }
