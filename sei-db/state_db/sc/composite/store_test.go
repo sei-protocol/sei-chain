@@ -10,6 +10,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -716,7 +717,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
 	// cosmos at version 3. This mirrors a crash after cosmos Commit but
 	// before FlatKV Commit completes.
-	flatkvPath := dir + "/data/flatkv"
+	flatkvPath := utils.GetFlatKVPath(dir)
 	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -774,7 +775,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Simulate crash: roll FlatKV back to version 2.
-	flatkvPath := dir + "/data/flatkv"
+	flatkvPath := utils.GetFlatKVPath(dir)
 	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -869,7 +870,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Rollback FlatKV to version 3 (simulating 2 lost commits)
-	flatkvPath := dir + "/data/flatkv"
+	flatkvPath := utils.GetFlatKVPath(dir)
 	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
