@@ -36,7 +36,7 @@ func TestSubscribeNewHeads(t *testing.T) {
 		inapplicableKeys[key] = struct{}{}
 	}
 	var subscriptionId string
-
+	allZerosRE := regexp.MustCompile(`^0+$`)
 	for t.Context().Err() == nil {
 		select {
 		case resObj := <-recvCh:
@@ -68,8 +68,9 @@ func TestSubscribeNewHeads(t *testing.T) {
 				}
 				// check that applicable keys aren't all 0's
 				if _, inapplicable := inapplicableKeys[key]; !inapplicable {
-					if matched, err := regexp.MatchString("^0+$", fmt.Sprintf("%v", resultMap[key])); err != nil || matched {
-						t.Fatalf("%s was unable to parse or expected non-zero value", key)
+					got := fmt.Sprintf("%v", resultMap[key])
+					if allZerosRE.MatchString(got) {
+						t.Fatalf("%s must be non-zero (got %v)", key, resultMap[key])
 					}
 				}
 			}
