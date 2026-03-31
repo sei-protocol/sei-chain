@@ -13,20 +13,6 @@ sc-enable = {{ .StateCommit.Enable }}
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
 
-# WriteMode defines how EVM data writes are routed between backends.
-# Valid values: cosmos_only, dual_write, split_write, evm_only
-# defaults to cosmos_only
-sc-write-mode = "{{ .StateCommit.WriteMode }}"
-
-# ReadMode defines how EVM data reads are routed between backends.
-# Valid values: cosmos_only, evm_first, split_read
-# defaults to cosmos_only
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
-
-# EnableLatticeHash controls whether the FlatKV lattice hash participates
-# in the final app hash. Default: false.
-sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
-
 # Max concurrent historical proof queries (RPC /store path)
 sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
 

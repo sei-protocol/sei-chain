@@ -15,7 +15,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
+	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
