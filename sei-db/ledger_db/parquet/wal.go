@@ -113,6 +113,8 @@ func NewWAL(dir string) (dbwal.GenericWAL[WALEntry], error) {
 		encodeWALEntry,
 		decodeWALEntry,
 		dir,
-		dbwal.Config{},
+		dbwal.Config{
+			AllowEmpty: true,
+		},
 	)
 }
