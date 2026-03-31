@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Fills the db with multiple keys each with different versions
@@ -16,13 +15,13 @@ func FillData(db types.StateStore, numKeys int, versions int) error {
 	}
 
 	for i := int64(1); i < int64(versions+1); i++ {
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
+		cs := &proto.ChangeSet{}
+		cs.Pairs = []*proto.KVPair{}
 
 		for j := 0; j < numKeys; j++ {
 			key := fmt.Sprintf("key%03d", j)
 			val := fmt.Sprintf("val%03d-%03d", j, i)
-			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+			cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: []byte(key), Value: []byte(val)})
 		}
 
 		ncs := &proto.NamedChangeSet{
@@ -46,10 +45,10 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 		panic("length of keys must match length of vals")
 	}
 
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
+	cs := &proto.ChangeSet{}
+	cs.Pairs = []*proto.KVPair{}
 	for j := 0; j < len(key); j++ {
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: key[j], Value: val[j]})
+		cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: key[j], Value: val[j]})
 	}
 
 	ncs := &proto.NamedChangeSet{
@@ -62,10 +61,10 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 
 // Helper for creating the changeset and applying it to db
 func DBApplyDeleteChangeset(db types.StateStore, version int64, storeKey string, key [][]byte) error {
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
+	cs := &proto.ChangeSet{}
+	cs.Pairs = []*proto.KVPair{}
 	for j := 0; j < len(key); j++ {
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: key[j], Delete: true})
+		cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: key[j], Delete: true})
 	}
 
 	ncs := &proto.NamedChangeSet{

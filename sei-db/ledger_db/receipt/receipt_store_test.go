@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -231,13 +230,13 @@ func makeChangeSetEntry(version int64, txHash common.Hash, receipt *types.Receip
 	if err != nil {
 		return proto.ChangelogEntry{}, err
 	}
-	kvPair := &iavl.KVPair{
+	kvPair := &proto.KVPair{
 		Key:   types.ReceiptKey(txHash),
 		Value: marshalledReceipt,
 	}
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{kvPair}},
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{kvPair}},
 	}
 	return proto.ChangelogEntry{
 		Version:    version,

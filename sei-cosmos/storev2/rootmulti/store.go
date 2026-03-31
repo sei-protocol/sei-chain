@@ -524,14 +524,6 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetIAVLCacheSize(_ int) {
-}
-
-// Implements interface CommitMultiStore
-func (rs *Store) SetIAVLDisableFastNode(_ bool) {
-}
-
-// Implements interface CommitMultiStore
 func (rs *Store) SetLazyLoading(_ bool) {
 }
 
@@ -633,7 +625,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-
 	}
 
 	res := store.Query(req)

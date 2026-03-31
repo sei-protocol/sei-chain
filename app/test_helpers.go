@@ -85,7 +85,7 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return "sei-test"
 	}
 	if s == FlagSCEnable {
-		return t.UseSc
+		return true
 	}
 	// Disable snapshot creation in tests to avoid background goroutines
 	// that are not relevant to the test logic
@@ -362,12 +362,17 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 		}
 	}
 
+	homeDir, err := os.MkdirTemp("", "sei-testing")
+	if err != nil {
+		panic(err)
+	}
+
 	res = New(
 		dbm.NewMemDB(),
 		nil,
 		true,
 		map[int64]bool{},
-		DefaultNodeHome,
+		homeDir,
 		1,
 		enableEVMCustomPrecompiles,
 		config.TestConfig(),

@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,8 +19,8 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, v
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: key, Value: value}},
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: key, Value: value}},
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1129,12 +1128,12 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	addr := Address{0xAB}
 	slot := Slot{0xCD}
 
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
-	cs := &proto.NamedChangeSet{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}}
+	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
 	require.NoError(t, err)
@@ -1216,7 +1215,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	ch := codeHashN(0x77)
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
@@ -1229,7 +1228,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 
 	delCS := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
@@ -1550,7 +1549,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: make([]byte, CodeHashLen)},
 		}},
@@ -1563,7 +1562,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
@@ -1599,7 +1598,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		}},
 	}
@@ -1609,7 +1608,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
@@ -1657,7 +1656,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
 		}},
 	}
@@ -1671,7 +1670,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}

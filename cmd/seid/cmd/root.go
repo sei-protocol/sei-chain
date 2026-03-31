@@ -126,7 +126,6 @@ func initRootCmd(
 
 	// extend debug command
 	debugCmd := debug.Cmd()
-	debugCmd.AddCommand(DumpIavlCmd())
 
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),

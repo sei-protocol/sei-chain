@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // =============================================================================
@@ -46,8 +45,8 @@ func memiavlStorageKey(addr Address, slot Slot) []byte {
 func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 	return &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: key, Value: value, Delete: delete},
 			},
 		},
@@ -197,15 +196,15 @@ func TestStoreMultipleWrites(t *testing.T) {
 	}
 
 	// Create multiple pairs in one changeset
-	pairs := make([]*iavl.KVPair, len(entries))
+	pairs := make([]*proto.KVPair, len(entries))
 	for i, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		pairs[i] = &iavl.KVPair{Key: key, Value: []byte{e.value}}
+		pairs[i] = &proto.KVPair{Key: key, Value: []byte{e.value}}
 	}
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
+		Changeset: proto.ChangeSet{
 			Pairs: pairs,
 		},
 	}
@@ -229,7 +228,7 @@ func TestStoreEmptyChangesets(t *testing.T) {
 	// Empty changeset should not cause issues
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: nil},
+		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))

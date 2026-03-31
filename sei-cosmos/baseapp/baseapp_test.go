@@ -138,24 +138,6 @@ func TestSetOccEnabled(t *testing.T) {
 	require.True(t, app.OccEnabled())
 }
 
-// func TestGetMaximumBlockGas(t *testing.T) {
-// 	app := setupBaseApp(t)
-// 	app.InitChain(context.Background(), &abci.RequestInitChain{})
-// 	ctx := app.NewContext(true, tmproto.Header{})
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 0}})
-// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -1}})
-// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 5000000}})
-// 	require.Equal(t, uint64(5000000), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -5000000}})
-// 	require.Panics(t, func() { app.getMaximumBlockGas(ctx) })
-// }
-
 func TestListSnapshots(t *testing.T) {
 	app := setupBaseAppWithSnapshots(t, 2, 5)
 
@@ -174,16 +156,29 @@ func TestListSnapshots(t *testing.T) {
 
 	for i, s := range resp.Snapshots {
 		querySnapshot := queryListSnapshotsResp.Snapshots[i]
-		// we check that the query snapshot and function snapshot are equal
-		// Then we check that the hash and metadata are not empty. We atm
-		// do not have a good way to generate the expected value for these.
 		assert.Equal(t, *s, *querySnapshot)
 		assert.NotEmpty(t, s.Hash)
 		assert.NotEmpty(t, s.Metadata)
-		// Set hash and metadata to nil, so we can check the other snapshot
-		// fields against expected
 		s.Hash = nil
 		s.Metadata = nil
 	}
 	assert.Equal(t, expected, *resp)
 }
+
+// func TestGetMaximumBlockGas(t *testing.T) {
+// 	app := setupBaseApp(t)
+// 	app.InitChain(context.Background(), &abci.RequestInitChain{})
+// 	ctx := app.NewContext(true, tmproto.Header{})
+
+// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 0}})
+// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
+
+// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -1}})
+// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
+
+// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 5000000}})
+// 	require.Equal(t, uint64(5000000), app.getMaximumBlockGas(ctx))
+
+// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -5000000}})
+// 	require.Panics(t, func() { app.getMaximumBlockGas(ctx) })
+// }
