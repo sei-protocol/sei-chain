@@ -63,9 +63,6 @@ index-events = {{ .BaseConfig.IndexEvents }}
 # Default is 0.
 compaction-interval = {{ .BaseConfig.CompactionInterval }}
 
-# deprecated
-no-versioning = {{ .BaseConfig.NoVersioning }}
-
 ###############################################################################
 ###                        State Sync Configuration                         ###
 ###############################################################################

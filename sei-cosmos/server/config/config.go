@@ -99,9 +99,6 @@ type BaseConfig struct {
 	// compaction. A value of 0 means no forced levelDB
 	CompactionInterval uint64 `mapstructure:"compaction-interval"`
 
-	// deprecated
-	NoVersioning bool `mapstructure:"no-versioning"`
-
 	// ConcurrencyWorkers defines the number of workers to use for concurrent
 	// transaction execution. A value of -1 means unlimited workers.  Default value is 10.
 	ConcurrencyWorkers int `mapstructure:"concurrency-workers"`
@@ -264,7 +261,6 @@ func DefaultConfig() *Config {
 			MinRetainBlocks:    0,
 			IndexEvents:        nil,
 			CompactionInterval: 0,
-			NoVersioning:       false,
 			ConcurrencyWorkers: DefaultConcurrencyWorkers,
 			OccEnabled:         DefaultOccEnabled,
 		},
@@ -342,7 +338,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
 			CompactionInterval: v.GetUint64("compaction-interval"),
-			NoVersioning:       v.GetBool("no-versioning"),
 			ConcurrencyWorkers: v.GetInt("concurrency-workers"),
 			OccEnabled:         v.GetBool("occ-enabled"),
 		},
