@@ -91,14 +91,15 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("App.Info(): %w", err)
 	}
-	appHash := info.LastBlockAppHash
 	last := atypes.GlobalBlockNumber(info.LastBlockHeight)
 	next := last + 1
+	appHash := info.LastBlockAppHash
 	if last == 0 {
 		resp, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain())
 		if err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
+		next = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight)
 		appHash = resp.AppHash
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
