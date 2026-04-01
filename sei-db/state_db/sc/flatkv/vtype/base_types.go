@@ -13,6 +13,8 @@ const (
 	BalanceLen  = 32
 )
 
+// TODO unit test this file!!!
+
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
 
@@ -34,6 +36,7 @@ func ParseNonce(b []byte) (uint64, error) {
 	return binary.BigEndian.Uint64(b), nil
 }
 
+// ParseCodeHash parses a codehash value from a byte slice.
 func ParseCodeHash(b []byte) (*CodeHash, error) {
 	if len(b) != CodeHashLen {
 		return nil, fmt.Errorf(
@@ -45,6 +48,18 @@ func ParseCodeHash(b []byte) (*CodeHash, error) {
 	var result CodeHash
 	copy(result[:], b)
 
+	return &result, nil
+}
+
+// ParseBalance parses a balance value from a byte slice.
+func ParseBalance(b []byte) (*Balance, error) {
+	if len(b) != BalanceLen {
+		return nil, fmt.Errorf("invalid balance value length: got %d, expected %d",
+			len(b), BalanceLen,
+		)
+	}
+	var result Balance
+	copy(result[:], b)
 	return &result, nil
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
@@ -36,12 +35,18 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
-	// TODO refactor into a parse+sort phase
+	s.phaseTimer.SetPhase("apply_change_sets_sort")
+	changesByType := sortChangeSets(cs)
 
-	// Gather LTHash pairs for accounts. Accounts are handled seperately from the other DBs,
-	// since accounts have a special workflow due to having multiple fields.
-	s.phaseTimer.SetPhase("apply_change_sets_gather_account_pairs")
-	accountWrites, err := s.gatherAccountUpdates(cs)
+	// Gather LTHash pairs.
+	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
+
+	// Gather Account Pairs (special case since accounts have multiple fields)
+	accountWrites, err := s.mergeAccountUpdates(
+		changesByType[evm.EVMKeyNonce],
+		changesByType[evm.EVMKeyCodeHash],
+		nil, // TODO: update this when we add a balance key!
+	)
 	if err != nil {
 		return fmt.Errorf("failed to gather account updates: %w", err)
 	}
@@ -50,45 +55,10 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 		return fmt.Errorf("failed to gather account pairs: %w", err)
 	}
 
-	// For all remaining DBs, collect LtHash pairs.
-	s.phaseTimer.SetPhase("apply_change_sets_collect_pairs")
-	var storagePairs []lthash.KVPairWithLastValue
-	var codePairs []lthash.KVPairWithLastValue
-	var legacyPairs []lthash.KVPairWithLastValue
-
-	// For each entry in the change set, accumulate changes for the appropriate DB.
-	for _, namedCS := range cs {
-		if namedCS.Changeset.Pairs == nil {
-			continue
-		}
-
-		for _, pair := range namedCS.Changeset.Pairs {
-			// Parse memiavl key to determine type
-			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-			if kind == evm.EVMKeyUnknown {
-				// Skip non-EVM keys silently
-				continue // NO!
-			}
-
-			// Route to appropriate DB based on key type
-			switch kind {
-			case evm.EVMKeyStorage:
-				if !pair.Delete && len(pair.Value) != 32 {
-					return fmt.Errorf("invalid storage value length: got %d, expected 32", len(pair.Value))
-				}
-				storagePairs = s.accumulateEvmStorageChanges(keyBytes, pair, storageOld, storagePairs)
-
-			case evm.EVMKeyCode:
-				codePairs = s.accumulateEvmCodeChanges(keyBytes, pair, codeOld, codePairs)
-			case evm.EVMKeyLegacy:
-				legacyPairs = s.accumulateEvmLegacyChanges(keyBytes, pair, legacyOld, legacyPairs)
-			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				// Intentional no-op, accounts are handled separately.
-			default:
-				// TODO return an error here
-			}
-		}
-	}
+	// Gather all of the other DBs pairs.
+	storagePairs := s.gatherPairs(changesByType[evm.EVMKeyStorage], storageOld)
+	codePairs := s.gatherPairs(changesByType[evm.EVMKeyCode], codeOld)
+	legacyPairs := s.gatherPairs(changesByType[evm.EVMKeyLegacy], legacyOld)
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
 
@@ -122,157 +92,99 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	return nil
 }
 
-// Apply a single change to the evm storage db.
-func (s *CommitStore) accumulateEvmStorageChanges(
-	// The key with the prefix stripped.
-	keyBytes []byte,
-	// The change to apply.
-	pair *iavl.KVPair,
-	// This map stores the old value to the key prior to this change. This function updates it
-	// with the new value, so that the next change will see this value as the previous value.
-	storageOld map[string]types.BatchGetResult,
-	// This slice stores both the new and old values for each key modified in this block.
-	storagePairs []lthash.KVPairWithLastValue,
-) []lthash.KVPairWithLastValue {
-	keyStr := string(keyBytes)
-	oldValue := storageOld[keyStr].Value
+// Sort the change sets by type.
+func sortChangeSets(cs []*proto.NamedChangeSet) map[evm.EVMKeyKind]map[string][]byte {
+	// TODO add the ability to detect and report/err for unexected types!
 
-	newStorageData := vtype.NewStorageData().SetBlockHeight(s.committedVersion + 1)
-
-	if pair.Delete {
-		// Value stays all-zeros → IsDelete() returns true.
-		storageOld[keyStr] = types.BatchGetResult{Value: nil}
-	} else {
-		newStorageData.SetValue((*[32]byte)(pair.Value))
-		storageOld[keyStr] = types.BatchGetResult{Value: newStorageData.Serialize()}
-	}
-
-	s.storageWrites[keyStr] = newStorageData
-
-	var serializedValue []byte
-	if !pair.Delete {
-		serializedValue = newStorageData.Serialize()
-	}
-	return append(storagePairs, lthash.KVPairWithLastValue{
-		Key:       keyBytes,
-		Value:     serializedValue,
-		LastValue: oldValue,
-		Delete:    pair.Delete,
-	})
-}
-
-// Apply a single change to the evm code db.
-func (s *CommitStore) accumulateEvmCodeChanges(
-	// The key with the prefix stripped (addr, 20 bytes).
-	keyBytes []byte,
-	// The change to apply.
-	pair *iavl.KVPair,
-	// This map stores the old value to the key prior to this change. This function updates it
-	// with the new value, so that the next change will see this value as the previous value.
-	codeOld map[string]types.BatchGetResult,
-	// This slice stores both the new and old values for each key modified in this block.
-	codePairs []lthash.KVPairWithLastValue,
-) []lthash.KVPairWithLastValue {
-	keyStr := string(keyBytes)
-	oldValue := codeOld[keyStr].Value
-
-	newCodeData := vtype.NewCodeData().SetBlockHeight(s.committedVersion + 1)
-
-	if pair.Delete {
-		newCodeData.SetBytecode([]byte{})
-		codeOld[keyStr] = types.BatchGetResult{Value: nil}
-	} else {
-		newCodeData.SetBytecode(pair.Value)
-		codeOld[keyStr] = types.BatchGetResult{Value: newCodeData.Serialize()}
-	}
-
-	s.codeWrites[keyStr] = newCodeData
-
-	var serializedValue []byte
-	if !pair.Delete {
-		serializedValue = newCodeData.Serialize()
-	}
-	return append(codePairs, lthash.KVPairWithLastValue{
-		Key:       keyBytes,
-		Value:     serializedValue,
-		LastValue: oldValue,
-		Delete:    pair.Delete,
-	})
-}
-
-// Apply a single change to the evm legacy db.
-func (s *CommitStore) accumulateEvmLegacyChanges(
-	// The key with the prefix stripped.
-	keyBytes []byte,
-	// The change to apply.
-	pair *iavl.KVPair,
-	// This map stores the old value to the key prior to this change. This function updates it
-	// with the new value, so that the next change will see this value as the previous value.
-	legacyOld map[string]types.BatchGetResult,
-	// This slice stores both the new and old values for each key modified in this block.
-	legacyPairs []lthash.KVPairWithLastValue,
-) []lthash.KVPairWithLastValue {
-	keyStr := string(keyBytes)
-	oldValue := legacyOld[keyStr].Value
-
-	var newLegacyData *vtype.LegacyData
-	if pair.Delete {
-		newLegacyData = vtype.NewLegacyData([]byte{})
-		legacyOld[keyStr] = types.BatchGetResult{Value: nil}
-	} else {
-		newLegacyData = vtype.NewLegacyData(pair.Value)
-		legacyOld[keyStr] = types.BatchGetResult{Value: newLegacyData.Serialize()}
-	}
-	newLegacyData.SetBlockHeight(s.committedVersion + 1)
-
-	s.legacyWrites[keyStr] = newLegacyData
-
-	var serializedValue []byte
-	if !pair.Delete {
-		serializedValue = newLegacyData.Serialize()
-	}
-	return append(legacyPairs, lthash.KVPairWithLastValue{
-		Key:       keyBytes,
-		Value:     serializedValue,
-		LastValue: oldValue,
-		Delete:    pair.Delete,
-	})
-}
-
-// An account has multiple distict parts, and each part has its own key and can be set in a different changeset.
-// This method iterates over the changesets and combines updates for each account into a single PendingAccountWrite.
-func (s *CommitStore) gatherAccountUpdates(cs []*proto.NamedChangeSet) (map[string]*vtype.PendingAccountWrite, error) {
-	updates := make(map[string]*vtype.PendingAccountWrite)
+	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
 	for _, cs := range cs {
 		if cs.Changeset.Pairs == nil {
 			continue
 		}
-
 		for _, pair := range cs.Changeset.Pairs {
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-			// FUTURE WORK: we also need to add a kind for balance changes.
-			if kind != evm.EVMKeyNonce && kind != evm.EVMKeyCodeHash {
-				// This is not an account field change, skip
-				continue
-			}
-
 			keyStr := string(keyBytes)
 
-			// Note: PendingAccountWrite can be used as nil, so no need to bootstrap the map entries
-			if kind == evm.EVMKeyNonce {
-				nonce, err := vtype.ParseNonce(pair.Value)
-				if err != nil {
-					return nil, fmt.Errorf("invalid nonce value: %w", err)
-				}
-				updates[keyStr] = updates[keyStr].SetNonce(nonce)
-			} else {
-				codeHash, err := vtype.ParseCodeHash(pair.Value)
-				if err != nil {
-					return nil, fmt.Errorf("invalid codehash value: %w", err)
-				}
-				updates[keyStr] = updates[keyStr].SetCodeHash(codeHash)
+			kindMap, ok := result[kind]
+			if !ok {
+				kindMap = make(map[string][]byte)
+				result[kind] = kindMap
 			}
+
+			kindMap[keyStr] = pair.Value
+		}
+	}
+
+	return result
+}
+
+// Gather LtHash pairs for a DB. Not suitable for the storage DB, but ok for the others.
+func (s *CommitStore) gatherPairs(
+	changes map[string][]byte,
+	oldValues map[string]types.BatchGetResult,
+) []lthash.KVPairWithLastValue {
+
+	var pairs []lthash.KVPairWithLastValue = make([]lthash.KVPairWithLastValue, 0, len(changes))
+
+	for keyStr, newValue := range changes {
+
+		var oldValue []byte
+		if value, ok := oldValues[keyStr]; ok && value.IsFound() {
+			// We've got a value in the database for this key, use it as the old value.
+			oldValue = oldValue
+		}
+
+		pairs = append(pairs, lthash.KVPairWithLastValue{
+			Key:       []byte(keyStr),
+			Value:     newValue,
+			LastValue: oldValue,
+			Delete:    false, // TODO how to handle deletion here?
+		})
+	}
+
+	return pairs
+}
+
+// Merge account updates down into a single update per account.
+func (s *CommitStore) mergeAccountUpdates(
+	nonceChanges map[string][]byte,
+	codeHashChanges map[string][]byte,
+	balanceChanges map[string][]byte,
+) (map[string]*vtype.PendingAccountWrite, error) {
+
+	updates := make(map[string]*vtype.PendingAccountWrite)
+
+	if nonceChanges != nil {
+		for key, nonceChange := range nonceChanges {
+			nonce, err := vtype.ParseNonce(nonceChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid nonce value: %w", err)
+			}
+			// nil handled internally, no need to bootstrap map entries
+			updates[key] = updates[key].SetNonce(nonce)
+		}
+	}
+
+	if codeHashChanges != nil {
+		for key, codeHashChange := range codeHashChanges {
+			codeHash, err := vtype.ParseCodeHash(codeHashChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid codehash value: %w", err)
+			}
+			// nil handled internally, no need to bootstrap map entries
+			updates[key] = updates[key].SetCodeHash(codeHash)
+		}
+	}
+
+	if balanceChanges != nil {
+		for key, balanceChange := range balanceChanges {
+			balance, err := vtype.ParseBalance(balanceChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid balance value: %w", err)
+			}
+			// nil handled internally, no need to bootstrap map entries
+			updates[key] = updates[key].SetBalance(balance)
 		}
 	}
 
