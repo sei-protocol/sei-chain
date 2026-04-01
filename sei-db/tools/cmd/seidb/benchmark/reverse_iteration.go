@@ -62,7 +62,7 @@ func DBReverseIteration(inputKVDir string, numVersions int, outputDir string, db
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(outputDir, *ssConfig)
+	backend, err := ss.NewStateStore(outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}

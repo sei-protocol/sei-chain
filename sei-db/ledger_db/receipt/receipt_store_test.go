@@ -205,7 +205,7 @@ func TestRecoverReceiptStoreReplaysChangelog(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
-	ssConfig := *dbconfig.DefaultStateStoreConfig()
+	ssConfig := dbconfig.DefaultStateStoreConfig()
 	ssConfig.DBDirectory = cfg.DBDirectory
 	ssConfig.KeepRecent = cfg.KeepRecent
 	if cfg.PruneIntervalSeconds > 0 {

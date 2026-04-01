@@ -34,7 +34,7 @@ func DefaultBenchStateStoreConfig() *config.StateStoreConfig {
 	cfg.AsyncWriteBuffer = config.DefaultSSAsyncBuffer
 	cfg.WriteMode = config.SplitWrite
 	cfg.ReadMode = config.EVMFirstRead
-	return cfg
+	return &cfg
 }
 
 func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {

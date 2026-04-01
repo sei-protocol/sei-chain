@@ -11,7 +11,7 @@ import (
 )
 
 func TestStorageTestSuite(t *testing.T) {
-	pebbleConfig := *config.DefaultStateStoreConfig()
+	pebbleConfig := config.DefaultStateStoreConfig()
 	pebbleConfig.Backend = "pebbledb"
 	s := &sstest.StorageTestSuite{
 		BaseStorageTestSuite: sstest.BaseStorageTestSuite{
@@ -32,7 +32,7 @@ func TestStorageTestSuite(t *testing.T) {
 // configured for MVCC key encoding, so NextPrefix/SeekLT operations won't work correctly.
 // BaseStorageTestSuite contains only tests that work with both comparers.
 func TestStorageTestSuiteDefaultComparer(t *testing.T) {
-	pebbleConfig := *config.DefaultStateStoreConfig()
+	pebbleConfig := config.DefaultStateStoreConfig()
 	pebbleConfig.Backend = "pebbledb"
 	pebbleConfig.UseDefaultComparer = true
 

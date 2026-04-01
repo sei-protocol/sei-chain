@@ -70,7 +70,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		ssConfig := config.DefaultStateStoreConfig()
 		ssConfig.KeepRecent = 0
 		ssConfig.DBDirectory = dbDir
-		ssStore, err = ss.NewStateStore(dbDir, *ssConfig)
+		ssStore, err = ss.NewStateStore(dbDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}

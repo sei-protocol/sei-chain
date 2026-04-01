@@ -74,7 +74,7 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 	// TODO: Defer Close Db
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(outputDir, *ssConfig)
+	backend, err := ss.NewStateStore(outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}
