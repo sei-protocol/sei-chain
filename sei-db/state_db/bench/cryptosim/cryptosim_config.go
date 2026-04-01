@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
 const (
@@ -93,6 +94,11 @@ type CryptoSimConfig struct {
 	// The backend to use for the benchmark database.
 	Backend wrappers.DBType
 
+	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
+	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100,
+	// split_write, and evm_first reads.
+	StateStoreConfig *config.StateStoreConfig
+
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
 	Comment string
@@ -133,6 +139,21 @@ type CryptoSimConfig struct {
 	// If false, Enter has no effect.
 	EnableSuspension bool
 
+	// If true, the data directory will be deleted on startup if it exists.
+	DeleteDataDirOnStartup bool
+
+	// If true, the log directory will be deleted on startup if it exists.
+	DeleteLogDirOnStartup bool
+
+	// If true, the data directory will be deleted on a clean shutdown.
+	DeleteDataDirOnShutdown bool
+
+	// If true, the log directory will be deleted on a clean shutdown.
+	DeleteLogDirOnShutdown bool
+
+	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
+	FlatKVConfig *flatkv.Config
+
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
 }
@@ -143,7 +164,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
 	// That file should contain every available config set to its default value, as a reference.
 
-	return &CryptoSimConfig{
+	cfg := &CryptoSimConfig{
 		NumberOfHotAccounts:               100,
 		MinimumNumberOfColdAccounts:       1_000_000,
 		MinimumNumberOfDormantAccounts:    1_000_000,
@@ -173,8 +194,15 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
+		DeleteDataDirOnStartup:            false,
+		DeleteLogDirOnStartup:             false,
+		DeleteDataDirOnShutdown:           false,
+		DeleteLogDirOnShutdown:            false,
+		FlatKVConfig:                      flatkv.DefaultConfig(),
 		BlockChannelCapacity:              8,
 	}
+
+	return cfg
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.

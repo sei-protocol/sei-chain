@@ -69,9 +69,18 @@ func (s *CommitStore) closeDBsOnly() error {
 	return nil
 }
 
-// Close closes all database instances and releases the file lock.
+// Close drains thread pools, closes all database instances, cancels the
+// store's context to stop background goroutines (caches, metrics), and
+// releases the file lock.
 func (s *CommitStore) Close() error {
+	if s.readPool != nil {
+		s.readPool.Close()
+	}
+	if s.miscPool != nil {
+		s.miscPool.Close()
+	}
 	err := s.closeDBsOnly()
+	s.cancel()
 
 	if s.fileLock != nil {
 		if lockErr := s.fileLock.Unlock(); lockErr != nil {

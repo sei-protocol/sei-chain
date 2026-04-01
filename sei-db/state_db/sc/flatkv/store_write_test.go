@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"encoding/binary"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -508,9 +507,10 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
-		dir := t.TempDir()
-		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
-		_, err := store.LoadVersion(0, false)
+		cfg := DefaultTestConfig(t)
+		store, err := NewCommitStore(t.Context(), cfg)
+		require.NoError(t, err)
+		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -520,11 +520,11 @@ func TestStoreFsyncConfig(t *testing.T) {
 	})
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
-		dir := t.TempDir()
-		store := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), Config{
-			Fsync: false,
-		})
-		_, err := store.LoadVersion(0, false)
+		cfg := DefaultTestConfig(t)
+		cfg.Fsync = false
+		store, err := NewCommitStore(t.Context(), cfg)
+		require.NoError(t, err)
+		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -552,13 +552,12 @@ func TestStoreFsyncConfig(t *testing.T) {
 // =============================================================================
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{
-		SnapshotInterval:   5,
-		SnapshotKeepRecent: 2,
-	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 5
+	cfg.SnapshotKeepRecent = 2
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -576,13 +575,12 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 }
 
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{
-		SnapshotInterval:   10,
-		SnapshotKeepRecent: 2,
-	}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 10
+	cfg.SnapshotKeepRecent = 2
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -606,10 +604,11 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 }
 
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{SnapshotInterval: 0}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 0
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -699,9 +698,10 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
-		dir := t.TempDir()
-		s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
-		_, err := s.LoadVersion(0, false)
+		cfg := DefaultTestConfig(t)
+		s, err := NewCommitStore(t.Context(), cfg)
+		require.NoError(t, err)
+		_, err = s.LoadVersion(0, false)
 		require.NoError(t, err)
 
 		commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -822,10 +822,11 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 // =============================================================================
 
 func TestStoreFsyncEnabled(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{Fsync: true}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.Fsync = true
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -844,9 +845,10 @@ func TestStoreFsyncEnabled(t *testing.T) {
 // =============================================================================
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
-	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -864,9 +866,10 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 // =============================================================================
 
 func TestWALRecordsChangesets(t *testing.T) {
-	dir := t.TempDir()
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -1434,6 +1437,38 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 // =============================================================================
 // Write Test Helpers
 // =============================================================================
+
+// TestLtHashExistingAccountNonceUpdate is a focused regression test for the
+// oldAccountRawValues bug: when an account already exists in the DB and a new
+// block updates its nonce (the most common case — every tx increments sender
+// nonce), the LtHash delta must MixOut the old encoded AccountValue before
+// MixIn'ing the new one. The bug sets oldAccountRawValues[addr] = nil instead
+// of the DB value when s.accountWrites has no pending entry, causing the
+// MixOut to be skipped and the LtHash to diverge from ground truth.
+func TestLtHashExistingAccountNonceUpdate(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xE1)
+
+	// Block 1: create account with nonce=1 (new account — oldAccountRawValues
+	// correctly nil here since nothing exists in DB).
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 1)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 1) // should pass: new account, nil old is correct
+
+	// Block 2: update nonce to 2. The account now EXISTS in accountDB with
+	// encoded(nonce=1). The buggy code sets oldAccountRawValues[addr] = nil
+	// because s.accountWrites is empty after the block-1 commit cleared it.
+	// The correct old value is the DB's encoded(nonce=1).
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(noncePair(addr, 2)),
+	}))
+	commitAndCheck(t, s)
+	verifyLtHashAtHeight(t, s, 2) // FAILS: incremental skipped MixOut of old value
+}
 
 func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	t.Helper()

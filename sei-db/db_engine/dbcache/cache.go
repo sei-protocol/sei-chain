@@ -3,7 +3,6 @@ package dbcache
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -93,32 +92,18 @@ func (u *CacheUpdate) IsDelete() bool {
 	return u.Value == nil
 }
 
-// BuildCache creates a new Cache.
+// BuildCache creates a new Cache. When cfg.MaxSize is 0 a no-op (passthrough) cache is returned.
 func BuildCache(
 	ctx context.Context,
-	shardCount uint64,
-	maxSize uint64,
+	cfg *CacheConfig,
 	readPool threading.Pool,
 	miscPool threading.Pool,
-	estimatedOverheadPerEntry uint64,
-	cacheName string,
-	metricsScrapeInterval time.Duration,
 ) (Cache, error) {
-
-	if maxSize == 0 {
+	if cfg.MaxSize == 0 {
 		return NewNoOpCache(), nil
 	}
 
-	cache, err := NewStandardCache(
-		ctx,
-		shardCount,
-		maxSize,
-		readPool,
-		miscPool,
-		estimatedOverheadPerEntry,
-		cacheName,
-		metricsScrapeInterval,
-	)
+	cache, err := NewStandardCache(ctx, cfg, readPool, miscPool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
