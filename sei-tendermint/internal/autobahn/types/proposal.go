@@ -70,6 +70,10 @@ func (g GlobalRange) Len() uint64 {
 	return uint64(g.Next - g.First)
 }
 
+func (g GlobalRange) Has(n GlobalBlockNumber) bool {
+	return g.First <= n && n < g.Next
+}
+
 // RoadIndex is the index of the consensus instance.
 type RoadIndex uint64
 
@@ -163,6 +167,9 @@ func (m *Proposal) CreatedAt() time.Time { return m.createdAt }
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
 // GlobalRange returns the proposed global block range.
+// To compute GlobalRange from lane ranges in proposal,
+// we need to know the global number of the first block
+// of the chain (c.FirstBlock()).
 func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
 	gr := m.globalRangeWithoutOffset
 	gr.First += c.FirstBlock()
