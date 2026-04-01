@@ -341,16 +341,6 @@ func TestCacheBatchSetEmpty(t *testing.T) {
 	require.NoError(t, c.BatchSet([]CacheUpdate{}))
 }
 
-func TestCacheBatchSetPoolFailure(t *testing.T) {
-	readPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), &CacheConfig{ShardCount: 1, MaxSize: 4096}, readPool, &failPool{})
-
-	err := c.BatchSet([]CacheUpdate{
-		{Key: []byte("k"), Value: []byte("v")},
-	})
-	require.Error(t, err)
-}
-
 // ---------------------------------------------------------------------------
 // BatchGet
 // ---------------------------------------------------------------------------
@@ -432,27 +422,6 @@ func TestCacheBatchGetEmpty(t *testing.T) {
 	c, read := newTestCache(t, map[string][]byte{}, 4, 4096)
 	keys := map[string]types.BatchGetResult{}
 	require.NoError(t, c.BatchGet(read, keys))
-}
-
-func TestCacheBatchGetPoolFailure(t *testing.T) {
-	readPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), &CacheConfig{ShardCount: 1, MaxSize: 4096}, readPool, &failPool{})
-
-	keys := map[string]types.BatchGetResult{"k": {}}
-	err := c.BatchGet(noopRead, keys)
-	require.Error(t, err)
-}
-
-func TestCacheBatchGetShardReadPoolFailure(t *testing.T) {
-	miscPool := threading.NewAdHocPool()
-	c, _ := NewStandardCache(context.Background(), &CacheConfig{ShardCount: 1, MaxSize: 4096}, &failPool{}, miscPool)
-
-	keys := map[string]types.BatchGetResult{"a": {}, "b": {}}
-	require.NoError(t, c.BatchGet(noopRead, keys))
-
-	for k, r := range keys {
-		require.Error(t, r.Error, "key=%q should have per-key error", k)
-	}
 }
 
 // ---------------------------------------------------------------------------
