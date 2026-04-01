@@ -58,11 +58,11 @@ func SetupSeiDB(
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
-		logger.Info("SeiDB is disabled, falling back to IAVL")
+		logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
 		return baseAppOptions, nil
 	}
 	scConfig := parseSCConfigs(appOpts)
-	logger.Info("SeiDB SC is enabled", "sc-config", scConfig)
+	logger.Info("SeiDB SC is enabled now, IAVL will be fully deprecated soon", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
