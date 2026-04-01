@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -78,7 +79,7 @@ func (ti *timeoutInfo) String() string {
 }
 
 // interface to the mempool
-type txNotifier interface {
+type txMempool interface {
 	TxsAvailable() <-chan struct{}
 }
 
@@ -110,7 +111,7 @@ type State struct {
 	blockExec *sm.BlockExecutor
 
 	// notify us if txs are available
-	txNotifier txNotifier
+	txMempool *mempool.TxMempool
 
 	// add evidence to the pool
 	// when it's detected
@@ -177,7 +178,7 @@ func NewState(
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
-	txNotifier txNotifier,
+	txMempool *mempool.TxMempool,
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
@@ -198,7 +199,7 @@ func NewState(
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
-		txNotifier:        txNotifier,
+		txMempool:        txMempool,
 		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
 		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
 		timeoutTicker:     NewTimeoutTicker(),
@@ -602,7 +603,7 @@ func (cs *State) updateToState(state sm.State) {
 		// If state isn't further out than cs.state, just ignore.
 		// This happens when SwitchToConsensus() is called in the reactor.
 		// We don't want to reset e.g. the Votes, but we still want to
-		// signal the new round step, because other services (eg. txNotifier)
+		// signal the new round step, because other services (eg. txMempool)
 		// depend on having an up-to-date peer state!
 		if state.LastBlockHeight <= cs.state.LastBlockHeight {
 			logger.Debug(
@@ -758,7 +759,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 
 		select {
-		case <-cs.txNotifier.TxsAvailable():
+		case <-cs.txMempool.TxsAvailable():
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:

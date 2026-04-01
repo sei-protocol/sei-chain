@@ -2174,18 +2174,6 @@ func TestCommitFromPreviousRound(t *testing.T) {
 	ensureNewRound(t, newRoundCh, height+1, 0)
 }
 
-type fakeTxNotifier struct {
-	ch chan struct{}
-}
-
-func (n *fakeTxNotifier) TxsAvailable() <-chan struct{} {
-	return n.ch
-}
-
-func (n *fakeTxNotifier) Notify() {
-	n.ch <- struct{}{}
-}
-
 // 2 vals precommit votes for a block but node times out waiting for the third. Move to next round
 // and third precommit arrives which leads to the commit of that header and the correct
 // start of the next round
@@ -2195,7 +2183,6 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	cs1.state.ConsensusParams.Timeout.BypassCommitTimeout = false
-	cs1.txNotifier = &fakeTxNotifier{ch: make(chan struct{})}
 
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
@@ -2242,7 +2229,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
 
-	cs1.txNotifier.(*fakeTxNotifier).Notify()
+	cs1.txMempool.Notify()
 
 	ensureNewTimeout(t, timeoutProposeCh, height+1, round)
 	rs = cs1.GetRoundState()
@@ -2553,7 +2540,7 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 	incrementRound(vss[1:]...)
 	startTestRound(ctx, cs, height, round)
 
-	err := assertMempool(t, cs.txNotifier).CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	err := cs.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
 	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)

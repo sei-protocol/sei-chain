@@ -152,7 +152,7 @@ func sendTxs(ctx context.Context, cs *State) error {
 			return nil
 		}
 		tx := []byte{byte(i)}
-		if err := cs.txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+		if err := cs.txMempool.CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
@@ -347,7 +347,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err := css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -383,7 +383,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -418,14 +418,14 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	pv, _ = css[nVals+2].privValidator.Get()
 	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -471,7 +471,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	ensureNewProposal(t, proposalCh, height, round)
 
 	removeValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, 0)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, removeValidatorTx2, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	rs = css[0].GetRoundState()
@@ -515,7 +515,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	height++
 	incrementHeight(vss...)
 	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)

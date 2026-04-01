@@ -90,8 +90,8 @@ func makeNode(
 ) (service.Service, error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
-
 	closers := []closer{convertCancelCloser(cancel)}
+	app = proxy.New(app, nodeMetrics.proxy)
 
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	if err != nil {
@@ -115,7 +115,6 @@ func makeNode(
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
 
-	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault()
 
 	var eventLog *eventlog.Log
@@ -171,7 +170,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			App: app,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -183,7 +182,11 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
+	if err != nil {
+		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
+	}
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, app, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
@@ -204,10 +207,7 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	mpReactor, mp, err := createMempoolReactor(cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
+	
 	mpReactor.MarkReadyToStart()
 
 	node.rpcEnv.Mempool = mp
@@ -216,7 +216,7 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		proxyApp,
+		app,
 		mp,
 		evPool,
 		blockStore,
@@ -330,7 +330,7 @@ func makeNode(
 		genDoc.ChainID,
 		genDoc.InitialHeight,
 		*cfg.StateSync,
-		proxyApp,
+		app,
 		node.router,
 		stateStore,
 		blockStore,
@@ -384,7 +384,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
-		).Handshake(ctx, n.rpcEnv.ProxyApp); err != nil {
+		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
 		}
 	}
