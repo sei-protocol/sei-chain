@@ -53,6 +53,7 @@ const (
 	envPebbleL0StopWritesThreshold = "SEI_PEBBLE_L0_STOP_WRITES_THRESHOLD"
 	envPebbleLBaseMaxBytesMB       = "SEI_PEBBLE_LBASE_MAX_BYTES_MB"
 	envPebbleCompression           = "SEI_PEBBLE_COMPRESSION"
+	envPebbleAsyncCoalesceMax      = "SEI_PEBBLE_ASYNC_COALESCE_MAX"
 )
 
 var (
@@ -235,6 +236,13 @@ func selectedPebbleCompression() func() *sstable.CompressionProfile {
 	default:
 		return func() *sstable.CompressionProfile { return sstable.ZstdCompression }
 	}
+}
+
+func normalizedVersion(version int64) int64 {
+	if version == 0 {
+		return 1
+	}
+	return version
 }
 
 func getEnvInt(key string) (int, bool) {
@@ -443,12 +451,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
 	}()
-	// Check if version is 0 and change it to 1
-	// We do this specifically since keys written as part of genesis state come in as version 0
-	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
-	if version == 0 {
-		version = 1
-	}
+	version = normalizedVersion(version)
 
 	// Create batch and persist latest version in the batch
 	b, err := NewBatch(db.storage, version)
@@ -516,16 +519,92 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
+	maxCoalesce := 1
+	if v, ok := getEnvInt(envPebbleAsyncCoalesceMax); ok && v > 1 {
+		maxCoalesce = v
+	}
 	for nextChange := range db.pendingChanges {
 		if nextChange.Done != nil {
 			close(nextChange.Done)
 			continue
 		}
-		version := nextChange.Version
-		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
+		entries := []VersionedChangesets{nextChange}
+		var barrier chan struct{}
+		for len(entries) < maxCoalesce {
+			select {
+			case queued, ok := <-db.pendingChanges:
+				if !ok {
+					if err := db.applyCoalescedChanges(entries); err != nil {
+						panic(err)
+					}
+					return
+				}
+				if queued.Done != nil {
+					barrier = queued.Done
+					goto flush
+				}
+				entries = append(entries, queued)
+			default:
+				goto flush
+			}
+		}
+	flush:
+		if err := db.applyCoalescedChanges(entries); err != nil {
 			panic(err)
 		}
+		if barrier != nil {
+			close(barrier)
+		}
 	}
+}
+
+func (db *Database) applyCoalescedChanges(entries []VersionedChangesets) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	if len(entries) == 1 {
+		entry := entries[0]
+		return db.ApplyChangesetSync(entry.Version, entry.Changesets)
+	}
+
+	rawBatch, err := NewRawBatch(db.storage)
+	if err != nil {
+		return err
+	}
+
+	highestVersion := db.latestVersion.Load()
+	for _, entry := range entries {
+		version := normalizedVersion(entry.Version)
+		if version > highestVersion {
+			highestVersion = version
+		}
+		for _, cs := range entry.Changesets {
+			for _, kvPair := range cs.Changeset.Pairs {
+				if kvPair.Value == nil {
+					if err := rawBatch.Delete(cs.Name, kvPair.Key, version); err != nil {
+						return err
+					}
+				} else if err := rawBatch.Set(cs.Name, kvPair.Key, kvPair.Value, version); err != nil {
+					return err
+				}
+			}
+			db.storeKeyDirty.Store(cs.Name, version)
+		}
+	}
+
+	var versionBz [VersionSize]byte
+	binary.LittleEndian.PutUint64(versionBz[:], uint64(highestVersion))
+	if err := rawBatch.batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
+		return fmt.Errorf("failed to persist latest version in coalesced batch: %w", err)
+	}
+
+	if err := rawBatch.Write(); err != nil {
+		return err
+	}
+	if highestVersion > db.latestVersion.Load() {
+		db.latestVersion.Store(highestVersion)
+	}
+	return nil
 }
 
 // WaitForPendingWrites waits for all pending writes to be processed
