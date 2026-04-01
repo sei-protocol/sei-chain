@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	cosmostypes "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	xparamtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -30,53 +29,53 @@ func (s *PrioritizerTestSuite) SetupTest() {
 }
 
 var (
-	_ sdk.FeeTx = (*mockFeeTx)(nil)
-	_ sdk.Tx    = (*mockTx)(nil)
+	_ cosmostypes.FeeTx = (*mockFeeTx)(nil)
+	_ cosmostypes.Tx    = (*mockTx)(nil)
 )
 
 type mockFeeTx struct {
-	sdk.Tx
-	fees sdk.Coins
+	cosmostypes.Tx
+	fees cosmostypes.Coins
 	gas  uint64
-	msgs []sdk.Msg
+	msgs []cosmostypes.Msg
 }
 
-func (tx *mockFeeTx) FeePayer() sdk.AccAddress   { return nil }
-func (tx *mockFeeTx) FeeGranter() sdk.AccAddress { return nil }
-func (tx *mockFeeTx) GetFee() sdk.Coins          { return tx.fees }
-func (tx *mockFeeTx) GetGas() uint64             { return tx.gas }
-func (tx *mockFeeTx) GetMsgs() []sdk.Msg         { return tx.msgs }
+func (tx *mockFeeTx) FeePayer() cosmostypes.AccAddress   { return nil }
+func (tx *mockFeeTx) FeeGranter() cosmostypes.AccAddress { return nil }
+func (tx *mockFeeTx) GetFee() cosmostypes.Coins          { return tx.fees }
+func (tx *mockFeeTx) GetGas() uint64                     { return tx.gas }
+func (tx *mockFeeTx) GetMsgs() []cosmostypes.Msg         { return tx.msgs }
 
 type mockTx struct {
-	msgs        []sdk.Msg
+	msgs        []cosmostypes.Msg
 	gasEstimate uint64
 }
 
-func (tx *mockTx) GetGasEstimate() uint64    { return tx.gasEstimate }
-func (tx *mockTx) GetMsgs() []sdk.Msg        { return tx.msgs }
-func (*mockTx) ValidateBasic() error         { return nil }
-func (*mockTx) GetSigners() []sdk.AccAddress { return nil }
+func (tx *mockTx) GetGasEstimate() uint64            { return tx.gasEstimate }
+func (tx *mockTx) GetMsgs() []cosmostypes.Msg        { return tx.msgs }
+func (*mockTx) ValidateBasic() error                 { return nil }
+func (*mockTx) GetSigners() []cosmostypes.AccAddress { return nil }
 
 func (s *PrioritizerTestSuite) TestGetTxPriority() {
 	var (
-		zeroValueTx    = func(*PrioritizerTestSuite) sdk.Tx { return &mockTx{} }
-		zeroValueFeeTx = func(*PrioritizerTestSuite) sdk.Tx { return &mockFeeTx{} }
-		zeroGasFeeTx   = func(*PrioritizerTestSuite) sdk.Tx {
+		zeroValueTx    = func(*PrioritizerTestSuite) cosmostypes.Tx { return &mockTx{} }
+		zeroValueFeeTx = func(*PrioritizerTestSuite) cosmostypes.Tx { return &mockFeeTx{} }
+		zeroGasFeeTx   = func(*PrioritizerTestSuite) cosmostypes.Tx {
 			return &mockFeeTx{
 				gas: 0,
 			}
 		}
-		oracleVoteTx = func(s *PrioritizerTestSuite) sdk.Tx {
+		oracleVoteTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
 			return &mockFeeTx{
-				msgs: []sdk.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
+				msgs: []cosmostypes.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
 			}
 		}
 	)
 
 	for _, tc := range []struct {
 		name          string
-		givenTx       func(s *PrioritizerTestSuite) sdk.Tx
-		givenContext  func(sdk.Context) sdk.Context
+		givenTx       func(s *PrioritizerTestSuite) cosmostypes.Tx
+		givenContext  func(cosmostypes.Context) cosmostypes.Context
 		wantPriority  int64
 		wantErr       string
 		expectedErrAs interface{}
@@ -89,7 +88,7 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 		{
 			name:    "context with priority present is context priority",
 			givenTx: zeroValueFeeTx,
-			givenContext: func(ctx sdk.Context) sdk.Context {
+			givenContext: func(ctx cosmostypes.Context) cosmostypes.Context {
 				return ctx.WithPriority(123)
 			},
 			wantPriority: 123,
@@ -106,15 +105,15 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 		},
 		{
 			name: "cosmos tx with denominators is has priority of smallest demon multiplier",
-			givenTx: func(s *PrioritizerTestSuite) sdk.Tx {
+			givenTx: func(s *PrioritizerTestSuite) cosmostypes.Tx {
 				s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{
 					AllowedFeeDenoms: []string{"fish", "lobster"},
 				})
 				return &mockFeeTx{
 					gas: 4_200,
-					fees: []sdk.Coin{
-						{Denom: "fish", Amount: sdk.NewInt(230_000_000)},
-						{Denom: "lobster", Amount: sdk.NewInt(290_000_000_000)},
+					fees: []cosmostypes.Coin{
+						{Denom: "fish", Amount: cosmostypes.NewInt(230_000_000)},
+						{Denom: "lobster", Amount: cosmostypes.NewInt(290_000_000_000)},
 					},
 				}
 			},

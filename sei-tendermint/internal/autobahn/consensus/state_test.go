@@ -16,19 +16,18 @@ import (
 // newTestState creates a State for testing with no persistence and a long
 // view timeout (so voteTimeout is only triggered explicitly).
 // keys[0] is used as the node's signing key.
-func newTestState(t *testing.T, keys []types.SecretKey) *State {
-	committee := testCommittee(keys...)
+func newTestState(rng utils.Rng) (*State, []types.SecretKey) {
+	committee, keys := types.GenCommittee(rng, 3)
 	dataState := data.NewState(
 		&data.Config{Committee: committee},
 		utils.None[data.BlockStore](),
 	)
-	s, err := NewState(&Config{
+	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		PersistentStateDir: utils.None[string](),
-	}, dataState)
-	require.NoError(t, err)
-	return s
+	}, dataState))
+	return s, keys
 }
 
 // makeTimeoutQC creates a TimeoutQC at the given view where all keys
@@ -59,8 +58,7 @@ func testTimeoutVotePrepareQC(tv *types.FullTimeoutVote) utils.Option[*types.Pre
 
 func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
-	s := newTestState(t, keys)
+	s, _ := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -82,8 +80,7 @@ func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 
 func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
-	s := newTestState(t, keys)
+	s, keys := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -111,8 +108,7 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 // consecutive timeouts with an offline leader must not lose the PrepareQC.
 func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
-	s := newTestState(t, keys)
+	s, keys := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -169,8 +165,7 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 // view's PrepareQC is preferred over the older inherited one.
 func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
-	s := newTestState(t, keys)
+	s, keys := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -220,8 +215,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 // the current view's PrepareQC is used.
 func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
-	s := newTestState(t, keys)
+	s, keys := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -264,7 +258,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 // voteTimeout still inherits the PrepareQC from the persisted TimeoutQC.
 func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	rng := utils.TestRng()
-	_, keys := types.GenCommittee(rng, 3)
+	committee, keys := types.GenCommittee(rng, 3)
 	dir := t.TempDir()
 
 	makeCfg := func() *Config {
@@ -276,7 +270,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	}
 	makeDataState := func() *data.State {
 		return data.NewState(
-			&data.Config{Committee: testCommittee(keys...)},
+			&data.Config{Committee: committee},
 			utils.None[data.BlockStore](),
 		)
 	}

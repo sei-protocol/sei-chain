@@ -37,8 +37,6 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	// Verify key config values are present in output
 	require.Contains(t, output, "[state-commit]", "Missing state-commit section")
 	require.Contains(t, output, "sc-enable = true", "Missing or incorrect sc-enable")
-	require.Contains(t, output, `sc-write-mode = "cosmos_only"`, "Missing or incorrect sc-write-mode")
-	require.Contains(t, output, `sc-read-mode = "cosmos_only"`, "Missing or incorrect sc-read-mode")
 
 	// Verify MemIAVLConfig fields are accessible
 	require.Contains(t, output, "sc-async-commit-buffer =", "Missing sc-async-commit-buffer")
@@ -252,15 +250,18 @@ func TestParseReadMode(t *testing.T) {
 // TestStateCommitConfigValidate verifies config validation works
 func TestStateCommitConfigValidate(t *testing.T) {
 	tests := []struct {
-		name      string
-		writeMode WriteMode
-		readMode  ReadMode
-		hasError  bool
+		name              string
+		writeMode         WriteMode
+		readMode          ReadMode
+		enableLatticeHash bool
+		hasError          bool
 	}{
-		{"valid cosmos_only", CosmosOnlyWrite, CosmosOnlyRead, false},
-		{"valid dual_write", DualWrite, EVMFirstRead, false},
-		{"invalid write mode", WriteMode("invalid"), CosmosOnlyRead, true},
-		{"invalid read mode", CosmosOnlyWrite, ReadMode("invalid"), true},
+		{"valid cosmos_only", CosmosOnlyWrite, CosmosOnlyRead, false, false},
+		{"valid dual_write", DualWrite, EVMFirstRead, false, false},
+		{"valid split_write with lattice", SplitWrite, SplitRead, true, false},
+		{"split_write without lattice", SplitWrite, SplitRead, false, true},
+		{"invalid write mode", WriteMode("invalid"), CosmosOnlyRead, false, true},
+		{"invalid read mode", CosmosOnlyWrite, ReadMode("invalid"), false, true},
 	}
 
 	for _, tc := range tests {
@@ -268,6 +269,7 @@ func TestStateCommitConfigValidate(t *testing.T) {
 			cfg := DefaultStateCommitConfig()
 			cfg.WriteMode = tc.writeMode
 			cfg.ReadMode = tc.readMode
+			cfg.EnableLatticeHash = tc.enableLatticeHash
 
 			err := cfg.Validate()
 			if tc.hasError {

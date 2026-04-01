@@ -70,6 +70,10 @@ func (g GlobalRange) Len() uint64 {
 	return uint64(g.Next - g.First)
 }
 
+func (g GlobalRange) Has(n GlobalBlockNumber) bool {
+	return g.First <= n && n < g.Next
+}
+
 // RoadIndex is the index of the consensus instance.
 type RoadIndex uint64
 
@@ -127,23 +131,26 @@ type Proposal struct {
 	laneRanges map[LaneID]*LaneRange
 	app        utils.Option[*AppProposal]
 	// derived
-	globalRange GlobalRange
+	// WARNING: this is not a valid global range, because
+	// it does not take into consideration committee.FirstBlock().
+	// We keep it precomputed just to optimize the GlobalRange call.
+	globalRangeWithoutOffset GlobalRange
 }
 
 func newProposal(view View, createdAt time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal]) *Proposal {
 	laneRangesM := map[LaneID]*LaneRange{}
-	globalRange := GlobalRange{}
+	globalRangeWithoutOffset := GlobalRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
-		globalRange.First += GlobalBlockNumber(r.First())
-		globalRange.Next += GlobalBlockNumber(r.Next())
+		globalRangeWithoutOffset.First += GlobalBlockNumber(r.First())
+		globalRangeWithoutOffset.Next += GlobalBlockNumber(r.Next())
 	}
 	return &Proposal{
-		view:        view,
-		createdAt:   createdAt,
-		laneRanges:  laneRangesM,
-		globalRange: globalRange,
-		app:         app,
+		view:                     view,
+		createdAt:                createdAt,
+		laneRanges:               laneRangesM,
+		globalRangeWithoutOffset: globalRangeWithoutOffset,
+		app:                      app,
 	}
 }
 
@@ -160,13 +167,14 @@ func (m *Proposal) CreatedAt() time.Time { return m.createdAt }
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
 // GlobalRange returns the proposed global block range.
-func (m *Proposal) GlobalRange() GlobalRange {
-	var g GlobalRange
-	for _, r := range m.laneRanges {
-		g.First += GlobalBlockNumber(r.First())
-		g.Next += GlobalBlockNumber(r.Next())
-	}
-	return g
+// To compute GlobalRange from lane ranges in proposal,
+// we need to know the global number of the first block
+// of the chain (c.FirstBlock()).
+func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
+	gr := m.globalRangeWithoutOffset
+	gr.First += c.FirstBlock()
+	gr.Next += c.FirstBlock()
+	return gr
 }
 
 // Verify checks that every present lane range belongs to the committee
@@ -251,12 +259,19 @@ func NewProposal(
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
+	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
+	// The proposal will be useless in this case, but at least it will be valid.
+	if a, ok := app.Get(); ok && a.GlobalNumber() >= GlobalRangeOpt(viewSpec.CommitQC, committee).Next {
+		app = utils.None[*AppProposal]()
+		appQC = utils.None[*AppQC]()
+	}
 	proposal := newProposal(
 		viewSpec.View(),
 		createdAt,
 		laneRanges,
 		app,
 	)
+
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
 		laneQCs:   laneQCs,
@@ -290,6 +305,9 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
+		}
+		if got, want := m.proposal.Msg().GlobalRange(c).First, GlobalRangeOpt(vs.CommitQC, c).Next; got != want {
+			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
 		// Is proposer valid?
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
@@ -377,7 +395,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				}
 				return nil
 			})
-			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOpt(vs.CommitQC).Next; got >= want {
+			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOpt(vs.CommitQC, c).Next; got >= want {
 				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
 		}
