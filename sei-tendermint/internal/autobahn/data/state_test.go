@@ -65,7 +65,7 @@ func TestState(t *testing.T) {
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
-			gr := qc.QC().GlobalRange()
+			gr := qc.QC().GlobalRange(committee)
 			for n := gr.First; n < gr.Next; n += 1 {
 				want.QCs[n] = qc
 				want.Blocks[n] = blocks[n-gr.First]
@@ -122,7 +122,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	nextQC := qc1.QC().GlobalRange().Next
+	nextQC := qc1.QC().GlobalRange(committee).Next
 
 	// Construct a malicious QC signed by non-committee keys.
 	// It starts from block 0 (stale) but extends beyond nextQC.
@@ -172,7 +172,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 		laneQCs,
 		utils.None[*types.AppQC](),
 	))
-	malGR := proposal.Proposal().Msg().GlobalRange()
+	malGR := proposal.Proposal().Msg().GlobalRange(committee)
 	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
 	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
 
@@ -189,7 +189,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	_ = state.PushQC(ctx, maliciousQC, malBlocks)
 
 	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
-	gr1 := qc1.QC().GlobalRange()
+	gr1 := qc1.QC().GlobalRange(committee)
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	// Verify state is still functional: the next valid QC is accepted and visible.
 	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
 	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
-	gr2 := qc2.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange(committee)
 	for n := gr2.First; n < gr2.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, nil))
-	gr := qc1.QC().GlobalRange()
+	gr := qc1.QC().GlobalRange(committee)
 
 	// Build a tampered FullCommitQC: same CommitQC (same range) but with
 	// different block headers (different payloads → different hashes).
@@ -282,7 +282,7 @@ func TestExecution(t *testing.T) {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
-			gr := qc.QC().GlobalRange()
+			gr := qc.QC().GlobalRange(committee)
 			if err := state.PushAppHash(gr.Next, types.GenAppHash(rng)); err == nil {
 				return errors.New("PushAppProposal expected to fail on non-finalized blocks")
 			}
@@ -313,7 +313,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc, nil))
-	gr := qc.QC().GlobalRange()
+	gr := qc.QC().GlobalRange(committee)
 
 	// PushBlock for a block whose QC is already present succeeds immediately.
 	require.NoError(t, state.PushBlock(ctx, gr.First, blocks[0]))
@@ -338,7 +338,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 		// Prepare second QC covering [N, M) but don't push it yet.
 		qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
-		gr2 := qc2.QC().GlobalRange()
+		gr2 := qc2.QC().GlobalRange(committee)
 
 		// Block gr2.First should not be in state yet.
 		_, err := state.TryBlock(gr2.First)

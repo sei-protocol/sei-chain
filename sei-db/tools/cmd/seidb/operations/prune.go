@@ -53,7 +53,7 @@ func PruneDB(dbBackend string, dbDir string, version int64) {
 	// TODO: Defer Close Db
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(dbDir, ssConfig)
+	backend, err := ss.NewStateStore(dbDir, *ssConfig)
 	if err != nil {
 		panic(err)
 	}

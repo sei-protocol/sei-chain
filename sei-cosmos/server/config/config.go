@@ -317,7 +317,7 @@ func DefaultConfig() *Config {
 			SnapshotDirectory:  "",
 		},
 		StateCommit: config.DefaultStateCommitConfig(),
-		StateStore:  config.DefaultStateStoreConfig(),
+		StateStore:  *config.DefaultStateStoreConfig(),
 		Genesis: GenesisConfig{
 			StreamImport:      false,
 			GenesisStreamFile: "",

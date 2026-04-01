@@ -35,7 +35,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig := *config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
@@ -107,7 +107,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig := *config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
@@ -219,7 +219,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
-	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig := *config.DefaultStateStoreConfig()
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 

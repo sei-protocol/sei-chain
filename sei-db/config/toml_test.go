@@ -21,7 +21,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 
 	cfg := TemplateConfig{
 		StateCommit: DefaultStateCommitConfig(),
-		StateStore:  DefaultStateStoreConfig(),
+		StateStore:  *DefaultStateStoreConfig(),
 	}
 
 	// Parse and execute the StateCommit template
@@ -64,7 +64,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 
 	cfg := TemplateConfig{
 		StateCommit: DefaultStateCommitConfig(),
-		StateStore:  DefaultStateStoreConfig(),
+		StateStore:  *DefaultStateStoreConfig(),
 	}
 
 	// Parse and execute the StateStore template
@@ -127,7 +127,7 @@ func TestDefaultConfigTemplate(t *testing.T) {
 
 	cfg := TemplateConfig{
 		StateCommit:  DefaultStateCommitConfig(),
-		StateStore:   DefaultStateStoreConfig(),
+		StateStore:   *DefaultStateStoreConfig(),
 		ReceiptStore: DefaultReceiptStoreConfig(),
 	}
 
@@ -293,7 +293,7 @@ func TestTemplateFieldPathsExist(t *testing.T) {
 
 	cfg := TemplateConfig{
 		StateCommit:  DefaultStateCommitConfig(),
-		StateStore:   DefaultStateStoreConfig(),
+		StateStore:   *DefaultStateStoreConfig(),
 		ReceiptStore: DefaultReceiptStoreConfig(),
 	}
 

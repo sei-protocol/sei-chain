@@ -450,6 +450,7 @@ func (rs *Store) GetWorkingHash() ([]byte, error) {
 
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit(bumpVersion bool) types.CommitID {
+	logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
 	var previousHeight, version int64
 	c := rs.LastCommitInfo()
 	if c.GetVersion() == 0 && rs.initialVersion > 1 {

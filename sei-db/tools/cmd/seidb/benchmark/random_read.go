@@ -67,7 +67,7 @@ func DBRandomRead(inputKVDir string, numVersions int, outputDir string, dbBacken
 	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(outputDir, ssConfig)
+	backend, err := ss.NewStateStore(outputDir, *ssConfig)
 	if err != nil {
 		panic(err)
 	}

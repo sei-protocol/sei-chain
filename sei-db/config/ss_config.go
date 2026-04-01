@@ -94,8 +94,8 @@ func (c StateStoreConfig) EVMEnabled() bool {
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
-func DefaultStateStoreConfig() StateStoreConfig {
-	return StateStoreConfig{
+func DefaultStateStoreConfig() *StateStoreConfig {
+	return &StateStoreConfig{
 		Enable:               true,
 		Backend:              DefaultSSBackend,
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,

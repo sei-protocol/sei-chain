@@ -132,8 +132,11 @@ func NewCryptoSim(
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
 	var dbConfig any
-	if config.Backend == wrappers.FlatKV {
+	switch config.Backend {
+	case wrappers.FlatKV:
 		dbConfig = config.FlatKVConfig
+	case wrappers.SSComposite:
+		dbConfig = config.StateStoreConfig
 	}
 
 	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir, dbConfig)
