@@ -36,24 +36,26 @@ var _ VType = (*CodeData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type CodeData struct {
-	data []byte
+	version     CodeDataVersion
+	blockHeight int64
+	bytecode    []byte
 }
 
 // Create a new CodeData with the given bytecode.
 func NewCodeData() *CodeData {
-	data := make([]byte, codeBytecodeStart)
-	data[codeVersionStart] = byte(CodeDataVersion0)
-	return &CodeData{data: data}
+	return &CodeData{version: CodeDataVersion0}
 }
 
 // Serialize the code data to a byte slice.
-//
-// The returned byte slice is not safe to modify without first copying it.
 func (c *CodeData) Serialize() []byte {
 	if c == nil {
 		return make([]byte, codeBytecodeStart)
 	}
-	return c.data
+	data := make([]byte, codeBytecodeStart+len(c.bytecode))
+	data[codeVersionStart] = byte(c.version)
+	binary.BigEndian.PutUint64(data[codeBlockHeightStart:codeBytecodeStart], uint64(c.blockHeight)) //nolint:gosec
+	copy(data[codeBytecodeStart:], c.bytecode)
+	return data
 }
 
 // Deserialize the code data from the given byte slice.
@@ -62,21 +64,24 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 		return nil, errors.New("data is empty")
 	}
 
-	codeData := &CodeData{
-		data: data,
-	}
-
-	serializationVersion := codeData.GetSerializationVersion()
-	if serializationVersion != CodeDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
+	version := CodeDataVersion(data[codeVersionStart])
+	if version != CodeDataVersion0 {
+		return nil, fmt.Errorf("unsupported serialization version: %d", version)
 	}
 
 	if len(data) < codeBytecodeStart {
 		return nil, fmt.Errorf("data length at version %d should be at least %d, got %d",
-			serializationVersion, codeBytecodeStart, len(data))
+			version, codeBytecodeStart, len(data))
 	}
 
-	return codeData, nil
+	bytecode := make([]byte, len(data)-codeBytecodeStart)
+	copy(bytecode, data[codeBytecodeStart:])
+
+	return &CodeData{
+		version:     version,
+		blockHeight: int64(binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart])), //nolint:gosec
+		bytecode:    bytecode,
+	}, nil
 }
 
 // Get the serialization version for this CodeData instance.
@@ -84,7 +89,7 @@ func (c *CodeData) GetSerializationVersion() CodeDataVersion {
 	if c == nil {
 		return CodeDataVersion0
 	}
-	return (CodeDataVersion)(c.data[codeVersionStart])
+	return c.version
 }
 
 // Get the block height when this code was last modified.
@@ -92,15 +97,15 @@ func (c *CodeData) GetBlockHeight() int64 {
 	if c == nil {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(c.data[codeBlockHeightStart:codeBytecodeStart])) //nolint:gosec
+	return c.blockHeight
 }
 
 // Get the contract bytecode.
 func (c *CodeData) GetBytecode() []byte {
 	if c == nil {
-		return make([]byte, 0)
+		return []byte{}
 	}
-	return c.data[codeBytecodeStart:]
+	return c.bytecode
 }
 
 // Set the contract bytecode. Returns self (or a new CodeData if nil).
@@ -108,10 +113,7 @@ func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	newData := make([]byte, codeBytecodeStart+len(bytecode))
-	copy(newData, c.data[:codeBytecodeStart])
-	copy(newData[codeBytecodeStart:], bytecode)
-	c.data = newData
+	c.bytecode = append([]byte(nil), bytecode...)
 	return c
 }
 
@@ -121,7 +123,7 @@ func (c *CodeData) IsDelete() bool {
 	if c == nil {
 		return true
 	}
-	return len(c.data) == codeBytecodeStart // TODO verify that this is the correct semantics!
+	return len(c.bytecode) == 0
 }
 
 // Set the block height when this code was last modified/touched. Returns self (or a new CodeData if nil).
@@ -129,6 +131,6 @@ func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	binary.BigEndian.PutUint64(c.data[codeBlockHeightStart:codeBytecodeStart], uint64(blockHeight)) //nolint:gosec
+	c.blockHeight = blockHeight
 	return c
 }
