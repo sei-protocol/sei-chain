@@ -229,13 +229,6 @@ func (t *tracker) reportPeriodLocked(period *periodStats) {
 	}
 }
 
-// reportPeriod logs the stats for a completed period (public interface)
-func (t *tracker) reportPeriod(period *periodStats) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.reportPeriodLocked(period)
-}
-
 // TrackMessage tracks a JSON-RPC method call with timing information
 func (t *tracker) TrackMessage(method string, connectionType string, startTime time.Time, success bool) {
 	if t == nil {

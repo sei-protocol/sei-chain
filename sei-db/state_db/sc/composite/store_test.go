@@ -717,8 +717,11 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
 	// cosmos at version 3. This mirrors a crash after cosmos Commit but
 	// before FlatKV Commit completes.
-	flatkvPath := utils.GetFlatKVPath(dir)
-	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), evmStore.Version())
@@ -775,8 +778,10 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Simulate crash: roll FlatKV back to version 2.
-	flatkvPath := utils.GetFlatKVPath(dir)
-	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.NoError(t, evmStore.Rollback(2))
@@ -870,8 +875,10 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Rollback FlatKV to version 3 (simulating 2 lost commits)
-	flatkvPath := utils.GetFlatKVPath(dir)
-	evmStore := flatkv.NewCommitStore(t.Context(), flatkvPath, cfg.FlatKVConfig)
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
 	err = evmStore.Rollback(3)

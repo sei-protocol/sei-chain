@@ -253,6 +253,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
 	input.OracleKeeper.SetParams(input.Ctx, params)
 	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
@@ -300,6 +301,9 @@ func TestInvalidVotesSlashing(t *testing.T) {
 
 func TestWhitelistSlashing(t *testing.T) {
 	input, h := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
+	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
 	minValidPerWindow := input.OracleKeeper.MinValidPerWindow(input.Ctx)
@@ -498,6 +502,7 @@ func TestAbstainSlashing(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)

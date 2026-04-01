@@ -30,6 +30,7 @@ func NewPhaseTimerFactory(meter metric.Meter, timerName string) *PhaseTimerFacto
 		timerName+"_phase_latency_seconds",
 		metric.WithDescription("Latency per phase (seconds); use for p99, p95, etc."),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(LatencyBuckets...),
 	)
 	return &PhaseTimerFactory{
 		phaseDurationTotal: phaseDurationTotal,
