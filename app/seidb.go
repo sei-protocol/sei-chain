@@ -58,7 +58,7 @@ func SetupSeiDB(
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
-		logger.Warn("Warning: IAVL will be deprecated soon, please switch to SeiDB to avoid data corruption and panic")
+		logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
 		return baseAppOptions, nil
 	}
 	scConfig := parseSCConfigs(appOpts)
