@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -37,18 +36,25 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	s.pendingChangeSets = append(s.pendingChangeSets, cs...)
 
-	// Collect LtHash pairs per DB (using internal key format)
+	// TODO refactor into a parse+sort phase
+
+	// Gather LTHash pairs for accounts. Accounts are handled seperately from the other DBs,
+	// since accounts have a special workflow due to having multiple fields.
+	s.phaseTimer.SetPhase("apply_change_sets_gather_account_pairs")
+	accountWrites, err := s.gatherAccountUpdates(cs)
+	if err != nil {
+		return fmt.Errorf("failed to gather account updates: %w", err)
+	}
+	accountPairs, err := s.gatherAccountPairs(accountWrites, accountOld)
+	if err != nil {
+		return fmt.Errorf("failed to gather account pairs: %w", err)
+	}
+
+	// For all remaining DBs, collect LtHash pairs.
+	s.phaseTimer.SetPhase("apply_change_sets_collect_pairs")
 	var storagePairs []lthash.KVPairWithLastValue
 	var codePairs []lthash.KVPairWithLastValue
 	var legacyPairs []lthash.KVPairWithLastValue
-	// Account pairs are collected at the end after all account changes are processed
-
-	// Pre-capture raw encoded account bytes so LtHash delta uses the correct
-	// baseline across multiple ApplyChangeSets calls before Commit.
-	// nil means the account didn't exist (no phantom MixOut for new accounts).
-	oldAccountRawValues := make(map[string][]byte)
-
-	s.phaseTimer.SetPhase("apply_change_sets_collect_storage_pairs")
 
 	// For each entry in the change set, accumulate changes for the appropriate DB.
 	for _, namedCS := range cs {
@@ -71,38 +77,17 @@ func (s *CommitStore) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 					return fmt.Errorf("invalid storage value length: got %d, expected 32", len(pair.Value))
 				}
 				storagePairs = s.accumulateEvmStorageChanges(keyBytes, pair, storageOld, storagePairs)
-			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-				err := s.accumulateEvmAccountFieldChanges(kind, keyBytes, pair, accountOld, oldAccountRawValues)
-				if err != nil {
-					return fmt.Errorf("failed to apply EVM account field change: %w", err)
-				}
+
 			case evm.EVMKeyCode:
 				codePairs = s.accumulateEvmCodeChanges(keyBytes, pair, codeOld, codePairs)
 			case evm.EVMKeyLegacy:
 				legacyPairs = s.accumulateEvmLegacyChanges(keyBytes, pair, legacyOld, legacyPairs)
+			case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+				// Intentional no-op, accounts are handled separately.
+			default:
+				// TODO return an error here
 			}
 		}
-	}
-
-	s.phaseTimer.SetPhase("apply_change_sets_collect_account_pairs")
-
-	accountPairs := make([]lthash.KVPairWithLastValue, 0, len(oldAccountRawValues))
-	for addrStr, oldRaw := range oldAccountRawValues {
-		paw, ok := s.accountWrites[addrStr]
-		if !ok {
-			continue
-		}
-
-		var encodedValue []byte
-		if !paw.isDelete {
-			encodedValue = paw.value.Encode()
-		}
-		accountPairs = append(accountPairs, lthash.KVPairWithLastValue{
-			Key:       AccountKey(paw.addr),
-			Value:     encodedValue,
-			LastValue: oldRaw,
-			Delete:    paw.isDelete,
-		})
 	}
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
@@ -254,82 +239,82 @@ func (s *CommitStore) accumulateEvmLegacyChanges(
 	})
 }
 
-// Apply a single nonce or codehash change to the account db.
-func (s *CommitStore) accumulateEvmAccountFieldChanges(
-	// Whether this is a nonce or codehash change.
-	kind evm.EVMKeyKind,
-	// The key with the prefix stripped (addr, 20 bytes).
-	keyBytes []byte,
-	// The change to apply.
-	pair *iavl.KVPair,
-	// Old account values.
-	accountOld map[string]types.BatchGetResult,
-	// Snapshots of old encoded account bytes for LtHash delta computation.
-	// This function populates entries the first time each address is seen.
-	oldAccountRawValues map[string][]byte,
-) error {
-	addr, ok := AddressFromBytes(keyBytes)
-	if !ok {
-		return fmt.Errorf("invalid address length %d for key kind %d", len(keyBytes), kind)
-	}
-	addrKey := string(AccountKey(addr))
+// An account has multiple distict parts, and each part has its own key and can be set in a different changeset.
+// This method iterates over the changesets and combines updates for each account into a single PendingAccountWrite.
+func (s *CommitStore) gatherAccountUpdates(cs []*proto.NamedChangeSet) (map[string]*vtype.PendingAccountWrite, error) {
+	updates := make(map[string]*vtype.PendingAccountWrite)
 
-	// Snapshot the old encoded bytes the first time we touch this address,
-	// so the LtHash delta uses the correct baseline across multiple
-	// ApplyChangeSets calls before Commit.
-	if _, seen := oldAccountRawValues[addrKey]; !seen {
-		if paw, ok := s.accountWrites[addrKey]; ok {
-			if paw.isDelete {
-				oldAccountRawValues[addrKey] = nil
+	for _, cs := range cs {
+		if cs.Changeset.Pairs == nil {
+			continue
+		}
+
+		for _, pair := range cs.Changeset.Pairs {
+			kind, keyBytes := evm.ParseEVMKey(pair.Key)
+			// FUTURE WORK: we also need to add a kind for balance changes.
+			if kind != evm.EVMKeyNonce && kind != evm.EVMKeyCodeHash {
+				// This is not an account field change, skip
+				continue
+			}
+
+			keyStr := string(keyBytes)
+
+			// Note: PendingAccountWrite can be used as nil, so no need to bootstrap the map entries
+			if kind == evm.EVMKeyNonce {
+				nonce, err := vtype.ParseNonce(pair.Value)
+				if err != nil {
+					return nil, fmt.Errorf("invalid nonce value: %w", err)
+				}
+				updates[keyStr] = updates[keyStr].SetNonce(nonce)
 			} else {
-				oldAccountRawValues[addrKey] = paw.value.Encode()
+				codeHash, err := vtype.ParseCodeHash(pair.Value)
+				if err != nil {
+					return nil, fmt.Errorf("invalid codehash value: %w", err)
+				}
+				updates[keyStr] = updates[keyStr].SetCodeHash(codeHash)
 			}
-		} else if result, ok := accountOld[addrKey]; ok {
-			oldAccountRawValues[addrKey] = result.Value
-		} else {
-			oldAccountRawValues[addrKey] = nil
 		}
 	}
 
-	paw := s.accountWrites[addrKey]
-	if paw == nil {
-		var existingValue AccountValue
-		result := accountOld[addrKey]
-		if result.IsFound() && result.Value != nil {
-			av, err := DecodeAccountValue(result.Value)
+	return updates, nil
+}
+
+// For each update being applied to an account, gather the new/old values for use by LtHash delta computation.
+func (s *CommitStore) gatherAccountPairs(
+	// Writes being performed. Writes to different account fields are combined per account.
+	pendingWrites map[string]*vtype.PendingAccountWrite,
+	// Account values from the database.
+	databaseAccountValues map[string]types.BatchGetResult,
+) ([]lthash.KVPairWithLastValue, error) {
+
+	result := make([]lthash.KVPairWithLastValue, 0, len(pendingWrites))
+
+	for addrStr, pendingWrite := range pendingWrites {
+		var oldValue *vtype.AccountData
+
+		if stagedWrite, ok := s.accountWrites[addrStr]; ok {
+			// We've got a pending write staged in memory
+			oldValue = stagedWrite
+		} else if dbValue, ok := databaseAccountValues[addrStr]; ok {
+			// This account is in the DB
+			var err error
+			oldValue, err = vtype.DeserializeAccountData(dbValue.Value)
 			if err != nil {
-				return fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
+				return nil, fmt.Errorf("invalid account data in DB: %w", err)
 			}
-			existingValue = av
 		}
-		paw = &pendingAccountWrite{addr: addr, value: existingValue}
-		s.accountWrites[addrKey] = paw
+
+		newValue := pendingWrite.Merge(oldValue, s.committedVersion+1)
+
+		result = append(result, lthash.KVPairWithLastValue{
+			Key:       []byte(addrStr),
+			Value:     newValue.Serialize(),
+			LastValue: oldValue.Serialize(),
+			Delete:    newValue.IsDelete(),
+		})
 	}
 
-	if pair.Delete {
-		if kind == evm.EVMKeyNonce {
-			paw.value.Nonce = 0
-		} else {
-			paw.value.CodeHash = CodeHash{}
-		}
-		paw.isDelete = paw.value.IsEmpty()
-	} else {
-		if kind == evm.EVMKeyNonce {
-			if len(pair.Value) != NonceLen {
-				return fmt.Errorf("invalid nonce value length: got %d, expected %d",
-					len(pair.Value), NonceLen)
-			}
-			paw.value.Nonce = binary.BigEndian.Uint64(pair.Value)
-		} else {
-			if len(pair.Value) != CodeHashLen {
-				return fmt.Errorf("invalid codehash value length: got %d, expected %d",
-					len(pair.Value), CodeHashLen)
-			}
-			copy(paw.value.CodeHash[:], pair.Value)
-		}
-		paw.isDelete = paw.value.IsEmpty()
-	}
-	return nil
+	return result, nil
 }
 
 // Commit persists buffered writes and advances the version.
@@ -413,7 +398,7 @@ func (s *CommitStore) flushAllDBs() error {
 
 // clearPendingWrites clears all pending write buffers
 func (s *CommitStore) clearPendingWrites() {
-	s.accountWrites = make(map[string]*pendingAccountWrite)
+	s.accountWrites = make(map[string]*vtype.AccountData)
 	s.codeWrites = make(map[string]*vtype.CodeData)
 	s.storageWrites = make(map[string]*vtype.StorageData)
 	s.legacyWrites = make(map[string]*vtype.LegacyData)
@@ -440,15 +425,14 @@ func (s *CommitStore) commitBatches(version int64) error {
 		batch := s.accountDB.NewBatch()
 		defer func() { _ = batch.Close() }()
 
-		for _, paw := range s.accountWrites {
-			key := AccountKey(paw.addr)
-			if paw.isDelete {
+		for keyStr, accountWrite := range s.accountWrites {
+			key := []byte(keyStr) // TODO verify this is correct!
+			if accountWrite.IsDelete() {
 				if err := batch.Delete(key); err != nil {
 					return fmt.Errorf("accountDB delete: %w", err)
 				}
 			} else {
-				encoded := EncodeAccountValue(paw.value)
-				if err := batch.Set(key, encoded); err != nil {
+				if err := batch.Set(key, accountWrite.Serialize()); err != nil {
 					return fmt.Errorf("accountDB set: %w", err)
 				}
 			}
@@ -673,8 +657,8 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 				if _, done := accountOld[k]; done {
 					continue
 				}
-				if paw, ok := s.accountWrites[k]; ok {
-					accountOld[k] = types.BatchGetResult{Value: EncodeAccountValue(paw.value)}
+				if accountWrite, ok := s.accountWrites[k]; ok {
+					accountOld[k] = types.BatchGetResult{Value: accountWrite.Serialize()}
 				} else {
 					accountBatch[k] = types.BatchGetResult{}
 				}

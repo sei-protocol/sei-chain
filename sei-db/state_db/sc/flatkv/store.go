@@ -53,20 +53,6 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
-// pendingAccountWrite tracks a buffered account write.
-// Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
-//
-// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
-// individual field within value. When all fields become zero after resets,
-// isDelete is set to true and the accountDB row is physically deleted at
-// commit time. Any subsequent write to the same address within the same
-// block clears isDelete back to false (row is recreated).
-type pendingAccountWrite struct {
-	addr     Address
-	value    AccountValue
-	isDelete bool // true = row will be physically deleted (all fields zero)
-}
-
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
@@ -96,7 +82,7 @@ type CommitStore struct {
 	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
-	accountWrites map[string]*pendingAccountWrite
+	accountWrites map[string]*vtype.AccountData
 	codeWrites    map[string]*vtype.CodeData
 	storageWrites map[string]*vtype.StorageData
 	legacyWrites  map[string]*vtype.LegacyData
@@ -160,7 +146,7 @@ func NewCommitStore(
 		cancel:             cancel,
 		config:             *cfg,
 		localMeta:          make(map[string]*LocalMeta),
-		accountWrites:      make(map[string]*pendingAccountWrite),
+		accountWrites:      make(map[string]*vtype.AccountData),
 		codeWrites:         make(map[string]*vtype.CodeData),
 		storageWrites:      make(map[string]*vtype.StorageData),
 		legacyWrites:       make(map[string]*vtype.LegacyData),

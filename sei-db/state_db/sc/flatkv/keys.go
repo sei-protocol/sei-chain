@@ -119,7 +119,7 @@ func PrefixEnd(prefix []byte) []byte {
 //
 // CodeHash == CodeHash{} (all zeros) means the account has no code (EOA).
 // Note: empty code contracts have CodeHash = keccak256("") which is non-zero.
-type AccountValue struct {
+type AccountValue struct { // TODO delete
 	Balance  Balance
 	Nonce    uint64
 	CodeHash CodeHash

@@ -86,12 +86,12 @@ func (a *AccountData) GetSerializationVersion() AccountDataVersion {
 
 // Get the account's block height.
 func (a *AccountData) GetBlockHeight() int64 {
-	return int64(binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])) //nolint:gosec // block height is always within int64 range
+	return int64(binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])) //nolint:gosec
 }
 
 // Get the account's balance.
-func (a *AccountData) GetBalance() *[32]byte {
-	return (*[32]byte)(a.data[accountBalanceStart:accountNonceStart])
+func (a *AccountData) GetBalance() *Balance {
+	return (*Balance)(a.data[accountBalanceStart:accountNonceStart])
 }
 
 // Get the account's nonce.
@@ -100,8 +100,8 @@ func (a *AccountData) GetNonce() uint64 {
 }
 
 // Get the account's code hash.
-func (a *AccountData) GetCodeHash() *[32]byte {
-	return (*[32]byte)(a.data[accountCodeHashStart:accountDataLength])
+func (a *AccountData) GetCodeHash() *CodeHash {
+	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
 }
 
 // Check if this account data signifies a deletion operation. A deletion operation is automatically
@@ -124,12 +124,12 @@ func (a *AccountData) Copy() *AccountData {
 
 // Set the account's block height when this account was last modified/touched. Returns self.
 func (a *AccountData) SetBlockHeight(blockHeight int64) *AccountData {
-	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
+	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], uint64(blockHeight)) //nolint:gosec
 	return a
 }
 
 // Set the account's balance. Returns self.
-func (a *AccountData) SetBalance(balance *[32]byte) *AccountData {
+func (a *AccountData) SetBalance(balance *Balance) *AccountData {
 	copy(a.data[accountBalanceStart:accountNonceStart], balance[:])
 	return a
 }
@@ -141,7 +141,7 @@ func (a *AccountData) SetNonce(nonce uint64) *AccountData {
 }
 
 // Set the account's code hash. Returns self.
-func (a *AccountData) SetCodeHash(codeHash *[32]byte) *AccountData {
+func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
 	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
 	return a
 }

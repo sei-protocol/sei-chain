@@ -759,10 +759,10 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 
 	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
 
-	paw := s.accountWrites[string(addr[:])]
-	require.NotNil(t, paw)
-	require.Equal(t, uint64(10), paw.value.Nonce)
-	require.Equal(t, codeHash, paw.value.CodeHash)
+	accountWrite := s.accountWrites[string(addr[:])]
+	require.NotNil(t, accountWrite)
+	require.Equal(t, uint64(10), accountWrite.GetNonce())
+	require.Equal(t, codeHash, accountWrite.GetCodeHash())
 }
 
 // =============================================================================
