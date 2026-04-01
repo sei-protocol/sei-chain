@@ -153,7 +153,7 @@ func sortChangeSets(
 
 			if _, ok := supportedKeyTypes[kind]; !ok {
 				if strict {
-					return nil, fmt.Errorf("unsupported key type: %s", kind)
+					return nil, fmt.Errorf("unsupported key type: %v", kind)
 				} else {
 					logger.Warn("unsupported key type", "key", kind)
 					continue

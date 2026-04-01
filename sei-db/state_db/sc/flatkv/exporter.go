@@ -166,7 +166,7 @@ func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*type
 }
 
 func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	av, err := DecodeAccountValue(value)
+	ad, err := vtype.DeserializeAccountData(value)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt account entry key=%x: %w", key, err)
 	}
@@ -174,8 +174,8 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 	var nodes []*types.SnapshotNode
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, key)
-	nonceValue := make([]byte, NonceLen)
-	binary.BigEndian.PutUint64(nonceValue, av.Nonce)
+	nonceValue := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonceValue, ad.GetNonce())
 	nodes = append(nodes, &types.SnapshotNode{
 		Key:     nonceKey,
 		Value:   nonceValue,
@@ -183,10 +183,12 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 		Height:  0,
 	})
 
-	if av.HasCode() {
+	codeHash := ad.GetCodeHash()
+	var zeroHash vtype.CodeHash
+	if codeHash != nil && *codeHash != zeroHash {
 		codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, key)
-		codeHashValue := make([]byte, CodeHashLen)
-		copy(codeHashValue, av.CodeHash[:])
+		codeHashValue := make([]byte, vtype.CodeHashLen)
+		copy(codeHashValue, codeHash[:])
 		nodes = append(nodes, &types.SnapshotNode{
 			Key:     codeHashKey,
 			Value:   codeHashValue,

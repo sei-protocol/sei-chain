@@ -76,6 +76,15 @@ func StorageKey(addr Address, slot Slot) []byte {
 	return key
 }
 
+func SlotFromBytes(b []byte) (Slot, bool) {
+	if len(b) != SlotLen {
+		return Slot{}, false
+	}
+	var s Slot
+	copy(s[:], b)
+	return s, true
+}
+
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).
 func PrefixEnd(prefix []byte) []byte {
 	if len(prefix) == 0 {

@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,7 @@ func TestStoreNonStorageKeys(t *testing.T) {
 	defer s.Close()
 
 	addr := Address{0x99}
-	codeHash := CodeHash{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+	codeHash := vtype.CodeHash{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
 		0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00,
 		0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
 		0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00}
@@ -300,7 +301,7 @@ func TestAccountValueStorage(t *testing.T) {
 	defer s.Close()
 
 	addr := Address{0xFF, 0xFF}
-	expectedCodeHash := CodeHash{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB}
+	expectedCodeHash := vtype.CodeHash{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB}
 
 	// Write both Nonce and CodeHash for the same address
 	// AccountValue stores: balance(32) || nonce(8) || codehash(32)
@@ -334,11 +335,12 @@ func TestAccountValueStorage(t *testing.T) {
 	require.NotNil(t, stored)
 
 	// Decode and verify
-	av, err := DecodeAccountValue(stored)
+	ad, err := vtype.DeserializeAccountData(stored)
 	require.NoError(t, err)
-	require.Equal(t, uint64(42), av.Nonce, "Nonce should be 42")
-	require.Equal(t, expectedCodeHash, av.CodeHash, "CodeHash should match")
-	require.Equal(t, Balance{}, av.Balance, "Balance should be zero")
+	require.Equal(t, uint64(42), ad.GetNonce(), "Nonce should be 42")
+	require.Equal(t, &expectedCodeHash, ad.GetCodeHash(), "CodeHash should match")
+	var zeroBalance vtype.Balance
+	require.Equal(t, &zeroBalance, ad.GetBalance(), "Balance should be zero")
 
 	// Get method should return individual fields
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
@@ -665,7 +667,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	addr := Address{0xBB}
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHash := CodeHash{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00,
+	codeHash := vtype.CodeHash{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
@@ -741,7 +743,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 	addr := Address{0xCC}
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHash := CodeHash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+	codeHash := vtype.CodeHash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
 		0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20}
@@ -762,7 +764,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 	accountWrite := s.accountWrites[string(addr[:])]
 	require.NotNil(t, accountWrite)
 	require.Equal(t, uint64(10), accountWrite.GetNonce())
-	require.Equal(t, codeHash, accountWrite.GetCodeHash())
+	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
 }
 
 // =============================================================================
@@ -1211,7 +1213,7 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 }
 
 func bytesToNonce(b []byte) uint64 {
-	if len(b) != NonceLen {
+	if len(b) != vtype.NonceLen {
 		return 0
 	}
 	return binary.BigEndian.Uint64(b)
@@ -1227,42 +1229,43 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 
 	addr := addrN(0x01)
 
-	// Step 1: Write nonce only → EOA encoding (40 bytes)
+	// Step 1: Write nonce only (AccountData always 81 bytes)
 	cs1 := namedCS(noncePair(addr, 7))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	raw1, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueEOALen, len(raw1), "nonce-only should produce EOA encoding (40 bytes)")
+	ad1, err := vtype.DeserializeAccountData(raw1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), ad1.GetNonce())
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, ad1.GetCodeHash(), "nonce-only should have zero codehash")
 
-	// Step 2: Add codehash → contract encoding (72 bytes)
+	// Step 2: Add codehash
 	cs2 := namedCS(codeHashPair(addr, codeHashN(0xAB)))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	raw2, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueContractLen, len(raw2), "nonce+codehash should produce contract encoding (72 bytes)")
-
-	av2, err := DecodeAccountValue(raw2)
+	ad2, err := vtype.DeserializeAccountData(raw2)
 	require.NoError(t, err)
-	require.Equal(t, uint64(7), av2.Nonce, "nonce should be preserved after codehash write")
-	require.Equal(t, codeHashN(0xAB), av2.CodeHash)
+	require.Equal(t, uint64(7), ad2.GetNonce(), "nonce should be preserved after codehash write")
+	expectedCH := codeHashN(0xAB)
+	require.Equal(t, &expectedCH, ad2.GetCodeHash())
 
-	// Step 3: Delete codehash → back to EOA encoding (40 bytes)
+	// Step 3: Delete codehash → back to zero codehash
 	cs3 := namedCS(codeHashDeletePair(addr))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
 	raw3, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueEOALen, len(raw3), "codehash delete should shrink back to EOA encoding (40 bytes)")
-
-	av3, err := DecodeAccountValue(raw3)
+	ad3, err := vtype.DeserializeAccountData(raw3)
 	require.NoError(t, err)
-	require.Equal(t, uint64(7), av3.Nonce, "nonce should survive codehash deletion")
-	require.Equal(t, CodeHash{}, av3.CodeHash, "codehash should be zero after delete")
+	require.Equal(t, uint64(7), ad3.GetNonce(), "nonce should survive codehash deletion")
+	require.Equal(t, &zeroHash, ad3.GetCodeHash(), "codehash should be zero after delete")
 }
 
 // =============================================================================

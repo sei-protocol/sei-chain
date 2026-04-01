@@ -13,7 +13,7 @@ import (
 
 func TestLegacySerializationGoldenFile_V0(t *testing.T) {
 	value := []byte{0xca, 0xfe, 0xba, 0xbe}
-	ld := NewLegacyData(value).
+	ld := NewLegacyData().SetValue(value).
 		SetBlockHeight(100)
 
 	serialized := ld.Serialize()
@@ -40,14 +40,14 @@ func TestLegacySerializationGoldenFile_V0(t *testing.T) {
 
 func TestLegacyNewWithValue(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
-	ld := NewLegacyData(value)
+	ld := NewLegacyData().SetValue(value)
 	require.Equal(t, LegacyDataVersion0, ld.GetSerializationVersion())
 	require.Equal(t, int64(0), ld.GetBlockHeight())
 	require.Equal(t, value, ld.GetValue())
 }
 
 func TestLegacyNewEmpty(t *testing.T) {
-	ld := NewLegacyData(nil)
+	ld := NewLegacyData()
 	require.Equal(t, LegacyDataVersion0, ld.GetSerializationVersion())
 	require.Equal(t, int64(0), ld.GetBlockHeight())
 	require.Empty(t, ld.GetValue())
@@ -55,18 +55,18 @@ func TestLegacyNewEmpty(t *testing.T) {
 
 func TestLegacySerializeLength(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
-	ld := NewLegacyData(value)
+	ld := NewLegacyData().SetValue(value)
 	require.Len(t, ld.Serialize(), legacyHeaderLength+len(value))
 }
 
 func TestLegacySerializeLength_Empty(t *testing.T) {
-	ld := NewLegacyData(nil)
+	ld := NewLegacyData()
 	require.Len(t, ld.Serialize(), legacyHeaderLength)
 }
 
 func TestLegacyRoundTrip_WithValue(t *testing.T) {
 	value := bytes.Repeat([]byte{0xab}, 1000)
-	ld := NewLegacyData(value).
+	ld := NewLegacyData().SetValue(value).
 		SetBlockHeight(999)
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
@@ -76,7 +76,7 @@ func TestLegacyRoundTrip_WithValue(t *testing.T) {
 }
 
 func TestLegacyRoundTrip_EmptyValue(t *testing.T) {
-	ld := NewLegacyData(nil).
+	ld := NewLegacyData().
 		SetBlockHeight(42)
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
@@ -86,7 +86,7 @@ func TestLegacyRoundTrip_EmptyValue(t *testing.T) {
 }
 
 func TestLegacyRoundTrip_MaxBlockHeight(t *testing.T) {
-	ld := NewLegacyData([]byte{0xff}).
+	ld := NewLegacyData().SetValue([]byte{0xff}).
 		SetBlockHeight(math.MaxInt64)
 
 	rt, err := DeserializeLegacyData(ld.Serialize())
@@ -96,17 +96,17 @@ func TestLegacyRoundTrip_MaxBlockHeight(t *testing.T) {
 }
 
 func TestLegacyIsDelete_EmptyValue(t *testing.T) {
-	ld := NewLegacyData(nil).SetBlockHeight(500)
+	ld := NewLegacyData().SetBlockHeight(500)
 	require.True(t, ld.IsDelete())
 }
 
 func TestLegacyIsDelete_EmptySlice(t *testing.T) {
-	ld := NewLegacyData([]byte{})
+	ld := NewLegacyData().SetValue([]byte{})
 	require.True(t, ld.IsDelete())
 }
 
 func TestLegacyIsDelete_NonEmptyValue(t *testing.T) {
-	ld := NewLegacyData([]byte{0x01})
+	ld := NewLegacyData().SetValue([]byte{0x01})
 	require.False(t, ld.IsDelete())
 }
 
@@ -126,7 +126,7 @@ func TestLegacyDeserialize_TooShort(t *testing.T) {
 }
 
 func TestLegacyDeserialize_HeaderOnly(t *testing.T) {
-	ld := NewLegacyData(nil)
+	ld := NewLegacyData()
 	rt, err := DeserializeLegacyData(ld.Serialize())
 	require.NoError(t, err)
 	require.Empty(t, rt.GetValue())
@@ -140,7 +140,7 @@ func TestLegacyDeserialize_UnsupportedVersion(t *testing.T) {
 }
 
 func TestLegacySetterChaining(t *testing.T) {
-	ld := NewLegacyData([]byte{0x01}).
+	ld := NewLegacyData().SetValue([]byte{0x01}).
 		SetBlockHeight(42)
 
 	require.Equal(t, int64(42), ld.GetBlockHeight())
@@ -153,7 +153,7 @@ func TestLegacyConstantLayout_V0(t *testing.T) {
 
 func TestLegacyNewCopiesValue(t *testing.T) {
 	value := []byte{0x01, 0x02, 0x03}
-	ld := NewLegacyData(value)
+	ld := NewLegacyData().SetValue(value)
 	value[0] = 0xff
 	require.Equal(t, byte(0x01), ld.GetValue()[0])
 }

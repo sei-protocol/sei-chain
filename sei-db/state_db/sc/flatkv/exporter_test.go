@@ -11,6 +11,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
@@ -88,7 +89,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 42}
 
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -165,7 +166,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80}
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -371,7 +372,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrStale[:])
 
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 	codeVal := []byte{0x60, 0x80}
 
@@ -402,7 +403,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	newStorageVal := padLeft32(0xA1)
 	newNonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 5}
-	newCodeHashVal := make([]byte, CodeHashLen)
+	newCodeHashVal := make([]byte, vtype.CodeHashLen)
 	newCodeHashVal[31] = 0xCD
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 

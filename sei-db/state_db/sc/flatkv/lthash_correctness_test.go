@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +52,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 // ---------- helpers to build memiavl-format changeset pairs ----------
 
 func nonceBytes(n uint64) []byte {
-	b := make([]byte, NonceLen)
+	b := make([]byte, vtype.NonceLen)
 	binary.BigEndian.PutUint64(b, n)
 	return b
 }
@@ -68,8 +69,8 @@ func slotN(n byte) Slot {
 	return s
 }
 
-func codeHashN(n byte) CodeHash {
-	var h CodeHash
+func codeHashN(n byte) vtype.CodeHash {
+	var h vtype.CodeHash
 	for i := range h {
 		h[i] = n
 	}
@@ -83,7 +84,7 @@ func noncePair(addr Address, nonce uint64) *iavl.KVPair {
 	}
 }
 
-func codeHashPair(addr Address, ch CodeHash) *iavl.KVPair {
+func codeHashPair(addr Address, ch vtype.CodeHash) *iavl.KVPair {
 	return &iavl.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Value: ch[:],
@@ -988,7 +989,11 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 
 	raw, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueEOALen, len(raw), "row should be 40-byte EOA encoding")
+	ad, err := vtype.DeserializeAccountData(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(99), ad.GetNonce())
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero (EOA)")
 }
 
 func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
@@ -1011,7 +1016,11 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 
 	raw, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err, "row should still exist after partial delete")
-	require.Equal(t, accountValueEOALen, len(raw), "should shrink to EOA encoding")
+	ad, err := vtype.DeserializeAccountData(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), ad.GetNonce(), "nonce should be preserved")
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
 }
 
 // TestAccountPendingReadPartialDelete verifies that the isDelete guard in
@@ -1045,7 +1054,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 
 	paw := s.accountWrites[string(addr[:])]
 	require.NotNil(t, paw)
-	require.False(t, paw.isDelete, "row should NOT be marked for deletion (partial delete)")
+	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
 
 // TestAccountRowDeleteGetBeforeCommit verifies the core behavioral change:
@@ -1094,7 +1103,7 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	// Verify isDelete is set
 	paw := s.accountWrites[string(addr[:])]
 	require.NotNil(t, paw)
-	require.True(t, paw.isDelete, "row should be marked for deletion (all fields zero)")
+	require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
 }
 
 // TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a

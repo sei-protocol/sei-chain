@@ -16,18 +16,18 @@ func TestPAW_SetNonce_MergeOntoZeroBase(t *testing.T) {
 	require.Equal(t, uint64(42), result.GetNonce())
 	require.Equal(t, int64(100), result.GetBlockHeight())
 	var zero [32]byte
-	require.Equal(t, &zero, result.GetBalance())
-	require.Equal(t, &zero, result.GetCodeHash())
+	require.Equal(t, (*Balance)(&zero), result.GetBalance())
+	require.Equal(t, (*CodeHash)(&zero), result.GetCodeHash())
 }
 
 func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
 	base := NewAccountData().
 		SetBlockHeight(50).
-		SetBalance(toArray32(leftPad32([]byte{0xff}))).
+		SetBalance(toBalance(leftPad32([]byte{0xff}))).
 		SetNonce(10).
-		SetCodeHash(toArray32(bytes.Repeat([]byte{0xaa}, 32)))
+		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32)))
 
-	newCodeHash := toArray32(bytes.Repeat([]byte{0xbb}, 32))
+	newCodeHash := toCodeHash(bytes.Repeat([]byte{0xbb}, 32))
 	paw := NewPendingAccountWrite().SetCodeHash(newCodeHash)
 
 	result := paw.Merge(base, 100)
@@ -35,7 +35,7 @@ func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
 	// Changed field
 	require.Equal(t, newCodeHash, result.GetCodeHash())
 	// Unchanged fields carried over from base
-	require.Equal(t, toArray32(leftPad32([]byte{0xff})), result.GetBalance())
+	require.Equal(t, toBalance(leftPad32([]byte{0xff})), result.GetBalance())
 	require.Equal(t, uint64(10), result.GetNonce())
 	// Block height updated
 	require.Equal(t, int64(100), result.GetBlockHeight())
@@ -44,10 +44,10 @@ func TestPAW_SetCodeHash_MergeOntoExistingAccount(t *testing.T) {
 func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
 	base := NewAccountData().
 		SetBlockHeight(50).
-		SetBalance(toArray32(leftPad32([]byte{0x01}))).
+		SetBalance(toBalance(leftPad32([]byte{0x01}))).
 		SetNonce(5)
 
-	newBalance := toArray32(leftPad32([]byte{0x02}))
+	newBalance := toBalance(leftPad32([]byte{0x02}))
 	paw := NewPendingAccountWrite().SetBalance(newBalance)
 
 	result := paw.Merge(base, 60)
@@ -60,12 +60,12 @@ func TestPAW_SetBalance_MergeOntoExistingAccount(t *testing.T) {
 func TestPAW_MultipleFields(t *testing.T) {
 	base := NewAccountData().
 		SetBlockHeight(1).
-		SetBalance(toArray32(leftPad32([]byte{0x01}))).
+		SetBalance(toBalance(leftPad32([]byte{0x01}))).
 		SetNonce(1).
-		SetCodeHash(toArray32(bytes.Repeat([]byte{0x01}, 32)))
+		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0x01}, 32)))
 
-	newBalance := toArray32(leftPad32([]byte{0x02}))
-	newCodeHash := toArray32(bytes.Repeat([]byte{0x02}, 32))
+	newBalance := toBalance(leftPad32([]byte{0x02}))
+	newCodeHash := toCodeHash(bytes.Repeat([]byte{0x02}, 32))
 	paw := NewPendingAccountWrite().
 		SetBalance(newBalance).
 		SetNonce(99).
@@ -90,35 +90,37 @@ func TestPAW_ZeroNonce(t *testing.T) {
 }
 
 func TestPAW_ZeroBalance(t *testing.T) {
-	base := NewAccountData().SetBalance(toArray32(leftPad32([]byte{0xff})))
-	paw := NewPendingAccountWrite().SetBalance(&[32]byte{})
+	base := NewAccountData().SetBalance(toBalance(leftPad32([]byte{0xff})))
+	var zeroBal Balance
+	paw := NewPendingAccountWrite().SetBalance(&zeroBal)
 
 	result := paw.Merge(base, 10)
 
-	var zero [32]byte
-	require.Equal(t, &zero, result.GetBalance())
+	require.Equal(t, &zeroBal, result.GetBalance())
 }
 
 func TestPAW_ZeroCodeHash(t *testing.T) {
-	base := NewAccountData().SetCodeHash(toArray32(bytes.Repeat([]byte{0xaa}, 32)))
-	paw := NewPendingAccountWrite().SetCodeHash(&[32]byte{})
+	base := NewAccountData().SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32)))
+	var zeroHash CodeHash
+	paw := NewPendingAccountWrite().SetCodeHash(&zeroHash)
 
 	result := paw.Merge(base, 10)
 
-	var zero [32]byte
-	require.Equal(t, &zero, result.GetCodeHash())
+	require.Equal(t, &zeroHash, result.GetCodeHash())
 }
 
 func TestPAW_ZeroAllFields_ResultIsDelete(t *testing.T) {
 	base := NewAccountData().
-		SetBalance(toArray32(leftPad32([]byte{0x01}))).
+		SetBalance(toBalance(leftPad32([]byte{0x01}))).
 		SetNonce(1).
-		SetCodeHash(toArray32(bytes.Repeat([]byte{0x01}, 32)))
+		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0x01}, 32)))
 
+	var zBal Balance
+	var zHash CodeHash
 	paw := NewPendingAccountWrite().
-		SetBalance(&[32]byte{}).
+		SetBalance(&zBal).
 		SetNonce(0).
-		SetCodeHash(&[32]byte{})
+		SetCodeHash(&zHash)
 
 	result := paw.Merge(base, 10)
 
@@ -149,16 +151,22 @@ func TestPAW_IsSetFlags(t *testing.T) {
 	require.True(t, paw.IsNonceSet())
 	require.False(t, paw.IsCodeHashSet())
 
-	paw.SetBalance(&[32]byte{1})
+	balSet := Balance{}
+	balSet[0] = 1
+	paw.SetBalance(&balSet)
 	require.True(t, paw.IsBalanceSet())
 
-	paw.SetCodeHash(&[32]byte{2})
+	chSet := CodeHash{}
+	chSet[0] = 2
+	paw.SetCodeHash(&chSet)
 	require.True(t, paw.IsCodeHashSet())
 }
 
 func TestPAW_GettersReturnSetValues(t *testing.T) {
-	bal := [32]byte{0xab}
-	ch := [32]byte{0xcd}
+	bal := Balance{}
+	bal[0] = 0xab
+	ch := CodeHash{}
+	ch[0] = 0xcd
 	paw := NewPendingAccountWrite().
 		SetBalance(&bal).
 		SetNonce(123).
