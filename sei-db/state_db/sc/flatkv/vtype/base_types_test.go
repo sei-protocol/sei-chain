@@ -8,6 +8,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// --- Constants and type sizes ---
+
+func TestConstantValues(t *testing.T) {
+	require.Equal(t, 20, AddressLen)
+	require.Equal(t, 32, CodeHashLen)
+	require.Equal(t, 8, NonceLen)
+	require.Equal(t, 32, SlotLen)
+	require.Equal(t, 32, BalanceLen)
+}
+
+func TestTypeSizes(t *testing.T) {
+	require.Len(t, Address{}, AddressLen)
+	require.Len(t, CodeHash{}, CodeHashLen)
+	require.Len(t, Slot{}, SlotLen)
+	require.Len(t, Balance{}, BalanceLen)
+}
+
 // --- ParseNonce ---
 
 func TestParseNonce_Valid(t *testing.T) {

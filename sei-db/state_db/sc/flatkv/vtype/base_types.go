@@ -13,8 +13,6 @@ const (
 	BalanceLen  = 32
 )
 
-// TODO unit test this file!!!
-
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
 
