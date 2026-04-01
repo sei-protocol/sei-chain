@@ -5,14 +5,9 @@ package vtype
 // VTypes should be well-behaved when nil, and it should be safe to call into them without checking for nil.
 // Nil VTypes should identify themselves as deletion operations with all zero values.
 type VType interface {
-
 	// Serialize the value to a byte slice.
 	Serialize() []byte
 
 	// IsDelete returns true if the value is a deletion operation.
 	IsDelete() bool
 }
-
-// VTypeBuilder is a function that builds a VType from a byte slice, returning an error if the byte
-// slice cannot be parsed.
-type VTypeBuilder[T VType] func([]byte) (T, error)

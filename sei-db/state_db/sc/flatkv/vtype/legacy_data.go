@@ -32,6 +32,8 @@ const (
 
 var _ VType = (*LegacyData)(nil)
 
+// TODO revisit types with variable sized fields!!! Not elegegant how we currently do this.
+
 // Used for encapsulating and serializing legacy data in the FlatKV legacy database.
 //
 // This data structure is not threadsafe. Values passed into and values received from this data structure
@@ -41,9 +43,8 @@ type LegacyData struct {
 }
 
 // Create a new LegacyData with the given value.
-func NewLegacyData(value []byte) *LegacyData {
-	data := make([]byte, legacyHeaderLength+len(value))
-	copy(data[legacyValueStart:], value)
+func NewLegacyData() *LegacyData {
+	data := make([]byte, legacyHeaderLength)
 	return &LegacyData{data: data}
 }
 
@@ -102,6 +103,15 @@ func (l *LegacyData) GetValue() []byte {
 		return make([]byte, 0)
 	}
 	return l.data[legacyValueStart:]
+}
+
+// Set the legacy value. Returns self (or a new LegacyData if nil).
+func (l *LegacyData) SetValue(value []byte) *LegacyData {
+	if l == nil {
+		l = NewLegacyData(nil)
+	}
+	copy(l.data[legacyValueStart:], value)
+	return l
 }
 
 // Check if this legacy data signifies a deletion operation. A deletion operation is automatically

@@ -63,4 +63,14 @@ func ParseBalance(b []byte) (*Balance, error) {
 	return &result, nil
 }
 
-// TODO implement others!!!
+// ParseStorageValue parses a storage value from a byte slice.
+func ParseStorageValue(b []byte) (*[32]byte, error) {
+	if len(b) != SlotLen {
+		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
+			len(b), SlotLen,
+		)
+	}
+	var result [32]byte
+	copy(result[:], b)
+	return &result, nil
+}

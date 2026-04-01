@@ -51,6 +51,9 @@ func NewStorageData() *StorageData {
 //
 // The returned byte slice is not safe to modify without first copying it.
 func (s *StorageData) Serialize() []byte {
+	if s == nil {
+		return make([]byte, storageDataLength)
+	}
 	return s.data
 }
 
@@ -79,22 +82,35 @@ func DeserializeStorageData(data []byte) (*StorageData, error) {
 
 // Get the serialization version for this StorageData instance.
 func (s *StorageData) GetSerializationVersion() StorageDataVersion {
+	if s == nil {
+		return StorageDataVersion0
+	}
 	return (StorageDataVersion)(s.data[storageVersionStart])
 }
 
 // Get the block height when this storage slot was last modified.
 func (s *StorageData) GetBlockHeight() int64 {
+	if s == nil {
+		return 0
+	}
 	return int64(binary.BigEndian.Uint64(s.data[storageBlockHeightStart:storageValueStart])) //nolint:gosec // block height is always within int64 range
 }
 
 // Get the storage slot value.
 func (s *StorageData) GetValue() *[32]byte {
+	if s == nil {
+		var zero [32]byte
+		return &zero
+	}
 	return (*[32]byte)(s.data[storageValueStart:storageDataLength])
 }
 
 // Check if this storage data signifies a deletion operation. A deletion operation is automatically
 // performed when the value is all 0s (with the exception of the serialization version and block height).
 func (s *StorageData) IsDelete() bool {
+	if s == nil {
+		return true
+	}
 	for i := storageValueStart; i < storageDataLength; i++ {
 		if s.data[i] != 0 {
 			return false
@@ -103,14 +119,20 @@ func (s *StorageData) IsDelete() bool {
 	return true
 }
 
-// Set the block height when this storage slot was last modified/touched. Returns self.
+// Set the block height when this storage slot was last modified/touched. Returns self (or a new StorageData if nil).
 func (s *StorageData) SetBlockHeight(blockHeight int64) *StorageData {
+	if s == nil {
+		s = NewStorageData()
+	}
 	binary.BigEndian.PutUint64(s.data[storageBlockHeightStart:storageValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
 	return s
 }
 
-// Set the storage slot value. Returns self.
+// Set the storage slot value. Returns self (or a new StorageData if nil).
 func (s *StorageData) SetValue(value *[32]byte) *StorageData {
+	if s == nil {
+		s = NewStorageData()
+	}
 	copy(s.data[storageValueStart:storageDataLength], value[:])
 	return s
 }
