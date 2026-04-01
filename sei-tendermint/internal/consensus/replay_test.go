@@ -269,7 +269,7 @@ type simulatorTestSuite struct {
 	Commits      []*types.Commit
 	CleanupFunc  cleanupFunc
 
-	Mempool mempool.Mempool
+	Mempool *mempool.TxMempool
 	Evpool  sm.EvidencePool
 }
 
@@ -292,7 +292,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	cfg := configSetup(t)
 
 	sim := &simulatorTestSuite{
-		Mempool: emptyMempool{},
+		Mempool: newReplayTxMempool(kvstore.NewApplication()),
 		Evpool:  sm.EmptyEvidencePool{},
 	}
 
@@ -759,7 +759,7 @@ func applyBlock(
 	ctx context.Context,
 	t *testing.T,
 	stateStore sm.Store,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	st sm.State,
 	blk *types.Block,
@@ -783,7 +783,7 @@ func buildAppStateFromChain(
 	t *testing.T,
 	appClient *kvstore.Application,
 	stateStore sm.Store,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	state sm.State,
 	chain []*types.Block,
@@ -825,7 +825,7 @@ func buildAppStateFromChain(
 func buildTMStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	stateStore sm.Store,
 	state sm.State,

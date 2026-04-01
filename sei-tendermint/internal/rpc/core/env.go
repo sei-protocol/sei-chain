@@ -87,7 +87,7 @@ type Environment struct {
 	EventSinks        []indexer.EventSink
 	EventBus          *eventbus.EventBus // thread safe
 	EventLog          *eventlog.Log
-	Mempool           mempool.Mempool
+	Mempool           *mempool.TxMempool
 	StateSyncMetricer statesync.Metricer
 
 	Config config.RPCConfig

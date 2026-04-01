@@ -182,10 +182,6 @@ func makeNode(
 		},
 	}
 
-	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
 	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, app, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -197,6 +193,11 @@ func makeNode(
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
 
+	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
+	if err != nil {
+		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
+	}
+
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
@@ -207,7 +208,6 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	
 	mpReactor.MarkReadyToStart()
 
 	node.rpcEnv.Mempool = mp

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 //-----------------------------------------------------------------------------
@@ -42,3 +43,7 @@ func (mock *mockProxyApp) FinalizeBlock(_ context.Context, req *abci.RequestFina
 func (mock *mockProxyApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	return &abci.ResponseCommit{}, nil
 }
+
+type replayPeerEvictor struct{}
+
+func (replayPeerEvictor) Evict(types.NodeID, error) {}
