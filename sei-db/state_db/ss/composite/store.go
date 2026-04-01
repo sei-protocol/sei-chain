@@ -200,8 +200,10 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 		cosmosChangesets = stripEVMFromChangesets(changesets)
 	}
 
-	if err := s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets); err != nil {
-		return fmt.Errorf("cosmos store failed: %w", err)
+	if len(cosmosChangesets) > 0 {
+		if err := s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets); err != nil {
+			return fmt.Errorf("cosmos store failed: %w", err)
+		}
 	}
 	if len(evmChangesets) > 0 {
 		if err := s.evmStore.ApplyChangesetSync(version, evmChangesets); err != nil {
@@ -222,8 +224,10 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		cosmosChangesets = stripEVMFromChangesets(changesets)
 	}
 
-	if err := s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets); err != nil {
-		return fmt.Errorf("cosmos store failed: %w", err)
+	if len(cosmosChangesets) > 0 {
+		if err := s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets); err != nil {
+			return fmt.Errorf("cosmos store failed: %w", err)
+		}
 	}
 	if len(evmChangesets) > 0 {
 		if err := s.evmStore.ApplyChangesetAsync(version, evmChangesets); err != nil {
