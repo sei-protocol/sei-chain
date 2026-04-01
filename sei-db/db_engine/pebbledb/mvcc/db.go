@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +44,15 @@ const (
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
 	MinWALEntriesToKeep   = 1000
+)
+
+const (
+	envPebbleMemTableSizeMB        = "SEI_PEBBLE_MEMTABLE_SIZE_MB"
+	envPebbleMemTableStopWrites    = "SEI_PEBBLE_MEMTABLE_STOP_WRITES_THRESHOLD"
+	envPebbleL0CompactionThreshold = "SEI_PEBBLE_L0_COMPACTION_THRESHOLD"
+	envPebbleL0StopWritesThreshold = "SEI_PEBBLE_L0_STOP_WRITES_THRESHOLD"
+	envPebbleLBaseMaxBytesMB       = "SEI_PEBBLE_LBASE_MAX_BYTES_MB"
+	envPebbleCompression           = "SEI_PEBBLE_COMPRESSION"
 )
 
 var (
@@ -110,12 +121,18 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		MemTableStopWritesThreshold: 4,
 	}
 
+	applyPebbleEnvOverrides(opts)
+	fmt.Printf("Opening PebbleDB with MemTableSize=%d L0CompactionThreshold=%d L0StopWritesThreshold=%d LBaseMaxBytes=%d MemTableStopWritesThreshold=%d Compression=%s\n",
+		opts.MemTableSize, opts.L0CompactionThreshold, opts.L0StopWritesThreshold, opts.LBaseMaxBytes, opts.MemTableStopWritesThreshold,
+		strings.ToLower(strings.TrimSpace(defaultString(os.Getenv(envPebbleCompression), "zstd"))),
+	)
+
 	// Configure L0 with explicit settings
 	opts.Levels[0].BlockSize = 32 << 10       // 32 KB
 	opts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB
 	opts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
 	opts.Levels[0].FilterType = pebble.TableFilter
-	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	opts.Levels[0].Compression = selectedPebbleCompression()
 	opts.Levels[0].EnsureL0Defaults()
 
 	// Configure L1+ levels, inheriting from previous level
@@ -125,7 +142,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
-		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.Compression = selectedPebbleCompression()
 		l.EnsureL1PlusDefaults(&opts.Levels[i-1])
 	}
 
@@ -187,6 +204,56 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	go database.collectMetricsInBackground(metricsCtx)
 
 	return database, nil
+}
+
+func applyPebbleEnvOverrides(opts *pebble.Options) {
+	if mb, ok := getEnvInt(envPebbleMemTableSizeMB); ok && mb > 0 {
+		opts.MemTableSize = uint64(mb) << 20
+	}
+	if threshold, ok := getEnvInt(envPebbleMemTableStopWrites); ok && threshold > 0 {
+		opts.MemTableStopWritesThreshold = threshold
+	}
+	if threshold, ok := getEnvInt(envPebbleL0CompactionThreshold); ok && threshold > 0 {
+		opts.L0CompactionThreshold = threshold
+	}
+	if threshold, ok := getEnvInt(envPebbleL0StopWritesThreshold); ok && threshold > 0 {
+		opts.L0StopWritesThreshold = threshold
+	}
+	if mb, ok := getEnvInt(envPebbleLBaseMaxBytesMB); ok && mb > 0 {
+		opts.LBaseMaxBytes = int64(mb) << 20
+	}
+}
+
+func selectedPebbleCompression() func() *sstable.CompressionProfile {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(envPebbleCompression))) {
+	case "", "zstd":
+		return func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	case "snappy":
+		return func() *sstable.CompressionProfile { return sstable.SnappyCompression }
+	case "none":
+		return func() *sstable.CompressionProfile { return sstable.NoCompression }
+	default:
+		return func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	}
+}
+
+func getEnvInt(key string) (int, bool) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return 0, false
+	}
+	val, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func (db *Database) Close() error {
