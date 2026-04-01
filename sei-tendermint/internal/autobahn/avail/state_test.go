@@ -500,7 +500,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 
 		var parent types.BlockHeaderHash
-		for n := types.BlockNumber(0); n < 3; n++ {
+		for n := range types.BlockNumber(3) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
@@ -549,7 +549,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 
 		var parent types.BlockHeaderHash
-		for n := types.BlockNumber(0); n < 3; n++ {
+		for n := range types.BlockNumber(3) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
@@ -728,7 +728,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
 		require.NoError(t, err)
 		var parent types.BlockHeaderHash
-		for n := types.BlockNumber(0); n < 3; n++ {
+		for n := range types.BlockNumber(3) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()

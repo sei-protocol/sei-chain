@@ -259,12 +259,19 @@ func NewProposal(
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
+	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
+	// The proposal will be useless in this case, but at least it will be valid.
+	if a, ok := app.Get(); ok && a.GlobalNumber() >= GlobalRangeOpt(viewSpec.CommitQC, committee).Next {
+		app = utils.None[*AppProposal]()
+		appQC = utils.None[*AppQC]()
+	}
 	proposal := newProposal(
 		viewSpec.View(),
 		createdAt,
 		laneRanges,
 		app,
 	)
+
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
 		laneQCs:   laneQCs,
