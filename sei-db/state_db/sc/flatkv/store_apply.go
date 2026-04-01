@@ -244,7 +244,7 @@ func gatherLTHashPairs[T vtype.VType](
 	oldValues map[string]T,
 ) []lthash.KVPairWithLastValue {
 
-	var pairs []lthash.KVPairWithLastValue = make([]lthash.KVPairWithLastValue, 0, len(newValues))
+	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
 
 	for keyStr, newValue := range newValues {
 		var oldValue = oldValues[keyStr]
@@ -280,50 +280,44 @@ func mergeAccountUpdates(
 	// PendingAccountWrite objects are well behaved when nil, no need to bootstrap map entries.
 	updates := make(map[string]*vtype.PendingAccountWrite)
 
-	if nonceChanges != nil {
-		for key, nonceChange := range nonceChanges {
-			if nonceChange == nil {
-				// Deletion is equivalent to setting the nonce to 0
-				updates[key] = updates[key].SetNonce(0)
-			} else {
-				nonce, err := vtype.ParseNonce(nonceChange)
-				if err != nil {
-					return nil, fmt.Errorf("invalid nonce value: %w", err)
-				}
-				updates[key] = updates[key].SetNonce(nonce)
+	for key, nonceChange := range nonceChanges {
+		if nonceChange == nil {
+			// Deletion is equivalent to setting the nonce to 0
+			updates[key] = updates[key].SetNonce(0)
+		} else {
+			nonce, err := vtype.ParseNonce(nonceChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
+			updates[key] = updates[key].SetNonce(nonce)
 		}
 	}
 
-	if codeHashChanges != nil {
-		for key, codeHashChange := range codeHashChanges {
-			if codeHashChange == nil {
-				// Deletion is equivalent to setting the code hash to a zero hash
-				var zero vtype.CodeHash
-				updates[key] = updates[key].SetCodeHash(&zero)
-			} else {
-				codeHash, err := vtype.ParseCodeHash(codeHashChange)
-				if err != nil {
-					return nil, fmt.Errorf("invalid codehash value: %w", err)
-				}
-				updates[key] = updates[key].SetCodeHash(codeHash)
+	for key, codeHashChange := range codeHashChanges {
+		if codeHashChange == nil {
+			// Deletion is equivalent to setting the code hash to a zero hash
+			var zero vtype.CodeHash
+			updates[key] = updates[key].SetCodeHash(&zero)
+		} else {
+			codeHash, err := vtype.ParseCodeHash(codeHashChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid codehash value: %w", err)
 			}
+			updates[key] = updates[key].SetCodeHash(codeHash)
 		}
 	}
 
-	if balanceChanges != nil {
-		for key, balanceChange := range balanceChanges {
-			if balanceChange == nil {
-				// Deletion is equivalent to setting the balance to a zero balance
-				var zero vtype.Balance
-				updates[key] = updates[key].SetBalance(&zero)
-			} else {
-				balance, err := vtype.ParseBalance(balanceChange)
-				if err != nil {
-					return nil, fmt.Errorf("invalid balance value: %w", err)
-				}
-				updates[key] = updates[key].SetBalance(balance)
+	for key, balanceChange := range balanceChanges {
+		if balanceChange == nil {
+			// Deletion is equivalent to setting the balance to a zero balance
+			var zero vtype.Balance
+			updates[key] = updates[key].SetBalance(&zero)
+		} else {
+			balance, err := vtype.ParseBalance(balanceChange)
+			if err != nil {
+				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
+			updates[key] = updates[key].SetBalance(balance)
 		}
 	}
 	return updates, nil
