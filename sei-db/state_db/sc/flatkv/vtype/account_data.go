@@ -17,12 +17,21 @@ const (
 /*
 Serialization schema for AccountData version 0:
 
+Full form (81 bytes):
+
 | Version | Block Height | Balance  | Nonce    | Code Hash |
 |---------|--------------|----------|----------|-----------|
 | 1 byte  | 8 bytes      | 32 bytes | 8 bytes  | 32 bytes  |
 
-Data is stored in big-endian order.
+Compact form (49 bytes) — used when code hash is all zeros:
 
+| Version | Block Height | Balance  | Nonce    |
+|---------|--------------|----------|----------|
+| 1 byte  | 8 bytes      | 32 bytes | 8 bytes  |
+
+Data is stored in big-endian order. At deserialization time, the two forms
+are distinguished by length. The compact form is preferred for serialization
+since ~97% of accounts have no code hash.
 */
 
 const (
@@ -31,6 +40,7 @@ const (
 	accountBalanceStart     = 9
 	accountNonceStart       = 41
 	accountCodeHashStart    = 49
+	accountCompactLength    = accountCodeHashStart // 49
 	accountDataLength       = 81
 )
 
@@ -51,37 +61,45 @@ func NewAccountData() *AccountData {
 	}
 }
 
-// Serialize the account data to a byte slice.
+// Serialize the account data to a byte slice. If the code hash is all zeros,
+// the compact form (49 bytes) is returned; otherwise the full form (81 bytes).
 //
 // The returned byte slice is not safe to modify without first copying it.
 func (a *AccountData) Serialize() []byte {
 	if a == nil {
-		return make([]byte, accountDataLength)
+		return make([]byte, accountCompactLength)
 	}
-	return a.data
+	for i := accountCodeHashStart; i < accountDataLength; i++ {
+		if a.data[i] != 0 {
+			return a.data
+		}
+	}
+	return a.data[:accountCompactLength]
 }
 
-// Deserialize the account data from the given byte slice.
+// Deserialize the account data from the given byte slice. Accepts both the
+// compact (49 byte) and full (81 byte) forms.
 func DeserializeAccountData(data []byte) (*AccountData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
 	}
 
-	accountData := &AccountData{
-		data: data,
+	version := AccountDataVersion(data[accountVersionStart])
+	if version != AccountDataVersion0 {
+		return nil, fmt.Errorf("unsupported serialization version: %d", version)
 	}
 
-	serializationVersion := accountData.GetSerializationVersion()
-	if serializationVersion != AccountDataVersion0 {
-		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
+	switch len(data) {
+	case accountDataLength:
+		return &AccountData{data: data}, nil
+	case accountCompactLength:
+		full := make([]byte, accountDataLength)
+		copy(full, data)
+		return &AccountData{data: full}, nil
+	default:
+		return nil, fmt.Errorf("data length at version %d should be %d or %d, got %d",
+			version, accountCompactLength, accountDataLength, len(data))
 	}
-
-	if len(data) != accountDataLength {
-		return nil, fmt.Errorf("data length at version %d should be %d, got %d",
-			serializationVersion, accountDataLength, len(data))
-	}
-
-	return accountData, nil
 }
 
 // Get the serialization version for this AccountData instance.

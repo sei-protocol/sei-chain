@@ -13,10 +13,25 @@ import (
 
 const testdataDir = "testdata"
 
-// If the golden file does not exist it is created on the first run.
-// Subsequent runs verify that serialization still matches, catching
-// accidental compatibility breaks.
-func TestSerializationGoldenFile_V0(t *testing.T) {
+// goldenCheck compares serialized against a golden hex file, creating it on first run.
+func goldenCheck(t *testing.T, name string, serialized []byte) {
+	t.Helper()
+	golden := filepath.Join(testdataDir, name)
+	if _, err := os.Stat(golden); os.IsNotExist(err) {
+		require.NoError(t, os.MkdirAll(testdataDir, 0o755))
+		require.NoError(t, os.WriteFile(golden, []byte(hex.EncodeToString(serialized)), 0o644))
+		t.Logf("created golden file %s — re-run to verify", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	require.NoError(t, err)
+	wantBytes, err := hex.DecodeString(string(want))
+	require.NoError(t, err)
+	require.Equal(t, wantBytes, serialized, "serialization differs from golden file %s", name)
+}
+
+// Full form: with non-zero codehash (81 bytes).
+func TestSerializationGoldenFile_V0_Full(t *testing.T) {
 	ad := NewAccountData().
 		SetBlockHeight(100).
 		SetBalance(toBalance(leftPad32([]byte{1}))).
@@ -24,28 +39,35 @@ func TestSerializationGoldenFile_V0(t *testing.T) {
 		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32)))
 
 	serialized := ad.Serialize()
+	require.Len(t, serialized, accountDataLength)
+	goldenCheck(t, "account_data_v0_full.hex", serialized)
 
-	golden := filepath.Join(testdataDir, "account_data_v0.hex")
-	if _, err := os.Stat(golden); os.IsNotExist(err) {
-		require.NoError(t, os.MkdirAll(testdataDir, 0o755))
-		require.NoError(t, os.WriteFile(golden, []byte(hex.EncodeToString(serialized)), 0o644))
-		t.Logf("created golden file %s — re-run to verify", golden)
-		return
-	}
-
-	want, err := os.ReadFile(golden)
-	require.NoError(t, err)
-	wantBytes, err := hex.DecodeString(string(want))
-	require.NoError(t, err)
-	require.Equal(t, wantBytes, serialized, "serialization differs from golden file")
-
-	// Verify round-trip from the golden bytes.
-	rt, err := DeserializeAccountData(wantBytes)
+	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), rt.GetBlockHeight())
 	require.Equal(t, uint64(42), rt.GetNonce())
 	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
 	require.Equal(t, toCodeHash(bytes.Repeat([]byte{0xaa}, 32)), rt.GetCodeHash())
+}
+
+// Compact form: zero codehash omitted (49 bytes).
+func TestSerializationGoldenFile_V0_Compact(t *testing.T) {
+	ad := NewAccountData().
+		SetBlockHeight(100).
+		SetBalance(toBalance(leftPad32([]byte{1}))).
+		SetNonce(42)
+
+	serialized := ad.Serialize()
+	require.Len(t, serialized, accountCompactLength)
+	goldenCheck(t, "account_data_v0_compact.hex", serialized)
+
+	rt, err := DeserializeAccountData(serialized)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), rt.GetBlockHeight())
+	require.Equal(t, uint64(42), rt.GetNonce())
+	require.Equal(t, toBalance(leftPad32([]byte{1})), rt.GetBalance())
+	var zeroHash CodeHash
+	require.Equal(t, &zeroHash, rt.GetCodeHash())
 }
 
 func TestNewAccountData_ZeroInitialized(t *testing.T) {
@@ -58,8 +80,13 @@ func TestNewAccountData_ZeroInitialized(t *testing.T) {
 	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
 }
 
-func TestSerializeLength(t *testing.T) {
+func TestSerializeLength_Compact(t *testing.T) {
 	ad := NewAccountData()
+	require.Len(t, ad.Serialize(), accountCompactLength)
+}
+
+func TestSerializeLength_Full(t *testing.T) {
+	ad := NewAccountData().SetCodeHash(toCodeHash(bytes.Repeat([]byte{0x01}, 32)))
 	require.Len(t, ad.Serialize(), accountDataLength)
 }
 
@@ -83,13 +110,33 @@ func TestRoundTrip_AllFieldsSet(t *testing.T) {
 
 func TestRoundTrip_ZeroValues(t *testing.T) {
 	ad := NewAccountData()
-	rt, err := DeserializeAccountData(ad.Serialize())
+	serialized := ad.Serialize()
+	require.Len(t, serialized, accountCompactLength, "zero codehash should produce compact form")
+	rt, err := DeserializeAccountData(serialized)
 	require.NoError(t, err)
 	var zero [32]byte
 	require.Equal(t, int64(0), rt.GetBlockHeight())
 	require.Equal(t, uint64(0), rt.GetNonce())
 	require.Equal(t, (*Balance)(&zero), rt.GetBalance())
 	require.Equal(t, (*CodeHash)(&zero), rt.GetCodeHash())
+}
+
+func TestRoundTrip_CompactWithNonZeroFields(t *testing.T) {
+	ad := NewAccountData().
+		SetBlockHeight(500).
+		SetBalance(toBalance(leftPad32([]byte{0x42}))).
+		SetNonce(77)
+
+	serialized := ad.Serialize()
+	require.Len(t, serialized, accountCompactLength)
+
+	rt, err := DeserializeAccountData(serialized)
+	require.NoError(t, err)
+	require.Equal(t, int64(500), rt.GetBlockHeight())
+	require.Equal(t, uint64(77), rt.GetNonce())
+	require.Equal(t, toBalance(leftPad32([]byte{0x42})), rt.GetBalance())
+	var zeroHash CodeHash
+	require.Equal(t, &zeroHash, rt.GetCodeHash())
 }
 
 func TestRoundTrip_MaxValues(t *testing.T) {
@@ -152,10 +199,20 @@ func TestDeserialize_TooLong(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDeserialize_BetweenCompactAndFull(t *testing.T) {
+	_, err := DeserializeAccountData(make([]byte, accountCompactLength+1))
+	require.Error(t, err)
+}
+
 func TestDeserialize_UnsupportedVersion(t *testing.T) {
-	data := make([]byte, accountDataLength)
-	data[0] = 0xff
-	_, err := DeserializeAccountData(data)
+	full := make([]byte, accountDataLength)
+	full[0] = 0xff
+	_, err := DeserializeAccountData(full)
+	require.Error(t, err)
+
+	compact := make([]byte, accountCompactLength)
+	compact[0] = 0xff
+	_, err = DeserializeAccountData(compact)
 	require.Error(t, err)
 }
 
@@ -193,7 +250,7 @@ func TestNilAccountData_IsDelete(t *testing.T) {
 func TestNilAccountData_Serialize(t *testing.T) {
 	var ad *AccountData
 	s := ad.Serialize()
-	require.Len(t, s, accountDataLength)
+	require.Len(t, s, accountCompactLength)
 	for _, b := range s {
 		require.Equal(t, byte(0), b)
 	}
@@ -211,7 +268,7 @@ func TestNilAccountData_Copy(t *testing.T) {
 	cp := ad.Copy()
 	require.NotNil(t, cp)
 	require.True(t, cp.IsDelete())
-	require.Len(t, cp.Serialize(), accountDataLength)
+	require.Len(t, cp.Serialize(), accountCompactLength)
 }
 
 func TestNilAccountData_SettersAutoCreate(t *testing.T) {
