@@ -151,7 +151,7 @@ func loadStateAndBlockStore(cfg *tmcfg.Config) (*store.BlockStore, state.Store, 
 
 	blockstoreDir := tmcfg.ResolveDBDir("blockstore", cfg.DBDir())
 	if !os.FileExists(filepath.Join(blockstoreDir, "blockstore.db")) {
-		return nil, nil, fmt.Errorf("no blockstore found in %v", cfg.DBDir())
+		return nil, nil, fmt.Errorf("no blockstore found in %v", blockstoreDir)
 	}
 
 	blockStoreDB, err := dbm.NewDB("blockstore", dbType, blockstoreDir)
@@ -162,7 +162,7 @@ func loadStateAndBlockStore(cfg *tmcfg.Config) (*store.BlockStore, state.Store, 
 
 	stateDir := tmcfg.ResolveDBDir("state", cfg.DBDir())
 	if !os.FileExists(filepath.Join(stateDir, "state.db")) {
-		return nil, nil, fmt.Errorf("no state store found in %v", cfg.DBDir())
+		return nil, nil, fmt.Errorf("no state store found in %v", stateDir)
 	}
 
 	stateDB, err := dbm.NewDB("state", dbType, stateDir)

@@ -20,7 +20,7 @@ func readReceiptStoreConfig(homePath string, appOpts seidbconfig.AppOptions) (se
 		return receiptConfig, err
 	}
 	if receiptConfig.DBDirectory == "" {
-		receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath)
+		receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 	}
 	return receiptConfig, nil
 }

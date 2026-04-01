@@ -126,7 +126,7 @@ const ReceiptStoreConfigTemplate = `
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
-# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
+# Defines the receipt store directory. If unset, defaults to <home>/data/ledger/receipt/{backend}
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.

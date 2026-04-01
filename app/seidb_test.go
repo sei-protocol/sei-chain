@@ -155,8 +155,8 @@ func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
 	require.NoError(t, err)
-	// New nodes (no legacy data/receipt.db) get the new ledger/ layout
-	assert.Equal(t, filepath.Join(homePath, "data", "ledger", "receipt.db"), receiptConfig.DBDirectory)
+	// New nodes (no legacy data/receipt.db) get the new ledger/ layout with backend
+	assert.Equal(t, filepath.Join(homePath, "data", "ledger", "receipt", "pebbledb"), receiptConfig.DBDirectory)
 }
 
 // TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"

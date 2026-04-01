@@ -58,13 +58,13 @@ func TestGetFlatKVPath_LegacyExists(t *testing.T) {
 func TestGetStateStorePath_NewNode_Pebble(t *testing.T) {
 	home := t.TempDir()
 	got := GetStateStorePath(home, "pebbledb")
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos_ss", "pebbledb"), got)
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "pebbledb"), got)
 }
 
 func TestGetStateStorePath_NewNode_RocksDB(t *testing.T) {
 	home := t.TempDir()
 	got := GetStateStorePath(home, "rocksdb")
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos_ss", "rocksdb"), got)
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "rocksdb"), got)
 }
 
 func TestGetStateStorePath_LegacyExists(t *testing.T) {
@@ -82,7 +82,7 @@ func TestGetStateStorePath_LegacyForDifferentBackend(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "data", "rocksdb"), 0755))
 
 	got := GetStateStorePath(home, "pebbledb")
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos_ss", "pebbledb"), got)
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "pebbledb"), got)
 }
 
 // --- GetEVMStateStorePath ---
@@ -90,13 +90,13 @@ func TestGetStateStorePath_LegacyForDifferentBackend(t *testing.T) {
 func TestGetEVMStateStorePath_NewNode_Pebble(t *testing.T) {
 	home := t.TempDir()
 	got := GetEVMStateStorePath(home, "pebbledb")
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm_ss", "pebbledb"), got)
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm", "pebbledb"), got)
 }
 
 func TestGetEVMStateStorePath_NewNode_RocksDB(t *testing.T) {
 	home := t.TempDir()
 	got := GetEVMStateStorePath(home, "rocksdb")
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm_ss", "rocksdb"), got)
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm", "rocksdb"), got)
 }
 
 func TestGetEVMStateStorePath_LegacyExists(t *testing.T) {
@@ -110,10 +110,16 @@ func TestGetEVMStateStorePath_LegacyExists(t *testing.T) {
 
 // --- GetReceiptStorePath ---
 
-func TestGetReceiptStorePath_NewNode(t *testing.T) {
+func TestGetReceiptStorePath_NewNode_Pebble(t *testing.T) {
 	home := t.TempDir()
-	got := GetReceiptStorePath(home)
-	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt.db"), got)
+	got := GetReceiptStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "pebbledb"), got)
+}
+
+func TestGetReceiptStorePath_NewNode_Parquet(t *testing.T) {
+	home := t.TempDir()
+	got := GetReceiptStorePath(home, "parquet")
+	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "parquet"), got)
 }
 
 func TestGetReceiptStorePath_LegacyExists(t *testing.T) {
@@ -121,7 +127,7 @@ func TestGetReceiptStorePath_LegacyExists(t *testing.T) {
 	legacy := filepath.Join(home, "data", "receipt.db")
 	require.NoError(t, os.MkdirAll(legacy, 0755))
 
-	got := GetReceiptStorePath(home)
+	got := GetReceiptStorePath(home, "pebbledb")
 	assert.Equal(t, legacy, got)
 }
 
@@ -144,7 +150,7 @@ func TestGetCosmosSCStorePath_NewDataAlreadyExists(t *testing.T) {
 
 func TestGetStateStorePath_NewDataAlreadyExists(t *testing.T) {
 	home := t.TempDir()
-	newPath := filepath.Join(home, "data", "state_store", "cosmos_ss", "pebbledb")
+	newPath := filepath.Join(home, "data", "state_store", "cosmos", "pebbledb")
 	require.NoError(t, os.MkdirAll(newPath, 0755))
 
 	got := GetStateStorePath(home, "pebbledb")
@@ -168,9 +174,9 @@ func TestGetReceiptStorePath_BothExist(t *testing.T) {
 	home := t.TempDir()
 	legacy := filepath.Join(home, "data", "receipt.db")
 	require.NoError(t, os.MkdirAll(legacy, 0755))
-	newPath := filepath.Join(home, "data", "ledger", "receipt.db")
+	newPath := filepath.Join(home, "data", "ledger", "receipt", "pebbledb")
 	require.NoError(t, os.MkdirAll(newPath, 0755))
 
-	got := GetReceiptStorePath(home)
+	got := GetReceiptStorePath(home, "pebbledb")
 	assert.Equal(t, legacy, got, "legacy should take precedence when both exist")
 }
