@@ -12,7 +12,7 @@ import (
 func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testing.T) {
 	dataDir := t.TempDir()
 
-	store, err := openSSComposite(dataDir)
+	store, err := openSSComposite(dataDir, DefaultBenchStateStoreConfig())
 	require.NoError(t, err)
 
 	wrapper := NewStateStoreWrapper(store)
@@ -49,7 +49,7 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 
 	require.NoError(t, wrapper.Close())
 
-	reopened, err := openSSComposite(dataDir)
+	reopened, err := openSSComposite(dataDir, DefaultBenchStateStoreConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, reopened.Close())
