@@ -112,6 +112,8 @@ func (l *LegacyData) SetValue(value []byte) *LegacyData {
 	}
 	newData := make([]byte, legacyHeaderLength+len(value))
 	copy(newData, l.data[:legacyValueStart])
+	copy(newData[legacyValueStart:], value)
+	l.data = newData
 	return l
 }
 

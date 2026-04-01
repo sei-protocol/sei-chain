@@ -17,7 +17,7 @@ var supportedKeyTypes = map[evm.EVMKeyKind]struct{}{
 	evm.EVMKeyCodeHash: {},
 	evm.EVMKeyCode:     {},
 	evm.EVMKeyLegacy:   {},
-}
+} // TODO also use this for reads
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
@@ -29,7 +29,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...) // TODO this is wrong!!
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 
 	changesByType, err := sortChangeSets(changeSets, s.config.StrictKeyTypeCheck)
 	if err != nil {
@@ -64,6 +64,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	}
 	newAccountValues := deriveNewAccountValues(accountWrites, accountOld, blockHeight)
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
+	storeWrites(s.accountWrites, newAccountValues)
 
 	// Gather storage pairs
 	storageChanges, err := processStorageChanges(changesByType[evm.EVMKeyStorage], blockHeight)
@@ -71,6 +72,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
+	storeWrites(s.storageWrites, storageChanges)
 
 	// Gather code pairs
 	codeChanges, err := processCodeChanges(changesByType[evm.EVMKeyCode], blockHeight)
@@ -78,6 +80,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
 	codePairs := gatherLTHashPairs(codeChanges, codeOld)
+	storeWrites(s.codeWrites, codeChanges)
 
 	// Gather legacy pairs
 	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy], blockHeight)
@@ -85,6 +88,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
 	legacyPairs := gatherLTHashPairs(legacyChanges, legacyOld)
+	storeWrites(s.legacyWrites, legacyChanges)
 
 	////////////////////
 	// Compute LTHash //
@@ -120,15 +124,27 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	return nil
 }
 
+// Store a map of writes into a map of pending writes.
+func storeWrites[T vtype.VType](
+	// the map that is accumulating writes
+	pendingWrites map[string]T,
+	// new writes that need to be applied to the pendingWrites map
+	newValues map[string]T,
+) {
+	for keyStr, newValue := range newValues {
+		pendingWrites[keyStr] = newValue
+	}
+}
+
 // Sort the change sets by type.
 func sortChangeSets(
-	cs []*proto.NamedChangeSet,
+	changeSets []*proto.NamedChangeSet,
 	// If true, returns an error if an unsupported key type is encountered.
 	strict bool,
 ) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
-	for _, cs := range cs {
+	for _, cs := range changeSets {
 		if cs.Changeset.Pairs == nil {
 			continue
 		}
@@ -140,6 +156,7 @@ func sortChangeSets(
 					return nil, fmt.Errorf("unsupported key type: %s", kind)
 				} else {
 					logger.Warn("unsupported key type", "key", kind)
+					continue
 				}
 			}
 
@@ -151,7 +168,11 @@ func sortChangeSets(
 				result[kind] = kindMap
 			}
 
-			kindMap[keyStr] = pair.Value
+			if pair.Delete {
+				kindMap[keyStr] = nil
+			} else {
+				kindMap[keyStr] = pair.Value
+			}
 		}
 	}
 
@@ -166,12 +187,16 @@ func processStorageChanges(
 	result := make(map[string]*vtype.StorageData)
 
 	for keyStr, rawChange := range rawChanges {
-		value, err := vtype.ParseStorageValue(rawChange)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse storage value: %w", err)
+		if rawChange == nil {
+			// Deletion is equivalent to setting the storage value to a zero value
+			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
+		} else {
+			value, err := vtype.ParseStorageValue(rawChange)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse storage value: %w", err)
+			}
+			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
 		}
-
-		result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
 	}
 
 	return result, nil
@@ -185,7 +210,12 @@ func processCodeChanges(
 	result := make(map[string]*vtype.CodeData)
 
 	for keyStr, rawChange := range rawChanges {
-		result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(rawChange)
+		if rawChange == nil {
+			// Deletion is equivalent to setting the code to a zero value
+			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
+		} else {
+			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(rawChange)
+		}
 	}
 	return result, nil
 }
@@ -198,7 +228,12 @@ func processLegacyChanges(
 	result := make(map[string]*vtype.LegacyData)
 
 	for keyStr, rawChange := range rawChanges {
-		result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
+		if rawChange == nil {
+			// Deletion is equivalent to setting the legacy value to a zero value
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(nil)
+		} else {
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
+		}
 	}
 	return result, nil
 }
@@ -217,7 +252,6 @@ func gatherLTHashPairs[T vtype.VType](
 		var newBytes []byte
 		if !newValue.IsDelete() {
 			newBytes = newValue.Serialize()
-
 		}
 
 		var oldBytes []byte
@@ -243,41 +277,55 @@ func mergeAccountUpdates(
 	balanceChanges map[string][]byte,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
+	// PendingAccountWrite objects are well behaved when nil, no need to bootstrap map entries.
 	updates := make(map[string]*vtype.PendingAccountWrite)
 
 	if nonceChanges != nil {
 		for key, nonceChange := range nonceChanges {
-			nonce, err := vtype.ParseNonce(nonceChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid nonce value: %w", err)
+			if nonceChange == nil {
+				// Deletion is equivalent to setting the nonce to 0
+				updates[key] = updates[key].SetNonce(0)
+			} else {
+				nonce, err := vtype.ParseNonce(nonceChange)
+				if err != nil {
+					return nil, fmt.Errorf("invalid nonce value: %w", err)
+				}
+				updates[key] = updates[key].SetNonce(nonce)
 			}
-			// nil handled internally, no need to bootstrap map entries
-			updates[key] = updates[key].SetNonce(nonce)
 		}
 	}
 
 	if codeHashChanges != nil {
 		for key, codeHashChange := range codeHashChanges {
-			codeHash, err := vtype.ParseCodeHash(codeHashChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid codehash value: %w", err)
+			if codeHashChange == nil {
+				// Deletion is equivalent to setting the code hash to a zero hash
+				var zero vtype.CodeHash
+				updates[key] = updates[key].SetCodeHash(&zero)
+			} else {
+				codeHash, err := vtype.ParseCodeHash(codeHashChange)
+				if err != nil {
+					return nil, fmt.Errorf("invalid codehash value: %w", err)
+				}
+				updates[key] = updates[key].SetCodeHash(codeHash)
 			}
-			// nil handled internally, no need to bootstrap map entries
-			updates[key] = updates[key].SetCodeHash(codeHash)
 		}
 	}
 
 	if balanceChanges != nil {
 		for key, balanceChange := range balanceChanges {
-			balance, err := vtype.ParseBalance(balanceChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid balance value: %w", err)
+			if balanceChange == nil {
+				// Deletion is equivalent to setting the balance to a zero balance
+				var zero vtype.Balance
+				updates[key] = updates[key].SetBalance(&zero)
+			} else {
+				balance, err := vtype.ParseBalance(balanceChange)
+				if err != nil {
+					return nil, fmt.Errorf("invalid balance value: %w", err)
+				}
+				updates[key] = updates[key].SetBalance(balance)
 			}
-			// nil handled internally, no need to bootstrap map entries
-			updates[key] = updates[key].SetBalance(balance)
 		}
 	}
-
 	return updates, nil
 }
 

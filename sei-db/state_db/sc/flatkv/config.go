@@ -96,7 +96,7 @@ type Config struct {
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
 
-	// If true, FlatKV will return an error if it encounters an usupported key type. Otherwise,
+	// If true, FlatKV will return an error if it encounters an unsupported key type. Otherwise,
 	// it will log a warning and continue.
 	StrictKeyTypeCheck bool
 }

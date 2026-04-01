@@ -91,6 +91,9 @@ func (p *PendingAccountWrite) SetNonce(nonce uint64) *PendingAccountWrite {
 // SetCodeHash marks the code hash as changed. The pointer is stored directly; the caller
 // must not modify the underlying array after calling SetCodeHash. Returns self.
 func (p *PendingAccountWrite) SetCodeHash(codeHash *CodeHash) *PendingAccountWrite {
+	if p == nil {
+		p = NewPendingAccountWrite()
+	}
 	p.codeHash = codeHash
 	return p
 }

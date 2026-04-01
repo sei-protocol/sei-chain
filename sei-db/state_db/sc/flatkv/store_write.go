@@ -120,7 +120,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 		defer func() { _ = batch.Close() }()
 
 		for keyStr, accountWrite := range s.accountWrites {
-			key := []byte(keyStr) // TODO verify this is correct!
+			key := []byte(keyStr)
 			if accountWrite.IsDelete() {
 				if err := batch.Delete(key); err != nil {
 					return fmt.Errorf("accountDB delete: %w", err)
@@ -317,7 +317,7 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 
 	// EVM storage
 	storageBatch := make(map[string]types.BatchGetResult)
-	for key, _ := range changesByType[evm.EVMKeyStorage] {
+	for key := range changesByType[evm.EVMKeyStorage] {
 		if _, ok := s.storageWrites[key]; ok {
 			// We've got the old value in the pending writes buffer.
 			storageOld[key] = s.storageWrites[key]
@@ -336,7 +336,7 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 
 	// Accounts
 	accountBatch := make(map[string]types.BatchGetResult)
-	for key, _ := range changesByType[evm.EVMKeyNonce] {
+	for key := range changesByType[evm.EVMKeyNonce] {
 		if _, ok := s.accountWrites[key]; ok {
 			// We've got the old value in the pending writes buffer.
 			accountOld[key] = s.accountWrites[key]
@@ -345,7 +345,7 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 			accountBatch[key] = types.BatchGetResult{}
 		}
 	}
-	for key, _ := range changesByType[evm.EVMKeyCodeHash] {
+	for key := range changesByType[evm.EVMKeyCodeHash] {
 		if _, ok := s.accountWrites[key]; ok {
 			// We've got the old value in the pending writes buffer.
 			accountOld[key] = s.accountWrites[key]
@@ -365,7 +365,7 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 
 	// EVM bytecode
 	codeBatch := make(map[string]types.BatchGetResult)
-	for key, _ := range changesByType[evm.EVMKeyCode] {
+	for key := range changesByType[evm.EVMKeyCode] {
 		if _, ok := s.codeWrites[key]; ok {
 			// We've got the old value in the pending writes buffer.
 			codeOld[key] = s.codeWrites[key]
@@ -384,7 +384,7 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 
 	// Legacy data
 	legacyBatch := make(map[string]types.BatchGetResult)
-	for key, _ := range changesByType[evm.EVMKeyLegacy] {
+	for key := range changesByType[evm.EVMKeyLegacy] {
 		if _, ok := s.legacyWrites[key]; ok {
 			// We've got the old value in the pending writes buffer.
 			legacyOld[key] = s.legacyWrites[key]

@@ -208,6 +208,9 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 	pendingWrite, hasPending := s.codeWrites[string(key)]
 	if hasPending {
+		if pendingWrite.IsDelete() {
+			return nil, nil
+		}
 		return pendingWrite.GetBytecode(), nil
 	}
 
