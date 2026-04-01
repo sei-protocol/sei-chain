@@ -92,13 +92,20 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("App.Info(): %w", err)
 	}
-	last := atypes.GlobalBlockNumber(info.LastBlockHeight)
+	last, ok := utils.SafeCast[atypes.GlobalBlockNumber](info.LastBlockHeight)
+	if !ok {
+		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
+	}
 	next := last + 1
 	if last == 0 {
 		if _, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
-		next = atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive
+		var ok bool
+		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
+		if !ok {
+			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
+		}
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
@@ -153,7 +160,11 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.cfg.App.Commit(): %w", err)
 		}
-		r.data.PruneBefore(atypes.GlobalBlockNumber(commitResp.RetainHeight))
+		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+		if !ok {
+			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+		}
+		r.data.PruneBefore(pruneBefore)
 	}
 }
 
