@@ -376,18 +376,21 @@ func startInProcess(
 		}
 	}
 
-	// Add the tx service to the gRPC router. We only need to register this
-	// service if API or gRPC is enabled, and avoid doing so in the general
-	// case, because it spawns a new local tendermint RPC client.
-	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
+	// Local Comet RPC client for Cosmos API/gRPC, and optionally for benchmark
+	// mempool injection (BenchmarkPostStartHook).
+	if tmNode != nil && (config.API.Enable || config.GRPC.Enable || BenchmarkPostStartHook != nil) {
 		localClient, err := local.New(tmNode.(local.NodeService))
 		if err != nil {
 			return err
 		}
-		clientCtx = clientCtx.WithClient(localClient)
-
-		app.RegisterTxService(clientCtx)
-		app.RegisterTendermintService(clientCtx)
+		if config.API.Enable || config.GRPC.Enable {
+			clientCtx = clientCtx.WithClient(localClient)
+			app.RegisterTxService(clientCtx)
+			app.RegisterTendermintService(clientCtx)
+		}
+		if BenchmarkPostStartHook != nil {
+			BenchmarkPostStartHook(goCtx, app, localClient)
+		}
 	}
 
 	var apiSrv *api.Server

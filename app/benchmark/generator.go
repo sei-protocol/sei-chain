@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -502,6 +503,11 @@ func (g *Generator) StartProposalChannel(ctx context.Context, logger *Logger) <-
 
 			txs := g.Generate()
 			if len(txs) == 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(50 * time.Millisecond):
+				}
 				continue
 			}
 

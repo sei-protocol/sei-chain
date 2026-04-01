@@ -1002,8 +1002,15 @@ func New(
 
 	// benchmarkEnabled is enabled via build flag (make install-bench)
 	if benchmarkEnabled {
-		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
-		app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
+		// Docker localnet sets ID=0..3 per container. Only node 0 runs the in-process
+		// generator + mempool pump; other validators skip init to avoid a blocked
+		// proposal channel with no consumer.
+		if nid := os.Getenv("ID"); nid != "" && nid != "0" {
+			logger.Info("benchmark: skipping InitBenchmark on non-injector node", "ID", nid)
+		} else {
+			evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
+			app.InitBenchmark(context.Background(), app.ChainID, evmChainID)
+		}
 	}
 
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)

@@ -10,8 +10,13 @@ echo "Building seid from local branch"
 git config --global --add safe.directory /sei-protocol/sei-chain
 export LEDGER_ENABLED=false
 make clean
-# build seid with the mock balance function enabled
-if [ "$MOCK_BALANCES" = true ]; then
+# ENABLE_BENCHMARK=true adds the benchmark build tag (in-process load + mempool pump).
+# Otherwise use mock_balances like the default localnet image.
+ENABLE_BENCHMARK=${ENABLE_BENCHMARK:-false}
+if [ "$ENABLE_BENCHMARK" = true ]; then
+    echo "Building with benchmark + mock_balances enabled..."
+    make build-linux BUILD_TAGS="mock_balances benchmark"
+elif [ "$MOCK_BALANCES" = true ]; then
     echo "Building with mock balances enabled..."
     make build-linux BUILD_TAGS="mock_balances"
 else

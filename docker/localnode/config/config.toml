@@ -193,7 +193,10 @@ tls-cert-file = ""
 tls-key-file = ""
 
 # pprof listen address (https://golang.org/pkg/net/http/pprof)
-pprof-laddr = "localhost:6060"
+# Empty: localnet uses `seid start --profile`, which serves pprof on 0.0.0.0:6060 for
+# Docker port mapping. A second listener here races on 6060 and can bind loopback-only,
+# which breaks host curls or resets long CPU profile downloads.
+pprof-laddr = ""
 
 #######################################################
 ###           P2P Configuration Options             ###

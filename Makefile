@@ -295,6 +295,27 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		fi; \
 		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} docker compose up $$DETACH_FLAG
 
+# 4-node cluster with seid built using -tags "benchmark mock_balances". Loads txs into
+# the mempool in-process (no sei-load / eth_sendRawTransaction). Override batch size:
+#   make docker-cluster-start-bench BENCHMARK_TXS_PER_BATCH=500
+BENCHMARK_TXS_PER_BATCH ?= 200
+docker-cluster-start-bench: docker-cluster-stop build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} \
+		ENABLE_BENCHMARK=true \
+		BENCHMARK_CONFIG=/sei-protocol/sei-chain/docker/benchmark/bench_evm_transfer.json \
+		BENCHMARK_TXS_PER_BATCH=$(BENCHMARK_TXS_PER_BATCH) \
+		docker compose up $$DETACH_FLAG
+.PHONY: docker-cluster-start-bench
+
 .PHONY: localnet-start
 
 # Use this to skip the seid build process

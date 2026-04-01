@@ -1,0 +1,28 @@
+{
+  "chainId": 713714,
+  "seiChainId": "sei",
+  "endpoints": ["http://127.0.0.1:8545"],
+  "accounts": {
+    "count": 2000,
+    "newAccountRate": 0.0
+  },
+  "scenarios": [
+    {
+      "name": "evmtransfer",
+      "weight": 1
+    }
+  ],
+  "settings": {
+    "workers": 1,
+    "tps": 0,
+    "statsInterval": "5s",
+    "bufferSize": 1000,
+    "dryRun": false,
+    "debug": false,
+    "trackReceipts": false,
+    "trackBlocks": false,
+    "trackUserLatency": false,
+    "prewarm": false,
+    "rampUp": false
+  }
+}
