@@ -11,10 +11,10 @@ func PathExists(path string) bool {
 	return err == nil
 }
 
-// GetCommitStorePath returns the path for the memiavl state commitment store.
+// GetCosmosSCStorePath returns the path for the memiavl state commitment store.
 // New nodes use data/state_commit/memiavl; existing nodes with data/committer.db
 // continue using the legacy path for backward compatibility.
-func GetCommitStorePath(homePath string) string {
+func GetCosmosSCStorePath(homePath string) string {
 	legacyPath := filepath.Join(homePath, "data", "committer.db")
 	if PathExists(legacyPath) {
 		return legacyPath
@@ -45,14 +45,14 @@ func GetStateStorePath(homePath string, backend string) string {
 }
 
 // GetEVMStateStorePath returns the path for the EVM state store.
-// New nodes use data/state_store/evm_ss; existing nodes with data/evm_ss
-// continue using the legacy path for backward compatibility.
-func GetEVMStateStorePath(homePath string) string {
+// New nodes use data/state_store/evm_ss/{backend}; existing nodes with
+// data/evm_ss continue using the legacy path for backward compatibility.
+func GetEVMStateStorePath(homePath string, backend string) string {
 	legacyPath := filepath.Join(homePath, "data", "evm_ss")
 	if PathExists(legacyPath) {
 		return legacyPath
 	}
-	return filepath.Join(homePath, "data", "state_store", "evm_ss")
+	return filepath.Join(homePath, "data", "state_store", "evm_ss", backend)
 }
 
 // GetReceiptStorePath returns the path for the receipt store.

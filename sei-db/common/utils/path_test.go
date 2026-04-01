@@ -19,20 +19,20 @@ func TestPathExists(t *testing.T) {
 	assert.True(t, PathExists(f))
 }
 
-// --- GetCommitStorePath ---
+// --- GetCosmosSCStorePath ---
 
-func TestGetCommitStorePath_NewNode(t *testing.T) {
+func TestGetCosmosSCStorePath_NewNode(t *testing.T) {
 	home := t.TempDir()
-	got := GetCommitStorePath(home)
+	got := GetCosmosSCStorePath(home)
 	assert.Equal(t, filepath.Join(home, "data", "state_commit", "memiavl"), got)
 }
 
-func TestGetCommitStorePath_LegacyExists(t *testing.T) {
+func TestGetCosmosSCStorePath_LegacyExists(t *testing.T) {
 	home := t.TempDir()
 	legacy := filepath.Join(home, "data", "committer.db")
 	require.NoError(t, os.MkdirAll(legacy, 0755))
 
-	got := GetCommitStorePath(home)
+	got := GetCosmosSCStorePath(home)
 	assert.Equal(t, legacy, got)
 }
 
@@ -87,10 +87,16 @@ func TestGetStateStorePath_LegacyForDifferentBackend(t *testing.T) {
 
 // --- GetEVMStateStorePath ---
 
-func TestGetEVMStateStorePath_NewNode(t *testing.T) {
+func TestGetEVMStateStorePath_NewNode_Pebble(t *testing.T) {
 	home := t.TempDir()
-	got := GetEVMStateStorePath(home)
-	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm_ss"), got)
+	got := GetEVMStateStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm_ss", "pebbledb"), got)
+}
+
+func TestGetEVMStateStorePath_NewNode_RocksDB(t *testing.T) {
+	home := t.TempDir()
+	got := GetEVMStateStorePath(home, "rocksdb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm_ss", "rocksdb"), got)
 }
 
 func TestGetEVMStateStorePath_LegacyExists(t *testing.T) {
@@ -98,7 +104,7 @@ func TestGetEVMStateStorePath_LegacyExists(t *testing.T) {
 	legacy := filepath.Join(home, "data", "evm_ss")
 	require.NoError(t, os.MkdirAll(legacy, 0755))
 
-	got := GetEVMStateStorePath(home)
+	got := GetEVMStateStorePath(home, "pebbledb")
 	assert.Equal(t, legacy, got)
 }
 
@@ -127,12 +133,12 @@ func TestGetChangelogPath(t *testing.T) {
 
 // --- Edge: new path already has data (second run of new node) ---
 
-func TestGetCommitStorePath_NewDataAlreadyExists(t *testing.T) {
+func TestGetCosmosSCStorePath_NewDataAlreadyExists(t *testing.T) {
 	home := t.TempDir()
 	newPath := filepath.Join(home, "data", "state_commit", "memiavl")
 	require.NoError(t, os.MkdirAll(newPath, 0755))
 
-	got := GetCommitStorePath(home)
+	got := GetCosmosSCStorePath(home)
 	assert.Equal(t, newPath, got, "should use new path when legacy is absent even if new path already exists")
 }
 
@@ -147,14 +153,14 @@ func TestGetStateStorePath_NewDataAlreadyExists(t *testing.T) {
 
 // --- Edge: both legacy and new exist (legacy wins) ---
 
-func TestGetCommitStorePath_BothExist(t *testing.T) {
+func TestGetCosmosSCStorePath_BothExist(t *testing.T) {
 	home := t.TempDir()
 	legacy := filepath.Join(home, "data", "committer.db")
 	require.NoError(t, os.MkdirAll(legacy, 0755))
 	newPath := filepath.Join(home, "data", "state_commit", "memiavl")
 	require.NoError(t, os.MkdirAll(newPath, 0755))
 
-	got := GetCommitStorePath(home)
+	got := GetCosmosSCStorePath(home)
 	assert.Equal(t, legacy, got, "legacy should take precedence when both exist")
 }
 

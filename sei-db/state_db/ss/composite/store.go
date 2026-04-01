@@ -58,7 +58,7 @@ func NewCompositeStateStore(
 	if ssConfig.EVMEnabled() {
 		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
-			evmDir = utils.GetEVMStateStorePath(homeDir)
+			evmDir = utils.GetEVMStateStorePath(homeDir, ssConfig.Backend)
 		}
 
 		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig)
