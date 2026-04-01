@@ -35,20 +35,22 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		}
 
 		// Check pending writes first
-		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if paw.isDelete {
+		if accountValue, found := s.accountWrites[string(addr[:])]; found {
+			if accountValue.IsDelete() {
 				return nil, false
 			}
 			if kind == evm.EVMKeyNonce {
-				nonce := make([]byte, NonceLen)
-				binary.BigEndian.PutUint64(nonce, paw.value.Nonce)
-				return nonce, true
+				nonceBytes := make([]byte, vtype.NonceLen)
+				binary.BigEndian.PutUint64(nonceBytes, accountValue.GetNonce())
+				return nonceBytes, true
 			}
 			// CodeHash
-			if paw.value.CodeHash == (CodeHash{}) {
+			codeHash := accountValue.GetCodeHash()
+			var zeroCodeHash vtype.CodeHash
+			if *codeHash == zeroCodeHash {
 				return nil, false
 			}
-			return paw.value.CodeHash[:], true
+			return codeHash[:], true
 		}
 
 		// Read from accountDB
@@ -56,21 +58,23 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		if err != nil {
 			return nil, false
 		}
-		av, err := DecodeAccountValue(encoded)
+		accountData, err := vtype.DeserializeAccountData(encoded)
 		if err != nil {
 			return nil, false
 		}
 
 		if kind == evm.EVMKeyNonce {
-			nonce := make([]byte, NonceLen)
-			binary.BigEndian.PutUint64(nonce, av.Nonce)
+			nonce := make([]byte, vtype.NonceLen)
+			binary.BigEndian.PutUint64(nonce, accountData.GetNonce())
 			return nonce, true
 		}
 		// CodeHash
-		if av.CodeHash == (CodeHash{}) {
+		codeHash := accountData.GetCodeHash()
+		var zeroCodeHash vtype.CodeHash
+		if *codeHash == zeroCodeHash {
 			return nil, false
 		}
-		return av.CodeHash[:], true
+		return codeHash[:], true
 
 	case evm.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
@@ -176,35 +180,6 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // =============================================================================
 // Internal Getters (used by ApplyChangeSets for LtHash computation)
 // =============================================================================
-
-// getAccountValue loads AccountValue from pending writes or DB.
-// Returns zero AccountValue if not found (new account) or if the pending
-// write is marked for deletion (row logically absent).
-// Returns error if existing data is corrupted (decode fails) or I/O error occurs.
-func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
-	// Check pending writes first
-	if paw, ok := s.accountWrites[string(addr[:])]; ok {
-		if paw.isDelete {
-			return AccountValue{}, nil
-		}
-		return paw.value, nil
-	}
-
-	// Read from accountDB
-	value, err := s.accountDB.Get(AccountKey(addr))
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return AccountValue{}, nil // New account
-		}
-		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
-	}
-
-	av, err := DecodeAccountValue(value)
-	if err != nil {
-		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
-	}
-	return av, nil
-}
 
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 	pendingWrite, hasPending := s.storageWrites[string(key)]

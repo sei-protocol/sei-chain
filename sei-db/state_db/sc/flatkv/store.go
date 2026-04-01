@@ -87,7 +87,9 @@ type CommitStore struct {
 	storageWrites map[string]*vtype.StorageData
 	legacyWrites  map[string]*vtype.LegacyData
 
-	changelog         wal.ChangelogWAL
+	changelog wal.ChangelogWAL
+
+	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
 	lastSnapshotTime time.Time

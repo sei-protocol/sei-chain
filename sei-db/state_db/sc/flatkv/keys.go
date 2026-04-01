@@ -2,8 +2,6 @@ package flatkv
 
 import (
 	"bytes"
-	"encoding/binary"
-	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -33,11 +31,8 @@ func isMetaKey(key []byte) bool {
 }
 
 const (
-	AddressLen  = 20
-	CodeHashLen = 32
-	SlotLen     = 32
-	BalanceLen  = 32
-	NonceLen    = 8
+	AddressLen = 20
+	SlotLen    = 32
 )
 
 // LocalMeta stores per-DB version tracking metadata.
@@ -50,14 +45,8 @@ type LocalMeta struct {
 // Address is an EVM address (20 bytes).
 type Address [AddressLen]byte
 
-// CodeHash is a contract code hash (32 bytes).
-type CodeHash [CodeHashLen]byte
-
 // Slot is a storage slot key (32 bytes).
 type Slot [SlotLen]byte
-
-// Balance is an EVM balance (32 bytes, big-endian uint256).
-type Balance [BalanceLen]byte
 
 func AddressFromBytes(b []byte) (Address, bool) {
 	if len(b) != AddressLen {
@@ -66,15 +55,6 @@ func AddressFromBytes(b []byte) (Address, bool) {
 	var a Address
 	copy(a[:], b)
 	return a, true
-}
-
-func SlotFromBytes(b []byte) (Slot, bool) {
-	if len(b) != SlotLen {
-		return Slot{}, false
-	}
-	var s Slot
-	copy(s[:], b)
-	return s, true
 }
 
 // =============================================================================
@@ -109,84 +89,4 @@ func PrefixEnd(prefix []byte) []byte {
 		}
 	}
 	return nil
-}
-
-// AccountValue is the account record.
-//
-// Encoding is variable-length to save space for EOA accounts:
-//   - EOA (no code):      balance(32) || nonce(8)           = 40 bytes
-//   - Contract (has code): balance(32) || nonce(8) || codehash(32) = 72 bytes
-//
-// CodeHash == CodeHash{} (all zeros) means the account has no code (EOA).
-// Note: empty code contracts have CodeHash = keccak256("") which is non-zero.
-type AccountValue struct { // TODO delete
-	Balance  Balance
-	Nonce    uint64
-	CodeHash CodeHash
-}
-
-const (
-	// accountValueEOALen is the encoded length for EOA accounts (no code).
-	accountValueEOALen = BalanceLen + NonceLen // 40 bytes
-
-	// accountValueContractLen is the encoded length for contract accounts.
-	accountValueContractLen = BalanceLen + NonceLen + CodeHashLen // 72 bytes
-)
-
-// HasCode returns true if the account has code (is a contract).
-func (v AccountValue) HasCode() bool {
-	return v.CodeHash != CodeHash{}
-}
-
-// IsEmpty returns true when all fields are zero-valued, indicating the
-// account can be physically deleted from accountDB.
-func (v AccountValue) IsEmpty() bool {
-	return v.Balance == (Balance{}) && v.Nonce == 0 && v.CodeHash == (CodeHash{})
-}
-
-// Encode encodes the AccountValue to bytes.
-func (v AccountValue) Encode() []byte {
-	return EncodeAccountValue(v)
-}
-
-// EncodeAccountValue encodes v into a variable-length slice.
-// EOA accounts (no code) are encoded as 40 bytes, contracts as 72 bytes.
-func EncodeAccountValue(v AccountValue) []byte {
-	size := accountValueEOALen
-	if v.HasCode() {
-		size = accountValueContractLen
-	}
-	b := make([]byte, size)
-	copy(b, v.Balance[:])
-	binary.BigEndian.PutUint64(b[BalanceLen:], v.Nonce)
-	if v.HasCode() {
-		copy(b[BalanceLen+NonceLen:], v.CodeHash[:])
-	}
-	return b
-}
-
-// DecodeAccountValue decodes a variable-length account record.
-// Returns an error if the length is neither 40 (EOA) nor 72 (contract) bytes.
-func DecodeAccountValue(b []byte) (AccountValue, error) {
-	switch len(b) {
-	case accountValueEOALen:
-		// EOA: balance(32) || nonce(8)
-		var v AccountValue
-		copy(v.Balance[:], b[:BalanceLen])
-		v.Nonce = binary.BigEndian.Uint64(b[BalanceLen:])
-		// CodeHash remains zero (no code)
-		return v, nil
-
-	case accountValueContractLen:
-		// Contract: balance(32) || nonce(8) || codehash(32)
-		var v AccountValue
-		copy(v.Balance[:], b[:BalanceLen])
-		v.Nonce = binary.BigEndian.Uint64(b[BalanceLen : BalanceLen+NonceLen])
-		copy(v.CodeHash[:], b[BalanceLen+NonceLen:])
-		return v, nil
-
-	default:
-		return AccountValue{}, fmt.Errorf("invalid account value length: got %d, want %d (EOA) or %d (contract)",
-			len(b), accountValueEOALen, accountValueContractLen)
-	}
 }

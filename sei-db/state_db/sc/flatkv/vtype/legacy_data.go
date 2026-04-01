@@ -108,9 +108,10 @@ func (l *LegacyData) GetValue() []byte {
 // Set the legacy value. Returns self (or a new LegacyData if nil).
 func (l *LegacyData) SetValue(value []byte) *LegacyData {
 	if l == nil {
-		l = NewLegacyData(nil)
+		l = NewLegacyData()
 	}
-	copy(l.data[legacyValueStart:], value)
+	newData := make([]byte, legacyHeaderLength+len(value))
+	copy(newData, l.data[:legacyValueStart])
 	return l
 }
 
@@ -126,7 +127,7 @@ func (l *LegacyData) IsDelete() bool {
 // Set the block height when this legacy data was last modified/touched. Returns self (or a new LegacyData if nil).
 func (l *LegacyData) SetBlockHeight(blockHeight int64) *LegacyData {
 	if l == nil {
-		l = NewLegacyData(nil)
+		l = NewLegacyData()
 	}
 	binary.BigEndian.PutUint64(l.data[legacyBlockHeightStart:legacyValueStart], uint64(blockHeight)) //nolint:gosec
 	return l
