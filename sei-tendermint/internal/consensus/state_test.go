@@ -2229,7 +2229,8 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
 
-	cs1.txMempool.Notify()
+	err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	ensureNewTimeout(t, timeoutProposeCh, height+1, round)
 	rs = cs1.GetRoundState()

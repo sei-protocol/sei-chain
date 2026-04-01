@@ -199,7 +199,7 @@ func NewState(
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
-		txMempool:        txMempool,
+		txMempool:         txMempool,
 		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
 		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
 		timeoutTicker:     NewTimeoutTicker(),
