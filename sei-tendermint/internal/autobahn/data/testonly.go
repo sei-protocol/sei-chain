@@ -88,7 +88,7 @@ func TestCommitQC(
 		time.Now(),
 		laneQCs,
 		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev).Next; n > 0 {
+			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
 				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
 				return utils.Some(TestAppQC(keys, p))
 			}

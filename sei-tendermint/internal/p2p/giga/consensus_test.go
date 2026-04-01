@@ -14,6 +14,7 @@ func TestConsensusClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 7)
+	firstBlock := committee.FirstBlock()
 	env := newTestEnv(committee)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
@@ -23,7 +24,8 @@ func TestConsensusClientServer(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		var wantAppProposal utils.Option[*types.AppProposal]
-		for idx := range types.GlobalBlockNumber(20) {
+		for offset := range types.GlobalBlockNumber(20) {
+			idx := firstBlock + offset
 			t.Logf("[%v] Push a block.", idx)
 			b, err := nodes[rng.Intn(len(env.nodes))].consensus.ProduceBlock(ctx, types.GenPayload(rng))
 			if err != nil {
@@ -37,7 +39,7 @@ func TestConsensusClientServer(t *testing.T) {
 			}
 			p := types.NewAppProposal(
 				idx,
-				types.RoadIndex(idx),
+				types.RoadIndex(offset),
 				types.GenAppHash(rng),
 			)
 			wantAppProposal = utils.Some(p)

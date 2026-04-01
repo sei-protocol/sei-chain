@@ -61,15 +61,16 @@ type inner struct {
 	nextQC          types.GlobalBlockNumber
 }
 
-func newInner() *inner {
+func newInner(committee *types.Committee) *inner {
+	first := committee.FirstBlock()
 	return &inner{
 		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
 		appProposals:    map[types.GlobalBlockNumber]appProposalWithTimestamp{},
-		first:           0,
-		nextAppProposal: 0,
-		nextBlock:       0,
-		nextQC:          0,
+		first:           first,
+		nextAppProposal: first,
+		nextBlock:       first,
+		nextQC:          first,
 	}
 }
 
@@ -101,7 +102,7 @@ func NewState(cfg *Config, blockStore utils.Option[BlockStore]) *State {
 	return &State{
 		cfg:        cfg,
 		metrics:    newDataMetrics(),
-		inner:      utils.NewWatch(newInner()),
+		inner:      utils.NewWatch(newInner(cfg.Committee)),
 		blockStore: blockStore,
 	}
 }
@@ -114,7 +115,7 @@ func (s *State) Committee() *types.Committee { return s.cfg.Committee }
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
-	gr := qc.QC().GlobalRange()
+	gr := qc.QC().GlobalRange(s.cfg.Committee)
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
@@ -161,7 +162,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				continue
 			}
 			storedQC := inner.qcs[n]
-			storedGR := storedQC.QC().GlobalRange()
+			storedGR := storedQC.QC().GlobalRange(s.cfg.Committee)
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				inner.blocks[n] = b
 			}
@@ -206,7 +207,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return nil
 		}
 		qc := inner.qcs[n]
-		want := qc.Headers()[n-qc.QC().GlobalRange().First].Hash()
+		want := qc.Headers()[n-qc.QC().GlobalRange(s.cfg.Committee).First].Hash()
 		if got := block.Header().Hash(); want != got {
 			return fmt.Errorf("block header hash mismatch: want %v, got %v", want, got)
 		}
@@ -372,7 +373,7 @@ func (s *State) Run(ctx context.Context) error {
 			// TODO(gprusak): writing to blockStore is best effort now,
 			// since the blocks may get pruned before they are written.
 			scope.SpawnNamed("blockStore", func() error {
-				for idx := types.GlobalBlockNumber(0); ; idx += 1 {
+				for idx := s.cfg.Committee.FirstBlock(); ; idx += 1 {
 					b, err := s.GlobalBlock(ctx, idx)
 					if err != nil {
 						return fmt.Errorf("s.Blocks(): %w", err)
