@@ -59,7 +59,6 @@ func SetupSeiDB(
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
-		return baseAppOptions, nil
 	}
 	scConfig := parseSCConfigs(appOpts)
 	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
