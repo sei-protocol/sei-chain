@@ -14,9 +14,9 @@ import (
 const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
 
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for
-// gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler;
-// allowed calls pass through unchanged. Optional deprecation: HTTP header SeiLegacyDeprecationHTTPHeader
-// on successful forwards (no JSON body mutation). allowlist nil disables the wrapper.
+// gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
+// Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
+// results back by JSON-RPC id. Deprecation header on successful forwards of gated methods. nil allowlist = no wrap.
 func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}) http.Handler {
 	if allowlist == nil {
 		return inner
@@ -170,7 +170,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	if forwardLegacy {
 		w.Header().Set(SeiLegacyDeprecationHTTPHeader, SeiLegacyDeprecationMessage)
 	}
-	writeJSONArrayResponse(w, http.StatusOK, outArr)
+	writeJSONArrayResponse(w, rec.Code, outArr)
 }
 
 const seiLegacyBatchInternalErr = "invalid or incomplete JSON-RPC batch response from server"
