@@ -164,6 +164,10 @@ func (a *AccountData) SetBalance(balance *Balance) *AccountData {
 	if a == nil {
 		a = NewAccountData()
 	}
+	if balance == nil {
+		var zero Balance
+		balance = &zero
+	}
 	copy(a.data[accountBalanceStart:accountNonceStart], balance[:])
 	return a
 }
@@ -181,6 +185,10 @@ func (a *AccountData) SetNonce(nonce uint64) *AccountData {
 func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
 	if a == nil {
 		a = NewAccountData()
+	}
+	if codeHash == nil {
+		var zero CodeHash
+		codeHash = &zero
 	}
 	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
 	return a

@@ -157,3 +157,55 @@ func TestLegacyNewCopiesValue(t *testing.T) {
 	value[0] = 0xff
 	require.Equal(t, byte(0x01), ld.GetValue()[0])
 }
+
+func TestNilLegacyData_Getters(t *testing.T) {
+	var ld *LegacyData
+
+	require.Equal(t, LegacyDataVersion0, ld.GetSerializationVersion())
+	require.Equal(t, int64(0), ld.GetBlockHeight())
+	require.Empty(t, ld.GetValue())
+}
+
+func TestNilLegacyData_IsDelete(t *testing.T) {
+	var ld *LegacyData
+	require.True(t, ld.IsDelete())
+}
+
+func TestNilLegacyData_Serialize(t *testing.T) {
+	var ld *LegacyData
+	s := ld.Serialize()
+	require.Len(t, s, legacyHeaderLength)
+}
+
+func TestNilLegacyData_SerializeRoundTrips(t *testing.T) {
+	var ld *LegacyData
+	rt, err := DeserializeLegacyData(ld.Serialize())
+	require.NoError(t, err)
+	require.True(t, rt.IsDelete())
+	require.Empty(t, rt.GetValue())
+}
+
+func TestNilLegacyData_SettersAutoCreate(t *testing.T) {
+	var l1 *LegacyData
+	l1 = l1.SetBlockHeight(42)
+	require.NotNil(t, l1)
+	require.Equal(t, int64(42), l1.GetBlockHeight())
+
+	var l2 *LegacyData
+	l2 = l2.SetValue([]byte{0xAB})
+	require.NotNil(t, l2)
+	require.Equal(t, []byte{0xAB}, l2.GetValue())
+}
+
+func TestLegacyData_SetValueOverwrite(t *testing.T) {
+	ld := NewLegacyData().SetValue([]byte{0x01, 0x02, 0x03})
+	ld = ld.SetValue([]byte{0xAA})
+	require.Equal(t, []byte{0xAA}, ld.GetValue())
+}
+
+func TestLegacyData_SetValueNil(t *testing.T) {
+	ld := NewLegacyData().SetValue([]byte{0x01})
+	ld = ld.SetValue(nil)
+	require.Empty(t, ld.GetValue())
+	require.True(t, ld.IsDelete())
+}

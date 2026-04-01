@@ -135,3 +135,54 @@ func TestStorageSetterChaining(t *testing.T) {
 func TestStorageConstantLayout_V0(t *testing.T) {
 	require.Equal(t, 41, storageDataLength)
 }
+
+func TestNilStorageData_Getters(t *testing.T) {
+	var sd *StorageData
+	var zero [32]byte
+
+	require.Equal(t, StorageDataVersion0, sd.GetSerializationVersion())
+	require.Equal(t, int64(0), sd.GetBlockHeight())
+	require.Equal(t, &zero, sd.GetValue())
+}
+
+func TestNilStorageData_IsDelete(t *testing.T) {
+	var sd *StorageData
+	require.True(t, sd.IsDelete())
+}
+
+func TestNilStorageData_Serialize(t *testing.T) {
+	var sd *StorageData
+	s := sd.Serialize()
+	require.Len(t, s, storageDataLength)
+	for _, b := range s {
+		require.Equal(t, byte(0), b)
+	}
+}
+
+func TestNilStorageData_SerializeRoundTrips(t *testing.T) {
+	var sd *StorageData
+	rt, err := DeserializeStorageData(sd.Serialize())
+	require.NoError(t, err)
+	require.True(t, rt.IsDelete())
+}
+
+func TestNilStorageData_SettersAutoCreate(t *testing.T) {
+	var s1 *StorageData
+	s1 = s1.SetBlockHeight(42)
+	require.NotNil(t, s1)
+	require.Equal(t, int64(42), s1.GetBlockHeight())
+
+	var s2 *StorageData
+	val := [32]byte{0x01}
+	s2 = s2.SetValue(&val)
+	require.NotNil(t, s2)
+	require.Equal(t, &val, s2.GetValue())
+}
+
+func TestStorageData_SetValueNilZeros(t *testing.T) {
+	sd := NewStorageData().
+		SetValue(toArray32(leftPad32([]byte{0xff}))).
+		SetValue(nil)
+	var zero [32]byte
+	require.Equal(t, &zero, sd.GetValue())
+}

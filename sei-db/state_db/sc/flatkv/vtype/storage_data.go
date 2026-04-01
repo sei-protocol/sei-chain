@@ -133,6 +133,10 @@ func (s *StorageData) SetValue(value *[32]byte) *StorageData {
 	if s == nil {
 		s = NewStorageData()
 	}
+	if value == nil {
+		var zero [32]byte
+		value = &zero
+	}
 	copy(s.data[storageValueStart:storageDataLength], value[:])
 	return s
 }

@@ -158,3 +158,55 @@ func TestCodeNewCopiesBytecode(t *testing.T) {
 	bytecode[0] = 0xff
 	require.Equal(t, byte(0x01), cd.GetBytecode()[0])
 }
+
+func TestNilCodeData_Getters(t *testing.T) {
+	var cd *CodeData
+
+	require.Equal(t, CodeDataVersion0, cd.GetSerializationVersion())
+	require.Equal(t, int64(0), cd.GetBlockHeight())
+	require.Empty(t, cd.GetBytecode())
+}
+
+func TestNilCodeData_IsDelete(t *testing.T) {
+	var cd *CodeData
+	require.True(t, cd.IsDelete())
+}
+
+func TestNilCodeData_Serialize(t *testing.T) {
+	var cd *CodeData
+	s := cd.Serialize()
+	require.Len(t, s, codeBytecodeStart)
+}
+
+func TestNilCodeData_SerializeRoundTrips(t *testing.T) {
+	var cd *CodeData
+	rt, err := DeserializeCodeData(cd.Serialize())
+	require.NoError(t, err)
+	require.True(t, rt.IsDelete())
+	require.Empty(t, rt.GetBytecode())
+}
+
+func TestNilCodeData_SettersAutoCreate(t *testing.T) {
+	var c1 *CodeData
+	c1 = c1.SetBlockHeight(42)
+	require.NotNil(t, c1)
+	require.Equal(t, int64(42), c1.GetBlockHeight())
+
+	var c2 *CodeData
+	c2 = c2.SetBytecode([]byte{0xAB})
+	require.NotNil(t, c2)
+	require.Equal(t, []byte{0xAB}, c2.GetBytecode())
+}
+
+func TestCodeData_SetBytecodeOverwrite(t *testing.T) {
+	cd := NewCodeData().SetBytecode([]byte{0x01, 0x02, 0x03})
+	cd.SetBytecode([]byte{0xAA})
+	require.Equal(t, []byte{0xAA}, cd.GetBytecode())
+}
+
+func TestCodeData_SetBytecodeNil(t *testing.T) {
+	cd := NewCodeData().SetBytecode([]byte{0x01})
+	cd = cd.SetBytecode(nil)
+	require.Empty(t, cd.GetBytecode())
+	require.True(t, cd.IsDelete())
+}

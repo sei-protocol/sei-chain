@@ -174,6 +174,95 @@ func TestConstantLayout_V0(t *testing.T) {
 	require.Equal(t, 81, accountDataLength)
 }
 
+func TestNilAccountData_Getters(t *testing.T) {
+	var ad *AccountData
+	var zero [32]byte
+
+	require.Equal(t, AccountDataVersion0, ad.GetSerializationVersion())
+	require.Equal(t, int64(0), ad.GetBlockHeight())
+	require.Equal(t, uint64(0), ad.GetNonce())
+	require.Equal(t, (*Balance)(&zero), ad.GetBalance())
+	require.Equal(t, (*CodeHash)(&zero), ad.GetCodeHash())
+}
+
+func TestNilAccountData_IsDelete(t *testing.T) {
+	var ad *AccountData
+	require.True(t, ad.IsDelete())
+}
+
+func TestNilAccountData_Serialize(t *testing.T) {
+	var ad *AccountData
+	s := ad.Serialize()
+	require.Len(t, s, accountDataLength)
+	for _, b := range s {
+		require.Equal(t, byte(0), b)
+	}
+}
+
+func TestNilAccountData_SerializeRoundTrips(t *testing.T) {
+	var ad *AccountData
+	rt, err := DeserializeAccountData(ad.Serialize())
+	require.NoError(t, err)
+	require.True(t, rt.IsDelete())
+}
+
+func TestNilAccountData_Copy(t *testing.T) {
+	var ad *AccountData
+	cp := ad.Copy()
+	require.NotNil(t, cp)
+	require.True(t, cp.IsDelete())
+	require.Len(t, cp.Serialize(), accountDataLength)
+}
+
+func TestNilAccountData_SettersAutoCreate(t *testing.T) {
+	var a1 *AccountData
+	a1 = a1.SetBlockHeight(42)
+	require.NotNil(t, a1)
+	require.Equal(t, int64(42), a1.GetBlockHeight())
+
+	var a2 *AccountData
+	a2 = a2.SetNonce(7)
+	require.NotNil(t, a2)
+	require.Equal(t, uint64(7), a2.GetNonce())
+
+	var a3 *AccountData
+	bal := Balance{0x01}
+	a3 = a3.SetBalance(&bal)
+	require.NotNil(t, a3)
+	require.Equal(t, &bal, a3.GetBalance())
+
+	var a4 *AccountData
+	ch := CodeHash{0x02}
+	a4 = a4.SetCodeHash(&ch)
+	require.NotNil(t, a4)
+	require.Equal(t, &ch, a4.GetCodeHash())
+}
+
+func TestAccountData_CopyIndependence(t *testing.T) {
+	ad := NewAccountData().SetNonce(10).SetBlockHeight(5)
+	cp := ad.Copy()
+
+	cp.SetNonce(99)
+	require.Equal(t, uint64(10), ad.GetNonce(), "original must not change")
+	require.Equal(t, uint64(99), cp.GetNonce())
+}
+
+func TestAccountData_SetBalanceNilZeros(t *testing.T) {
+	ad := NewAccountData().
+		SetBalance(toBalance(leftPad32([]byte{0xff}))).
+		SetBalance(nil)
+	var zero Balance
+	require.Equal(t, &zero, ad.GetBalance())
+}
+
+func TestAccountData_SetCodeHashNilZeros(t *testing.T) {
+	ad := NewAccountData().
+		SetCodeHash(toCodeHash(bytes.Repeat([]byte{0xaa}, 32))).
+		SetCodeHash(nil)
+	var zero CodeHash
+	require.Equal(t, &zero, ad.GetCodeHash())
+}
+
 // leftPad32 returns a 32-byte slice with b right-aligned (big-endian style).
 func leftPad32(b []byte) []byte {
 	padded := make([]byte, 32)

@@ -200,3 +200,77 @@ func TestPAW_SetThenZero(t *testing.T) {
 	result := paw.Merge(base, 10)
 	require.Equal(t, uint64(0), result.GetNonce())
 }
+
+func TestNilPAW_Getters(t *testing.T) {
+	var paw *PendingAccountWrite
+	var zeroBal Balance
+	var zeroHash CodeHash
+
+	require.Equal(t, &zeroBal, paw.GetBalance())
+	require.Equal(t, uint64(0), paw.GetNonce())
+	require.Equal(t, &zeroHash, paw.GetCodeHash())
+}
+
+func TestNilPAW_IsSetFlags(t *testing.T) {
+	var paw *PendingAccountWrite
+	require.False(t, paw.IsBalanceSet())
+	require.False(t, paw.IsNonceSet())
+	require.False(t, paw.IsCodeHashSet())
+}
+
+func TestNilPAW_SettersAutoCreate(t *testing.T) {
+	var p1 *PendingAccountWrite
+	p1 = p1.SetNonce(5)
+	require.NotNil(t, p1)
+	require.Equal(t, uint64(5), p1.GetNonce())
+	require.True(t, p1.IsNonceSet())
+
+	var p2 *PendingAccountWrite
+	bal := Balance{0x01}
+	p2 = p2.SetBalance(&bal)
+	require.NotNil(t, p2)
+	require.Equal(t, &bal, p2.GetBalance())
+	require.True(t, p2.IsBalanceSet())
+
+	var p3 *PendingAccountWrite
+	ch := CodeHash{0x02}
+	p3 = p3.SetCodeHash(&ch)
+	require.NotNil(t, p3)
+	require.Equal(t, &ch, p3.GetCodeHash())
+	require.True(t, p3.IsCodeHashSet())
+}
+
+func TestNilPAW_MergeOntoBase(t *testing.T) {
+	base := NewAccountData().
+		SetBlockHeight(50).
+		SetNonce(10).
+		SetBalance(toBalance(leftPad32([]byte{0xff})))
+
+	var paw *PendingAccountWrite
+	result := paw.Merge(base, 100)
+
+	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(10), result.GetNonce())
+	require.Equal(t, toBalance(leftPad32([]byte{0xff})), result.GetBalance())
+}
+
+func TestNilPAW_MergeOntoNilBase(t *testing.T) {
+	var paw *PendingAccountWrite
+	result := paw.Merge(nil, 100)
+
+	require.NotNil(t, result)
+	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.True(t, result.IsDelete())
+}
+
+func TestPAW_MergeOntoNilBase(t *testing.T) {
+	paw := NewPendingAccountWrite().SetNonce(42)
+	result := paw.Merge(nil, 100)
+
+	require.NotNil(t, result)
+	require.Equal(t, int64(100), result.GetBlockHeight())
+	require.Equal(t, uint64(42), result.GetNonce())
+	var zero [32]byte
+	require.Equal(t, (*Balance)(&zero), result.GetBalance())
+	require.Equal(t, (*CodeHash)(&zero), result.GetCodeHash())
+}
