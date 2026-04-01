@@ -4,9 +4,8 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
-	"testing"
-
 	"math/big"
+	"testing"
 )
 
 const maxBitLen = 256
@@ -59,7 +58,6 @@ func unmarshalText(i *big.Int, text string) error {
 	if err := i.UnmarshalText([]byte(text)); err != nil {
 		return err
 	}
-
 	if i.BitLen() > maxBitLen {
 		return fmt.Errorf("integer out of range: %s", text)
 	}
@@ -274,7 +272,7 @@ func (i Int) Mul(i2 Int) (res Int) {
 	return
 }
 
-// MulRaw multipies Int and int64
+// MulRaw multiplies Int and int64
 func (i Int) MulRaw(i2 int64) Int {
 	return i.Mul(NewInt(i2))
 }
@@ -288,7 +286,7 @@ func (i Int) Quo(i2 Int) (res Int) {
 	return Int{div(i.i, i2.i)}
 }
 
-// QuoRaw divides Int with int64
+// QuoRaw returns the quotient of Int division by int64.
 func (i Int) QuoRaw(i2 int64) Int {
 	return i.Quo(NewInt(i2))
 }
@@ -326,7 +324,7 @@ func MaxInt(i, i2 Int) Int {
 	return Int{max(i.BigInt(), i2.BigInt())}
 }
 
-// Human readable string
+// String returns the string representation of the Int.
 func (i Int) String() string {
 	return i.i.String()
 }
@@ -403,6 +401,11 @@ func (i *Int) MarshalTo(data []byte) (n int, err error) {
 
 // Unmarshal implements the gogo proto custom type interface.
 func (i *Int) Unmarshal(data []byte) error {
+	// maxBitLen is 256, which requires ~78 decimal digits, so 100 is a safe upper
+	// bound (with room for sign).
+	if len(data) > 100 {
+		return fmt.Errorf("integer string too long: got %d, max 100", len(data))
+	}
 	if len(data) == 0 {
 		i = nil
 		return nil

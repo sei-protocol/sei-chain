@@ -90,7 +90,7 @@ func TestSubscribeEmptyLogs(t *testing.T) {
 	// just testing to see that we don't crash when no params are provided
 	for {
 		select {
-		case _ = <-recvCh:
+		case <-recvCh:
 			return
 		case <-timer.C:
 			t.Fatal("No message received within 5 seconds")
