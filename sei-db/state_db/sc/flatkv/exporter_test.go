@@ -11,6 +11,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
@@ -51,8 +52,8 @@ func TestExporterStorageKeys(t *testing.T) {
 	addr := Address{0xAA}
 	slot1 := Slot{0x01}
 	slot2 := Slot{0x02}
-	val1 := []byte{0x11}
-	val2 := []byte{0x22}
+	val1 := padLeft32(0x11)
+	val2 := padLeft32(0x22)
 
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot1))
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
@@ -88,7 +89,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 42}
 
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -159,13 +160,13 @@ func TestExporterRoundTrip(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80}
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -201,19 +202,23 @@ func TestExporterRoundTrip(t *testing.T) {
 	// --- Verify round-trip ---
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found, err := s2.Get(storageKey)
+	require.NoError(t, err)
 	require.True(t, found, "storage key should exist after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found, err = s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "nonce key should exist after import")
 	require.Equal(t, nonceVal, got)
 
-	got, found = s2.Get(codeKey)
+	got, found, err = s2.Get(codeKey)
+	require.NoError(t, err)
 	require.True(t, found, "code key should exist after import")
 	require.Equal(t, codeVal, got)
 
-	got, found = s2.Get(codeHashKey)
+	got, found, err = s2.Get(codeHashKey)
+	require.NoError(t, err)
 	require.True(t, found, "codehash key should exist after import")
 	require.Equal(t, codeHashVal, got)
 
@@ -273,7 +278,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
@@ -324,11 +329,13 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found, err := s2.Get(storageKey)
+	require.NoError(t, err)
 	require.True(t, found, "storage key must survive reopen")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found, err = s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "nonce key must survive reopen")
 	require.Equal(t, nonceVal, got)
 
@@ -371,14 +378,14 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrStale[:])
 
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 	codeVal := []byte{0x60, 0x80}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
-			{Key: storageA, Value: []byte{0x0A}},
-			{Key: storageStale, Value: []byte{0x0C}},
+			{Key: storageA, Value: padLeft32(0x0A)},
+			{Key: storageStale, Value: padLeft32(0x0C)},
 			{Key: nonceA, Value: nonceVal},
 			{Key: nonceStale, Value: nonceVal},
 			{Key: codeHashB, Value: codeHashVal},
@@ -391,8 +398,10 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	staleKeys := [][]byte{storageStale, nonceStale, codeHashStale, codeStale}
 
+	var found bool
 	for _, k := range staleKeys {
-		_, found := s.Get(k)
+		_, found, err = s.Get(k)
+		require.NoError(t, err)
 		require.True(t, found, "pre-import: key should exist")
 	}
 
@@ -400,9 +409,9 @@ func TestImportPurgesStaleData(t *testing.T) {
 	src := setupTestStore(t)
 	defer src.Close()
 
-	newStorageVal := []byte{0xA1}
+	newStorageVal := padLeft32(0xA1)
 	newNonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 5}
-	newCodeHashVal := make([]byte, CodeHashLen)
+	newCodeHashVal := make([]byte, vtype.CodeHashLen)
 	newCodeHashVal[31] = 0xCD
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
@@ -439,24 +448,30 @@ func TestImportPurgesStaleData(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	// --- Phase 4: verify stale keys are gone across all DB types ---
-	got, found := s.Get(storageA)
+	var got []byte
+	got, found, err = s.Get(storageA)
+	require.NoError(t, err)
 	require.True(t, found, "storage key A should exist")
 	require.Equal(t, newStorageVal, got)
 
-	got, found = s.Get(nonceA)
+	got, found, err = s.Get(nonceA)
+	require.NoError(t, err)
 	require.True(t, found, "nonce key A should exist")
 	require.Equal(t, newNonceVal, got)
 
-	got, found = s.Get(codeB)
+	got, found, err = s.Get(codeB)
+	require.NoError(t, err)
 	require.True(t, found, "code key B should exist")
 	require.Equal(t, newCodeVal, got)
 
-	got, found = s.Get(codeHashB)
+	got, found, err = s.Get(codeHashB)
+	require.NoError(t, err)
 	require.True(t, found, "codehash key B should exist")
 	require.Equal(t, newCodeHashVal, got)
 
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found, err = s.Get(k)
+		require.NoError(t, err)
 		require.False(t, found, "stale key should NOT exist after import")
 	}
 
@@ -472,7 +487,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	require.Equal(t, int64(1), s.Version())
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found, err = s.Get(k)
+		require.NoError(t, err)
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
 	require.Equal(t, srcHash, s.RootHash())

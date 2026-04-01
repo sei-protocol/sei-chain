@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // dbIterator is a generic iterator that wraps a PebbleDB iterator
@@ -226,7 +227,18 @@ func (it *dbIterator) Value() []byte {
 	if !it.Valid() {
 		return nil
 	}
-	return it.iter.Value()
+	raw := it.iter.Value()
+	switch it.kind {
+	case evm.EVMKeyStorage:
+		sd, err := vtype.DeserializeStorageData(raw)
+		if err != nil {
+			it.err = fmt.Errorf("deserialize storage value: %w", err)
+			return nil
+		}
+		return sd.GetValue()[:]
+	default:
+		return raw
+	}
 }
 
 // CommitStore factory methods for creating iterators

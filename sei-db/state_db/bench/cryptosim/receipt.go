@@ -7,6 +7,7 @@ import (
 	"hash"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/crypto/sha3"
 )
@@ -43,7 +44,7 @@ var erc20TransferEventSignatureBytes = [hashLen]byte{
 
 // BuildERC20TransferReceiptFromTxn produces a plausible successful ERC20 transfer receipt from a transaction.
 func BuildERC20TransferReceiptFromTxn(
-	crand *CannedRandom,
+	crand *rand.CannedRandom,
 	feeCollectionAccount []byte,
 	blockNumber uint64,
 	txIndex uint32,
@@ -67,7 +68,7 @@ func BuildERC20TransferReceiptFromTxn(
 // ERC20 balances as storage slots rather than separate account references. The caller supplies the block number and tx
 // index so the resulting receipt can line up with the simulated block being benchmarked.
 func BuildERC20TransferReceipt(
-	crand *CannedRandom,
+	crand *rand.CannedRandom,
 	feeCollectionAccount []byte,
 	srcAccount []byte,
 	dstAccount []byte,

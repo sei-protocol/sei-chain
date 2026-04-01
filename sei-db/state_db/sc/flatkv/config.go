@@ -95,6 +95,10 @@ type Config struct {
 	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
+
+	// If true, FlatKV will return an error if it encounters an unsupported key type. Otherwise,
+	// it will log a warning and continue.
+	StrictKeyTypeCheck bool
 }
 
 // DefaultConfig returns Config with safe default values.
@@ -120,6 +124,7 @@ func DefaultConfig() *Config {
 		ReaderPoolQueueSize:       1024,
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
+		StrictKeyTypeCheck:        true,
 	}
 
 	cfg.AccountCacheConfig.MaxSize = unit.GB

@@ -18,6 +18,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
@@ -52,27 +53,6 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
-// pendingKVWrite tracks a buffered key-value write for code/storage DBs.
-type pendingKVWrite struct {
-	key      []byte // Internal DB key
-	value    []byte
-	isDelete bool
-}
-
-// pendingAccountWrite tracks a buffered account write.
-// Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
-//
-// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
-// individual field within value. When all fields become zero after resets,
-// isDelete is set to true and the accountDB row is physically deleted at
-// commit time. Any subsequent write to the same address within the same
-// block clears isDelete back to false (row is recreated).
-type pendingAccountWrite struct {
-	addr     Address
-	value    AccountValue
-	isDelete bool // true = row will be physically deleted (all fields zero)
-}
-
 // CommitStore implements flatkv.Store for EVM state storage.
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
@@ -83,10 +63,10 @@ type CommitStore struct {
 
 	// Five separate PebbleDB instances
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
-	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
-	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
+	accountDB  seidbtypes.KeyValueDB // addr(20) → vtype.AccountData
+	codeDB     seidbtypes.KeyValueDB // addr(20) → vtype.CodeData
+	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → vtype.StorageData
+	legacyDB   seidbtypes.KeyValueDB // key → vtype.LegacyValue
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
@@ -102,14 +82,14 @@ type CommitStore struct {
 	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
-	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
-	accountWrites map[string]*pendingAccountWrite
-	codeWrites    map[string]*pendingKVWrite
-	storageWrites map[string]*pendingKVWrite
-	legacyWrites  map[string]*pendingKVWrite
+	accountWrites map[string]*vtype.AccountData
+	codeWrites    map[string]*vtype.CodeData
+	storageWrites map[string]*vtype.StorageData
+	legacyWrites  map[string]*vtype.LegacyData
 
-	changelog         wal.ChangelogWAL
+	changelog wal.ChangelogWAL
+
+	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
 	lastSnapshotTime time.Time
@@ -168,10 +148,10 @@ func NewCommitStore(
 		cancel:             cancel,
 		config:             *cfg,
 		localMeta:          make(map[string]*LocalMeta),
-		accountWrites:      make(map[string]*pendingAccountWrite),
-		codeWrites:         make(map[string]*pendingKVWrite),
-		storageWrites:      make(map[string]*pendingKVWrite),
-		legacyWrites:       make(map[string]*pendingKVWrite),
+		accountWrites:      make(map[string]*vtype.AccountData),
+		codeWrites:         make(map[string]*vtype.CodeData),
+		storageWrites:      make(map[string]*vtype.StorageData),
+		legacyWrites:       make(map[string]*vtype.LegacyData),
 		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),

@@ -8,6 +8,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -154,18 +155,18 @@ func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*type
 	case exportDBAccount:
 		return e.accountToNodes(key, value)
 	case exportDBCode:
-		return e.codeToNodes(key, value), nil
+		return e.codeToNodes(key, value)
 	case exportDBStorage:
-		return e.storageToNodes(key, value), nil
+		return e.storageToNodes(key, value)
 	case exportDBLegacy:
-		return e.legacyToNodes(key, value), nil
+		return e.legacyToNodes(key, value)
 	default:
 		return nil, nil
 	}
 }
 
 func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	av, err := DecodeAccountValue(value)
+	ad, err := vtype.DeserializeAccountData(value)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt account entry key=%x: %w", key, err)
 	}
@@ -173,8 +174,8 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 	var nodes []*types.SnapshotNode
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, key)
-	nonceValue := make([]byte, NonceLen)
-	binary.BigEndian.PutUint64(nonceValue, av.Nonce)
+	nonceValue := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonceValue, ad.GetNonce())
 	nodes = append(nodes, &types.SnapshotNode{
 		Key:     nonceKey,
 		Value:   nonceValue,
@@ -182,10 +183,12 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 		Height:  0,
 	})
 
-	if av.HasCode() {
+	codeHash := ad.GetCodeHash()
+	var zeroHash vtype.CodeHash
+	if codeHash != nil && *codeHash != zeroHash {
 		codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, key)
-		codeHashValue := make([]byte, CodeHashLen)
-		copy(codeHashValue, av.CodeHash[:])
+		codeHashValue := make([]byte, vtype.CodeHashLen)
+		copy(codeHashValue, codeHash[:])
 		nodes = append(nodes, &types.SnapshotNode{
 			Key:     codeHashKey,
 			Value:   codeHashValue,
@@ -197,31 +200,43 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 	return nodes, nil
 }
 
-func (e *KVExporter) codeToNodes(key, value []byte) []*types.SnapshotNode {
+func (e *KVExporter) codeToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	codeData, err := vtype.DeserializeCodeData(value)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt code entry key=%x: %w", key, err)
+	}
 	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, key)
 	return []*types.SnapshotNode{{
 		Key:     memiavlKey,
-		Value:   value,
+		Value:   codeData.GetBytecode(),
 		Version: e.version,
 		Height:  0,
-	}}
+	}}, nil
 }
 
-func (e *KVExporter) storageToNodes(key, value []byte) []*types.SnapshotNode {
+func (e *KVExporter) storageToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	storageData, err := vtype.DeserializeStorageData(value)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt storage entry key=%x: %w", key, err)
+	}
 	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, key)
 	return []*types.SnapshotNode{{
 		Key:     memiavlKey,
-		Value:   value,
+		Value:   storageData.GetValue()[:],
 		Version: e.version,
 		Height:  0,
-	}}
+	}}, nil
 }
 
-func (e *KVExporter) legacyToNodes(key, value []byte) []*types.SnapshotNode {
+func (e *KVExporter) legacyToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	legacyData, err := vtype.DeserializeLegacyData(value)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt legacy entry key=%x: %w", key, err)
+	}
 	return []*types.SnapshotNode{{
 		Key:     key,
-		Value:   value,
+		Value:   legacyData.GetValue(),
 		Version: e.version,
 		Height:  0,
-	}}
+	}}, nil
 }
