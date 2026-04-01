@@ -40,11 +40,11 @@ func (m *AppProposal) Next() RoadIndex {
 }
 
 // Verify verifies that the AppProposal is consistent with the CommitQC.
-func (m *AppProposal) Verify(qc *CommitQC) error {
+func (m *AppProposal) Verify(c *Committee, qc *CommitQC) error {
 	if got, want := m.RoadIndex(), qc.Proposal().Index(); got != want {
 		return fmt.Errorf("roadIndex() = %v, want %v", got, want)
 	}
-	if got, want := m.GlobalNumber(), qc.GlobalRange(); got < want.First || got >= want.Next {
+	if got, want := m.GlobalNumber(), qc.GlobalRange(c); got < want.First || got >= want.Next {
 		return fmt.Errorf("globalNumber() = %v, want in range [%v,%v)", got, want.First, want.Next)
 	}
 	return nil
