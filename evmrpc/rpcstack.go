@@ -358,6 +358,8 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 }
 
 // stopWS disables JSON-RPC over WebSocket and also stops the server if it only serves WebSocket.
+//
+//lint:ignore U1000 lifecycle method retained for completeness
 func (h *HTTPServer) stopWS() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
