@@ -98,13 +98,10 @@ func (c *cache) BatchSet(updates []CacheUpdate) error {
 	var wg sync.WaitGroup
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
-		err := c.miscPool.Submit(c.ctx, func() {
+		c.miscPool.Submit(func() {
 			defer wg.Done()
 			c.shards[shardIndex].BatchSet(shardEntries)
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit batch set: %w", err)
-		}
 	}
 	wg.Wait()
 
@@ -124,8 +121,7 @@ func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 	var wg sync.WaitGroup
 	for shardIndex, subMap := range work {
 		wg.Add(1)
-
-		err := c.miscPool.Submit(c.ctx, func() {
+		c.miscPool.Submit(func() {
 			defer wg.Done()
 			err := c.shards[shardIndex].BatchGet(read, subMap)
 			if err != nil {
@@ -134,9 +130,6 @@ func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 				}
 			}
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 	wg.Wait()
 

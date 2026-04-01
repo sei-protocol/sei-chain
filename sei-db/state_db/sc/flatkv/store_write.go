@@ -324,13 +324,10 @@ func (s *CommitStore) flushAllDBs() error {
 	var wg sync.WaitGroup
 	wg.Add(4)
 	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
-		err := s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			defer wg.Done()
 			errs[i] = db.Flush()
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit flush: %w", err)
-		}
 	}
 	wg.Wait()
 	names := [4]string{"accountDB", "codeDB", "storageDB", "legacyDB"}
@@ -438,13 +435,10 @@ func (s *CommitStore) commitBatches(version int64) error {
 	var wg sync.WaitGroup
 	wg.Add(len(pending))
 	for i, p := range pending {
-		err := s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			errs[i] = p.batch.Commit(syncOpt)
 			wg.Done()
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit commit: %w", err)
-		}
 	}
 	wg.Wait()
 
@@ -561,46 +555,34 @@ func (s *CommitStore) batchReadOldValues(cs []*proto.NamedChangeSet) (
 
 	if len(storageBatch) > 0 {
 		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			defer wg.Done()
 			storageErr = s.storageDB.BatchGet(storageBatch)
 		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 
 	if len(accountBatch) > 0 {
 		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			defer wg.Done()
 			accountErr = s.accountDB.BatchGet(accountBatch)
 		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 
 	if len(codeBatch) > 0 {
 		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			defer wg.Done()
 			codeErr = s.codeDB.BatchGet(codeBatch)
 		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 
 	if len(legacyBatch) > 0 {
 		wg.Add(1)
-		err = s.miscPool.Submit(s.ctx, func() {
+		s.miscPool.Submit(func() {
 			defer wg.Done()
 			legacyErr = s.legacyDB.BatchGet(legacyBatch)
 		})
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 
 	wg.Wait()

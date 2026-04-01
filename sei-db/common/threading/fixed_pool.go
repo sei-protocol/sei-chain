@@ -1,9 +1,6 @@
 package threading
 
-import (
-	"context"
-	"fmt"
-)
+import "sync"
 
 var _ Pool = (*fixedPool)(nil)
 
@@ -11,13 +8,13 @@ var _ Pool = (*fixedPool)(nil)
 // More efficient than spawning large numbers of short lived goroutines.
 type fixedPool struct {
 	workQueue chan func()
-	ctx       context.Context
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	closed    bool
 }
 
 // Create a new work pool.
 func NewFixedPool(
-	// The work pool shuts down when the context is done.
-	ctx context.Context,
 	// The name of the work pool. Used for metrics.
 	name string,
 	// The number of workers to create.
@@ -33,45 +30,39 @@ func NewFixedPool(
 	workQueue := make(chan func(), queueSize)
 	fp := &fixedPool{
 		workQueue: workQueue,
-		ctx:       ctx,
 	}
 
+	fp.wg.Add(workers)
 	for i := 0; i < workers; i++ {
-		go fp.worker()
+		go func() {
+			defer fp.wg.Done()
+			fp.worker()
+		}()
 	}
-
-	go func() {
-		<-ctx.Done()
-		// Send a nil sentinel to each worker. Because nils are enqueued behind any
-		// buffered tasks, every previously-submitted task is guaranteed to complete
-		// before workers exit.
-		for i := 0; i < workers; i++ {
-			workQueue <- nil
-		}
-	}()
 
 	return fp
 }
 
-func (fp *fixedPool) Submit(ctx context.Context, task func()) error {
+func (fp *fixedPool) Submit(task func()) {
 	if task == nil {
-		return fmt.Errorf("fixed pool: nil task")
+		return
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-fp.ctx.Done():
-		return fmt.Errorf("fixed pool is shut down")
-	case fp.workQueue <- task:
-		return nil
+	if fp.closed {
+		panic("threading: submit on closed pool")
 	}
+	fp.workQueue <- task
+}
+
+func (fp *fixedPool) Close() {
+	fp.closed = true
+	fp.closeOnce.Do(func() {
+		close(fp.workQueue)
+	})
+	fp.wg.Wait()
 }
 
 func (fp *fixedPool) worker() {
 	for task := range fp.workQueue {
-		if task == nil {
-			return
-		}
 		task()
 	}
 }

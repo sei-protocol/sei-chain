@@ -158,10 +158,10 @@ func NewCommitStore(
 	coreCount := runtime.NumCPU()
 
 	readPoolSize := int(cfg.ReaderThreadsPerCore*float64(coreCount) + float64(cfg.ReaderConstantThreadCount))
-	readPool := threading.NewFixedPool(ctx, "flatkv-read", readPoolSize, cfg.ReaderPoolQueueSize)
+	readPool := threading.NewFixedPool("flatkv-read", readPoolSize, cfg.ReaderPoolQueueSize)
 
 	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
-	miscPool := threading.NewElasticPool(ctx, "flatkv-misc", miscPoolSize)
+	miscPool := threading.NewElasticPool("flatkv-misc", miscPoolSize)
 
 	return &CommitStore{
 		ctx:                ctx,
@@ -189,10 +189,10 @@ func (s *CommitStore) resetPools() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	readPoolSize := int(s.config.ReaderThreadsPerCore*float64(coreCount) + float64(s.config.ReaderConstantThreadCount))
-	s.readPool = threading.NewFixedPool(s.ctx, "flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
+	s.readPool = threading.NewFixedPool("flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
 
 	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
-	s.miscPool = threading.NewElasticPool(s.ctx, "flatkv-misc", miscPoolSize)
+	s.miscPool = threading.NewElasticPool("flatkv-misc", miscPoolSize)
 }
 
 func (s *CommitStore) flatkvDir() string {
