@@ -1,425 +1,236 @@
 package pebbledb
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cockroachdb/pebble/v2"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-func TestDBGetSetDelete(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
+// forEachCacheMode runs fn once with a warm cache and once with caching disabled,
+// so cache-sensitive tests exercise both the cache and the raw storage layer.
+func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig)) {
+	for _, mode := range []struct {
+		name      string
+		cacheSize uint64
+	}{
+		{"cached", 16 * unit.MB},
+		{"uncached", 0},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			cfg := DefaultTestConfig(t)
+			cacheCfg := DefaultTestCacheConfig()
+			cacheCfg.MaxSize = mode.cacheSize
+			fn(t, cfg, cacheCfg)
+		})
 	}
+}
+
+func openDB(t *testing.T, cfg *PebbleDBConfig, cacheCfg *dbcache.CacheConfig) types.KeyValueDB {
+	t.Helper()
+	db, err := OpenWithCache(t.Context(), cfg, cacheCfg,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return db
+}
 
-	key := []byte("k1")
-	val := []byte("v1")
+// ---------------------------------------------------------------------------
+// Cache-sensitive tests — run in both cached and uncached modes
+// ---------------------------------------------------------------------------
 
-	_, err = db.Get(key)
-	if err != errorutils.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
-	}
+func TestDBGetSetDelete(t *testing.T) {
+	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
+		db := openDB(t, &cfg, &cacheCfg)
 
-	if err := db.Set(key, val, types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
+		key := []byte("k1")
+		val := []byte("v1")
 
-	got, err := db.Get(key)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if !bytes.Equal(got, val) {
-		t.Fatalf("value mismatch: got %q want %q", got, val)
-	}
+		_, err := db.Get(key)
+		require.ErrorIs(t, err, errorutils.ErrNotFound)
 
-	if err := db.Delete(key, types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
+		require.NoError(t, db.Set(key, val, types.WriteOptions{Sync: false}))
 
-	_, err = db.Get(key)
-	if err != errorutils.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after delete, got %v", err)
-	}
+		got, err := db.Get(key)
+		require.NoError(t, err)
+		require.Equal(t, val, got)
+
+		require.NoError(t, db.Delete(key, types.WriteOptions{Sync: false}))
+
+		_, err = db.Get(key)
+		require.ErrorIs(t, err, errorutils.ErrNotFound)
+	})
 }
 
 func TestBatchAtomicWrite(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
+		db := openDB(t, &cfg, &cacheCfg)
 
-	b := db.NewBatch()
-	t.Cleanup(func() { require.NoError(t, b.Close()) })
+		b := db.NewBatch()
+		t.Cleanup(func() { require.NoError(t, b.Close()) })
 
-	if err := b.Set([]byte("a"), []byte("1")); err != nil {
-		t.Fatalf("batch set: %v", err)
-	}
-	if err := b.Set([]byte("b"), []byte("2")); err != nil {
-		t.Fatalf("batch set: %v", err)
-	}
+		require.NoError(t, b.Set([]byte("a"), []byte("1")))
+		require.NoError(t, b.Set([]byte("b"), []byte("2")))
+		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
 
-	if err := b.Commit(types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("batch commit: %v", err)
-	}
-
-	for _, tc := range []struct {
-		k string
-		v string
-	}{
-		{"a", "1"},
-		{"b", "2"},
-	} {
-		got, err := db.Get([]byte(tc.k))
-		if err != nil {
-			t.Fatalf("Get(%q): %v", tc.k, err)
+		for _, tc := range []struct{ k, v string }{{"a", "1"}, {"b", "2"}} {
+			got, err := db.Get([]byte(tc.k))
+			require.NoError(t, err, "key=%q", tc.k)
+			require.Equal(t, tc.v, string(got), "key=%q", tc.k)
 		}
-		if string(got) != tc.v {
-			t.Fatalf("Get(%q)=%q want %q", tc.k, got, tc.v)
-		}
-	}
+	})
 }
 
-func TestIteratorBounds(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+func TestErrNotFoundConsistency(t *testing.T) {
+	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
+		db := openDB(t, &cfg, &cacheCfg)
 
-	// Keys: a, b, c
+		_, err := db.Get([]byte("missing-key"))
+		require.Error(t, err)
+		require.ErrorIs(t, err, errorutils.ErrNotFound)
+		require.True(t, errorutils.IsNotFound(err))
+	})
+}
+
+func TestGetReturnsCopy(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cacheCfg := DefaultTestCacheConfig()
+	cacheCfg.MaxSize = 0
+	db := openDB(t, &cfg, &cacheCfg)
+
+	require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
+
+	got, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	got[0] = 'X'
+
+	got2, err := db.Get([]byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, "v", string(got2), "stored value should remain unchanged")
+}
+
+func TestBatchLenResetDelete(t *testing.T) {
+	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
+		db := openDB(t, &cfg, &cacheCfg)
+
+		require.NoError(t, db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}))
+
+		b := db.NewBatch()
+		t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+		initialLen := b.Len()
+
+		require.NoError(t, b.Set([]byte("a"), []byte("1")))
+		require.NoError(t, b.Delete([]byte("to-delete")))
+		require.Greater(t, b.Len(), initialLen)
+
+		b.Reset()
+		require.Equal(t, initialLen, b.Len())
+
+		require.NoError(t, b.Set([]byte("b"), []byte("2")))
+		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
+
+		got, err := db.Get([]byte("b"))
+		require.NoError(t, err)
+		require.Equal(t, "2", string(got))
+	})
+}
+
+func TestFlush(t *testing.T) {
+	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
+		db := openDB(t, &cfg, &cacheCfg)
+
+		require.NoError(t, db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}))
+		require.NoError(t, db.Flush())
+
+		got, err := db.Get([]byte("flush-test"))
+		require.NoError(t, err)
+		require.Equal(t, "val", string(got))
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Cache-irrelevant tests — iterators and lifecycle, run once
+// ---------------------------------------------------------------------------
+
+func TestIteratorBounds(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cacheCfg := DefaultTestCacheConfig()
+	db := openDB(t, &cfg, &cacheCfg)
+
 	for _, k := range []string{"a", "b", "c"} {
-		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
-			t.Fatalf("Set(%q): %v", k, err)
-		}
+		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
 	}
 
 	itr, err := db.NewIter(&types.IterOptions{LowerBound: []byte("b"), UpperBound: []byte("d")})
-	if err != nil {
-		t.Fatalf("NewIter: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	var keys []string
 	for ok := itr.First(); ok && itr.Valid(); ok = itr.Next() {
 		keys = append(keys, string(itr.Key()))
 	}
-	if err := itr.Error(); err != nil {
-		t.Fatalf("iter error: %v", err)
-	}
-	// LowerBound inclusive => includes b; UpperBound exclusive => includes c (d not present anyway)
-	if len(keys) != 2 || keys[0] != "b" || keys[1] != "c" {
-		t.Fatalf("unexpected keys: %v", keys)
-	}
+	require.NoError(t, itr.Error())
+	require.Equal(t, []string{"b", "c"}, keys)
 }
 
 func TestIteratorPrev(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	cfg := DefaultTestConfig(t)
+	cacheCfg := DefaultTestCacheConfig()
+	db := openDB(t, &cfg, &cacheCfg)
 
-	// Keys: a, b, c
 	for _, k := range []string{"a", "b", "c"} {
-		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
-			t.Fatalf("Set(%q): %v", k, err)
-		}
+		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
 	}
 
 	itr, err := db.NewIter(nil)
-	if err != nil {
-		t.Fatalf("NewIter: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
-	if !itr.Last() || !itr.Valid() {
-		t.Fatalf("expected Last() to position iterator")
-	}
-	if string(itr.Key()) != "c" {
-		t.Fatalf("expected key=c at Last(), got %q", itr.Key())
-	}
+	require.True(t, itr.Last())
+	require.True(t, itr.Valid())
+	require.Equal(t, "c", string(itr.Key()))
 
-	if !itr.Prev() || !itr.Valid() {
-		t.Fatalf("expected Prev() to succeed")
-	}
-	if string(itr.Key()) != "b" {
-		t.Fatalf("expected key=b after Prev(), got %q", itr.Key())
-	}
-}
-
-func TestIteratorNextPrefixWithComparerSplit(t *testing.T) {
-	// Use a custom comparer with Split that treats everything up to (and including) '/'
-	// as the "prefix" for NextPrefix() / prefix-based skipping.
-	cmp := *pebble.DefaultComparer
-	cmp.Name = "sei-db/test-split-on-slash"
-	cmp.Split = func(k []byte) int {
-		for i, b := range k {
-			if b == '/' {
-				return i + 1
-			}
-		}
-		return len(k)
-	}
-	// NextPrefix relies on Comparer.ImmediateSuccessor to compute a key that is
-	// guaranteed to be greater than all keys sharing the current prefix.
-	// pebble.DefaultComparer.ImmediateSuccessor appends 0x00, which is not
-	// sufficient for our "prefix ends at '/'" convention (e.g. "a/\x00" < "a/2").
-	// We provide an ImmediateSuccessor that increments the last byte (from the end)
-	// to produce a prefix upper bound (e.g. "a/" -> "a0").
-	cmp.ImmediateSuccessor = func(dst, a []byte) []byte {
-		for i := len(a) - 1; i >= 0; i-- {
-			if a[i] != 0xff {
-				dst = append(dst, a[:i+1]...)
-				dst[len(dst)-1]++
-				return dst
-			}
-		}
-		return append(dst, a...)
-	}
-
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{Comparer: &cmp}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	for _, k := range []string{"a/1", "a/2", "a/3", "b/1"} {
-		if err := db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}); err != nil {
-			t.Fatalf("Set(%q): %v", k, err)
-		}
-	}
-
-	itr, err := db.NewIter(nil)
-	if err != nil {
-		t.Fatalf("NewIter: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, itr.Close()) })
-
-	if !itr.SeekGE([]byte("a/")) || !itr.Valid() {
-		t.Fatalf("expected SeekGE(a/) to be valid")
-	}
-	if !bytes.HasPrefix(itr.Key(), []byte("a/")) {
-		t.Fatalf("expected key with prefix a/, got %q", itr.Key())
-	}
-
-	if !itr.NextPrefix() || !itr.Valid() {
-		t.Fatalf("expected NextPrefix() to move to next prefix")
-	}
-	if string(itr.Key()) != "b/1" {
-		t.Fatalf("expected key=b/1 after NextPrefix(), got %q", itr.Key())
-	}
-}
-
-func TestOpenOptionsComparerTypeCheck(t *testing.T) {
-	dir := t.TempDir()
-	_, err := Open(t.Context(), dir, types.OpenOptions{Comparer: "not-a-pebble-comparer"}, false)
-	if err == nil {
-		t.Fatalf("expected error for invalid comparer type")
-	}
-}
-
-func TestErrNotFoundConsistency(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	// Test that Get on missing key returns ErrNotFound
-	_, err = db.Get([]byte("missing-key"))
-	if err == nil {
-		t.Fatalf("expected error for missing key")
-	}
-
-	// Test that error is ErrNotFound
-	if err != errorutils.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
-	}
-
-	// Test that IsNotFound helper works
-	if !errorutils.IsNotFound(err) {
-		t.Fatalf("IsNotFound should return true for ErrNotFound")
-	}
-}
-
-func TestGetReturnsCopy(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	key := []byte("k")
-	val := []byte("v")
-	if err := db.Set(key, val, types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	got, err := db.Get(key)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	// Modify returned slice; should not affect stored value if Get returns a copy.
-	got[0] = 'X'
-
-	got2, err := db.Get(key)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if string(got2) != "v" {
-		t.Fatalf("expected stored value to remain unchanged, got %q", got2)
-	}
-}
-
-func TestBatchLenResetDelete(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	// First, set a key so we can delete it
-	if err := db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	b := db.NewBatch()
-	t.Cleanup(func() { require.NoError(t, b.Close()) })
-
-	// Record initial batch len (Pebble batch always has a header, so may not be 0)
-	initialLen := b.Len()
-
-	// Add some operations
-	if err := b.Set([]byte("a"), []byte("1")); err != nil {
-		t.Fatalf("batch set: %v", err)
-	}
-	if err := b.Delete([]byte("to-delete")); err != nil {
-		t.Fatalf("batch delete: %v", err)
-	}
-
-	// Len should increase after operations (Pebble Len() returns bytes, not count)
-	if b.Len() <= initialLen {
-		t.Fatalf("expected Len() to increase after operations, got %d (initial %d)", b.Len(), initialLen)
-	}
-
-	// Reset should clear the batch back to initial state
-	b.Reset()
-	if b.Len() != initialLen {
-		t.Fatalf("expected Len()=%d after Reset, got %d", initialLen, b.Len())
-	}
-
-	// Add and commit
-	if err := b.Set([]byte("b"), []byte("2")); err != nil {
-		t.Fatalf("batch set: %v", err)
-	}
-	if err := b.Commit(types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("batch commit: %v", err)
-	}
-
-	// Verify "b" was written
-	got, err := db.Get([]byte("b"))
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if string(got) != "2" {
-		t.Fatalf("expected '2', got %q", got)
-	}
+	require.True(t, itr.Prev())
+	require.True(t, itr.Valid())
+	require.Equal(t, "b", string(itr.Key()))
 }
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	cfg := DefaultTestConfig(t)
+	cacheCfg := DefaultTestCacheConfig()
+	db := openDB(t, &cfg, &cacheCfg)
 
-	// Insert keys: a, b, c with values
 	for _, kv := range []struct{ k, v string }{
 		{"a", "val-a"},
 		{"b", "val-b"},
 		{"c", "val-c"},
 	} {
-		if err := db.Set([]byte(kv.k), []byte(kv.v), types.WriteOptions{Sync: false}); err != nil {
-			t.Fatalf("Set(%q): %v", kv.k, err)
-		}
+		require.NoError(t, db.Set([]byte(kv.k), []byte(kv.v), types.WriteOptions{Sync: false}))
 	}
 
 	itr, err := db.NewIter(nil)
-	if err != nil {
-		t.Fatalf("NewIter: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
-	// SeekLT("c") should position at "b"
-	if !itr.SeekLT([]byte("c")) || !itr.Valid() {
-		t.Fatalf("expected SeekLT(c) to be valid")
-	}
-	if string(itr.Key()) != "b" {
-		t.Fatalf("expected key=b after SeekLT(c), got %q", itr.Key())
-	}
-	if string(itr.Value()) != "val-b" {
-		t.Fatalf("expected value=val-b, got %q", itr.Value())
-	}
-}
-
-func TestFlush(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	// Set some data
-	if err := db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	// Flush should succeed
-	if err := db.Flush(); err != nil {
-		t.Fatalf("Flush: %v", err)
-	}
-
-	// Data should still be readable
-	got, err := db.Get([]byte("flush-test"))
-	if err != nil {
-		t.Fatalf("Get after flush: %v", err)
-	}
-	if string(got) != "val" {
-		t.Fatalf("expected 'val', got %q", got)
-	}
+	require.True(t, itr.SeekLT([]byte("c")))
+	require.True(t, itr.Valid())
+	require.Equal(t, "b", string(itr.Key()))
+	require.Equal(t, "val-b", string(itr.Value()))
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	db, err := Open(t.Context(), dir, types.OpenOptions{}, false)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	cfg := DefaultTestConfig(t)
+	cacheCfg := DefaultTestCacheConfig()
+	db, err := OpenWithCache(t.Context(), &cfg, &cacheCfg,
+		threading.NewAdHocPool(), threading.NewAdHocPool())
+	require.NoError(t, err)
 
-	// First close should succeed
-	if err := db.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
-
-	// Second close should be idempotent (no panic, returns nil)
-	if err := db.Close(); err != nil {
-		t.Fatalf("second Close should return nil, got: %v", err)
-	}
+	require.NoError(t, db.Close())
+	require.NoError(t, db.Close(), "second Close should be idempotent")
 }
