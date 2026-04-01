@@ -1,10 +1,8 @@
 package avail
 
 import (
-	"testing"
-	"time"
-
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -16,50 +14,45 @@ import (
 func TestPruneMismatchedIndices(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 4)
-	initialBlock := committee.FirstBlock()
-	ds := data.NewState(&data.Config{
-		Committee: committee,
-	}, utils.None[data.BlockStore]())
-	state, err := NewState(keys[0], ds, utils.None[string]())
-	require.NoError(t, err)
 
-	makeQC := func(_ types.RoadIndex, prev utils.Option[*types.CommitQC]) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev}
-		fullProposal := utils.OrPanic1(types.NewProposal(
-			leaderKey(committee, keys, vs.View()),
-			committee,
-			vs,
-			time.Now(),
-			nil,
-			utils.None[*types.AppQC](),
-		))
-		vote := types.NewCommitVote(fullProposal.Proposal().Msg())
-		var votes []*types.Signed[*types.CommitVote]
-		for _, k := range keys {
-			votes = append(votes, types.Sign(k, vote))
+	makeCommitQC := func(prev utils.Option[*types.CommitQC]) *types.CommitQC {
+		l := keys[0].Public()
+		lr := types.LaneRangeOpt(prev, l)
+		b := types.NewBlock(l, lr.Next(), lr.LastHash(), types.GenPayload(rng))
+		lqcs := map[types.LaneID]*types.LaneQC{
+			l: types.NewLaneQC(makeLaneVotes(keys, b.Header())),
 		}
-		return types.NewCommitQC(votes)
+		return makeCommitQC(committee, keys, prev, lqcs, utils.None[*types.AppQC]())
+	}
+	makeAppQC := func(qcForRange *types.CommitQC, qcForIndex *types.CommitQC) *types.AppQC {
+		gr := qcForRange.GlobalRange(committee)
+		require.True(t, gr.Len() > 0)
+		ap := types.NewAppProposal(gr.First, qcForIndex.Index(), types.GenAppHash(rng))
+		return types.NewAppQC(makeAppVotes(keys, ap))
 	}
 
-	qc0 := makeQC(0, utils.None[*types.CommitQC]())
-	_ = makeQC(1, utils.Some(qc0)) // show we can generate index 1
+	qc0 := makeCommitQC(utils.None[*types.CommitQC]())
+	qc1 := makeCommitQC(utils.Some(qc0))
 
-	// Create an AppQC for index 1
-	appProposal1 := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
-	appQC1 := types.NewAppQC(makeAppVotes(keys, appProposal1))
+	t.Logf("test State.PushAppQC")
+	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
+	require.Error(t, state.PushAppQC(makeAppQC(qc1, qc0), qc1), "good range, bad index should fail")
+	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc1), qc1), "bad range, good index should fail")
+	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
 
-	// Now call PushAppQC with appQC1 (index 1) and qc0 (index 0)
-	err = state.PushAppQC(appQC1, qc0)
-	require.Error(t, err)
-
-	// Get the inner state
+	t.Logf("test inner.prune")
+	ds = data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	state, err = NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		// Now call prune with mismatched QCs directly to test the safety check
-		updated, err := inner.prune(committee, appQC1, qc0)
-
-		require.Error(t, err)
-		require.False(t, updated, "prune should not update for mismatched indices")
+		_, err := inner.prune(committee, makeAppQC(qc1, qc0), qc1)
+		require.Error(t, err, "good range, bad index should fail")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
+		_, err = inner.prune(committee, makeAppQC(qc1, qc1), qc1)
+		require.NoError(t, err, "good range, good index should succeed")
 	}
 }
 
@@ -247,7 +240,7 @@ func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
 	qcs := make([]*types.CommitQC, 3)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -290,7 +283,7 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	qcs := make([]*types.CommitQC, 5)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -342,7 +335,7 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 	qcs := make([]*types.CommitQC, 5)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 	// Pre-filtered: only commitQCs >= anchor road index (2).
@@ -419,7 +412,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		laneQCs := map[types.LaneID]*types.LaneQC{
 			lane: types.NewLaneQC(makeLaneVotes(keys, h)[:committee.LaneQuorum()]),
 		}
-		qcs[j] = makeCommitQC(rng, committee, keys, prev, laneQCs, utils.None[*types.AppQC]())
+		qcs[j] = makeCommitQC(committee, keys, prev, laneQCs, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[j])
 		i.commitQCs.pushBack(qcs[j])
 	}
@@ -457,7 +450,7 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 	qcs := make([]*types.CommitQC, 6)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -486,7 +479,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	qcs := make([]*types.CommitQC, 4)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -524,7 +517,7 @@ func TestNewInnerLoadedCommitQCsGapReturnsError(t *testing.T) {
 	qcs := make([]*types.CommitQC, 3)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -572,7 +565,7 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 	qcs := make([]*types.CommitQC, 11)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -617,7 +610,7 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 	qcs := make([]*types.CommitQC, 6)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -658,7 +651,7 @@ func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
 	qcs := make([]*types.CommitQC, 6)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -768,7 +761,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	qcs := make([]*types.CommitQC, 3)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 
@@ -817,7 +810,7 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	qcs := make([]*types.CommitQC, 3)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(rng, committee, keys, prev, nil, utils.None[*types.AppQC]())
+		qcs[i] = makeCommitQC(committee, keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
 

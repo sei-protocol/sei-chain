@@ -324,14 +324,20 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	if err := appQC.Verify(s.data.Committee()); err != nil {
+	c := s.data.Committee()
+	if err := appQC.Verify(c); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(s.data.Committee()); err != nil {
+	if err := commitQC.Verify(c); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
+	}
+	// Defense-in-depth check, it should never happen that >f validators sign
+	// a proposal which does not match the commitQC's global range.
+	if !commitQC.GlobalRange(c).Has(appQC.Proposal().GlobalNumber()) {
+		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(s.data.Committee(), appQC, commitQC)

@@ -70,6 +70,10 @@ func (g GlobalRange) Len() uint64 {
 	return uint64(g.Next - g.First)
 }
 
+func (g GlobalRange) Has(n GlobalBlockNumber) bool {
+	return g.First <= n && n < g.Next
+}
+
 // RoadIndex is the index of the consensus instance.
 type RoadIndex uint64
 
@@ -163,6 +167,9 @@ func (m *Proposal) CreatedAt() time.Time { return m.createdAt }
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
 // GlobalRange returns the proposed global block range.
+// To compute GlobalRange from lane ranges in proposal,
+// we need to know the global number of the first block
+// of the chain (c.FirstBlock()).
 func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
 	gr := m.globalRangeWithoutOffset
 	gr.First += c.FirstBlock()
@@ -252,12 +259,19 @@ func NewProposal(
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
+	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
+	// The proposal will be useless in this case, but at least it will be valid.
+	if a, ok := app.Get(); ok && a.GlobalNumber() >= GlobalRangeOpt(viewSpec.CommitQC, committee).Next {
+		app = utils.None[*AppProposal]()
+		appQC = utils.None[*AppQC]()
+	}
 	proposal := newProposal(
 		viewSpec.View(),
 		createdAt,
 		laneRanges,
 		app,
 	)
+
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
 		laneQCs:   laneQCs,
