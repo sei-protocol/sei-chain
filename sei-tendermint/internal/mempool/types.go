@@ -1,7 +1,6 @@
 package mempool
 
 import (
-	"context"
 	"fmt"
 	"math"
 
@@ -22,88 +21,6 @@ const (
 
 	MaxActiveIDs = math.MaxUint16
 )
-
-//go:generate ../../scripts/mockery_generate.sh Mempool
-
-// Mempool defines the mempool interface.
-//
-// Updates to the mempool need to be synchronized with committing a block so
-// applications can reset their transient state on Commit.
-type Mempool interface {
-	// CheckTx executes a new transaction against the application to determine
-	// its validity and whether it should be added to the mempool.
-	CheckTx(ctx context.Context, tx types.Tx, callback func(*abci.ResponseCheckTx), txInfo TxInfo) error
-
-	// RemoveTxByKey removes a transaction, identified by its key,
-	// from the mempool.
-	RemoveTxByKey(txKey types.TxKey) error
-
-	HasTx(txKey types.TxKey) bool
-
-	GetTxsForKeys(txKeys []types.TxKey) types.Txs
-
-	// Similar to GetTxsForKeys except that it would return a list
-	// indicating missing keys.
-	SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey)
-
-	// ReapMaxBytesMaxGas reaps transactions from the mempool up to maxBytes
-	// bytes total with the condition that the total gasWanted must be less than
-	// maxGas and that the total estimated gas used is less than maxGasEstimated.
-	//
-	// If all 3 maxes are negative, there is no cap on the size of all returned
-	// transactions (~ all available transactions).
-	ReapMaxBytesMaxGas(maxBytes, maxGas, maxGasEstimated int64) types.Txs
-
-	// ReapMaxTxs reaps up to max transactions from the mempool. If max is
-	// negative, there is no cap on the size of all returned transactions
-	// (~ all available transactions).
-	ReapMaxTxs(max int) types.Txs
-
-	// Lock locks the mempool. The consensus must be able to hold lock to safely
-	// update.
-	Lock()
-
-	// Unlock unlocks the mempool.
-	Unlock()
-
-	// Update informs the mempool that the given txs were committed and can be
-	// discarded.
-	//
-	// NOTE:
-	// 1. This should be called *after* block is committed by consensus.
-	// 2. Lock/Unlock must be managed by the caller.
-	Update(
-		ctx context.Context,
-		blockHeight int64,
-		blockTxs types.Txs,
-		txResults []*abci.ExecTxResult,
-		newPreFn PreCheckFunc,
-		newPostFn PostCheckFunc,
-		recheck bool,
-	) error
-
-	// Flush removes all transactions from the mempool and caches.
-	Flush()
-
-	// TxsAvailable returns a channel which fires once for every height, and only
-	// when transactions are available in the mempool.
-	//
-	// NOTE:
-	// 1. The returned channel may be nil if EnableTxsAvailable was not called.
-	TxsAvailable() <-chan struct{}
-
-	// EnableTxsAvailable initializes the TxsAvailable channel, ensuring it will
-	// trigger once every height when transactions are available.
-	EnableTxsAvailable()
-
-	// Size returns the number of transactions in the mempool.
-	Size() int
-
-	// SizeBytes returns the total size of all txs in the mempool.
-	SizeBytes() int64
-
-	TxStore() *TxStore
-}
 
 // PreCheckFunc is an optional filter executed before CheckTx and rejects
 // transaction if false is returned. An example would be to ensure that a

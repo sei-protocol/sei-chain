@@ -37,8 +37,6 @@ const (
 	MinGasEVMTx  = 21000
 )
 
-var _ Mempool = (*TxMempool)(nil)
-
 // TxMempoolOption sets an optional parameter on the TxMempool.
 type TxMempoolOption func(*TxMempool)
 
