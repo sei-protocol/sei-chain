@@ -111,9 +111,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 			ID     json.RawMessage `json:"id"`
 		}
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			// JSON-RPC batch entries must be objects. Non-objects (e.g. 42, "x", [1]) are invalid;
-			// answer with -32600 here and do not forward them — avoids skipping the gate for
-			// siblings and avoids relying on the inner server to reject the slot.
+			// Batch element is not a JSON object; synthesize -32600 and do not forward.
 			invalidReq[i] = true
 			continue
 		}
@@ -177,13 +175,10 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 
 const seiLegacyBatchInternalErr = "invalid or incomplete JSON-RPC batch response from server"
 
-// seiLegacyBatchInvalidReqMsg is the JSON-RPC 2.0 recommended message for error code -32600.
 const seiLegacyBatchInvalidReqMsg = "Invalid Request"
 
-// mergeSeiLegacyHTTPBatch produces one JSON-RPC response object per client batch entry (lenMsgs),
-// using blockedErr for gated slots, -32600 for invalidReq slots, and matching inner batch items
-// to forwarded requests by JSON-RPC id (order of inner responses may differ from forwarding order).
-// Notification-shaped requests (no id or null id) consume remaining inner responses in FIFO order after id matches.
+// mergeSeiLegacyHTTPBatch builds one response per original batch index: gate errors, -32600 invalid slots,
+// then inner results matched by id (notifications use leftover inner items in order).
 func mergeSeiLegacyHTTPBatch(
 	invalidReq []bool,
 	blocked []bool,
@@ -213,7 +208,7 @@ func mergeSeiLegacyHTTPBatch(
 	for j, raw := range innerArr {
 		idRaw, hasKey, err := jsonRPCObjectIDKey(raw)
 		if err != nil {
-			for i := 0; i < lenMsgs; i++ {
+			for i := range lenMsgs {
 				switch {
 				case invalidReq[i]:
 					outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
@@ -231,7 +226,7 @@ func mergeSeiLegacyHTTPBatch(
 		}
 		k := rpcIDKey(idRaw)
 		if firstIdx, ok := idToIdx[k]; ok {
-			// Duplicate response id in inner batch — cannot disambiguate.
+			// Duplicate id with different bodies: fail the merge.
 			if !bytes.Equal(entries[firstIdx], raw) {
 				for i := 0; i < lenMsgs; i++ {
 					switch {
@@ -314,7 +309,6 @@ func isJSONRPCNotificationID(id json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(id), []byte("null"))
 }
 
-// jsonRPCObjectIDKey returns the raw JSON for the "id" field if present.
 func jsonRPCObjectIDKey(raw json.RawMessage) (idField json.RawMessage, hasKey bool, err error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -336,7 +330,7 @@ func marshalJSONRPCError(id json.RawMessage, code int, message string) []byte {
 	return b
 }
 
-// patchJSONRPCResponseIDIfNeeded rewrites "id" to match the client request when the inner server echoed a different id.
+// patchJSONRPCResponseIDIfNeeded replaces response "id" with the client's id as raw JSON (avoids float64 rounding).
 func patchJSONRPCResponseIDIfNeeded(resp json.RawMessage, wantID json.RawMessage) []byte {
 	if isJSONRPCNotificationID(wantID) {
 		return resp
@@ -345,18 +339,15 @@ func patchJSONRPCResponseIDIfNeeded(resp json.RawMessage, wantID json.RawMessage
 	if err != nil || !has {
 		return resp
 	}
-	if bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(wantID)) {
+	wantTrimmed := bytes.TrimSpace(wantID)
+	if bytes.Equal(bytes.TrimSpace(got), wantTrimmed) {
 		return resp
 	}
-	var m map[string]any
+	var m map[string]json.RawMessage
 	if err := json.Unmarshal(resp, &m); err != nil {
 		return resp
 	}
-	var idVal any
-	if err := json.Unmarshal(wantID, &idVal); err != nil {
-		return resp
-	}
-	m["id"] = idVal
+	m["id"] = json.RawMessage(bytes.Clone(wantTrimmed))
 	b, err := json.Marshal(m)
 	if err != nil {
 		return resp

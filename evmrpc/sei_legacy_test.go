@@ -504,11 +504,39 @@ func TestMergeSeiLegacyHTTPBatch_PatchesMismatchedResponseID(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("got %d", len(out))
 	}
-	var m map[string]any
+	var m map[string]json.RawMessage
 	if err := json.Unmarshal(out[0], &m); err != nil {
 		t.Fatal(err)
 	}
-	if m["id"].(float64) != 42 {
-		t.Fatalf("id not patched: %+v", m)
+	if string(m["id"]) != "42" {
+		t.Fatalf("id not patched: %q", m["id"])
+	}
+}
+
+func TestPatchJSONRPCResponseIDIfNeeded_PreservesLargeNumericID(t *testing.T) {
+	// First integer not exactly representable as float64; must not round-trip through any/float64.
+	const id = "9007199254740993"
+	resp := json.RawMessage(`{"jsonrpc":"2.0","id":0,"result":"ok"}`)
+	want := json.RawMessage(id)
+	got := patchJSONRPCResponseIDIfNeeded(resp, want)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(got, &m); err != nil {
+		t.Fatal(err)
+	}
+	if string(m["id"]) != id {
+		t.Fatalf("want id %s, got %q", id, m["id"])
+	}
+}
+
+func TestPatchJSONRPCResponseIDIfNeeded_PreservesStringID(t *testing.T) {
+	resp := json.RawMessage(`{"jsonrpc":"2.0","id":0,"result":"ok"}`)
+	want := json.RawMessage(`"associate_addr"`)
+	got := patchJSONRPCResponseIDIfNeeded(resp, want)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(got, &m); err != nil {
+		t.Fatal(err)
+	}
+	if string(m["id"]) != `"associate_addr"` {
+		t.Fatalf("got %q", m["id"])
 	}
 }
