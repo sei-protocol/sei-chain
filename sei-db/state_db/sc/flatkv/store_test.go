@@ -691,14 +691,34 @@ func TestRootHashIsBlake3_256(t *testing.T) {
 }
 
 // =============================================================================
-// Get returns nil for unknown keys
+// Get returns nil for missing keys, errors for unsupported key types
 // =============================================================================
 
-func TestGetUnknownKeyReturnsNil(t *testing.T) {
+func TestGetMissingKeyReturnsNil(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	v, ok, err := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, v)
+}
+
+func TestGetUnsupportedKeyType_Strict(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	_, _, err := s.Get([]byte{})
+	require.Error(t, err)
+}
+
+func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.StrictKeyTypeCheck = false
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	v, ok, err := s.Get([]byte{})
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.Nil(t, v)

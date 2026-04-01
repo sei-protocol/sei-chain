@@ -564,11 +564,31 @@ func TestGetBlockHeightModified_Legacy(t *testing.T) {
 	require.Equal(t, int64(1), bh)
 }
 
-func TestGetBlockHeightModified_UnknownKey(t *testing.T) {
+func TestGetBlockHeightModified_MissingKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	bh, found, err := s.GetBlockHeightModified([]byte{0xFF, 0xFF})
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+}
+
+func TestGetBlockHeightModified_UnsupportedKeyType_Strict(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	_, _, err := s.GetBlockHeightModified([]byte{})
+	require.Error(t, err)
+}
+
+func TestGetBlockHeightModified_UnsupportedKeyType_NonStrict(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.StrictKeyTypeCheck = false
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	bh, found, err := s.GetBlockHeightModified([]byte{})
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Equal(t, int64(-1), bh)

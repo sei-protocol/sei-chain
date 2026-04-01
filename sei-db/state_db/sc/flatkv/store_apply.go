@@ -9,16 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// Supported key types for FlatKV.
-// TODO: add balance key when that is eventually supported
-var supportedKeyTypes = map[evm.EVMKeyKind]struct{}{
-	evm.EVMKeyStorage:  {},
-	evm.EVMKeyNonce:    {},
-	evm.EVMKeyCodeHash: {},
-	evm.EVMKeyCode:     {},
-	evm.EVMKeyLegacy:   {},
-} // TODO also use this for reads
-
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	if s.readOnly {
@@ -151,11 +141,11 @@ func sortChangeSets(
 		for _, pair := range cs.Changeset.Pairs {
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 
-			if _, ok := supportedKeyTypes[kind]; !ok {
+			if !IsSupportedKeyType(kind) {
 				if strict {
 					return nil, fmt.Errorf("unsupported key type: %v", kind)
 				} else {
-					logger.Warn("unsupported key type", "key", kind)
+					logger.Warn("unsupported key type in ApplyChangeSets", "kind", kind)
 					continue
 				}
 			}

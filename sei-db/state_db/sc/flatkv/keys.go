@@ -3,6 +3,7 @@ package flatkv
 import (
 	"bytes"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -28,6 +29,22 @@ var (
 // the _meta/ prefix.
 func isMetaKey(key []byte) bool {
 	return bytes.HasPrefix(key, metaKeyPrefixBytes)
+}
+
+// Supported EVM key types for FlatKV.
+// TODO: add balance key when that is eventually supported
+var supportedKeyTypes = map[evm.EVMKeyKind]struct{}{
+	evm.EVMKeyStorage:  {},
+	evm.EVMKeyNonce:    {},
+	evm.EVMKeyCodeHash: {},
+	evm.EVMKeyCode:     {},
+	evm.EVMKeyLegacy:   {},
+}
+
+// IsSupportedKeyType reports whether the given key kind is handled by FlatKV.
+func IsSupportedKeyType(kind evm.EVMKeyKind) bool {
+	_, ok := supportedKeyTypes[kind]
+	return ok
 }
 
 const (

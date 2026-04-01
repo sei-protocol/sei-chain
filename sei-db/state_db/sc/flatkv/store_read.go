@@ -14,7 +14,11 @@ import (
 // Returns (value, true, nil) if found, (nil, false, nil) if not found.
 func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
-	if kind == evm.EVMKeyUnknown {
+	if !IsSupportedKeyType(kind) {
+		if s.config.StrictKeyTypeCheck {
+			return nil, false, fmt.Errorf("unsupported key type: %v", kind)
+		}
+		logger.Warn("unsupported key type in Get", "kind", kind)
 		return nil, false, nil
 	}
 
@@ -71,7 +75,11 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
-	if kind == evm.EVMKeyUnknown {
+	if !IsSupportedKeyType(kind) {
+		if s.config.StrictKeyTypeCheck {
+			return -1, false, fmt.Errorf("unsupported key type: %v", kind)
+		}
+		logger.Warn("unsupported key type in GetBlockHeightModified", "kind", kind)
 		return -1, false, nil
 	}
 
