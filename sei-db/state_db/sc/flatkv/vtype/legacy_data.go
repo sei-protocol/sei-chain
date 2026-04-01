@@ -30,6 +30,8 @@ const (
 	legacyHeaderLength     = 9
 )
 
+var _ VType = (*LegacyData)(nil)
+
 // Used for encapsulating and serializing legacy data in the FlatKV legacy database.
 //
 // This data structure is not threadsafe. Values passed into and values received from this data structure
@@ -49,6 +51,9 @@ func NewLegacyData(value []byte) *LegacyData {
 //
 // The returned byte slice is not safe to modify without first copying it.
 func (l *LegacyData) Serialize() []byte {
+	if l == nil {
+		return make([]byte, legacyHeaderLength)
+	}
 	return l.data
 }
 
@@ -77,27 +82,42 @@ func DeserializeLegacyData(data []byte) (*LegacyData, error) {
 
 // Get the serialization version for this LegacyData instance.
 func (l *LegacyData) GetSerializationVersion() LegacyDataVersion {
+	if l == nil {
+		return LegacyDataVersion0
+	}
 	return (LegacyDataVersion)(l.data[legacyVersionStart])
 }
 
 // Get the block height when this legacy data was last modified.
 func (l *LegacyData) GetBlockHeight() int64 {
-	return int64(binary.BigEndian.Uint64(l.data[legacyBlockHeightStart:legacyValueStart])) //nolint:gosec // block height is always within int64 range
+	if l == nil {
+		return 0
+	}
+	return int64(binary.BigEndian.Uint64(l.data[legacyBlockHeightStart:legacyValueStart])) //nolint:gosec
 }
 
 // Get the legacy value.
 func (l *LegacyData) GetValue() []byte {
+	if l == nil {
+		return make([]byte, 0)
+	}
 	return l.data[legacyValueStart:]
 }
 
 // Check if this legacy data signifies a deletion operation. A deletion operation is automatically
 // performed when the value is empty (with the exception of the serialization version and block height).
 func (l *LegacyData) IsDelete() bool {
+	if l == nil {
+		return true
+	}
 	return len(l.data) == legacyHeaderLength
 }
 
-// Set the block height when this legacy data was last modified/touched. Returns self.
+// Set the block height when this legacy data was last modified/touched. Returns self (or a new LegacyData if nil).
 func (l *LegacyData) SetBlockHeight(blockHeight int64) *LegacyData {
-	binary.BigEndian.PutUint64(l.data[legacyBlockHeightStart:legacyValueStart], uint64(blockHeight)) //nolint:gosec // block height is always non-negative
+	if l == nil {
+		l = NewLegacyData(nil)
+	}
+	binary.BigEndian.PutUint64(l.data[legacyBlockHeightStart:legacyValueStart], uint64(blockHeight)) //nolint:gosec
 	return l
 }

@@ -34,6 +34,8 @@ const (
 	accountDataLength       = 81
 )
 
+var _ VType = (*AccountData)(nil)
+
 // Used for encapsulating and serializating account data in the FlatKV accounts database.
 //
 // This data structure is not threadsafe. Values passed into and values received from this data structure
@@ -53,6 +55,9 @@ func NewAccountData() *AccountData {
 //
 // The returned byte slice is not safe to modify without first copying it.
 func (a *AccountData) Serialize() []byte {
+	if a == nil {
+		return make([]byte, accountDataLength)
+	}
 	return a.data
 }
 
@@ -81,32 +86,52 @@ func DeserializeAccountData(data []byte) (*AccountData, error) {
 
 // Get the serialization version for this AccountData instance.
 func (a *AccountData) GetSerializationVersion() AccountDataVersion {
+	if a == nil {
+		return AccountDataVersion0
+	}
 	return (AccountDataVersion)(a.data[accountVersionStart])
 }
 
 // Get the account's block height.
 func (a *AccountData) GetBlockHeight() int64 {
+	if a == nil {
+		return 0
+	}
 	return int64(binary.BigEndian.Uint64(a.data[accountBlockHeightStart:accountBalanceStart])) //nolint:gosec
 }
 
 // Get the account's balance.
 func (a *AccountData) GetBalance() *Balance {
+	if a == nil {
+		var zero Balance
+		return &zero
+	}
 	return (*Balance)(a.data[accountBalanceStart:accountNonceStart])
 }
 
 // Get the account's nonce.
 func (a *AccountData) GetNonce() uint64 {
+	if a == nil {
+		return 0
+	}
 	return binary.BigEndian.Uint64(a.data[accountNonceStart:accountCodeHashStart])
 }
 
 // Get the account's code hash.
 func (a *AccountData) GetCodeHash() *CodeHash {
+	if a == nil {
+		var zero CodeHash
+		return &zero
+	}
 	return (*CodeHash)(a.data[accountCodeHashStart:accountDataLength])
 }
 
 // Check if this account data signifies a deletion operation. A deletion operation is automatically
 // performed when all account data fields are 0 (with the exception of the serialization version and block height).
 func (a *AccountData) IsDelete() bool {
+	if a == nil {
+		return true
+	}
 	for i := accountBalanceStart; i < accountDataLength; i++ {
 		if a.data[i] != 0 {
 			return false
@@ -117,6 +142,9 @@ func (a *AccountData) IsDelete() bool {
 
 // Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
 func (a *AccountData) Copy() *AccountData {
+	if a == nil {
+		return NewAccountData()
+	}
 	cp := make([]byte, len(a.data))
 	copy(cp, a.data)
 	return &AccountData{data: cp}
@@ -124,24 +152,36 @@ func (a *AccountData) Copy() *AccountData {
 
 // Set the account's block height when this account was last modified/touched. Returns self.
 func (a *AccountData) SetBlockHeight(blockHeight int64) *AccountData {
+	if a == nil {
+		a = NewAccountData()
+	}
 	binary.BigEndian.PutUint64(a.data[accountBlockHeightStart:accountBalanceStart], uint64(blockHeight)) //nolint:gosec
 	return a
 }
 
-// Set the account's balance. Returns self.
+// Set the account's balance. Returns self (or a new AccountData if nil).
 func (a *AccountData) SetBalance(balance *Balance) *AccountData {
+	if a == nil {
+		a = NewAccountData()
+	}
 	copy(a.data[accountBalanceStart:accountNonceStart], balance[:])
 	return a
 }
 
-// Set the account's nonce. Returns self.
+// Set the account's nonce. Returns self (or a new AccountData if nil).
 func (a *AccountData) SetNonce(nonce uint64) *AccountData {
+	if a == nil {
+		a = NewAccountData()
+	}
 	binary.BigEndian.PutUint64(a.data[accountNonceStart:accountCodeHashStart], nonce)
 	return a
 }
 
-// Set the account's code hash. Returns self.
+// Set the account's code hash. Returns self (or a new AccountData if nil).
 func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
+	if a == nil {
+		a = NewAccountData()
+	}
 	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
 	return a
 }

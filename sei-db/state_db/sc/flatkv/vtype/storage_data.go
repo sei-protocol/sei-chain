@@ -30,6 +30,8 @@ const (
 	storageDataLength       = 41
 )
 
+var _ VType = (*StorageData)(nil)
+
 // Used for encapsulating and serializing storage slot data in the FlatKV storage database.
 //
 // This data structure is not threadsafe. Values passed into and values received from this data structure
