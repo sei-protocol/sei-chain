@@ -274,6 +274,60 @@ func TestWrapSeiLegacyHTTP_EthPassthrough(t *testing.T) {
 	}
 }
 
+func TestWrapSeiLegacyHTTP_BatchTrailingNonObjectDoesNotBypassGate(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run when all batch slots are answered by the gate (blocked + invalid)")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["0x1",false]},42]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 entries, got %d: %s", len(batch), rec.Body.String())
+	}
+	err0, _ := batch[0]["error"].(map[string]any)
+	if err0 == nil || err0["data"] != "legacy_sei_deprecated" {
+		t.Fatalf("slot 0 should be legacy gate error: %+v", batch[0])
+	}
+	err1, _ := batch[1]["error"].(map[string]any)
+	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+		t.Fatalf("slot 1 should be JSON-RPC invalid request (-32600): %+v", batch[1])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchLeadingNonObjectDoesNotBypassGate(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run when all batch slots are answered by the gate")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[42,{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["0x1",false]}]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(batch))
+	}
+	err0, _ := batch[0]["error"].(map[string]any)
+	if err0 == nil || int(err0["code"].(float64)) != -32600 {
+		t.Fatalf("slot 0 should be -32600 invalid request: %+v", batch[0])
+	}
+	err1, _ := batch[1]["error"].(map[string]any)
+	if err1 == nil || err1["data"] != "legacy_sei_deprecated" {
+		t.Fatalf("slot 1 should be legacy gate error: %+v", batch[1])
+	}
+}
+
 func TestWrapSeiLegacyHTTP_BatchMixed(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -304,5 +358,157 @@ func TestWrapSeiLegacyHTTP_BatchMixed(t *testing.T) {
 	err0, _ := batch[0]["error"].(map[string]interface{})
 	if err0["data"] != "legacy_sei_deprecated" {
 		t.Fatalf("blocked error data: %+v", err0)
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchInvalidNonObjectNotForwarded(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 1 {
+			t.Fatalf("inner should receive exactly one forwarded call, got err=%v body=%s", err, b)
+		}
+		if fwd[0]["method"] != "eth_chainId" {
+			t.Fatalf("unexpected forward: %+v", fwd[0])
+		}
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":1,"result":"0xaa"}]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]},42]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(batch))
+	}
+	if batch[0]["result"] != "0xaa" {
+		t.Fatalf("slot 0: %+v", batch[0])
+	}
+	err1, _ := batch[1]["error"].(map[string]any)
+	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+		t.Fatalf("slot 1 want -32600: %+v", batch[1])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchInnerReorderedByID(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Inner returns results permuted vs forwarded request order.
+		_, _ = w.Write([]byte(`[
+			{"jsonrpc":"2.0","id":20,"result":"second"},
+			{"jsonrpc":"2.0","id":10,"result":"first"}
+		]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":[]},
+		{"jsonrpc":"2.0","id":10,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":20,"method":"eth_gasPrice","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 3 {
+		t.Fatalf("want 3 results, got %d", len(batch))
+	}
+	if batch[0]["error"] == nil {
+		t.Fatal("slot 0 should be legacy gate error")
+	}
+	if batch[1]["result"] != "first" || batch[2]["result"] != "second" {
+		t.Fatalf("unexpected merge order: %#v", batch)
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":10,"result":"onlyOne"}]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","id":10,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":99,"method":"eth_gasPrice","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 results, got %d", len(batch))
+	}
+	if batch[0]["result"] != "onlyOne" {
+		t.Fatalf("slot 0: %+v", batch[0])
+	}
+	err1, _ := batch[1]["error"].(map[string]any)
+	if err1 == nil {
+		t.Fatal("slot 1 should be JSON-RPC error")
+	}
+	if int(err1["code"].(float64)) != -32603 {
+		t.Fatalf("want -32603, got %+v", err1)
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":10,"result":"single"}`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","id":10,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":20,"method":"eth_gasPrice","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 results, got %d", len(batch))
+	}
+	for i := range batch {
+		errObj, _ := batch[i]["error"].(map[string]any)
+		if errObj == nil {
+			t.Fatalf("slot %d expected error, got %+v", i, batch[i])
+		}
+		if int(errObj["code"].(float64)) != -32603 {
+			t.Fatalf("slot %d: %+v", i, errObj)
+		}
+	}
+}
+
+func TestMergeSeiLegacyHTTPBatch_PatchesMismatchedResponseID(t *testing.T) {
+	blocked := []bool{false}
+	var blockedErr []error
+	ids := []json.RawMessage{json.RawMessage(`42`)}
+	inner := []byte(`[{"jsonrpc":"2.0","id":0,"result":"x"}]`)
+	invalid := []bool{false}
+	out := mergeSeiLegacyHTTPBatch(invalid, blocked, blockedErr, ids, 1, inner)
+	if len(out) != 1 {
+		t.Fatalf("got %d", len(out))
+	}
+	var m map[string]any
+	if err := json.Unmarshal(out[0], &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["id"].(float64) != 42 {
+		t.Fatalf("id not patched: %+v", m)
 	}
 }
