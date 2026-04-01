@@ -42,12 +42,14 @@ func TestStoreNonStorageKeys(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Nonce should be found
-	nonceValue, found := s.Get(nonceKey)
+	nonceValue, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 17}, nonceValue)
 
 	// CodeHash should be found
-	codeHashValue, found := s.Get(codeHashKey)
+	codeHashValue, found, err := s.Get(codeHashKey)
+	require.NoError(t, err)
 	require.True(t, found, "codehash should be found")
 	require.Equal(t, codeHash[:], codeHashValue)
 }
@@ -108,23 +110,27 @@ func TestStoreWriteAllDBs(t *testing.T) {
 
 	// Verify storage data was written (via Store.Get which deserializes)
 	storageMemiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageValue, found := s.Get(storageMemiavlKey)
+	storageValue, found, err := s.Get(storageMemiavlKey)
+	require.NoError(t, err)
 	require.True(t, found, "Storage should be found")
 	require.Equal(t, padLeft32(0x11, 0x22), storageValue)
 
 	// Verify account and code data was written
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(nonceKey)
+	nonceValue, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "Nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceValue)
 
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	codeValue, found := s.Get(codeKey)
+	codeValue, found, err := s.Get(codeKey)
+	require.NoError(t, err)
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
 
 	// Verify legacy data persisted (via Store.Get which deserializes)
-	legacyVal, found := s.Get(legacyKey)
+	legacyVal, found, err := s.Get(legacyKey)
+	require.NoError(t, err)
 	require.True(t, found, "Legacy should be found")
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
@@ -196,23 +202,27 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 
 	// Verify account data was written
 	nonceKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:])
-	nonce1, found := s.Get(nonceKey1)
+	nonce1, found, err := s.Get(nonceKey1)
+	require.NoError(t, err)
 	require.True(t, found, "Nonce1 should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 1}, nonce1)
 
 	nonceKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr2[:])
-	nonce2, found := s.Get(nonceKey2)
+	nonce2, found, err := s.Get(nonceKey2)
+	require.NoError(t, err)
 	require.True(t, found, "Nonce2 should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 2}, nonce2)
 
 	// Verify code data was written
 	codeKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr1[:])
-	code1, found := s.Get(codeKey1)
+	code1, found, err := s.Get(codeKey1)
+	require.NoError(t, err)
 	require.True(t, found, "Code1 should be found")
 	require.Equal(t, []byte{0x60, 0x80}, code1)
 
 	codeKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr2[:])
-	code2, found := s.Get(codeKey2)
+	code2, found, err := s.Get(codeKey2)
+	require.NoError(t, err)
 	require.True(t, found, "Code2 should be found")
 	require.Equal(t, []byte{0x60, 0xA0}, code2)
 
@@ -284,13 +294,15 @@ func TestStoreWriteDelete(t *testing.T) {
 	// Nonce was the only account field written (no codehash). After delete,
 	// all fields are zero so the accountDB row is physically deleted.
 	nonceKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(nonceKeyDel)
+	nonceValue, found, err := s.Get(nonceKeyDel)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after account row deletion")
 	require.Nil(t, nonceValue)
 
 	// Verify code is deleted
 	codeKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s.Get(codeKeyDel)
+	_, found, err = s.Get(codeKeyDel)
+	require.NoError(t, err)
 	require.False(t, found, "code should be deleted")
 
 	requireAllLocalMetaAt(t, s, 2)
@@ -344,12 +356,14 @@ func TestAccountValueStorage(t *testing.T) {
 
 	// Get method should return individual fields
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(nonceKey)
+	nonceValue, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "Nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceValue, "Nonce should be 42")
 
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashValue, found := s.Get(codeHashKey)
+	codeHashValue, found, err := s.Get(codeHashKey)
+	require.NoError(t, err)
 	require.True(t, found, "CodeHash should be found")
 	require.Equal(t, expectedCodeHash[:], codeHashValue, "CodeHash should match")
 }
@@ -380,7 +394,8 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
-	got, found := s.Get(codeSizeKey)
+	got, found, err := s.Get(codeSizeKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, codeSizeValue, got)
 }
@@ -427,7 +442,8 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	// Verify legacy data persisted (via Store.Get which deserializes)
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
-	got, found := s.Get(codeSizeKey)
+	got, found, err := s.Get(codeSizeKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, got)
 }
@@ -445,7 +461,8 @@ func TestStoreWriteDeleteLegacyKey(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify exists
-	got, found := s.Get(legacyKey)
+	got, found, err := s.Get(legacyKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x10}, got)
 
@@ -455,7 +472,8 @@ func TestStoreWriteDeleteLegacyKey(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should not be found
-	_, found = s.Get(legacyKey)
+	_, found, err = s.Get(legacyKey)
+	require.NoError(t, err)
 	require.False(t, found)
 }
 
@@ -535,7 +553,8 @@ func TestStoreFsyncConfig(t *testing.T) {
 		commitAndCheck(t, store)
 
 		// Data should be readable
-		got, found := store.Get(key)
+		got, found, err := store.Get(key)
+		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, padLeft32(0xCC), got)
 
@@ -651,11 +670,13 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 
 	commitAndCheck(t, s)
 
-	v1, ok := s.Get(key1)
+	v1, ok, err := s.Get(key1)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v1)
 
-	v2, ok := s.Get(key2)
+	v2, ok, err := s.Get(key2)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x22), v2)
 }
@@ -680,11 +701,13 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	nonceVal, ok := s.Get(nonceKey)
+	nonceVal, ok, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceVal, "nonce should be preserved after codehash update")
 
-	chVal, ok := s.Get(codeHashKey)
+	chVal, ok, err := s.Get(codeHashKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, codeHash[:], chVal)
 }
@@ -790,7 +813,8 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	v, ok := s.Get(key)
+	v, ok, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v, "last write should win")
 }
@@ -832,7 +856,8 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
 	require.Equal(t, int64(1), s.Version())
 
-	v, ok := s.Get(memiavlStorageKey(Address{0x01}, Slot{0x01}))
+	v, ok, err := s.Get(memiavlStorageKey(Address{0x01}, Slot{0x01}))
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
 }
@@ -917,23 +942,30 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 
 	// After deleting all account fields, the row is physically deleted (Account Row GC).
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after all-zero account row deletion")
 	require.Nil(t, nonceVal)
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s.Get(chKey)
+	chVal, found, err := s.Get(chKey)
+	require.NoError(t, err)
 	require.False(t, found, "codehash should not be found after row deletion")
 	require.Nil(t, chVal)
 
-	require.False(t, s.Has(chKey), "Has(codehash) should be false after delete")
-	require.False(t, s.Has(nonceKey), "Has(nonce) should be false after row deletion")
+	hasCodeHash, err := s.Has(chKey)
+	require.NoError(t, err)
+	require.False(t, hasCodeHash, "Has(codehash) should be false after delete")
+	hasNonce, err := s.Has(nonceKey)
+	require.NoError(t, err)
+	require.False(t, hasNonce, "Has(nonce) should be false after row deletion")
 
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s.Get(codeKey)
+	_, found, err = s.Get(codeKey)
+	require.NoError(t, err)
 	require.False(t, found, "code should be physically deleted")
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err = s.accountDB.Get(AccountKey(addr))
 	require.Error(t, err, "accountDB row should be physically deleted when all fields are zero")
 }
 
@@ -958,7 +990,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-		_, found := s.Get(key)
+		_, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.False(t, found, "write-then-delete: key should be gone")
 	})
 
@@ -982,7 +1015,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-		val, found := s.Get(key)
+		val, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.True(t, found, "delete-then-write: key should exist")
 		require.Equal(t, padLeft32(0xBB), val)
 	})
@@ -1142,7 +1176,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		// With Account Row GC, nonce-only account becomes all-zero → row deleted
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-		_, found := s.Get(key)
+		_, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.False(t, found, "nonce-only account should be deleted after nonce delete")
 	})
 
@@ -1164,7 +1199,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-		val, found := s.Get(key)
+		val, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, uint64(99), bytesToNonce(val))
 	})
@@ -1183,7 +1219,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-		_, found := s.Get(key)
+		_, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.False(t, found, "codehash-only account: delete → all-zero → row deleted")
 	})
 
@@ -1205,7 +1242,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-		val, found := s.Get(key)
+		val, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.True(t, found, "codehash should be restored after delete-then-write")
 		expected := codeHashN(0xBB)
 		require.Equal(t, expected[:], val)
@@ -1294,11 +1332,13 @@ func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
 	_, err := s.accountDB.Get(AccountKey(addr))
 	require.Error(t, err, "accountDB row should be physically deleted")
 
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after row deletion")
 	require.Nil(t, nonceVal)
 
-	chVal, found := s.Get(chKey)
+	chVal, found, err := s.Get(chKey)
+	require.NoError(t, err)
 	require.False(t, found, "codehash should not be found after row deletion")
 	require.Nil(t, chVal)
 }
@@ -1325,7 +1365,8 @@ func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
 	require.NoError(t, err, "accountDB row should still exist after partial delete")
 	require.NotNil(t, raw)
 
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "nonce should still be readable")
 	require.Equal(t, nonceBytes(7), nonceVal)
 }
@@ -1359,7 +1400,8 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	require.NoError(t, err, "row should be recreated")
 	require.NotNil(t, raw)
 
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, nonceBytes(99), nonceVal)
 }
@@ -1394,7 +1436,8 @@ func TestAccountRowGCOnWriteZero(t *testing.T) {
 	require.Error(t, err, "accountDB row should be GC'd when write-zero makes account empty")
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	_, found := s.Get(nonceKey)
+	_, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after write-zero GC")
 }
 

@@ -184,7 +184,8 @@ func TestStoreApplyAndCommit(t *testing.T) {
 
 	// Apply but not commit - should be readable from pending writes
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	got, found := s.Get(key)
+	got, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found, "should be readable from pending writes")
 	require.Equal(t, value, got)
 
@@ -192,7 +193,8 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Still should be readable after commit
-	got, found = s.Get(key)
+	got, found, err = s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -231,7 +233,8 @@ func TestStoreMultipleWrites(t *testing.T) {
 	// Verify all entries
 	for _, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		got, found := s.Get(key)
+		got, found, err := s.Get(key)
+		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, padLeft32(e.value), got)
 	}
@@ -302,7 +305,8 @@ func TestStoreVersioning(t *testing.T) {
 	require.Equal(t, int64(2), s.Version())
 
 	// Latest value should be from version 2
-	got, found := s.Get(key)
+	got, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x02), got)
 }
@@ -337,7 +341,8 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	got, found := s2.Get(key)
+	got, found, err := s2.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 
@@ -693,7 +698,8 @@ func TestGetUnknownKeyReturnsNil(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	v, ok := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	v, ok, err := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	require.NoError(t, err)
 	require.False(t, ok)
 	require.Nil(t, v)
 }
@@ -741,15 +747,18 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, hash, s2.RootHash())
 
-	v, ok := s2.Get(storageKey)
+	v, ok, err := s2.Get(storageKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v)
 
-	v, ok = s2.Get(nonceKey)
+	v, ok, err = s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 5}, v)
 
-	v, ok = s2.Get(codeKey)
+	v, ok, err = s2.Get(codeKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
@@ -777,7 +786,8 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found, err := ro.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 	require.NotNil(t, ro.RootHash())
@@ -807,7 +817,8 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found, err := ro.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -835,7 +846,8 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(3), ro.Version())
-	got, found := ro.Get(key)
+	got, found, err := ro.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(3), got)
 }
@@ -894,7 +906,8 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	require.Equal(t, int64(3), s.Version())
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found, err := ro.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(1), got)
 }
@@ -930,8 +943,10 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	require.Equal(t, int64(4), ro1.Version())
 	require.Equal(t, int64(4), ro2.Version())
 
-	g1, ok1 := ro1.Get(key)
-	g2, ok2 := ro2.Get(key)
+	g1, ok1, err := ro1.Get(key)
+	require.NoError(t, err)
+	g2, ok2, err := ro2.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok1)
 	require.True(t, ok2)
 	require.Equal(t, padLeft32(4), g1)
@@ -959,7 +974,8 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
 
-	got, found := s.Get(key)
+	got, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(2), got)
 }

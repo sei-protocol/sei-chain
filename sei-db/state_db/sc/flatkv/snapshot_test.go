@@ -122,10 +122,12 @@ func TestOpenFromSnapshot(t *testing.T) {
 	// Verify data from all 3 versions is present
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x10}, Slot{0x01}))
 	key3 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x10}, Slot{0x03}))
-	v, ok := s2.Get(key1)
+	v, ok, err := s2.Get(key1)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
-	v, ok = s2.Get(key3)
+	v, ok, err = s2.Get(key3)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x03), v)
 }
@@ -193,12 +195,14 @@ func TestRollbackRewindsState(t *testing.T) {
 
 	// v5's data should not exist (WAL truncated, snapshot pruned)
 	key5 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x30}, Slot{0x05}))
-	_, ok := s.Get(key5)
+	_, ok, err := s.Get(key5)
+	require.NoError(t, err)
 	require.False(t, ok, "v5 data should be gone after rollback to v4")
 
 	// v4's data should still exist
 	key4 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x30}, Slot{0x04}))
-	v, ok := s.Get(key4)
+	v, ok, err := s.Get(key4)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), v)
 
@@ -475,7 +479,8 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, s1.WriteSnapshot(""))
 
 	// Record baseline value at v2 for the same key.
-	vAtV2, ok := s1.Get(key)
+	vAtV2, ok, err := s1.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), vAtV2)
 
@@ -493,7 +498,8 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(2, false)
 	require.NoError(t, err)
-	gotV2, ok := s2.Get(key)
+	gotV2, ok, err := s2.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), gotV2, "snapshot baseline should remain stable")
 	require.NoError(t, s2.Close())
@@ -508,7 +514,8 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	defer s3.Close()
 
 	require.Equal(t, int64(4), s3.Version())
-	gotLatest, ok := s3.Get(key)
+	gotLatest, ok, err := s3.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), gotLatest)
 }
@@ -548,7 +555,8 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), s1.Version())
 	require.Equal(t, hashAtV2, s1.RootHash())
-	v, ok := s1.Get(key)
+	v, ok, err := s1.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s1.Close())
@@ -562,7 +570,8 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(4), s2.Version())
 	require.Equal(t, hashAtV4, s2.RootHash())
-	v, ok = s2.Get(key)
+	v, ok, err = s2.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), v)
 	require.NoError(t, s2.Close())
@@ -576,7 +585,8 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err, "LoadVersion(2) must succeed after LoadVersion(0) dirtied working dir")
 	require.Equal(t, int64(2), s3.Version())
 	require.Equal(t, hashAtV2, s3.RootHash())
-	v, ok = s3.Get(key)
+	v, ok, err = s3.Get(key)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s3.Close())
@@ -1259,17 +1269,20 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.Equal(t, hash, s2.RootHash())
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	v, ok := s2.Get(storageKey)
+	v, ok, err := s2.Get(storageKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	v, ok = s2.Get(nonceKey)
+	v, ok, err = s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 7}, v)
 
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	v, ok = s2.Get(codeKey)
+	v, ok, err = s2.Get(codeKey)
+	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
@@ -1370,21 +1383,25 @@ func TestReopenAfterDeletes(t *testing.T) {
 	require.Equal(t, hashBefore, s2.RootHash())
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	_, found := s2.Get(storageKey)
+	_, found, err := s2.Get(storageKey)
+	require.NoError(t, err)
 	require.False(t, found, "storage should stay deleted after reopen")
 
 	codeKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s2.Get(codeKey2)
+	_, found, err = s2.Get(codeKey2)
+	require.NoError(t, err)
 	require.False(t, found, "code should stay deleted after reopen")
 
 	// With Account Row GC, all-zero account row is physically deleted.
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s2.Get(nonceKey)
+	nonceVal, found, err := s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
 	require.Nil(t, nonceVal)
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s2.Get(chKey)
+	chVal, found, err := s2.Get(chKey)
+	require.NoError(t, err)
 	require.False(t, found, "codehash should not be found after reopen (row deleted)")
 	require.Nil(t, chVal)
 }
@@ -1413,14 +1430,21 @@ func TestWALTruncationThenRollback(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
-		val, found := s.Get(key)
+		var val []byte
+		var found bool
+		var loopErr error
+		val, found, loopErr = s.Get(key)
+		require.NoError(t, loopErr)
 		require.True(t, found, "key at block %d should exist after rollback to v5", i)
 		require.Equal(t, padLeft32(byte(i)), val)
 	}
 
 	for i := 6; i <= 10; i++ {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
-		_, found := s.Get(key)
+		var found bool
+		var loopErr error
+		_, found, loopErr = s.Get(key)
+		require.NoError(t, loopErr)
 		require.False(t, found, "key at block %d should NOT exist after rollback to v5", i)
 	}
 
@@ -1460,7 +1484,11 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(byte(i)), slotN(byte(i))))
-		val, found := s2.Get(key)
+		var val []byte
+		var found bool
+		var loopErr error
+		val, found, loopErr = s2.Get(key)
+		require.NoError(t, loopErr)
 		require.True(t, found, "key at block %d should exist after reopen", i)
 		require.Equal(t, padLeft32(byte(i)), val)
 	}
@@ -1586,7 +1614,8 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	require.Equal(t, int64(3), s2.Version())
 
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(Address{0x03}, Slot{0x03}))
-	val, found := s2.Get(key)
+	val, found, err := s2.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xCC), val)
 }
@@ -1749,7 +1778,8 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should match after reopen")
 
-	nonceVal, found := s2.Get(nonceKey)
+	nonceVal, found, err := s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
 	require.Nil(t, nonceVal)
 }
@@ -1811,7 +1841,8 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.Equal(t, hashAtV2, s2.RootHash(), "LtHash should match after WAL replay")
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	_, found := s2.Get(nonceKey)
+	_, found, err := s2.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should not be found after WAL replay (row deleted)")
 }
 
@@ -1840,7 +1871,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	_, err = s.Commit() // v1 (snapshot taken)
 	require.NoError(t, err)
 
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found, err := s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
 
@@ -1854,14 +1886,16 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	_, err = s.Commit() // v2 (row deleted, snapshot taken)
 	require.NoError(t, err)
 
-	_, found = s.Get(nonceKey)
+	_, found, err = s.Get(nonceKey)
+	require.NoError(t, err)
 	require.False(t, found, "nonce should be gone at v2")
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
 
-	nonceVal, found = s.Get(nonceKey)
+	nonceVal, found, err = s.Get(nonceKey)
+	require.NoError(t, err)
 	require.True(t, found, "nonce should be restored after rollback to v1")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
 

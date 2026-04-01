@@ -1,10 +1,12 @@
 package flatkv
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +25,8 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	// No data initially
-	_, found := s.Get(key)
+	_, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.False(t, found)
 
 	// Apply changeset (adds to pending writes)
@@ -31,7 +34,8 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
-	got, found := s.Get(key)
+	got, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 
@@ -39,7 +43,8 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should still be readable after commit
-	got, found = s.Get(key)
+	got, found, err = s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -58,7 +63,8 @@ func TestStoreGetPendingDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify exists
-	_, found := s.Get(key)
+	_, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 
 	// Apply delete (pending)
@@ -66,14 +72,16 @@ func TestStoreGetPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
-	_, found = s.Get(key)
+	_, found, err = s.Get(key)
+	require.NoError(t, err)
 	require.False(t, found)
 
 	// Commit delete
 	commitAndCheck(t, s)
 
 	// Still should not be found
-	_, found = s.Get(key)
+	_, found, err = s.Get(key)
+	require.NoError(t, err)
 	require.False(t, found)
 }
 
@@ -90,8 +98,11 @@ func TestStoreGetNonStorageKeys(t *testing.T) {
 		evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 	}
 
+	var err error
+	var found bool
 	for _, key := range nonStorageKeys {
-		_, found := s.Get(key)
+		_, found, err = s.Get(key)
+		require.NoError(t, err)
 		require.False(t, found, "non-storage keys should not be found before write")
 	}
 }
@@ -105,7 +116,9 @@ func TestStoreHas(t *testing.T) {
 	key := memiavlStorageKey(addr, slot)
 
 	// Initially not found
-	require.False(t, s.Has(key))
+	found, err := s.Has(key)
+	require.NoError(t, err)
+	require.False(t, found)
 
 	// Write and commit
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
@@ -113,7 +126,9 @@ func TestStoreHas(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Now should exist
-	require.True(t, s.Has(key))
+	found, err = s.Has(key)
+	require.NoError(t, err)
+	require.True(t, found)
 }
 
 // =============================================================================
@@ -128,7 +143,8 @@ func TestStoreGetLegacyPendingWrites(t *testing.T) {
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Not found initially
-	_, found := s.Get(legacyKey)
+	_, found, err := s.Get(legacyKey)
+	require.NoError(t, err)
 	require.False(t, found)
 
 	// Apply changeset
@@ -136,13 +152,15 @@ func TestStoreGetLegacyPendingWrites(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
-	got, found := s.Get(legacyKey)
+	got, found, err := s.Get(legacyKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 
 	// Commit and still readable
 	commitAndCheck(t, s)
-	got, found = s.Get(legacyKey)
+	got, found, err = s.Get(legacyKey)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 }
@@ -159,7 +177,8 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	_, found := s.Get(legacyKey)
+	_, found, err := s.Get(legacyKey)
+	require.NoError(t, err)
 	require.True(t, found)
 
 	// Apply delete (pending)
@@ -167,12 +186,14 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
-	_, found = s.Get(legacyKey)
+	_, found, err = s.Get(legacyKey)
+	require.NoError(t, err)
 	require.False(t, found)
 
 	// Commit delete
 	commitAndCheck(t, s)
-	_, found = s.Get(legacyKey)
+	_, found, err = s.Get(legacyKey)
+	require.NoError(t, err)
 	require.False(t, found)
 }
 
@@ -194,7 +215,8 @@ func TestStoreDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify exists
-	got, found := s.Get(key)
+	got, found, err := s.Get(key)
+	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x77), got)
 
@@ -204,7 +226,8 @@ func TestStoreDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should not exist
-	_, found = s.Get(key)
+	_, found, err = s.Get(key)
+	require.NoError(t, err)
 	require.False(t, found)
 }
 
@@ -389,4 +412,237 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 		count2++
 	}
 	require.Equal(t, 2, count2, "should find 2 slots for addr2")
+}
+
+// =============================================================================
+// GetBlockHeightModified
+// =============================================================================
+
+func TestGetBlockHeightModified_Storage(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x01}
+	slot := Slot{0x02}
+	key := memiavlStorageKey(addr, slot)
+
+	// Not found initially
+	bh, found, err := s.GetBlockHeightModified(key)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+
+	// Write at version 1
+	cs := makeChangeSet(key, padLeft32(0x42), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s) // version 1
+
+	bh, found, err = s.GetBlockHeightModified(key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+
+	// Overwrite at version 2
+	cs2 := makeChangeSet(key, padLeft32(0x99), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s) // version 2
+
+	bh, found, err = s.GetBlockHeightModified(key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(2), bh)
+}
+
+func TestGetBlockHeightModified_Nonce(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x10}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonceVal, 7)
+
+	// Not found initially
+	bh, found, err := s.GetBlockHeightModified(nonceKey)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+
+	// Write at version 1
+	cs := makeChangeSet(nonceKey, nonceVal, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	bh, found, err = s.GetBlockHeightModified(nonceKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+}
+
+func TestGetBlockHeightModified_CodeHash(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x20}
+	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	codeHashVal := vtype.CodeHash{0xAA}
+
+	// Not found initially
+	bh, found, err := s.GetBlockHeightModified(codeHashKey)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+
+	// Write nonce + codehash together (account data is a single row)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceVal := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonceVal, 1)
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: iavl.ChangeSet{
+			Pairs: []*iavl.KVPair{
+				{Key: nonceKey, Value: nonceVal},
+				{Key: codeHashKey, Value: codeHashVal[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	bh, found, err = s.GetBlockHeightModified(codeHashKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+}
+
+func TestGetBlockHeightModified_Code(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x30}
+	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	bytecode := []byte{0x60, 0x80, 0x60, 0x40}
+
+	// Not found initially
+	bh, found, err := s.GetBlockHeightModified(codeKey)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+
+	// Write at version 1
+	cs := makeChangeSet(codeKey, bytecode, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	bh, found, err = s.GetBlockHeightModified(codeKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+}
+
+func TestGetBlockHeightModified_Legacy(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x40}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+
+	// Not found initially
+	bh, found, err := s.GetBlockHeightModified(legacyKey)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+
+	// Write at version 1
+	cs := makeChangeSet(legacyKey, []byte{0xCA, 0xFE}, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	bh, found, err = s.GetBlockHeightModified(legacyKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+}
+
+func TestGetBlockHeightModified_UnknownKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	bh, found, err := s.GetBlockHeightModified([]byte{0xFF, 0xFF})
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+}
+
+func TestGetBlockHeightModified_DeletedKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x50}
+	slot := Slot{0x60}
+	key := memiavlStorageKey(addr, slot)
+
+	// Write then delete
+	cs1 := makeChangeSet(key, padLeft32(0x01), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	cs2 := makeChangeSet(key, nil, true)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	bh, found, err := s.GetBlockHeightModified(key)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Equal(t, int64(-1), bh)
+}
+
+func TestGetBlockHeightModified_PendingWrite(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x70}
+	slot := Slot{0x80}
+	key := memiavlStorageKey(addr, slot)
+
+	// Apply but don't commit — data is pending
+	cs := makeChangeSet(key, padLeft32(0x42), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	bh, found, err := s.GetBlockHeightModified(key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+}
+
+func TestGetBlockHeightModified_UpdateBumpsHeight(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := Address{0x90}
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonce1 := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonce1, 1)
+	nonce2 := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonce2, 2)
+
+	// Write at version 1
+	cs1 := makeChangeSet(nonceKey, nonce1, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	bh, found, err := s.GetBlockHeightModified(nonceKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(1), bh)
+
+	// Update at version 2
+	cs2 := makeChangeSet(nonceKey, nonce2, false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s)
+
+	bh, found, err = s.GetBlockHeightModified(nonceKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(2), bh)
 }

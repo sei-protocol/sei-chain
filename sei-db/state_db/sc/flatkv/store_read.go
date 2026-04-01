@@ -11,94 +11,123 @@ import (
 )
 
 // Get returns the value for the given memiavl key.
-// Returns (value, true) if found, (nil, false) if not found.
-func (s *CommitStore) Get(key []byte) ([]byte, bool) {
+// Returns (value, true, nil) if found, (nil, false, nil) if not found.
+func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
 	if kind == evm.EVMKeyUnknown {
-		return nil, false
+		return nil, false, nil
 	}
 
 	switch kind {
 	case evm.EVMKeyStorage:
 		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
-		return value, value != nil
+		return value, value != nil, nil
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-		// Account data: keyBytes = addr(20)
-		// accountDB stores AccountValue at key=addr(20)
-		addr, ok := AddressFromBytes(keyBytes)
-		if !ok {
-			return nil, false
-		}
-
-		// Check pending writes first
-		if accountValue, found := s.accountWrites[string(addr[:])]; found {
-			if accountValue.IsDelete() {
-				return nil, false
-			}
-			if kind == evm.EVMKeyNonce {
-				nonceBytes := make([]byte, vtype.NonceLen)
-				binary.BigEndian.PutUint64(nonceBytes, accountValue.GetNonce())
-				return nonceBytes, true
-			}
-			// CodeHash
-			codeHash := accountValue.GetCodeHash()
-			var zeroCodeHash vtype.CodeHash
-			if *codeHash == zeroCodeHash {
-				return nil, false
-			}
-			return codeHash[:], true
-		}
-
-		// Read from accountDB
-		encoded, err := s.accountDB.Get(AccountKey(addr))
+		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
-		accountData, err := vtype.DeserializeAccountData(encoded)
-		if err != nil {
-			return nil, false
+		if accountData == nil || accountData.IsDelete() {
+			return nil, false, nil
 		}
 
 		if kind == evm.EVMKeyNonce {
-			nonce := make([]byte, vtype.NonceLen)
-			binary.BigEndian.PutUint64(nonce, accountData.GetNonce())
-			return nonce, true
+			nonceBytes := make([]byte, vtype.NonceLen)
+			binary.BigEndian.PutUint64(nonceBytes, accountData.GetNonce())
+			return nonceBytes, true, nil
 		}
 		// CodeHash
 		codeHash := accountData.GetCodeHash()
 		var zeroCodeHash vtype.CodeHash
 		if *codeHash == zeroCodeHash {
-			return nil, false
+			return nil, false, nil
 		}
-		return codeHash[:], true
+		return codeHash[:], true, nil
 
 	case evm.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
-		return value, value != nil
+		return value, value != nil, nil
 
 	case evm.EVMKeyLegacy:
 		value, err := s.getLegacyValue(keyBytes)
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
-		return value, value != nil
+		return value, value != nil, nil
 
 	default:
-		return nil, false
+		return nil, false, nil
+	}
+}
+
+// GetBlockHeightModified returns the block height at which the key was last modified.
+// If not found, returns (-1, false, nil).
+func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
+	kind, keyBytes := evm.ParseEVMKey(key)
+	if kind == evm.EVMKeyUnknown {
+		return -1, false, nil
+	}
+
+	switch kind {
+	case evm.EVMKeyStorage:
+		sd, err := s.getStorageData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if sd == nil || sd.IsDelete() {
+			return -1, false, nil
+		}
+		return sd.GetBlockHeight(), true, nil
+
+	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+		accountData, err := s.getAccountData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if accountData == nil || accountData.IsDelete() {
+			return -1, false, nil
+		}
+		return accountData.GetBlockHeight(), true, nil
+
+	case evm.EVMKeyCode:
+		cd, err := s.getCodeData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if cd == nil || cd.IsDelete() {
+			return -1, false, nil
+		}
+		return cd.GetBlockHeight(), true, nil
+
+	case evm.EVMKeyLegacy:
+		ld, err := s.getLegacyData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if ld == nil || ld.IsDelete() {
+			return -1, false, nil
+		}
+		return ld.GetBlockHeight(), true, nil
+
+	default:
+		return -1, false, nil
 	}
 }
 
 // Has reports whether the given memiavl key exists.
-func (s *CommitStore) Has(key []byte) bool {
-	_, found := s.Get(key)
-	return found
+func (s *CommitStore) Has(key []byte) (bool, error) {
+	_, found, err := s.Get(key)
+	if err != nil {
+		return false, fmt.Errorf("failed to get key %x: %w", key, err)
+	}
+	return found, nil
 }
 
 // Iterator returns an iterator over [start, end) in memiavl key order.
@@ -181,74 +210,103 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // Internal Getters (used by ApplyChangeSets for LtHash computation)
 // =============================================================================
 
-func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
-	pendingWrite, hasPending := s.storageWrites[string(key)]
-	if hasPending {
-		if pendingWrite.IsDelete() {
-			return nil, nil
-		}
-		return pendingWrite.GetValue()[:], nil
+func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {
+	addr, ok := AddressFromBytes(keyBytes)
+	if !ok {
+		return nil, nil
 	}
 
-	value, err := s.storageDB.Get(key)
+	if accountValue, found := s.accountWrites[string(addr[:])]; found {
+		return accountValue, nil
+	}
+
+	encoded, err := s.accountDB.Get(AccountKey(addr))
 	if err != nil {
 		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", key, err)
+		return nil, fmt.Errorf("accountDB I/O error for key %x: %w", addr, err)
+	}
+	return vtype.DeserializeAccountData(encoded)
+}
+
+func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error) {
+	pendingWrite, hasPending := s.storageWrites[string(keyBytes)]
+	if hasPending {
+		return pendingWrite, nil
 	}
 
-	storageData, err := vtype.DeserializeStorageData(value)
+	value, err := s.storageDB.Get(keyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize storage data: %w", err)
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", keyBytes, err)
 	}
-	return storageData.GetValue()[:], nil
+	return vtype.DeserializeStorageData(value)
+}
+
+func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
+	sd, err := s.getStorageData(key)
+	if err != nil {
+		return nil, err
+	}
+	if sd == nil || sd.IsDelete() {
+		return nil, nil
+	}
+	return sd.GetValue()[:], nil
+}
+
+func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
+	pendingWrite, hasPending := s.codeWrites[string(keyBytes)]
+	if hasPending {
+		return pendingWrite, nil
+	}
+
+	value, err := s.codeDB.Get(keyBytes)
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", keyBytes, err)
+	}
+	return vtype.DeserializeCodeData(value)
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
-	pendingWrite, hasPending := s.codeWrites[string(key)]
+	cd, err := s.getCodeData(key)
+	if err != nil {
+		return nil, err
+	}
+	if cd == nil || cd.IsDelete() {
+		return nil, nil
+	}
+	return cd.GetBytecode(), nil
+}
+
+func (s *CommitStore) getLegacyData(keyBytes []byte) (*vtype.LegacyData, error) {
+	pendingWrite, hasPending := s.legacyWrites[string(keyBytes)]
 	if hasPending {
-		if pendingWrite.IsDelete() {
-			return nil, nil
-		}
-		return pendingWrite.GetBytecode(), nil
+		return pendingWrite, nil
 	}
 
-	value, err := s.codeDB.Get(key)
+	value, err := s.legacyDB.Get(keyBytes)
 	if err != nil {
 		if errorutils.IsNotFound(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", key, err)
+		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", keyBytes, err)
 	}
-
-	codeData, err := vtype.DeserializeCodeData(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize code data: %w", err)
-	}
-	return codeData.GetBytecode(), nil
+	return vtype.DeserializeLegacyData(value)
 }
 
 func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
-	pendingWrite, hasPending := s.legacyWrites[string(key)]
-	if hasPending {
-		if pendingWrite.IsDelete() {
-			return nil, nil
-		}
-		return pendingWrite.GetValue(), nil
-	}
-
-	value, err := s.legacyDB.Get(key)
+	ld, err := s.getLegacyData(key)
 	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", key, err)
+		return nil, err
 	}
-
-	legacyData, err := vtype.DeserializeLegacyData(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize legacy data: %w", err)
+	if ld == nil || ld.IsDelete() {
+		return nil, nil
 	}
-	return legacyData.GetValue(), nil
+	return ld.GetValue(), nil
 }
