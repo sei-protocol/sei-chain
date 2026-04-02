@@ -43,7 +43,6 @@ type GigaRouterConfig struct {
 
 type GigaRouter struct {
 	cfg       *GigaRouterConfig
-	committee *atypes.Committee
 	key       NodeSecretKey
 	data      *data.State
 	producer  *producer.State
@@ -134,8 +133,8 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		}
 		resp, err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 			Txs: b.Payload().Txs(),
-			// Empty DecidedLastCommit is does not indicate missing votes.
-
+			// Empty DecidedLastCommit does not indicate missing votes.
+			DecidedLastCommit: abci.CommitInfo{},
 			// WARNING: this is a hash of the autobahn block header.
 			// It is used to identify block processed optimistically
 			// and is fed as block hash to EVM contracts.
