@@ -7,6 +7,7 @@ import (
 	"time"
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
+	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"golang.org/x/time/rate"
@@ -308,7 +309,7 @@ func (b *BlockSim) Resume() {
 func openBlockDB(backend string, _ string) (blockdb.BlockDB, error) {
 	switch backend {
 	case "mem":
-		return blockdb.NewMemBlockDB(), nil
+		return memblockdb.NewMemBlockDB(), nil
 	default:
 		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
 	}

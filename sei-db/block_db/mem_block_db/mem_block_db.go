@@ -1,16 +1,18 @@
-package blockdb
+package memblockdb
 
 import (
 	"context"
 	"sync"
+
+	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 )
 
 // Shared backing store, keyed by path in test builders to simulate restarts.
 type memBlockDBData struct {
 	mu             sync.RWMutex
-	blocksByHash   map[string]*BinaryBlock
-	blocksByHeight map[uint64]*BinaryBlock
-	txByHash       map[string]*BinaryTransaction
+	blocksByHash   map[string]*blockdb.BinaryBlock
+	blocksByHeight map[uint64]*blockdb.BinaryBlock
+	txByHash       map[string]*blockdb.BinaryTransaction
 	lowestHeight   uint64
 	highestHeight  uint64
 	hasBlocks      bool
@@ -23,17 +25,17 @@ type memBlockDB struct {
 }
 
 // NewMemBlockDB creates an in-memory BlockDB suitable for testing and benchmarks.
-func NewMemBlockDB() BlockDB {
+func NewMemBlockDB() blockdb.BlockDB {
 	return &memBlockDB{
 		data: &memBlockDBData{
-			blocksByHash:   make(map[string]*BinaryBlock),
-			blocksByHeight: make(map[uint64]*BinaryBlock),
-			txByHash:       make(map[string]*BinaryTransaction),
+			blocksByHash:   make(map[string]*blockdb.BinaryBlock),
+			blocksByHeight: make(map[uint64]*blockdb.BinaryBlock),
+			txByHash:       make(map[string]*blockdb.BinaryTransaction),
 		},
 	}
 }
 
-func (m *memBlockDB) WriteBlock(_ context.Context, block *BinaryBlock) error {
+func (m *memBlockDB) WriteBlock(_ context.Context, block *blockdb.BinaryBlock) error {
 	d := m.data
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -63,7 +65,7 @@ func (m *memBlockDB) Flush(_ context.Context) error {
 	return nil
 }
 
-func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*BinaryBlock, bool, error) {
+func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*blockdb.BinaryBlock, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -72,7 +74,7 @@ func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*BinaryBloc
 	return block, ok, nil
 }
 
-func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*BinaryBlock, bool, error) {
+func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*blockdb.BinaryBlock, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -81,7 +83,7 @@ func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*Binary
 	return block, ok, nil
 }
 
-func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (*BinaryTransaction, bool, error) {
+func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (*blockdb.BinaryTransaction, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
