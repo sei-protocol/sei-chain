@@ -731,9 +731,12 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Phase 1: write everything and close
-	s1 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dir
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	defer s1.Close()
-	_, err := s1.LoadVersion(0, false)
+	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -750,7 +753,10 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen and verify all reads
-	s2 := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dir
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -849,7 +855,7 @@ func TestIteratorLast(t *testing.T) {
 	addr := addrN(0xD3)
 	slots := []Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
 
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, sl, []byte{0xAA}))
 	}
@@ -870,7 +876,7 @@ func TestIteratorSeekGE(t *testing.T) {
 
 	addr := addrN(0xD4)
 	slots := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, slotN(sl), []byte{sl}))
 	}
@@ -901,7 +907,7 @@ func TestIteratorSeekLT(t *testing.T) {
 
 	addr := addrN(0xD5)
 	slots := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, slotN(sl), []byte{sl}))
 	}
@@ -927,7 +933,7 @@ func TestIteratorPrev(t *testing.T) {
 
 	addr := addrN(0xD6)
 	slots := []Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, sl, []byte{0xAA}))
 	}
@@ -1016,7 +1022,7 @@ func TestIteratorRangeBounds(t *testing.T) {
 
 	addr := addrN(0xD9)
 	slots := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, slotN(sl), []byte{sl}))
 	}
@@ -1045,7 +1051,7 @@ func TestIteratorHalfOpenStart(t *testing.T) {
 
 	addr := addrN(0xDA)
 	slots := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, slotN(sl), []byte{sl}))
 	}
@@ -1063,7 +1069,7 @@ func TestIteratorHalfOpenEnd(t *testing.T) {
 
 	addr := addrN(0xDB)
 	slots := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, slotN(sl), []byte{sl}))
 	}
@@ -1189,10 +1195,14 @@ func TestReadOnlyGetAllKeyTypes(t *testing.T) {
 	bytecode := []byte{0x60, 0x80}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
-	cfg := Config{SnapshotInterval: 1, SnapshotKeepRecent: 5}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	cfg.SnapshotKeepRecent = 5
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	defer s.Close()
-	_, err := s.LoadVersion(0, false)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1237,10 +1247,14 @@ func TestReadOnlyIterator(t *testing.T) {
 
 	addr := addrN(0xF2)
 
-	cfg := Config{SnapshotInterval: 1, SnapshotKeepRecent: 5}
-	s := NewCommitStore(t.Context(), filepath.Join(dir, flatkvRootDir), cfg)
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	cfg.SnapshotKeepRecent = 5
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	defer s.Close()
-	_, err := s.LoadVersion(0, false)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
