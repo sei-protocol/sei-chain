@@ -54,6 +54,12 @@ type KeyValueDB interface {
 	// Get returns the value for the given key, returning an error if the key is not found.
 	Get(key []byte) (value []byte, err error)
 
+	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
+	// map with the results.
+	//
+	// It is not thread safe to read or mutate the map while this method is running.
+	BatchGet(keys map[string]BatchGetResult) error
+
 	// Set sets the value for the given key.
 	Set(key, value []byte, opts WriteOptions) error
 

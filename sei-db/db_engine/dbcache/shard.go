@@ -183,13 +183,10 @@ func (s *shard) getUnknown(read Reader, entry *shardEntry, key []byte) ([]byte, 
 	s.lock.Unlock()
 	s.metrics.reportCacheMisses(1)
 	startTime := time.Now()
-	err := s.readPool.Submit(s.ctx, func() {
+	s.readPool.Submit(func() {
 		value, _, readErr := read(key)
 		entry.injectValue(key, readResult{value: value, err: readErr})
 	})
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to schedule read: %w", err)
-	}
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
 	if err != nil {
@@ -307,13 +304,10 @@ func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 	for i := range pending {
 		if pending[i].needsSchedule {
 			p := &pending[i]
-			err := s.readPool.Submit(s.ctx, func() {
+			s.readPool.Submit(func() {
 				value, _, readErr := read([]byte(p.key))
 				p.entry.valueChan <- readResult{value: value, err: readErr}
 			})
-			if err != nil {
-				return fmt.Errorf("failed to schedule read: %w", err)
-			}
 		}
 	}
 

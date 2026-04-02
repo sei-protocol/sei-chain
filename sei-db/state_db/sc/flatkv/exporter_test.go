@@ -294,7 +294,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s1 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -308,7 +312,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen from the same directory — data must survive.
-	s2 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dbPath
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(1, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -335,8 +343,12 @@ func TestImportPurgesStaleData(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbPath, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	addrA := Address{0xAA}
@@ -412,7 +424,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 	// --- Phase 3: import snapshot into the existing store ---
 	require.NoError(t, s.Close())
 
-	s = NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -450,7 +463,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	// Verify the store survives a reopen.
 	require.NoError(t, s.Close())
-	s = NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s.LoadVersion(1, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -467,8 +481,12 @@ func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbPath, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 

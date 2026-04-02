@@ -48,6 +48,7 @@ func (b *blockBuilder) Start() {
 
 // Builds blocks and sends them to the blocks channel.
 func (b *blockBuilder) mainLoop() {
+	defer b.dataGenerator.Close()
 	for {
 		block := b.buildBlock()
 		select {

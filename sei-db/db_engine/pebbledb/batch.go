@@ -1,6 +1,8 @@
 package pebbledb
 
 import (
+	"fmt"
+
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -14,26 +16,24 @@ type pebbleBatch struct {
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
-func newPebbleBatch(db *pebble.DB) *pebbleBatch {
-	return &pebbleBatch{b: db.NewBatch()}
-}
-
 func (p *pebbleDB) NewBatch() types.Batch {
-	return newPebbleBatch(p.db)
+	return &pebbleBatch{b: p.db.NewBatch()}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
-	// Durability options are applied on Commit.
 	return pb.b.Set(key, value, nil)
 }
 
 func (pb *pebbleBatch) Delete(key []byte) error {
-	// Durability options are applied on Commit.
 	return pb.b.Delete(key, nil)
 }
 
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
-	return pb.b.Commit(toPebbleWriteOpts(opts))
+	err := pb.b.Commit(toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to commit batch: %w", err)
+	}
+	return nil
 }
 
 func (pb *pebbleBatch) Len() int {

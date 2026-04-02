@@ -114,6 +114,28 @@ func TestParseIOFile_ExpectBodyContains(t *testing.T) {
 	}
 }
 
+func TestParseIOFile_BareLTLTEmptyExpected(t *testing.T) {
+	// A line that is only << (empty body after the marker) still ends the pair with zero-length Expected;
+	// @ expect_body_* / @ expect_response_* can assert on the raw HTTP body (e.g. JSON array batch).
+	content := `>> [1,2]
+<<
+@ expect_body_contains x
+`
+	pairs, err := parseIOFile(content)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	if len(pairs[0].Expected) != 0 {
+		t.Fatalf("expected empty Expected, got %q", pairs[0].Expected)
+	}
+	if len(pairs[0].ExpectBodyContains) != 1 || pairs[0].ExpectBodyContains[0] != "x" {
+		t.Fatalf("ExpectBodyContains: %+v", pairs[0].ExpectBodyContains)
+	}
+}
+
 func TestParseIOFile_ExpectResponseHeader(t *testing.T) {
 	content := `>> {"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["latest",false]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
