@@ -164,6 +164,26 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 	return r0, r1
 }
 
+// GetValidators provides a mock function with no fields
+func (_m *Application) GetValidators() []types.ValidatorUpdate {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetValidators")
+	}
+
+	var r0 []types.ValidatorUpdate
+	if rf, ok := ret.Get(0).(func() []types.ValidatorUpdate); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.ValidatorUpdate)
+		}
+	}
+
+	return r0
+}
+
 // Info provides a mock function with given fields: _a0, _a1
 func (_m *Application) Info(_a0 context.Context, _a1 *types.RequestInfo) (*types.ResponseInfo, error) {
 	ret := _m.Called(_a0, _a1)

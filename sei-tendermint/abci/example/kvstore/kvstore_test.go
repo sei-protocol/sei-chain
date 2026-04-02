@@ -129,6 +129,16 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 
 }
 
+func TestGetValidators(t *testing.T) {
+	kvstore := NewApplication()
+	vals := RandVals(3)
+
+	kvstore.SetValidators(vals)
+
+	var appIfc types.Application = kvstore
+	valsEqual(t, vals, appIfc.GetValidators())
+}
+
 // add a validator, remove a validator, update a validator
 func TestValUpdates(t *testing.T) {
 	ctx := t.Context()

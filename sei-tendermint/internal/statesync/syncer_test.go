@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -207,7 +206,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 			&abci.RequestApplySnapshotChunk{Index: 2, Chunk: []byte{1, 1, 2}},
 			&abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT},
 		))
-		app.info.Push(mkHandler(&proxy.RequestInfo, &abci.ResponseInfo{
+		app.info.Push(mkHandler(&version.RequestInfo, &abci.ResponseInfo{
 			AppVersion:       testAppVersion,
 			LastBlockHeight:  1,
 			LastBlockAppHash: []byte("app_hash"),
@@ -785,7 +784,7 @@ func TestSyncer_verifyApp(t *testing.T) {
 
 			app := rts.conn
 			app.info.Push(func(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
-				utils.OrPanic(utils.TestDiff(&proxy.RequestInfo, req))
+				utils.OrPanic(utils.TestDiff(&version.RequestInfo, req))
 				return tc.response, tc.err
 			})
 			err := rts.reactor.syncer.verifyApp(ctx, s, appVersion)
