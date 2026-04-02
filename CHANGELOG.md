@@ -29,36 +29,117 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.4
 sei-chain
+* [#3166](https://github.com/sei-protocol/sei-chain/pull/3166) Backport `release/v6.4`: fix: sei legacy http batch
+* [#3161](https://github.com/sei-protocol/sei-chain/pull/3161) Backport `release/v6.4`: Add warning message for IAVL deprecation
+* [#3160](https://github.com/sei-protocol/sei-chain/pull/3160) fix: sei legacy http batch
+* [#3159](https://github.com/sei-protocol/sei-chain/pull/3159) Add warning message for IAVL deprecation
+* [#3158](https://github.com/sei-protocol/sei-chain/pull/3158) Backport `release/v6.4`: Change default min valid per window to zero
+* [#3157](https://github.com/sei-protocol/sei-chain/pull/3157) Change default min valid per window to zero
+* [#3156](https://github.com/sei-protocol/sei-chain/pull/3156) Backport `release/v6.4`: Fix upgrade list comparison to respect semver
+* [#3154](https://github.com/sei-protocol/sei-chain/pull/3154) plt-228 fixed static check on app and evmrpc package
+* [#3153](https://github.com/sei-protocol/sei-chain/pull/3153) Fix upgrade list comparison to respect semver
+* [#3152](https://github.com/sei-protocol/sei-chain/pull/3152) Backport `release/v6.4`: Remove redundant makefiles, unused code and adjust docs
+* [#3149](https://github.com/sei-protocol/sei-chain/pull/3149) Remove redundant makefiles, unused code and adjust docs
+* [#3148](https://github.com/sei-protocol/sei-chain/pull/3148) Backport `release/v6.4`: Fix minor logging issues
+* [#3147](https://github.com/sei-protocol/sei-chain/pull/3147) Fix minor logging issues
+* [#3146](https://github.com/sei-protocol/sei-chain/pull/3146) Deprecate IAVL and fix all dependency and test
+* [#3145](https://github.com/sei-protocol/sei-chain/pull/3145) Make cryptosim state store backend configurable + No Op Wrapper + Read Disable Config
+* [#3144](https://github.com/sei-protocol/sei-chain/pull/3144) PLT-225 Use in place orbytes for bloom filter
+* [#3142](https://github.com/sei-protocol/sei-chain/pull/3142) State Store Wrapper ApplychangesetAsync
+* [#3141](https://github.com/sei-protocol/sei-chain/pull/3141) Backport `release/v6.4`: chore: sei legacy RPC deprecation
+* [#3140](https://github.com/sei-protocol/sei-chain/pull/3140) Backport `release/v6.4`: feat(giga): fallback to v2 for associations and migrations
+* [#3139](https://github.com/sei-protocol/sei-chain/pull/3139) Backport `release/v6.4`: fix to ProposalPOLMessage poisoning (CON-222)
+* [#3137](https://github.com/sei-protocol/sei-chain/pull/3137) Deflake empty-block in mempool test
+* [#3136](https://github.com/sei-protocol/sei-chain/pull/3136) support for starting autobahn from non-zero global block
+* [#3135](https://github.com/sei-protocol/sei-chain/pull/3135) test(evmrpc): assert getBlockTransactionCountByHash matches block list
+* [#3133](https://github.com/sei-protocol/sei-chain/pull/3133) Eliminate per-iteration allocation in SetEvmOnlyBlockBloom
+* [#3132](https://github.com/sei-protocol/sei-chain/pull/3132) Make historical proof test use sync SC commits
+* [#3131](https://github.com/sei-protocol/sei-chain/pull/3131) Backport `release/v6.4`: Remove stale price snapshot creation from MidBlocker
+* [#3129](https://github.com/sei-protocol/sei-chain/pull/3129) fix to ProposalPOLMessage poisoning (CON-222)
+* [#3128](https://github.com/sei-protocol/sei-chain/pull/3128) Fix edge case for non atomic commit
+* [#3127](https://github.com/sei-protocol/sei-chain/pull/3127) fix(flatkv): harden error handling for readonly store and crash cleanup
+* [#3125](https://github.com/sei-protocol/sei-chain/pull/3125) fix: eth_getBlockTransactionCountByNumber returns inconsistent count vs eth_getBlockByNumber
+* [#3124](https://github.com/sei-protocol/sei-chain/pull/3124) fix(wal): make TruncateAll early return work when AllowEmpty is true
+* [#3122](https://github.com/sei-protocol/sei-chain/pull/3122) fix: make no-op deleteBefore advance cursor in commitQCState and simplify deleteBefore API
+* [#3121](https://github.com/sei-protocol/sei-chain/pull/3121) InitChain cleanup
+* [#3120](https://github.com/sei-protocol/sei-chain/pull/3120) Pass versioned changeset entries to wrappers + ApplyChangesetasync
+* [#3119](https://github.com/sei-protocol/sei-chain/pull/3119) evm: RPC IO fixtures and blocking CI (targetting 100% pass rate)
+* [#3118](https://github.com/sei-protocol/sei-chain/pull/3118) fix(evmrpc): align genesis block handling RPC methods
+* [#3117](https://github.com/sei-protocol/sei-chain/pull/3117) Remove stale price snapshot creation from MidBlocker
+* [#3116](https://github.com/sei-protocol/sei-chain/pull/3116) fix(evm-tests): align reverter_contract.hex with reverter.sol (solc 0.8.28)
+* [#3115](https://github.com/sei-protocol/sei-chain/pull/3115) Backport `release/v6.4`: fixed ValidatorInfo json encoding
+* [#3114](https://github.com/sei-protocol/sei-chain/pull/3114) fixed ValidatorInfo json encoding
+* [#3112](https://github.com/sei-protocol/sei-chain/pull/3112) fix: eth_getLogs future range validation to target ethereum behavior
+* [#3111](https://github.com/sei-protocol/sei-chain/pull/3111) fix: eth_call with eip-1559 call
+* [#3110](https://github.com/sei-protocol/sei-chain/pull/3110) Update rpc_bench to support fixed block ranges and file output
+* [#3109](https://github.com/sei-protocol/sei-chain/pull/3109) chore: sei legacy RPC deprecation
+* [#3108](https://github.com/sei-protocol/sei-chain/pull/3108) Backport `release/v6.4`: Disable zero copy for SC
+* [#3107](https://github.com/sei-protocol/sei-chain/pull/3107) Disable zero copy for SC
+* [#3105](https://github.com/sei-protocol/sei-chain/pull/3105) persist: productionize A/B file persistence
+* [#3104](https://github.com/sei-protocol/sei-chain/pull/3104) Backport `release/v6.4`: Fix composite snapshot import hang on EVM errors
+* [#3103](https://github.com/sei-protocol/sei-chain/pull/3103) feat(giga): fallback to v2 for associations and migrations
+* [#3101](https://github.com/sei-protocol/sei-chain/pull/3101) Backport `release/v6.4`: Fix SIGSEGV in historical RPC queries
+* [#3100](https://github.com/sei-protocol/sei-chain/pull/3100) Backport `release/v6.4`: Fix last commit hash missmatch during replay
+* [#3098](https://github.com/sei-protocol/sei-chain/pull/3098) Fix SIGSEGV in historical RPC queries
+* [#3097](https://github.com/sei-protocol/sei-chain/pull/3097) Fix last commit hash missmatch during replay
+* [#3096](https://github.com/sei-protocol/sei-chain/pull/3096) removed PrepareProposal from Application
+* [#3094](https://github.com/sei-protocol/sei-chain/pull/3094) Backport `release/v6.4`: Fix seid version tagging logic for release branch
+* [#3093](https://github.com/sei-protocol/sei-chain/pull/3093) Backport `release/v6.4`: Fix IBC Upgrade Params
+* [#3092](https://github.com/sei-protocol/sei-chain/pull/3092) Fix IBC Upgrade Params
+* [#3091](https://github.com/sei-protocol/sei-chain/pull/3091) Fix composite snapshot import hang on EVM errors
+* [#3090](https://github.com/sei-protocol/sei-chain/pull/3090) fix(flatkv): purge stale data before state sync import
+* [#3088](https://github.com/sei-protocol/sei-chain/pull/3088) go version for mockery pinned
+* [#3087](https://github.com/sei-protocol/sei-chain/pull/3087) removed proto encoding for most of the abci types
+* [#3086](https://github.com/sei-protocol/sei-chain/pull/3086) chore(evmrpc): explicit unsupported rpcs
+* [#3085](https://github.com/sei-protocol/sei-chain/pull/3085) cryptosim bugfixes
+* [#3084](https://github.com/sei-protocol/sei-chain/pull/3084) feat(flatkv): implements Account Row GC for FlatKV `accountDB`
+* [#3083](https://github.com/sei-protocol/sei-chain/pull/3083) Made block processing abci request contain a tendermint block header
+* [#3082](https://github.com/sei-protocol/sei-chain/pull/3082) dropped orphaned mock
+* [#3080](https://github.com/sei-protocol/sei-chain/pull/3080) chore(evmrpc): expose eth_blobBaseFee on eth RPC surface
+* [#3079](https://github.com/sei-protocol/sei-chain/pull/3079) Add release 6.4 precompiles
+* [#3077](https://github.com/sei-protocol/sei-chain/pull/3077) Implement a standard cache.
 * [#3076](https://github.com/sei-protocol/sei-chain/pull/3076) Added clone method to canned random
+* [#3075](https://github.com/sei-protocol/sei-chain/pull/3075) Fix commit and query contention
+* [#3074](https://github.com/sei-protocol/sei-chain/pull/3074) feat(flatkv): adds per-DB LtHash tracking to the FlatKV commit store
+* [#3073](https://github.com/sei-protocol/sei-chain/pull/3073) Harden EVM field-bloat validation
 * [#3072](https://github.com/sei-protocol/sei-chain/pull/3072) Helper files for the flatKV cache implementation
 * [#3071](https://github.com/sei-protocol/sei-chain/pull/3071) fix(giga): match v2 correctness checks
 * [#3070](https://github.com/sei-protocol/sei-chain/pull/3070) fix: restore PRs inadvertently reverted by #3039 squash-merge
+* [#3069](https://github.com/sei-protocol/sei-chain/pull/3069) chore (evmrpc): fix eth_getBlockTransactionCountByHash hash lookup consistency
 * [#3068](https://github.com/sei-protocol/sei-chain/pull/3068) chore(evmrpc): eth_getBlockReceipts not-found behavior parity
+* [#3067](https://github.com/sei-protocol/sei-chain/pull/3067) chore(evmrpc): return null for unknown/empty block hash
 * [#3066](https://github.com/sei-protocol/sei-chain/pull/3066) Refine logging to avoid printing expensive objects on hot path
 * [#3065](https://github.com/sei-protocol/sei-chain/pull/3065) Fix flaky tendermint syncer test
+* [#3064](https://github.com/sei-protocol/sei-chain/pull/3064) Add exporter for FlatKV and CompositeSC
 * [#3063](https://github.com/sei-protocol/sei-chain/pull/3063) Fix flaky test caused by async WAL writes
 * [#3062](https://github.com/sei-protocol/sei-chain/pull/3062) Add runtime log level control via gRPC admin service
 * [#3059](https://github.com/sei-protocol/sei-chain/pull/3059) Use semver comparator to compare upgrade names
+* [#3058](https://github.com/sei-protocol/sei-chain/pull/3058) Debug Trace Speedup
 * [#3057](https://github.com/sei-protocol/sei-chain/pull/3057) feat(flatkv): add comprehensive writing test coverage and centralize account-field semantics
 * [#3055](https://github.com/sei-protocol/sei-chain/pull/3055) Utility methods for FlatKV cache
+* [#3054](https://github.com/sei-protocol/sei-chain/pull/3054) Parquet docker integration tests
 * [#3053](https://github.com/sei-protocol/sei-chain/pull/3053) Fix flaky test: TestParquetFilePruning
 * [#3052](https://github.com/sei-protocol/sei-chain/pull/3052) Enable CI run for merge queue
 * [#3051](https://github.com/sei-protocol/sei-chain/pull/3051) Remove old codeql analysis take 2
 * [#3050](https://github.com/sei-protocol/sei-chain/pull/3050) Replace all loggers with package level `slog`
 * [#3049](https://github.com/sei-protocol/sei-chain/pull/3049) feat(wal): expose AllowEmpty config and add TruncateAll method
 * [#3048](https://github.com/sei-protocol/sei-chain/pull/3048) Remove codeQL from commit accept pipeline.
+* [#3047](https://github.com/sei-protocol/sei-chain/pull/3047) add receipt generation to cryptosim
 * [#3046](https://github.com/sei-protocol/sei-chain/pull/3046) Add console logger and fix memiavl config for benchmark
+* [#3044](https://github.com/sei-protocol/sei-chain/pull/3044) persist: replace file-per-entry with WAL and refactor into generic indexedWAL
 * [#3043](https://github.com/sei-protocol/sei-chain/pull/3043) Add config to enable lattice hash
 * [#3041](https://github.com/sei-protocol/sei-chain/pull/3041) chore: dcoument run RPC suite on legacy vs giga
 * [#3040](https://github.com/sei-protocol/sei-chain/pull/3040) Use latest go setup action to reduce flakes
 * [#3039](https://github.com/sei-protocol/sei-chain/pull/3039) feat(flatkv): add read-only LoadVersion for state sync
 * [#3038](https://github.com/sei-protocol/sei-chain/pull/3038) Backport `release/v6.3`: Update trace queue wait by timeout
+* [#3037](https://github.com/sei-protocol/sei-chain/pull/3037) rotation of outbound peers
 * [#3035](https://github.com/sei-protocol/sei-chain/pull/3035) Add receiptdb config option in app.toml
 * [#3033](https://github.com/sei-protocol/sei-chain/pull/3033) chore: self-contained revert tests, contract reorg, and failure analysis
 * [#3031](https://github.com/sei-protocol/sei-chain/pull/3031) Source Go toolchain from official image and harden foundry install
 * [#3030](https://github.com/sei-protocol/sei-chain/pull/3030) fix: use createdAt parameter instead of time.Now() in NewProposal
 * [#3029](https://github.com/sei-protocol/sei-chain/pull/3029) fix: carry PrepareQC lock across consecutive timeouts in voteTimeout
 * [#3028](https://github.com/sei-protocol/sei-chain/pull/3028) Parquet crash testing unit testing hooks
+* [#3027](https://github.com/sei-protocol/sei-chain/pull/3027) flatkv cache
 * [#3026](https://github.com/sei-protocol/sei-chain/pull/3026) Update trace queue wait by timeout
 * [#3024](https://github.com/sei-protocol/sei-chain/pull/3024) Remove dependency to zerolog in favour of slog
 * [#3023](https://github.com/sei-protocol/sei-chain/pull/3023) Fix cryptosim metrics, QOL scripting upgrades
@@ -79,6 +160,7 @@ sei-chain
 * [#3007](https://github.com/sei-protocol/sei-chain/pull/3007) Allow cryptosim benchmark to be suspended.
 * [#3006](https://github.com/sei-protocol/sei-chain/pull/3006) WAL utility tears itself down after the first error
 * [#3005](https://github.com/sei-protocol/sei-chain/pull/3005) fix: make GetCodeHash EVM-compliant
+* [#3004](https://github.com/sei-protocol/sei-chain/pull/3004) EVM RPC read benchmark script for state store load testing
 * [#3003](https://github.com/sei-protocol/sei-chain/pull/3003) fix(flatkv): fix state sync panic on nil DB handles during snapshot restore
 * [#3002](https://github.com/sei-protocol/sei-chain/pull/3002) Add opts for scdual write
 * [#3001](https://github.com/sei-protocol/sei-chain/pull/3001) Fix lock issue in cacheMultiStore
@@ -257,6 +339,7 @@ sei-chain
 * [#2755](https://github.com/sei-protocol/sei-chain/pull/2755) Composite State Store Part 2: EVM database implementation
 * [#2754](https://github.com/sei-protocol/sei-chain/pull/2754) Composite State Store part 1: EVM config and type definitions
 * [#2753](https://github.com/sei-protocol/sei-chain/pull/2753) [giga] honor configured sstore gas values
+* [#2752](https://github.com/sei-protocol/sei-chain/pull/2752) Fix seid version tagging logic for release branch
 * [#2751](https://github.com/sei-protocol/sei-chain/pull/2751) Add changelog for 6.2 and 6.3
 * [#2750](https://github.com/sei-protocol/sei-chain/pull/2750) feat: deflake TestMConnectionReadErrorUnknownChannel
 * [#2745](https://github.com/sei-protocol/sei-chain/pull/2745) [giga] Add UseRegularStore flag to GigaEvmKeeper for testing fallback
