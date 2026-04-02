@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Compile-time check: EVMStateStore implements db_engine.StateStore.
@@ -155,8 +154,8 @@ func (s *EVMStateStore) ApplyChangesetAsync(version int64, changesets []*proto.N
 	return s.applyGrouped(version, grouped, true)
 }
 
-func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[EVMStoreType][]*iavl.KVPair {
-	grouped := make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[EVMStoreType][]*proto.KVPair {
+	grouped := make(map[EVMStoreType][]*proto.KVPair, NumEVMStoreTypes)
 	for _, cs := range changesets {
 		if cs.Name != EVMStoreKey {
 			continue
@@ -166,7 +165,7 @@ func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[E
 			if storeType == StoreEmpty {
 				continue
 			}
-			grouped[storeType] = append(grouped[storeType], &iavl.KVPair{
+			grouped[storeType] = append(grouped[storeType], &proto.KVPair{
 				Key:    strippedKey,
 				Value:  kvPair.Value,
 				Delete: kvPair.Delete,
@@ -176,7 +175,7 @@ func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[E
 	return grouped
 }
 
-func (s *EVMStateStore) applyGrouped(version int64, grouped map[EVMStoreType][]*iavl.KVPair, async bool) error {
+func (s *EVMStateStore) applyGrouped(version int64, grouped map[EVMStoreType][]*proto.KVPair, async bool) error {
 	if len(grouped) == 1 {
 		for storeType, pairs := range grouped {
 			return s.applyToSubDB(storeType, version, pairs, async)
@@ -188,7 +187,7 @@ func (s *EVMStateStore) applyGrouped(version int64, grouped map[EVMStoreType][]*
 
 	for storeType, pairs := range grouped {
 		wg.Add(1)
-		go func(st EVMStoreType, p []*iavl.KVPair) {
+		go func(st EVMStoreType, p []*proto.KVPair) {
 			defer wg.Done()
 			if err := s.applyToSubDB(st, version, p, async); err != nil {
 				errCh <- err
@@ -205,7 +204,7 @@ func (s *EVMStateStore) applyGrouped(version int64, grouped map[EVMStoreType][]*
 	return nil
 }
 
-func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pairs []*iavl.KVPair, async bool) error {
+func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pairs []*proto.KVPair, async bool) error {
 	db := s.subDBs[storeType]
 	if db == nil {
 		return nil
@@ -214,7 +213,7 @@ func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pair
 	cs := []*proto.NamedChangeSet{
 		{
 			Name:      subStoreKey,
-			Changeset: iavl.ChangeSet{Pairs: pairs},
+			Changeset: proto.ChangeSet{Pairs: pairs},
 		},
 	}
 	if async {
@@ -226,7 +225,7 @@ func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pair
 // Import parses incoming snapshot nodes, routes EVM keys to sub-DBs via ApplyChangesetSync.
 func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	const flushThreshold = 10000
-	grouped := make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+	grouped := make(map[EVMStoreType][]*proto.KVPair, NumEVMStoreTypes)
 	pending := 0
 
 	flush := func() error {
@@ -236,7 +235,7 @@ func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) erro
 		if err := s.applyGrouped(version, grouped, false); err != nil {
 			return err
 		}
-		grouped = make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+		grouped = make(map[EVMStoreType][]*proto.KVPair, NumEVMStoreTypes)
 		pending = 0
 		return nil
 	}
@@ -246,7 +245,7 @@ func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) erro
 		if storeType == StoreEmpty {
 			continue
 		}
-		grouped[storeType] = append(grouped[storeType], &iavl.KVPair{
+		grouped[storeType] = append(grouped[storeType], &proto.KVPair{
 			Key:   strippedKey,
 			Value: node.Value,
 		})

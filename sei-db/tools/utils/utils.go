@@ -13,12 +13,7 @@ import (
 	"sync"
 	"time"
 
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
-)
-
-const (
-	DefaultCacheSize int = 10000
 )
 
 type KeyValuePair struct {
@@ -47,85 +42,6 @@ func OpenDB(dir string) (dbm.DB, error) {
 		return nil, err
 	}
 	return db, nil
-}
-
-// ReadTree loads an iavl tree from the directory
-// If version is 0, load latest, otherwise, load named version
-// The prefix represents which iavl tree you want to read. The iaviwer will always set a prefix.
-func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) {
-	if len(prefix) != 0 {
-		db = dbm.NewPrefixDB(db, prefix)
-	}
-
-	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, true)
-	if err != nil {
-		return nil, err
-	}
-	_, err = tree.LoadVersion(int64(version))
-	return tree, err
-}
-
-// Writes raw key / values from a tree to a file
-// Writes a chunkSize number of keys/values to separate files per module
-func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSize int) {
-	var currentChunk, currentCount int
-	var currentFile *os.File
-
-	createNewFile := func() {
-		if currentFile != nil {
-			_ = currentFile.Close()
-		}
-
-		filename := fmt.Sprintf("%s_chunk_%d.kv", filenamePattern, currentChunk)
-		var err error
-		currentFile, err = os.Create(filepath.Clean(filename))
-		if err != nil {
-			panic(err)
-		}
-
-		currentChunk++
-	}
-
-	// Open first chunk file
-	createNewFile()
-
-	_, err := tree.Iterate(func(key []byte, value []byte) bool {
-		// If we've reached chunkSize, close current file and open a new one
-		if currentCount >= chunkSize {
-			createNewFile()
-			currentCount = 0
-		}
-
-		if err := writeByteSlice(currentFile, key); err != nil {
-			_ = currentFile.Close()
-			panic(err)
-		}
-		if err := writeByteSlice(currentFile, value); err != nil {
-			_ = currentFile.Close()
-			panic(err)
-		}
-
-		currentCount++
-		return false
-	})
-
-	if err != nil {
-		panic(err)
-	}
-
-	if currentFile != nil {
-		_ = currentFile.Close()
-	}
-}
-
-// Writes raw bytes to file
-func writeByteSlice(w io.Writer, data []byte) error {
-	length := uint32(len(data)) //nolint: gosec
-	if err := binary.Write(w, binary.LittleEndian, length); err != nil {
-		return err
-	}
-	_, err := w.Write(data)
-	return err
 }
 
 // Reads raw keys / values from a file

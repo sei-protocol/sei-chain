@@ -7,7 +7,7 @@ const StateCommitConfigTemplate = `
 ###############################################################################
 
 [state-commit]
-# Enable defines if the SeiDB should be enabled to override existing IAVL db backend.
+# Enable defines if the SeiDB state-commit should be enabled.
 sc-enable = {{ .StateCommit.Enable }}
 
 # Defines the SC store directory, if not explicitly set, default to application home directory

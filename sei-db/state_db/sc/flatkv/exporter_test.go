@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // drainExporter collects all SnapshotNode items from an exporter.
@@ -58,7 +57,7 @@ func TestExporterStorageKeys(t *testing.T) {
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: key1, Value: val1},
 			{Key: key2, Value: val2},
 		}}},
@@ -92,7 +91,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	codeHashVal[0] = 0xDE
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeHashKey, Value: codeHashVal},
 		}}},
@@ -129,7 +128,7 @@ func TestExporterCodeKeys(t *testing.T) {
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: codeKey, Value: codeVal},
 		}}},
 	}))
@@ -169,7 +168,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeHashVal[31] = 0xAB
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeKey, Value: codeVal},
@@ -247,7 +246,7 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 
 	// EOA: only nonce, no codehash
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 		}}},
 	}))
@@ -278,7 +277,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 		}}},
@@ -376,7 +375,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeVal := []byte{0x60, 0x80}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: []byte{0x0A}},
 			{Key: storageStale, Value: []byte{0x0C}},
 			{Key: nonceA, Value: nonceVal},
@@ -407,7 +406,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: newStorageVal},
 			{Key: nonceA, Value: newNonceVal},
 			{Key: codeHashB, Value: newCodeHashVal},

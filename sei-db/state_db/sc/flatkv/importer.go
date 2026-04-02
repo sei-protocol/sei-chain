@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 const importBatchSize = 20000
@@ -15,7 +14,7 @@ var _ types.Importer = (*KVImporter)(nil)
 type KVImporter struct {
 	store   *CommitStore
 	version int64
-	batch   []*iavl.KVPair
+	batch   []*proto.KVPair
 	err     error
 }
 
@@ -23,7 +22,7 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 	return &KVImporter{
 		store:   store,
 		version: version,
-		batch:   make([]*iavl.KVPair, 0, importBatchSize),
+		batch:   make([]*proto.KVPair, 0, importBatchSize),
 	}
 }
 
@@ -36,7 +35,7 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 		return
 	}
 
-	imp.batch = append(imp.batch, &iavl.KVPair{Key: node.Key, Value: node.Value})
+	imp.batch = append(imp.batch, &proto.KVPair{Key: node.Key, Value: node.Value})
 	if len(imp.batch) >= importBatchSize {
 		imp.flush()
 	}
@@ -49,7 +48,7 @@ func (imp *KVImporter) flush() {
 
 	cs := []*proto.NamedChangeSet{{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: imp.batch},
+		Changeset: proto.ChangeSet{Pairs: imp.batch},
 	}}
 	if err := imp.store.ApplyChangeSets(cs); err != nil {
 		imp.err = fmt.Errorf("import apply changesets: %w", err)
@@ -62,7 +61,7 @@ func (imp *KVImporter) flush() {
 		return
 	}
 	imp.store.clearPendingWrites()
-	imp.batch = make([]*iavl.KVPair, 0, importBatchSize)
+	imp.batch = make([]*proto.KVPair, 0, importBatchSize)
 }
 
 func (imp *KVImporter) Close() error {

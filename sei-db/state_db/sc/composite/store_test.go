@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // failingEVMStore is a mock flatkv.Store whose LoadVersion always fails.
@@ -61,16 +60,16 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 				},
 			},
 		},
 		{
 			Name: EVMStoreName,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("evm_key1"), Value: []byte("evm_value1")},
 				},
 			},
@@ -125,8 +124,8 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -168,8 +167,8 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -193,16 +192,16 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 		return []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte{round}},
 					},
 				},
 			},
 			{
 				Name: EVMStoreName,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: evmStorageKey, Value: []byte{round}},
 					},
 				},
@@ -341,8 +340,8 @@ func TestRollback(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -376,8 +375,8 @@ func TestGetVersions(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value")},
 					},
 				},
@@ -411,8 +410,8 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 				},
 			},
@@ -517,10 +516,10 @@ func TestExportImportSplitWrite(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 10}
 
 	err = src.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("balance_alice"), Value: []byte("100")},
 		}}},
-		{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 		}}},
@@ -595,7 +594,7 @@ func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("key1"), Value: []byte("val1")},
 		}}},
 	})
@@ -691,16 +690,16 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte{i}},
 					},
 				},
 			},
 			{
 				Name: EVMStoreName,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: storageKey, Value: []byte{i}},
 					},
 				},
@@ -765,10 +764,10 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	// Commit versions 1-3 with both backends in sync.
 	for i := byte(1); i <= 3; i++ {
 		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
-			{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: []byte("bal"), Value: []byte{i}},
 			}}},
-			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: storageKey, Value: []byte{i}},
 			}}},
 		}))
@@ -801,10 +800,10 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	for i := byte(0); i < 3; i++ {
 		v := []byte{0xA0 + i + 3}
 		require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
-			{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: []byte("bal"), Value: v},
 			}}},
-			{Name: EVMStoreName, Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: storageKey, Value: v},
 			}}},
 		}))
@@ -853,16 +852,16 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "bank",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("bal"), Value: []byte{i}},
 					},
 				},
 			},
 			{
 				Name: EVMStoreName,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: storageKey, Value: []byte{i}},
 					},
 				},

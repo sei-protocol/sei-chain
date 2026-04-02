@@ -43,8 +43,9 @@ func TestSnapshotter(t *testing.T) {
 			// setup source app
 			srcWasmApp, genesisAddr := newWasmExampleApp(t)
 
-			// store wasm codes on chain
-			ctx := srcWasmApp.NewUncachedContext(false, tmproto.Header{
+			// store wasm codes on chain (use cached deliver-state context so
+			// writes are visible to subsequent reads within the same block)
+			ctx := srcWasmApp.NewContext(false, tmproto.Header{
 				ChainID: "foo",
 				Height:  srcWasmApp.LastBlockHeight() + 1,
 				Time:    time.Now(),
