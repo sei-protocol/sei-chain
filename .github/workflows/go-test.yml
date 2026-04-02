@@ -53,6 +53,8 @@ jobs:
   coverage:
     name: Coverage
     runs-on: uci-default
+    # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
+    if: github.event_name != 'merge_group'
     env:
       GOFLAGS: -tags=ledger,test_ledger_mock
     steps:
