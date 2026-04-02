@@ -6,8 +6,11 @@ import (
 	"os"
 	"time"
 
+	"path/filepath"
+
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
+	pebbleblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/pebble_block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"golang.org/x/time/rate"
@@ -257,7 +260,7 @@ func (b *BlockSim) generateConsoleReport(force bool) {
 
 	if !force &&
 		timeSinceLastUpdate < b.consoleUpdatePeriod &&
-		blocksSinceLastUpdate < int64(b.config.ConsoleUpdateIntervalBlocks) { //nolint:gosec // bounded by config validation
+		blocksSinceLastUpdate < int64(b.config.ConsoleUpdateIntervalBlocks) { //nolint:gosec
 		return
 	}
 
@@ -306,10 +309,12 @@ func (b *BlockSim) Resume() {
 }
 
 // openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, _ string) (blockdb.BlockDB, error) {
+func openBlockDB(backend string, dataDir string) (blockdb.BlockDB, error) {
 	switch backend {
 	case "mem":
 		return memblockdb.NewMemBlockDB(), nil
+	case "pebble":
+		return pebbleblockdb.Open(context.Background(), filepath.Join(dataDir, "pebble-blockdb"))
 	default:
 		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
 	}
