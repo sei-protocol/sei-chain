@@ -2,8 +2,6 @@ package evm
 
 import (
 	"fmt"
-	"path/filepath"
-	"sync"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -13,82 +11,61 @@ import (
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
-// Compile-time check: EVMStateStore implements db_engine.StateStore.
 var _ types.StateStore = (*EVMStateStore)(nil)
 
-// EVMStateStore manages 5 StateStore instances (one per EVM sub-type)
-// and implements db_engine.StateStore. Each sub-DB is the raw MVCC DB engine
-// (PebbleDB or RocksDB via build tags).
-//
-// Key parsing (commonevm.ParseEVMKey) and sub-DB routing are encapsulated here,
-// so callers (CompositeStateStore) pass standard StateStore calls with raw EVM keys.
+// EVMStateStore manages a single MVCC DB for all EVM sub-types.
+// Keys are namespaced by store key prefix (s/k:<storeType>/) within the DB.
 type EVMStateStore struct {
-	subDBs map[EVMStoreType]types.StateStore
-	dir    string
+	db  types.StateStore
+	dir string
 }
 
-// NewEVMStateStore opens 5 StateStore instances (one per EVM sub-type) using the
-// backend resolved from ssConfig.Backend (PebbleDB by default, RocksDB with build tag).
+// NewEVMStateStore opens a single MVCC DB for all EVM state.
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
-	store := &EVMStateStore{
-		subDBs: make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
-		dir:    dir,
-	}
-
-	for _, storeType := range AllEVMStoreTypes() {
-		dbDir := filepath.Join(dir, StoreTypeName(storeType))
-		subCfg := subDBConfig(ssConfig, dbDir)
-		db, err := opener(dbDir, subCfg)
-		if err != nil {
-			_ = store.Close()
-			return nil, fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
-		}
-		store.subDBs[storeType] = db
-	}
-
-	return store, nil
-}
-
-func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStoreConfig {
-	cfg := parent
-	cfg.DBDirectory = dbDir
+	cfg := ssConfig
+	cfg.DBDirectory = dir
 	cfg.UseDefaultComparer = true
-	return cfg
+
+	db, err := opener(dir, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open EVM MVCC DB: %w", err)
+	}
+
+	return &EVMStateStore{db: db, dir: dir}, nil
 }
 
-func (s *EVMStateStore) routeKey(key []byte) (types.StateStore, string, []byte) {
+func (s *EVMStateStore) routeKey(key []byte) (string, []byte) {
 	storeType, strippedKey := commonevm.ParseEVMKey(key)
 	if storeType == StoreEmpty {
-		return nil, "", nil
+		return "", nil
 	}
-	db := s.subDBs[storeType]
-	return db, StoreTypeName(storeType), strippedKey
+	return StoreTypeName(storeType), strippedKey
 }
 
 func (s *EVMStateStore) Get(_ string, version int64, key []byte) ([]byte, error) {
-	db, subStoreKey, strippedKey := s.routeKey(key)
-	if db == nil {
+	storeKey, strippedKey := s.routeKey(key)
+	if storeKey == "" {
 		return nil, nil
 	}
-	return db.Get(subStoreKey, version, strippedKey)
+	return s.db.Get(storeKey, version, strippedKey)
 }
 
 func (s *EVMStateStore) Has(_ string, version int64, key []byte) (bool, error) {
-	db, subStoreKey, strippedKey := s.routeKey(key)
-	if db == nil {
+	storeKey, strippedKey := s.routeKey(key)
+	if storeKey == "" {
 		return false, nil
 	}
-	return db.Has(subStoreKey, version, strippedKey)
+	return s.db.Has(storeKey, version, strippedKey)
 }
 
 func (s *EVMStateStore) Iterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
-	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported; use individual sub-DB or Cosmos_SS")
+	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported; use Cosmos_SS")
 }
 
 func (s *EVMStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
-	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported; use individual sub-DB or Cosmos_SS")
+	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported; use Cosmos_SS")
 }
 
 func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {
@@ -96,157 +73,96 @@ func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool)
 }
 
 func (s *EVMStateStore) GetLatestVersion() int64 {
-	var minVersion int64 = -1
-	for _, db := range s.subDBs {
-		if v := db.GetLatestVersion(); minVersion < 0 || v < minVersion {
-			minVersion = v
-		}
-	}
-	if minVersion < 0 {
-		return 0
-	}
-	return minVersion
+	return s.db.GetLatestVersion()
 }
 
 func (s *EVMStateStore) SetLatestVersion(version int64) error {
-	for _, db := range s.subDBs {
-		if err := db.SetLatestVersion(version); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.db.SetLatestVersion(version)
 }
 
 func (s *EVMStateStore) GetEarliestVersion() int64 {
-	var minVersion int64 = -1
-	for _, db := range s.subDBs {
-		if v := db.GetEarliestVersion(); minVersion < 0 || v < minVersion {
-			minVersion = v
-		}
-	}
-	if minVersion < 0 {
-		return 0
-	}
-	return minVersion
+	return s.db.GetEarliestVersion()
 }
 
 func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
-	for _, db := range s.subDBs {
-		if err := db.SetEarliestVersion(version, ignoreVersion); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.db.SetEarliestVersion(version, ignoreVersion)
 }
 
 func (s *EVMStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
-	grouped := s.groupBySubType(changesets)
-	if len(grouped) == 0 {
+	rekeyed := s.rekeyChangesets(changesets)
+	if len(rekeyed) == 0 {
 		return nil
 	}
-	return s.applyGrouped(version, grouped, false)
+	return s.db.ApplyChangesetSync(version, rekeyed)
 }
 
 func (s *EVMStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	grouped := s.groupBySubType(changesets)
-	if len(grouped) == 0 {
+	rekeyed := s.rekeyChangesets(changesets)
+	if len(rekeyed) == 0 {
 		return nil
 	}
-	return s.applyGrouped(version, grouped, true)
+	return s.db.ApplyChangesetAsync(version, rekeyed)
 }
 
-func (s *EVMStateStore) groupBySubType(changesets []*proto.NamedChangeSet) map[EVMStoreType][]*iavl.KVPair {
-	grouped := make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+// rekeyChangesets splits EVM changesets by sub-type store key.
+func (s *EVMStateStore) rekeyChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {
+	grouped := make(map[string][]*iavl.KVPair, NumEVMStoreTypes)
 	for _, cs := range changesets {
 		if cs.Name != EVMStoreKey {
 			continue
 		}
 		for _, kvPair := range cs.Changeset.Pairs {
-			storeType, strippedKey := commonevm.ParseEVMKey(kvPair.Key)
-			if storeType == StoreEmpty {
+			storeKey, strippedKey := s.routeKey(kvPair.Key)
+			if storeKey == "" {
 				continue
 			}
-			grouped[storeType] = append(grouped[storeType], &iavl.KVPair{
+			grouped[storeKey] = append(grouped[storeKey], &iavl.KVPair{
 				Key:    strippedKey,
 				Value:  kvPair.Value,
 				Delete: kvPair.Delete,
 			})
 		}
 	}
-	return grouped
-}
-
-func (s *EVMStateStore) applyGrouped(version int64, grouped map[EVMStoreType][]*iavl.KVPair, async bool) error {
-	if len(grouped) == 1 {
-		for storeType, pairs := range grouped {
-			return s.applyToSubDB(storeType, version, pairs, async)
-		}
-	}
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(grouped))
-
-	for storeType, pairs := range grouped {
-		wg.Add(1)
-		go func(st EVMStoreType, p []*iavl.KVPair) {
-			defer wg.Done()
-			if err := s.applyToSubDB(st, version, p, async); err != nil {
-				errCh <- err
-			}
-		}(storeType, pairs)
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	for err := range errCh {
-		return err
-	}
-	return nil
-}
-
-func (s *EVMStateStore) applyToSubDB(storeType EVMStoreType, version int64, pairs []*iavl.KVPair, async bool) error {
-	db := s.subDBs[storeType]
-	if db == nil {
-		return nil
-	}
-	subStoreKey := StoreTypeName(storeType)
-	cs := []*proto.NamedChangeSet{
-		{
-			Name:      subStoreKey,
+	result := make([]*proto.NamedChangeSet, 0, len(grouped))
+	for name, pairs := range grouped {
+		result = append(result, &proto.NamedChangeSet{
+			Name:      name,
 			Changeset: iavl.ChangeSet{Pairs: pairs},
-		},
+		})
 	}
-	if async {
-		return db.ApplyChangesetAsync(version, cs)
-	}
-	return db.ApplyChangesetSync(version, cs)
+	return result
 }
 
-// Import parses incoming snapshot nodes, routes EVM keys to sub-DBs via ApplyChangesetSync.
 func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	const flushThreshold = 10000
-	grouped := make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+	grouped := make(map[string][]*iavl.KVPair, NumEVMStoreTypes)
 	pending := 0
 
 	flush := func() error {
 		if len(grouped) == 0 {
 			return nil
 		}
-		if err := s.applyGrouped(version, grouped, false); err != nil {
+		rekeyed := make([]*proto.NamedChangeSet, 0, len(grouped))
+		for name, pairs := range grouped {
+			rekeyed = append(rekeyed, &proto.NamedChangeSet{
+				Name:      name,
+				Changeset: iavl.ChangeSet{Pairs: pairs},
+			})
+		}
+		if err := s.db.ApplyChangesetSync(version, rekeyed); err != nil {
 			return err
 		}
-		grouped = make(map[EVMStoreType][]*iavl.KVPair, NumEVMStoreTypes)
+		grouped = make(map[string][]*iavl.KVPair, NumEVMStoreTypes)
 		pending = 0
 		return nil
 	}
 
 	for node := range ch {
-		storeType, strippedKey := commonevm.ParseEVMKey(node.Key)
-		if storeType == StoreEmpty {
+		storeKey, strippedKey := s.routeKey(node.Key)
+		if storeKey == "" {
 			continue
 		}
-		grouped[storeType] = append(grouped[storeType], &iavl.KVPair{
+		grouped[storeKey] = append(grouped[storeKey], &iavl.KVPair{
 			Key:   strippedKey,
 			Value: node.Value,
 		})
@@ -257,44 +173,13 @@ func (s *EVMStateStore) Import(version int64, ch <-chan types.SnapshotNode) erro
 			}
 		}
 	}
-
 	return flush()
 }
 
-// Prune removes old versions from all sub-DBs in parallel.
 func (s *EVMStateStore) Prune(version int64) error {
-	if len(s.subDBs) == 0 {
-		return nil
-	}
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(s.subDBs))
-
-	for _, db := range s.subDBs {
-		wg.Add(1)
-		go func(db types.StateStore) {
-			defer wg.Done()
-			if err := db.Prune(version); err != nil {
-				errCh <- err
-			}
-		}(db)
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	for err := range errCh {
-		return err
-	}
-	return nil
+	return s.db.Prune(version)
 }
 
 func (s *EVMStateStore) Close() error {
-	var lastErr error
-	for _, db := range s.subDBs {
-		if err := db.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return s.db.Close()
 }
