@@ -921,7 +921,7 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
-func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
 		return nil, receipt.ErrRangeQueryNotSupported
@@ -936,7 +936,124 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 		return nil, err
 	}
 
-	return logs, nil
+	if len(logs) == 0 {
+		return logs, nil
+	}
+
+	return f.rebuildRangeQueryLogs(ctx, logs, crit)
+}
+
+// Range-query backends efficiently identify which blocks contain matching logs,
+// but the returned logs can include receipts that the RPC namespace would later
+// exclude. Rebuild those blocks through collectLogs so index assignment exactly
+// matches the fallback path.
+func (f *LogFetcher) rebuildRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	blockSet := make(map[uint64]struct{})
+	blockNumbers := make([]uint64, 0, len(candidateLogs))
+	for _, lg := range candidateLogs {
+		if _, exists := blockSet[lg.BlockNumber]; exists {
+			continue
+		}
+		blockSet[lg.BlockNumber] = struct{}{}
+		blockNumbers = append(blockNumbers, lg.BlockNumber)
+	}
+	sort.Slice(blockNumbers, func(i, j int) bool {
+		return blockNumbers[i] < blockNumbers[j]
+	})
+
+	rebuilt := make([]*ethtypes.Log, 0, len(candidateLogs))
+	collector := &pooledCollector{logs: &rebuilt}
+	for _, blockNumber := range blockNumbers {
+		// #nosec G115 -- block numbers fit within int64
+		height := int64(blockNumber)
+		block, err := f.getBlockForRangeQueryNormalization(ctx, height)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch block at height %d for range query log rebuild: %w", height, err)
+		}
+		f.collectLogs(block, crit, collector)
+	}
+	return rebuilt, nil
+}
+
+func (f *LogFetcher) getBlockForRangeQueryNormalization(ctx context.Context, height int64) (*coretypes.ResultBlock, error) {
+	if f.globalBlockCache != nil {
+		if entry, found := f.globalBlockCache.Get(height); found {
+			entry.RLock()
+			block := entry.Block
+			entry.RUnlock()
+			if block != nil {
+				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, height); err != nil {
+					return nil, err
+				}
+				return block, nil
+			}
+		}
+	}
+
+	if f.cacheCreationMutex != nil {
+		f.cacheCreationMutex.Lock()
+		defer f.cacheCreationMutex.Unlock()
+
+		if f.globalBlockCache != nil {
+			if entry, found := f.globalBlockCache.Get(height); found {
+				entry.RLock()
+				block := entry.Block
+				entry.RUnlock()
+				if block != nil {
+					if err := f.watermarks.EnsureBlockHeightAvailable(ctx, height); err != nil {
+						return nil, err
+					}
+					return block, nil
+				}
+			}
+		}
+	}
+
+	block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	if f.globalBlockCache != nil {
+		if entry, found := f.globalBlockCache.Get(height); found {
+			fillMissingFields(entry, block, ethtypes.Bloom{})
+		} else {
+			f.globalBlockCache.Add(height, &BlockCacheEntry{
+				Block:    block,
+				Receipts: make(map[common.Hash]*evmtypes.Receipt),
+			})
+		}
+	}
+
+	return block, nil
+}
+
+// filterOutSyntheticLogs removes logs that originate from synthetic (non-EVM)
+// receipts. The receipt for each distinct TxHash is looked up once; receipts
+// with TxType == ShellEVMTxType are considered synthetic.
+func (f *LogFetcher) filterOutSyntheticLogs(ctx sdk.Context, store receipt.ReceiptStore, logs []*ethtypes.Log) ([]*ethtypes.Log, error) {
+	type synthFlag struct {
+		synthetic bool
+		err       error
+	}
+	seen := make(map[common.Hash]synthFlag, len(logs))
+	filtered := make([]*ethtypes.Log, 0, len(logs))
+	for _, lg := range logs {
+		sf, ok := seen[lg.TxHash]
+		if !ok {
+			r, err := store.GetReceipt(ctx, lg.TxHash)
+			if err != nil {
+				sf = synthFlag{synthetic: true, err: err}
+			} else {
+				sf = synthFlag{synthetic: r.TxType == evmtypes.ShellEVMTxType}
+			}
+			seen[lg.TxHash] = sf
+		}
+		if !sf.synthetic {
+			filtered = append(filtered, lg)
+		}
+	}
+	return filtered, nil
 }
 
 // Pooled version that reuses slice allocation
