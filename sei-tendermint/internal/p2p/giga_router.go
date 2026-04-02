@@ -171,7 +171,9 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 		}
-		r.data.PruneBefore(pruneBefore)
+		if err := r.data.PruneBefore(pruneBefore); err != nil {
+			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+		}
 	}
 }
 

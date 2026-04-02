@@ -754,56 +754,110 @@ func TestReconcileTruncatesBlocksTail(t *testing.T) {
 	require.NoError(t, dw2.Close())
 }
 
-// TestPruningKeepsLastEntry verifies that pruning never removes the last
-// block/QC, ensuring WALs are never empty and inner.first is recoverable
+// TestPruningKeepsLastQCRange verifies that pruning never removes the last
+// QC range, ensuring WALs are never empty and inner.first is recoverable
 // on restart.
-func TestPruningKeepsLastEntry(t *testing.T) {
+func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
 	dir := t.TempDir()
 
 	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state := utils.OrPanic1(NewState(&Config{
-		Committee:  committee,
-		PruneAfter: utils.Some(time.Duration(0)), // prune immediately
-	}, dw))
+	state := utils.OrPanic1(NewState(&Config{Committee: committee}, dw))
 
 	// Push one QC with blocks and execute all of them.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange(committee)
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 
-	// Run state (starts runPersist + runPruning).
+	// Persist and execute.
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- state.Run(runCtx) }()
-
-	// Execute all blocks. PushAppHash waits for persistence internally.
 	for n := gr1.First; n < gr1.Next; n++ {
 		require.NoError(t, state.PushAppHash(ctx, n, types.GenAppHash(rng)))
 	}
-
-	// Give pruning time to run.
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify at least one entry survives.
-	for inner := range state.inner.Lock() {
-		require.Less(t, inner.first, inner.nextAppProposal,
-			"pruning should keep at least one entry")
-	}
-
 	cancel()
 	<-done
+
+	// Try to prune everything — last QC range should survive.
+	state.PruneBefore(gr1.Next)
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr1.First, inner.first,
+			"pruning should keep the last QC range")
+	}
 
 	// Restart from WALs — inner.first should be recoverable.
 	require.NoError(t, dw.Close())
 	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
 	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr1.First, inner.first,
+			"after restart, first should be recoverable from WAL")
+	}
+	require.NoError(t, dw2.Close())
+}
 
-	// State should have a valid first (not reset to committee.FirstBlock()).
-	require.GreaterOrEqual(t, state2.NextBlock(), gr1.First,
-		"after restart, state should recover from WAL, not reset to beginning")
+// TestPruningRespectsQCBoundaries verifies that pruning only removes complete
+// QC ranges. After pruning, inner.first should be at the start of a QC range,
+// so restarts never see a partial QC prefix.
+func TestPruningRespectsQCBoundaries(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state := utils.OrPanic1(NewState(&Config{Committee: committee}, dw))
+
+	// Push two QCs so we have two distinct QC ranges.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange(committee)
+	gr2 := qc2.QC().GlobalRange(committee)
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+
+	// Run to persist, then execute all blocks.
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- state.Run(runCtx) }()
+	for n := gr1.First; n < gr2.Next; n++ {
+		require.NoError(t, state.PushAppHash(ctx, n, types.GenAppHash(rng)))
+	}
+	cancel()
+	<-done
+
+	// Use PruneBefore to prune up to a point inside qc1's range.
+	midQC1 := gr1.First + (gr1.Next-gr1.First)/2
+	state.PruneBefore(midQC1)
+
+	// inner.first should NOT be at midQC1 (middle of QC range).
+	// It should stay at gr1.First (can't prune partial range).
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr1.First, inner.first,
+			"pruning should not advance into middle of QC range")
+	}
+
+	// Now prune past the entire first QC range.
+	state.PruneBefore(gr2.Next)
+
+	// inner.first should advance to gr2.First (complete QC1 range pruned).
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr2.First, inner.first,
+			"pruning should advance to start of next QC range")
+	}
+
+	// Restart and verify first is at a QC boundary.
+	require.NoError(t, dw.Close())
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr2.First, inner.first,
+			"after restart, first should be at QC range boundary")
+	}
 	require.NoError(t, dw2.Close())
 }
 
