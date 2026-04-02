@@ -70,15 +70,9 @@ For a fair comparison, both endpoints should serve the **same chain** (same gene
 
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-<<<<<<< HEAD
-| **.io**   | ~50   | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-| **.iox**  | ~109  | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
-| **Total** | 159   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
-=======
 | **.io**   | 97    | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
 | **.iox**  | 63    | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
 | **Total** | 160   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -124,19 +118,11 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 
 *Source:* **Eth exec api** = from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) (`.io`); **Sei** = Sei-generated (`.iox` or Sei-added `.io`).
 
-<<<<<<< HEAD
-**Latest recorded `TestEVMRPCSpec` (docker localnet, 159 files):** **145** passed, **14** failed, **91.2%** pass rate. **All `sei_*` fixtures pass** (every `testdata/**/sei_*` file, including `sei_legacy_deprecation/*.iox` for HTTP gate + `Sei-Legacy-RPC-Deprecation` header). The **14** failures are **only** `eth_*` (gas, proofs, log range semantics, block height, tx index - see *Failed tests* below). There are **no** `sei2_*` fixtures in `testdata/` yet.
-
-**Column guide (Summary table below):** **First run** = historical full suite before trimming. **Post-trim baseline** = early **164**-fixture snapshot. **unsupported-fix** = **157** fixtures: current `testdata/` after `eth_simulateV1` removal and **`not-supported.iox`** explicit errors (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)). **sei_* fix** = **159** files: **157** + two `sei_legacy_deprecation/*.iox`, docker `enabled_legacy_sei_apis` expanded (all gated `sei_*` / `sei2_*` except `sei_sign`); filter-log lifecycle `.iox` use `latest`->`latest` so they respect `max_blocks_for_log`.
-
-### Passed tests (145 of 159)
-=======
 **Latest recorded `TestEVMRPCSpec` (docker localnet, 160 files):** **160** passed, **0** failed, **100.0%** pass rate (**eth parity + legacy batch gate (Mar 2026)** column below). **All `sei_*` and `eth_*` fixtures pass.** There are **no** `sei2_*` fixtures in `testdata/` yet.
 
 **Column guide (Summary table below):** **First run** = historical full suite before trimming. **Post-trim baseline** = early **164**-fixture snapshot. **unsupported-fix** = **157** fixtures: current `testdata/` after `eth_simulateV1` removal and **`not-supported.iox`** explicit errors (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)). **sei_* fix** = **159** files: **157** + two `sei_legacy_deprecation/*.iox`, docker `enabled_legacy_sei_apis` expanded (all gated `sei_*` / `sei2_*` except `sei_sign`); filter-log lifecycle `.iox` use `latest`->`latest` so they respect `max_blocks_for_log`. **eth_call fix** = same **159** files after fixture updates for **EIP-1559-shaped** `eth_call` and `eth_createAccessList`: `call-callenv-options-eip1559.iox` uses zero `maxFeePerGas`/`maxPriorityFeePerGas` with `from=0x0` (Geth `CallDefaults`/`NoBaseFee` path); `create-al-contract-eip1559.iox` uses deploy receipt `from` + non-zero caps (`setFeeDefaults` + `BuyGas`). **getLogs range fix** = same **159** files after **`eth_getLogs/filter-error-future-block-range.io`** uses a `toBlock` (`0x7fffffffffffffff`) that stays above chain head as the localnet grows (small fixed heights became historical and returned `[]`, causing a spec kind mismatch); RPC behavior unchanged. **eth parity pass (Mar 2026)** = **159** files after RPC + fixture alignment for remaining `eth_*` gaps: `eth_getBlockByNumber` returns **`result: null`** for future numeric heights (Geth-style); `eth_getProof` unwraps `tracekv` / Giga cache / any **`types.Queryable`** leaf; fixtures fix `from`/JSON/`__SEED__` for createAccessList, estimateGas, estimateGasAfterCalls, and tx-by-index-on-seed-block. **eth parity + legacy batch gate (Mar 2026)** = **160** files: adds **`sei_legacy_deprecation/batch-nonobject-tail-gate.iox`** for `wrapSeiLegacyHTTP` batch handling (merge by `id`, `-32600` for non-object slots, no gate bypass); see PLT-227 / `evmrpc/sei_legacy_http.go`. See `FAILED_TEST_ANALYSIS.md`.
 
 ### Passed tests (160 of 160)
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 
 | Endpoint                               | Test                                                           | Source       |
@@ -291,11 +277,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 
 ### Failed tests (14 on latest 159-file reference run; all `sei_*` pass)
 
-<<<<<<< HEAD
-Methods that Sei documents as unsupported use dedicated **`not-supported.iox`** fixtures (and `eth_blobBaseFee/blobs-not-supported-error.iox`). They return JSON-RPC **error** `-32000` with a fixed message (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
-=======
 **Latest docker localnet + `evm_rpc_tests.sh`:** **0** failures (**eth parity + legacy batch gate (Mar 2026)**). Methods that Sei documents as unsupported still use **`not-supported.iox`** (and `eth_blobBaseFee/blobs-not-supported-error.iox`): those fixtures **expect** JSON-RPC **error** `-32000` (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 *Remaining failures* are **only** `eth_*`: gas / base fee, proofs (IAVL), log range vs spec, block-not-found shape, tx-by-index. **No `sei_*` rows.** On **docker localnet** with expanded `enabled_legacy_sei_apis`, some historically flaky `eth_*` cases pass when the node returns `null` for missing blocks (varies by build/config).
 
@@ -327,24 +309,11 @@ With the script setting **SEI_EVM_IO_SEED_BLOCK** and **SEI_EVM_IO_DEPLOY_TX_HAS
 SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/get-tx.iox" go test ./integration_test/evm_module/rpc_io_test/ -v -run TestEVMRPCSpec
 ```
 
-<<<<<<< HEAD
-Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/get-tx.iox,debug_traceTransaction/traceTransaction.iox`. Logs show `SEI_EVM_IO_SEED_BLOCK`, each pair's placeholders and binding values, the actual request sent, and bindings after each response.
-=======
 Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/not-supported.iox,debug_traceTransaction/traceTransaction.iox`. If the list matches no files, the suite still runs **all** fixtures but **`[DEBUG]`** logging remains on whenever the variable is set.
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 ### Summary (recorded runs)
 
 
-<<<<<<< HEAD
-| Metric | First run | Post-trim baseline | unsupported-fix | sei_* fix |
-| ------ | --------- | ------------------- | ---------------- | ---------------------- |
-| **Total tests** | 255 | 164 | 157 | 159 |
-| **Passed** | 157 | 135 | 142 | 145 |
-| **Failed** | 98 | 29 | 15 | 14 |
-| **Skipped** | 0 | 0 | 0 | 0 |
-| **Pass rate** | 61.6% | 82.3% | ~90.4% | 91.2% |
-=======
 | Metric | First run | Post-trim baseline | unsupported-fix | sei_* fix | eth_call fix | getLogs range fix | eth parity pass (Mar 2026) | eth parity + legacy batch gate (Mar 2026) |
 | ------ | --------- | ------------------- | ---------------- | --------- | ------------ | ----------------- | --------------------------- | ---------------------------------------- |
 | **Total tests** | 255 | 164 | 157 | 159 | 159 | 159 | 159 | 160 |
@@ -356,7 +325,6 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 (1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + two `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. (4) **eth_call fix (159)** = same docker localnet + script after EIP-1559 fixture updates (`call-callenv-options-eip1559.iox`, `create-al-contract-eip1559.iox`); reference **147 / 12 / 92.5%**. (5) **getLogs range fix (159)** = **`filter-error-future-block-range.io`** updated so `toBlock` stays beyond head on long-lived localnet; reference **148 / 11 / 93.1%** (`TestEVMRPCSpec`, Mar 2026). (6) **eth parity pass (Mar 2026)** = **159 / 0 / 100%** after `evmrpc` + fixture fixes (`eth_getBlockByNumber` null for future height, `eth_getProof` `findQueryableKVStore`, funded `from` / valid `params` / `__SEED__` for remaining `.iox`). (7) **eth parity + legacy batch gate (Mar 2026)** = **160 / 0 / 100%** after adding **`batch-nonobject-tail-gate.iox`** and `sei_legacy_http` batch fixes (PLT-227). Associate setup may log `result: null` or an error for `sei_associate` in the script; deploy still proceeds when the tx succeeds.
 
 **Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). **All `eth_*` fixtures pass** on the **eth parity + legacy batch gate (Mar 2026)** reference run. **All `eth_getLogs` fixtures pass.**
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 (1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. Associate setup may log `result: null` for `sei_associate` in the script; that is separate from the `.iox` assertions.
 
@@ -364,21 +332,11 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 
 | Metric                               | Count                                                                                                                      |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-<<<<<<< HEAD
-| **Total endpoints tested**           | 70                                                                                                                          |
-| **Endpoints with at least one pass** | ~60                                                                                                                         |
-| **Missing / untested endpoints**    | None in this suite. Every method folder under `testdata/` is exercised; skips and failures are per-test, not per-endpoint. |
-=======
 | **Total endpoint folders**           | 69                                                                                                                         |
 | **Endpoint folders with ≥1 passing test** | 69                                                                                                                  |
 | **Missing / untested endpoints**     | None in this suite. Count = top-level directories under `testdata/` (each has ≥1 `.io`/`.iox`). On **eth parity + legacy batch gate** runs, every folder has at least one passing test. |
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
 
 **eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **70** endpoint folders.
 
 
-<<<<<<< HEAD
-*Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** column matches docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`).*
-=======
 *Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** through **eth parity + legacy batch gate (Mar 2026)** columns assume docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`) and a node image that includes the `evmrpc` parity + legacy batch gate fixes.*
->>>>>>> d3f22bd (fix: sei legacy http batch (#3160))
