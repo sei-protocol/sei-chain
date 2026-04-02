@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,12 +14,32 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
 type mockImportStateStore struct {
 	importFn func(version int64, ch <-chan types.SnapshotNode) error
+}
+
+type mockHistoryOffload struct {
+	publishFn func(ctx context.Context, entry *proto.ChangelogEntry) (offload.Ack, error)
+	replayFn  func(ctx context.Context, req offload.ReplayRequest, handler func(*proto.ChangelogEntry) error) error
+}
+
+func (m *mockHistoryOffload) Publish(ctx context.Context, entry *proto.ChangelogEntry) (offload.Ack, error) {
+	if m.publishFn != nil {
+		return m.publishFn(ctx, entry)
+	}
+	return offload.Ack{Accepted: true}, nil
+}
+
+func (m *mockHistoryOffload) Replay(ctx context.Context, req offload.ReplayRequest, handler func(*proto.ChangelogEntry) error) error {
+	if m.replayFn != nil {
+		return m.replayFn(ctx, req, handler)
+	}
+	return nil
 }
 
 func (m *mockImportStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
@@ -102,6 +123,143 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 	}
 
 	return compositeStore, dir, cleanup
+}
+
+func TestHistoricalOffloadPublishesFullChangelog(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_offload_publish_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	var published []*proto.ChangelogEntry
+	stream := &mockHistoryOffload{
+		publishFn: func(ctx context.Context, entry *proto.ChangelogEntry) (offload.Ack, error) {
+			published = append(published, entry)
+			return offload.Ack{
+				Accepted:  true,
+				Durable:   true,
+				MessageID: "msg-1",
+				Cursor:    "offset-1",
+			}, nil
+		},
+	}
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		WriteMode:        config.SplitWrite,
+		ReadMode:         config.SplitRead,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+
+	store, err := NewCompositeStateStoreWithOffload(ssConfig, dir, stream)
+	require.NoError(t, err)
+	defer store.Close()
+
+	addr := make([]byte, 20)
+	addr[0] = 0xAB
+	slot := make([]byte, 32)
+	slot[0] = 0xCD
+	storageKey := append([]byte{0x03}, append(addr, slot...)...)
+
+	changesets := []*proto.NamedChangeSet{
+		{
+			Name: "bank",
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
+					{Key: []byte("balance"), Value: []byte("100")},
+				},
+			},
+		},
+		{
+			Name: "evm",
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
+					{Key: storageKey, Value: []byte("remote_history")},
+				},
+			},
+		},
+	}
+
+	err = store.ApplyChangesetSync(1, changesets)
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+	require.Equal(t, int64(1), published[0].Version)
+	require.Len(t, published[0].Changesets, 2, "offload should receive the full changelog entry")
+
+	cosmosEVMVal, err := store.cosmosStore.Get("evm", 1, storageKey)
+	require.NoError(t, err)
+	require.Nil(t, cosmosEVMVal, "split-write local routing still strips EVM from cosmos")
+
+	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte("remote_history"), evmVal)
+}
+
+func TestHistoricalOffloadReplayHydratesState(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_offload_replay_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	addr := make([]byte, 20)
+	addr[0] = 0x11
+	slot := make([]byte, 32)
+	slot[0] = 0x22
+	storageKey := append([]byte{0x03}, append(addr, slot...)...)
+
+	stream := &mockHistoryOffload{
+		replayFn: func(ctx context.Context, req offload.ReplayRequest, handler func(*proto.ChangelogEntry) error) error {
+			require.Equal(t, int64(0), req.FromVersion)
+			require.Equal(t, int64(2), req.ToVersion)
+
+			return handler(&proto.ChangelogEntry{
+				Version: 1,
+				Changesets: []*proto.NamedChangeSet{
+					{
+						Name: "bank",
+						Changeset: iavl.ChangeSet{
+							Pairs: []*iavl.KVPair{
+								{Key: []byte("balance"), Value: []byte("250")},
+							},
+						},
+					},
+					{
+						Name: "evm",
+						Changeset: iavl.ChangeSet{
+							Pairs: []*iavl.KVPair{
+								{Key: storageKey, Value: []byte("replayed")},
+							},
+						},
+					},
+				},
+			})
+		},
+	}
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		WriteMode:        config.DualWrite,
+		ReadMode:         config.EVMFirstRead,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+
+	store, err := NewCompositeStateStoreWithOffload(ssConfig, dir, stream)
+	require.NoError(t, err)
+	defer store.Close()
+
+	err = store.ReplayHistoricalOffload(context.Background(), 0, 2)
+	require.NoError(t, err)
+
+	bankVal, err := store.Get("bank", 1, []byte("balance"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("250"), bankVal)
+
+	evmVal, err := store.Get("evm", 1, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte("replayed"), evmVal)
+	require.Equal(t, int64(1), store.GetLatestVersion())
 }
 
 func TestCompositeStateStoreRead(t *testing.T) {
