@@ -8,7 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +59,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		// Storage key
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
@@ -85,7 +84,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
+		Changeset: proto.ChangeSet{
 			Pairs: pairs,
 		},
 	}
@@ -140,7 +139,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	// Commit version 1 with no writes
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: nil},
+		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
@@ -167,7 +166,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 
 	// Write account nonces and codes
 	// Note: Code is keyed by address (not codeHash) per x/evm/types/keys.go
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 1}, // nonce = 1
@@ -188,7 +187,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
+		Changeset: proto.ChangeSet{
 			Pairs: pairs,
 		},
 	}
@@ -235,7 +234,7 @@ func TestStoreWriteDelete(t *testing.T) {
 
 	// Write initial data
 	// Note: Code is keyed by address per x/evm/types/keys.go
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 			Value: []byte{0x11},
@@ -252,14 +251,14 @@ func TestStoreWriteDelete(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Delete storage and code (actual deletes)
 	// For account, "delete" means setting fields to zero in AccountValue
-	deletePairs := []*iavl.KVPair{
+	deletePairs := []*proto.KVPair{
 		{
 			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 			Delete: true,
@@ -276,7 +275,7 @@ func TestStoreWriteDelete(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: deletePairs},
+		Changeset: proto.ChangeSet{Pairs: deletePairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
@@ -309,7 +308,7 @@ func TestAccountValueStorage(t *testing.T) {
 
 	// Write both Nonce and CodeHash for the same address
 	// AccountValue stores: balance(32) || nonce(8) || codehash(32)
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}, // nonce = 42
@@ -322,7 +321,7 @@ func TestAccountValueStorage(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -395,7 +394,7 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 	addr := Address{0x12, 0x34}
 	slot := Slot{0x56, 0x78}
 
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		// Storage (optimized)
 		{
 			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
@@ -420,7 +419,7 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -493,7 +492,7 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 	// Commit with no writes — all DBs including legacy should advance LocalMeta
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: nil},
+		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
@@ -753,8 +752,8 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 10}},
 				{Key: codeHashKey, Value: codeHash[:]},
 			},
@@ -782,13 +781,13 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	slot := Slot{0xFF}
 	key := memiavlStorageKey(addr, slot)
 
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{Key: key, Value: []byte{0x01}},
 		{Key: key, Value: []byte{0x02}},
 	}
 	cs := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -1006,7 +1005,7 @@ func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
 	defer sEmpty.Close()
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: nil},
+		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 	require.NoError(t, sEmpty.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, sEmpty)
@@ -1090,8 +1089,8 @@ func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
 	addr := Address{0x01}
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{
 					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 					Value: []byte{0x01, 0x02, 0x03}, // 3 bytes, expected 8
@@ -1111,8 +1110,8 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 	addr := Address{0x01}
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{
 					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 					Value: []byte{0x01, 0x02}, // 2 bytes, expected 32
@@ -1419,11 +1418,11 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 			commitAndCheck(t, s)
 
 			// Block 2: one field deleted, one field written to zero
-			var pairs []*iavl.KVPair
+			var pairs []*proto.KVPair
 			if name == "delete-then-write-zero" {
-				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+				pairs = []*proto.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
 			} else {
-				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+				pairs = []*proto.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
 			}
 			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 			commitAndCheck(t, s)

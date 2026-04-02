@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // writeToDBConcurrently generates random write load against the db
@@ -42,8 +41,8 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 
 			for j := start; j < end; j += batchSize {
 				ncs := &proto.NamedChangeSet{}
-				cs := &iavl.ChangeSet{}
-				cs.Pairs = []*iavl.KVPair{}
+				cs := &proto.ChangeSet{}
+				cs.Pairs = []*proto.KVPair{}
 
 				batchEnd := j + batchSize
 				if batchEnd > end {
@@ -54,7 +53,7 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 				for k := j; k < batchEnd; k++ {
 					kv := allKVs[k]
 					// No store key for benchmarks
-					cs.Pairs = append(cs.Pairs, &iavl.KVPair{
+					cs.Pairs = append(cs.Pairs, &proto.KVPair{
 						Key:   kv.Key,
 						Value: kv.Value,
 					})
