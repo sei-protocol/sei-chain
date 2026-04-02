@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,8 +31,8 @@ func TestSnapshotTimeThrottling(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i >> 8), byte(i & 0xff)}, Value: []byte{byte(i)}},
 					},
 				},
@@ -83,8 +82,8 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i)}, Value: []byte{byte(i * 2)}},
 					},
 				},
@@ -118,8 +117,8 @@ func TestSnapshotCreationAfterTimeThreshold(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i >> 8), byte(i & 0xff)}, Value: []byte{byte(i)}},
 					},
 				},
@@ -173,8 +172,8 @@ func TestSnapshotWithShortTimeInterval(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i >> 8), byte(i & 0xff)}, Value: []byte{byte(i)}},
 					},
 				},

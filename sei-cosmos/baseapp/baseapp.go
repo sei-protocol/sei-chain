@@ -1096,14 +1096,14 @@ func (app *BaseApp) Close() error {
 	// and metadata in a non-atomic way
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
-	if err := app.db.Close(); err != nil {
-		return err
+	if app.db != nil {
+		if err := app.db.Close(); err != nil {
+			return err
+		}
 	}
-	// close the underline database for storeV2
 	if err := app.cms.Close(); err != nil {
 		return err
 	}
-	// close snapshot manager if configured
 	if app.snapshotManager != nil {
 		if err := app.snapshotManager.Close(); err != nil {
 			return err
@@ -1113,22 +1113,6 @@ func (app *BaseApp) Close() error {
 		return nil
 	}
 	return app.closeHandler()
-}
-
-func (app *BaseApp) ReloadDB() error {
-	if err := app.db.Close(); err != nil {
-		return err
-	}
-	db, err := sdk.NewLevelDB("application", app.TmConfig.DBDir())
-	if err != nil {
-		return err
-	}
-	app.db = db
-	app.cms = store.NewCommitMultiStore(db)
-	if app.snapshotManager != nil {
-		app.snapshotManager.SetMultiStore(app.cms)
-	}
-	return nil
 }
 
 func (app *BaseApp) GetCheckCtx() sdk.Context {
