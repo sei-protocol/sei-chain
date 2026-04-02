@@ -50,8 +50,8 @@ jobs:
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             ./...
 
-  coverage:
-    name: Coverage
+  coverage-report:
+    name: Coverage Report
     runs-on: uci-default
     # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
     if: github.event_name != 'merge_group'
@@ -177,3 +177,17 @@ jobs:
           name: ${{ github.event_name == 'pull_request' && 'sei-chain-pr-coverage' || 'sei-chain-coverage' }}
           files: ./coverage.out
           flags: ${{ github.event_name == 'pull_request' && 'sei-chain-pr' || 'sei-chain' }}
+
+  # GitHub does not support setting "Required" CI workflows for merge queue separatetly from PRs.
+  # This is a workaround to allow keeping "Coverage" as a required CI workflow while skipping it
+  # in `merge_group` events.
+  coverage:
+    name: Coverage
+    needs: coverage-report
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 0
+        if: ${{ needs.coverage-report.result == 'success' || needs.coverage.result == 'skipped' }}
+      - run: exit 1
+        if: ${{ needs.coverage-report.result != 'success' && needs.coverage.result != 'skipped' }}
