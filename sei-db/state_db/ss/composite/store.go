@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
@@ -28,6 +30,7 @@ var _ types.StateStore = (*CompositeStateStore)(nil)
 type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
+	historyOffload offload.Stream
 	pruningManager *pruning.Manager
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
@@ -39,6 +42,16 @@ type CompositeStateStore struct {
 func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
+) (*CompositeStateStore, error) {
+	return NewCompositeStateStoreWithOffload(ssConfig, homeDir, nil)
+}
+
+// NewCompositeStateStoreWithOffload creates a new composite state store with an
+// optional changelog offload stream for historical state replication.
+func NewCompositeStateStoreWithOffload(
+	ssConfig config.StateStoreConfig,
+	homeDir string,
+	stream offload.Stream,
 ) (*CompositeStateStore, error) {
 	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
@@ -52,8 +65,9 @@ func NewCompositeStateStore(
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 
 	cs := &CompositeStateStore{
-		cosmosStore: cosmosStore,
-		config:      ssConfig,
+		cosmosStore:    cosmosStore,
+		historyOffload: stream,
+		config:         ssConfig,
 	}
 
 	if ssConfig.EVMEnabled() {
@@ -86,6 +100,31 @@ func (s *CompositeStateStore) StartPruning() {
 	pm := pruning.NewPruningManager(s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	s.pruningManager = pm
+}
+
+// ReplayHistoricalOffload replays changelog entries from an external message
+// transport back into the local stores. It is intentionally separate from WAL
+// recovery so existing behavior stays unchanged until a caller explicitly opts in.
+func (s *CompositeStateStore) ReplayHistoricalOffload(ctx context.Context, fromVersion, toVersion int64) error {
+	if s.historyOffload == nil {
+		return fmt.Errorf("historical offload stream is not configured")
+	}
+
+	progress := newReplayProgress(s)
+	if fromVersion > progress.startVersion() {
+		progress.cosmosVersion = fromVersion
+		progress.evmVersion = fromVersion
+	}
+
+	return s.historyOffload.Replay(ctx, offload.ReplayRequest{
+		FromVersion: fromVersion,
+		ToVersion:   toVersion,
+	}, func(entry *proto.ChangelogEntry) error {
+		if entry == nil {
+			return nil
+		}
+		return s.applyReplayEntry(*entry, &progress)
+	})
 }
 
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
@@ -191,7 +230,10 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		return s.cosmosStore.ApplyChangesetSync(version, changesets)
+		if err := s.cosmosStore.ApplyChangesetSync(version, changesets); err != nil {
+			return err
+		}
+		return s.publishHistoricalEntry(version, changesets)
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
@@ -208,12 +250,15 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 			return fmt.Errorf("evm store failed: %w", err)
 		}
 	}
-	return nil
+	return s.publishHistoricalEntry(version, changesets)
 }
 
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+		if err := s.cosmosStore.ApplyChangesetAsync(version, changesets); err != nil {
+			return err
+		}
+		return s.publishHistoricalEntry(version, changesets)
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
@@ -229,6 +274,24 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		if err := s.evmStore.ApplyChangesetAsync(version, evmChangesets); err != nil {
 			return fmt.Errorf("evm store async enqueue failed: %w", err)
 		}
+	}
+	return s.publishHistoricalEntry(version, changesets)
+}
+
+func (s *CompositeStateStore) publishHistoricalEntry(version int64, changesets []*proto.NamedChangeSet) error {
+	if s.historyOffload == nil {
+		return nil
+	}
+
+	ack, err := s.historyOffload.Publish(context.Background(), &proto.ChangelogEntry{
+		Version:    version,
+		Changesets: changesets,
+	})
+	if err != nil {
+		return fmt.Errorf("historical offload publish failed at version %d: %w", version, err)
+	}
+	if !ack.Accepted {
+		return fmt.Errorf("historical offload publish was not acknowledged at version %d", version)
 	}
 	return nil
 }
@@ -390,58 +453,76 @@ func RecoverCompositeStateStore(
 	changelogPath string,
 	compositeStore *CompositeStateStore,
 ) error {
-	var cosmosVersion int64
-	if compositeStore.cosmosStore != nil {
-		cosmosVersion = compositeStore.cosmosStore.GetLatestVersion()
-	}
-
-	var evmVersion int64
-	if compositeStore.evmStore != nil {
-		evmVersion = compositeStore.evmStore.GetLatestVersion()
-	}
-
-	startVersion := cosmosVersion
-	if compositeStore.evmStore != nil && evmVersion < startVersion {
-		startVersion = evmVersion
-	}
-
-	splitWrite := compositeStore.config.WriteMode == config.SplitWrite
+	progress := newReplayProgress(compositeStore)
 
 	logger.Info("Recovering CompositeStateStore",
-		"cosmosVersion", cosmosVersion,
-		"evmVersion", evmVersion,
-		"startVersion", startVersion,
+		"cosmosVersion", progress.cosmosVersion,
+		"evmVersion", progress.evmVersion,
+		"startVersion", progress.startVersion(),
 		"changelogPath", changelogPath,
 	)
 
-	return ReplayWAL(changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
-		if compositeStore.cosmosStore != nil && entry.Version > cosmosVersion {
-			changesets := entry.Changesets
-			if splitWrite {
-				changesets = stripEVMFromChangesets(changesets)
-			}
-			if err := compositeStore.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {
-				return fmt.Errorf("failed to apply cosmos changeset at version %d: %w", entry.Version, err)
-			}
-			if err := compositeStore.cosmosStore.SetLatestVersion(entry.Version); err != nil {
-				return fmt.Errorf("failed to set cosmos version %d: %w", entry.Version, err)
-			}
-		}
-
-		if compositeStore.evmStore != nil && entry.Version > evmVersion {
-			evmChangesets := filterEVMChangesets(entry.Changesets)
-			if len(evmChangesets) > 0 {
-				if err := compositeStore.evmStore.ApplyChangesetSync(entry.Version, evmChangesets); err != nil {
-					return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
-				}
-			}
-			if err := compositeStore.evmStore.SetLatestVersion(entry.Version); err != nil {
-				return fmt.Errorf("failed to set EVM version %d: %w", entry.Version, err)
-			}
-		}
-
-		return nil
+	return ReplayWAL(changelogPath, progress.startVersion(), -1, func(entry proto.ChangelogEntry) error {
+		return compositeStore.applyReplayEntry(entry, &progress)
 	})
+}
+
+type replayProgress struct {
+	cosmosVersion int64
+	evmVersion    int64
+	splitWrite    bool
+}
+
+func newReplayProgress(compositeStore *CompositeStateStore) replayProgress {
+	progress := replayProgress{
+		splitWrite: compositeStore.config.WriteMode == config.SplitWrite,
+	}
+	if compositeStore.cosmosStore != nil {
+		progress.cosmosVersion = compositeStore.cosmosStore.GetLatestVersion()
+	}
+	if compositeStore.evmStore != nil {
+		progress.evmVersion = compositeStore.evmStore.GetLatestVersion()
+	}
+	return progress
+}
+
+func (r replayProgress) startVersion() int64 {
+	startVersion := r.cosmosVersion
+	if r.evmVersion < startVersion {
+		startVersion = r.evmVersion
+	}
+	return startVersion
+}
+
+func (s *CompositeStateStore) applyReplayEntry(entry proto.ChangelogEntry, progress *replayProgress) error {
+	if s.cosmosStore != nil && entry.Version > progress.cosmosVersion {
+		changesets := entry.Changesets
+		if progress.splitWrite {
+			changesets = stripEVMFromChangesets(changesets)
+		}
+		if err := s.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {
+			return fmt.Errorf("failed to apply cosmos changeset at version %d: %w", entry.Version, err)
+		}
+		if err := s.cosmosStore.SetLatestVersion(entry.Version); err != nil {
+			return fmt.Errorf("failed to set cosmos version %d: %w", entry.Version, err)
+		}
+		progress.cosmosVersion = entry.Version
+	}
+
+	if s.evmStore != nil && entry.Version > progress.evmVersion {
+		evmChangesets := filterEVMChangesets(entry.Changesets)
+		if len(evmChangesets) > 0 {
+			if err := s.evmStore.ApplyChangesetSync(entry.Version, evmChangesets); err != nil {
+				return fmt.Errorf("failed to apply EVM changeset at version %d: %w", entry.Version, err)
+			}
+		}
+		if err := s.evmStore.SetLatestVersion(entry.Version); err != nil {
+			return fmt.Errorf("failed to set EVM version %d: %w", entry.Version, err)
+		}
+		progress.evmVersion = entry.Version
+	}
+
+	return nil
 }
 
 type WALEntryHandler func(entry proto.ChangelogEntry) error
