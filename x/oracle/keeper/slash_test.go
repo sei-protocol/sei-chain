@@ -19,6 +19,9 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
 	ctx := input.Ctx
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
+	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	// Validator created
 	_, err := sh(ctx, testutils.NewTestMsgCreateValidator(addr, val, amt))
