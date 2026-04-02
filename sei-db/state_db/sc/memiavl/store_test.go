@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,8 +70,8 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -181,8 +180,8 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -226,8 +225,8 @@ func TestCommitInfo(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -335,8 +334,8 @@ func TestCommitStoreRollback(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -374,8 +373,8 @@ func TestMultipleCommits(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key" + string(rune('0'+i))), Value: []byte("value")},
 					},
 				},
@@ -413,8 +412,8 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "newstore",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -462,8 +461,8 @@ func TestGetVersions(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value")},
 					},
 				},
@@ -513,8 +512,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 				},
 			},
@@ -528,8 +527,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
 			},
@@ -570,8 +569,8 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -616,8 +615,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -632,8 +631,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key3"), Value: []byte("value3")},
 				},
 			},
@@ -676,8 +675,8 @@ func TestRollbackWithWAL(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -726,8 +725,8 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -782,8 +781,8 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -818,8 +817,8 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -867,8 +866,8 @@ func TestWALTruncationOnCommit(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -926,8 +925,8 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -971,8 +970,8 @@ func TestWALTruncationDelta(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},

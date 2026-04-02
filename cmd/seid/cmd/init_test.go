@@ -56,9 +56,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.False(t, v.GetBool("state-store.ss-enable"), "StateStore should be disabled")
 				require.False(t, v.GetBool("evm.http_enabled"), "EVM HTTP should be disabled")
 				require.False(t, v.GetBool("evm.ws_enabled"), "EVM WS should be disabled")
-
-				// Verify pruning uses cosmos default (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -88,9 +85,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.True(t, v.GetBool("state-store.ss-enable"), "StateStore should be enabled")
 
 				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
-
-				// Verify pruning uses cosmos default (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -101,9 +95,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				v.SetConfigFile(filepath.Join(configDir, "app.toml"))
 				err := v.ReadInConfig()
 				require.NoError(t, err)
-
-				// Verify no pruning for archive (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 
 				// Verify services are enabled
 				require.True(t, v.GetBool("api.enable"))

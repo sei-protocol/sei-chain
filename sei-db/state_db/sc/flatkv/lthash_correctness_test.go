@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,66 +75,66 @@ func codeHashN(n byte) CodeHash {
 	return h
 }
 
-func noncePair(addr Address, nonce uint64) *iavl.KVPair {
-	return &iavl.KVPair{
+func noncePair(addr Address, nonce uint64) *proto.KVPair {
+	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 		Value: nonceBytes(nonce),
 	}
 }
 
-func codeHashPair(addr Address, ch CodeHash) *iavl.KVPair {
-	return &iavl.KVPair{
+func codeHashPair(addr Address, ch CodeHash) *proto.KVPair {
+	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Value: ch[:],
 	}
 }
 
-func codePair(addr Address, bytecode []byte) *iavl.KVPair {
-	return &iavl.KVPair{
+func codePair(addr Address, bytecode []byte) *proto.KVPair {
+	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 		Value: bytecode,
 	}
 }
 
-func codeDeletePair(addr Address) *iavl.KVPair {
-	return &iavl.KVPair{
+func codeDeletePair(addr Address) *proto.KVPair {
+	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 		Delete: true,
 	}
 }
 
-func storagePair(addr Address, slot Slot, val []byte) *iavl.KVPair {
-	return &iavl.KVPair{
+func storagePair(addr Address, slot Slot, val []byte) *proto.KVPair {
+	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 		Value: val,
 	}
 }
 
-func storageDeletePair(addr Address, slot Slot) *iavl.KVPair {
-	return &iavl.KVPair{
+func storageDeletePair(addr Address, slot Slot) *proto.KVPair {
+	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
 		Delete: true,
 	}
 }
 
-func nonceDeletePair(addr Address) *iavl.KVPair {
-	return &iavl.KVPair{
+func nonceDeletePair(addr Address) *proto.KVPair {
+	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 		Delete: true,
 	}
 }
 
-func codeHashDeletePair(addr Address) *iavl.KVPair {
-	return &iavl.KVPair{
+func codeHashDeletePair(addr Address) *proto.KVPair {
+	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Delete: true,
 	}
 }
 
-func namedCS(pairs ...*iavl.KVPair) *proto.NamedChangeSet {
+func namedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
 	return &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 }
 
@@ -338,7 +337,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Block 100: big mixed batch
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for j := byte(1); j <= 5; j++ {
 		pairs = append(pairs, storagePair(addrN(j), slotN(j+250), []byte{j, 0xFF}))
 	}
@@ -531,7 +530,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	numAccounts := 50
 
 	// Block 1: create all accounts at once
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for i := 1; i <= numAccounts; i++ {
 		pairs = append(pairs, noncePair(addrN(byte(i)), uint64(i)))
 	}
@@ -642,8 +641,11 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create state and close
-	s1 := NewCommitStore(t.Context(), dir, DefaultConfig())
-	_, err := s1.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dir
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := 1; i <= 10; i++ {
@@ -660,7 +662,10 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen and verify
-	s2 := NewCommitStore(t.Context(), dir, DefaultConfig())
+	cfg = DefaultTestConfig(t)
+	cfg.DataDir = dir
+	s2, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -1132,11 +1137,11 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 			commitAndCheck(t, s)
 			verifyLtHashAtHeight(t, s, 1)
 
-			var pairs []*iavl.KVPair
+			var pairs []*proto.KVPair
 			if name == "delete-then-write-zero" {
-				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+				pairs = []*proto.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
 			} else {
-				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+				pairs = []*proto.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
 			}
 			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 			commitAndCheck(t, s)

@@ -1,28 +1,36 @@
 package threading
 
-import (
-	"context"
-	"fmt"
-)
+import "sync"
 
 var _ Pool = (*adHocPool)(nil)
 
 // adHocPool is a Pool that runs each task in a new goroutine.
 // Intended for use in unit tests or where performance is not important.
-type adHocPool struct{}
+type adHocPool struct {
+	wg     sync.WaitGroup
+	closed bool
+}
 
 // NewAdHocPool creates a Pool that runs each submitted task in a one-off goroutine.
 func NewAdHocPool() Pool {
 	return &adHocPool{}
 }
 
-func (p *adHocPool) Submit(ctx context.Context, task func()) error {
+func (p *adHocPool) Submit(task func()) {
 	if task == nil {
-		return fmt.Errorf("adhoc pool: nil task")
+		return
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if p.closed {
+		panic("threading: submit on closed pool")
 	}
-	go task()
-	return nil
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		task()
+	}()
+}
+
+func (p *adHocPool) Close() {
+	p.closed = true
+	p.wg.Wait()
 }

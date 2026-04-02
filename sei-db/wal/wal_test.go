@@ -13,11 +13,10 @@ import (
 	"github.com/tidwall/wal"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 var (
-	ChangeSets = []iavl.ChangeSet{
+	ChangeSets = []proto.ChangeSet{
 		{Pairs: MockKVPairs("hello", "world")},
 		{Pairs: MockKVPairs("hello1", "world1", "hello2", "world2")},
 		{Pairs: MockKVPairs("hello3", "world3")},
@@ -210,7 +209,7 @@ func TestTruncateAfter(t *testing.T) {
 
 	// Verify nextOffset was updated - write a new entry and check its index
 	entry := &proto.ChangelogEntry{}
-	entry.Changesets = []*proto.NamedChangeSet{{Name: "new", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("new", "entry")}}}
+	entry.Changesets = []*proto.NamedChangeSet{{Name: "new", Changeset: proto.ChangeSet{Pairs: MockKVPairs("new", "entry")}}}
 	err = changelog.Write(*entry)
 	require.NoError(t, err)
 
@@ -320,7 +319,7 @@ func TestReopenAndContinueWrite(t *testing.T) {
 
 	// Write more data
 	entry := &proto.ChangelogEntry{}
-	entry.Changesets = []*proto.NamedChangeSet{{Name: "continued", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("key4", "value4")}}}
+	entry.Changesets = []*proto.NamedChangeSet{{Name: "continued", Changeset: proto.ChangeSet{Pairs: MockKVPairs("key4", "value4")}}}
 	err = changelog2.Write(*entry)
 	require.NoError(t, err)
 
@@ -363,7 +362,7 @@ func TestCheckErrorNoError(t *testing.T) {
 
 	// Write some data to initialize async mode
 	entry := &proto.ChangelogEntry{}
-	entry.Changesets = []*proto.NamedChangeSet{{Name: "test", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")}}}
+	entry.Changesets = []*proto.NamedChangeSet{{Name: "test", Changeset: proto.ChangeSet{Pairs: MockKVPairs("k", "v")}}}
 	err = changelog.Write(*entry)
 	require.NoError(t, err)
 
@@ -410,7 +409,7 @@ func TestAsyncWriteReopenAndContinue(t *testing.T) {
 	// Write more entries
 	for i := 0; i < 3; i++ {
 		entry := &proto.ChangelogEntry{}
-		entry.Changesets = []*proto.NamedChangeSet{{Name: fmt.Sprintf("batch2-%d", i), Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")}}}
+		entry.Changesets = []*proto.NamedChangeSet{{Name: fmt.Sprintf("batch2-%d", i), Changeset: proto.ChangeSet{Pairs: MockKVPairs("k", "v")}}}
 		err := changelog2.Write(*entry)
 		require.NoError(t, err)
 	}
@@ -462,7 +461,7 @@ func TestBatchWrite(t *testing.T) {
 		entry := &proto.ChangelogEntry{}
 		entry.Changesets = []*proto.NamedChangeSet{{
 			Name:      fmt.Sprintf("batch-%d", i),
-			Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("key-%d", i), fmt.Sprintf("val-%d", i))},
+			Changeset: proto.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("key-%d", i), fmt.Sprintf("val-%d", i))},
 		}}
 		require.NoError(t, changelog.Write(*entry))
 	}
@@ -504,9 +503,9 @@ func TestWriteMultipleChangesets(t *testing.T) {
 	// Write entry with multiple changesets
 	entry := &proto.ChangelogEntry{
 		Changesets: []*proto.NamedChangeSet{
-			{Name: "store1", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("a", "1")}},
-			{Name: "store2", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("b", "2")}},
-			{Name: "store3", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("c", "3")}},
+			{Name: "store1", Changeset: proto.ChangeSet{Pairs: MockKVPairs("a", "1")}},
+			{Name: "store2", Changeset: proto.ChangeSet{Pairs: MockKVPairs("b", "2")}},
+			{Name: "store3", Changeset: proto.ChangeSet{Pairs: MockKVPairs("c", "3")}},
 		},
 	}
 	err = changelog.Write(*entry)
@@ -540,7 +539,7 @@ func TestConcurrentCloseWithInFlightAsyncWrites(t *testing.T) {
 				entry := proto.ChangelogEntry{
 					Changesets: []*proto.NamedChangeSet{{
 						Name:      "test",
-						Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")},
+						Changeset: proto.ChangeSet{Pairs: MockKVPairs("k", "v")},
 					}},
 				}
 				if err := changelog.Write(entry); err != nil {
@@ -606,7 +605,7 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 		entry := proto.ChangelogEntry{
 			Changesets: []*proto.NamedChangeSet{{
 				Name:      "test",
-				Changeset: iavl.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("k-%d", i), "v")},
+				Changeset: proto.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("k-%d", i), "v")},
 			}},
 		}
 		require.NoError(t, changelog.Write(entry))
@@ -682,7 +681,7 @@ func TestTruncateAll(t *testing.T) {
 
 	// Can write new entries after truncating all.
 	entry := proto.ChangelogEntry{
-		Changesets: []*proto.NamedChangeSet{{Name: "after", Changeset: iavl.ChangeSet{Pairs: MockKVPairs("k", "v")}}},
+		Changesets: []*proto.NamedChangeSet{{Name: "after", Changeset: proto.ChangeSet{Pairs: MockKVPairs("k", "v")}}},
 	}
 	require.NoError(t, changelog.Write(entry))
 

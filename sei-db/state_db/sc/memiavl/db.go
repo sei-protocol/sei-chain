@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const LockFileName = "LOCK"
@@ -407,13 +406,12 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 		return errReadOnly
 	}
 
-	// Overwrite pending changesets for this commit; callers typically provide them once per block.
-	db.pendingLogEntry.Changesets = changeSets
+	db.mergePendingChangesets(changeSets)
 	return db.MultiTree.ApplyChangeSets(changeSets)
 }
 
 // ApplyChangeSet wraps MultiTree.ApplyChangeSet to add a lock.
-func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
+func (db *DB) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 	if len(changeSet.Pairs) == 0 {
 		return nil
 	}
@@ -430,6 +428,33 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 		Changeset: changeSet,
 	})
 	return db.MultiTree.ApplyChangeSet(name, changeSet)
+}
+
+// mergePendingChangesets merges new changesets into pendingLogEntry.Changesets.
+// If a store already has a pending changeset, the new pairs are appended to it
+// rather than creating a duplicate entry. This ensures the WAL entry has at most
+// one changeset per store, which is required for correct replay (Catchup calls
+// SaveVersion once per changeset, so duplicates would incorrectly bump tree versions).
+func (db *DB) mergePendingChangesets(changeSets []*proto.NamedChangeSet) {
+	if len(db.pendingLogEntry.Changesets) == 0 {
+		db.pendingLogEntry.Changesets = changeSets
+		return
+	}
+	idx := make(map[string]int, len(db.pendingLogEntry.Changesets))
+	for i, cs := range db.pendingLogEntry.Changesets {
+		idx[cs.Name] = i
+	}
+	for _, cs := range changeSets {
+		if i, ok := idx[cs.Name]; ok {
+			db.pendingLogEntry.Changesets[i].Changeset.Pairs = append(
+				db.pendingLogEntry.Changesets[i].Changeset.Pairs,
+				cs.Changeset.Pairs...,
+			)
+		} else {
+			idx[cs.Name] = len(db.pendingLogEntry.Changesets)
+			db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, cs)
+		}
+	}
 }
 
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result

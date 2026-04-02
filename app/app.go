@@ -1501,10 +1501,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
-type ChannelResult struct {
-	result *abci.ExecTxResult
-}
-
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {

@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	reqPrefix       = ">> "
-	respPrefix      = "<< "
-	directivePrefix = "@ "
+	reqPrefix       = ">>"
+	respPrefix      = "<<"
+	directivePrefix = "@"
 )
 
 const rpcCallTimeout = 30 * time.Second
@@ -49,7 +49,9 @@ type ioxPair struct {
 	ExpectResponseHeaders []string
 }
 
-// parseIOFile parses .io/.iox content. Supports ">> request", "<< expected", "@ bind var = path",
+// parseIOFile parses .io/.iox content. Markers are >>, <<, and @; optional ASCII whitespace after
+// each marker is trimmed away with the rest of the payload (TrimSpace).
+// Supports ">> request", "<< expected", "@ bind var = path",
 // "<< @ ref_pair N", "@ expect_body_contains substring", "@ expect_response_header Header-Name".
 func parseIOFile(content string) ([]ioxPair, error) {
 	var pairs []ioxPair
@@ -88,7 +90,7 @@ func parseIOFile(content string) ([]ioxPair, error) {
 				continue
 			}
 
-			pairs = append(pairs, ioxPair{Request: curReq, Expected: []byte(strings.TrimPrefix(trimmed, respPrefix))})
+			pairs = append(pairs, ioxPair{Request: curReq, Expected: []byte(rest)})
 			lastIdx = len(pairs) - 1
 			inBinding = true
 			curReq = nil
