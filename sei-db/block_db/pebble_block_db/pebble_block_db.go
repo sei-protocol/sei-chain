@@ -22,6 +22,7 @@ type pebbleBlockDB struct {
 	db     *pebble.DB
 	cmdCh  chan command
 	writer *writer
+	pruner *pruner
 	cache  *pendingCache
 
 	// In-memory tracking for lo/hi metadata to avoid unnecessary writes.
@@ -90,6 +91,7 @@ func Open(_ context.Context, path string) (*pebbleBlockDB, error) {
 	}
 
 	pdb.writer = newWriter(db, cmdCh, pc)
+	pdb.pruner = newPruner(db, pc, &pdb.loHeight)
 	return pdb, nil
 }
 
@@ -118,7 +120,11 @@ func (p *pebbleBlockDB) WriteBlock(_ context.Context, block *blockdb.BinaryBlock
 func (p *pebbleBlockDB) Flush(_ context.Context) error {
 	done := make(chan error, 1)
 	p.cmdCh <- command{kind: cmdFlush, done: done}
-	return <-done
+	if err := <-done; err != nil {
+		return err
+	}
+	p.pruner.sync()
+	return nil
 }
 
 func (p *pebbleBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*blockdb.BinaryBlock, bool, error) {
@@ -188,7 +194,17 @@ func (p *pebbleBlockDB) GetTransactionByHash(
 }
 
 func (p *pebbleBlockDB) Prune(_ context.Context, lowestHeightToKeep uint64) error {
-	p.cmdCh <- command{kind: cmdPrune, pruneKeepHeight: lowestHeightToKeep}
+	// Advance the prune high-water mark (coalescing).
+	for {
+		old := p.pruner.target.Load()
+		if lowestHeightToKeep <= old {
+			break
+		}
+		if p.pruner.target.CompareAndSwap(old, lowestHeightToKeep) {
+			break
+		}
+	}
+	p.pruner.wake()
 	return nil
 }
 
@@ -196,10 +212,9 @@ func (p *pebbleBlockDB) Close(_ context.Context) error {
 	done := make(chan error, 1)
 	p.cmdCh <- command{kind: cmdClose, done: done}
 	<-done
-
-	// Wait for the writer goroutine to exit.
 	<-p.writer.stopped
 
+	p.pruner.stop()
 	return p.db.Close()
 }
 

@@ -1,7 +1,6 @@
 package pebbleblockdb
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -14,7 +13,6 @@ type cmdKind int
 const (
 	cmdWrite cmdKind = iota
 	cmdFlush
-	cmdPrune
 	cmdClose
 )
 
@@ -23,9 +21,6 @@ type command struct {
 
 	// cmdWrite: the KV operations to apply.
 	ops *blockOps
-
-	// cmdPrune: lowest height to keep.
-	pruneKeepHeight uint64
 
 	// cmdFlush / cmdClose: caller blocks on this channel for completion.
 	done chan error
@@ -152,10 +147,6 @@ func (w *writer) handleControl(cmd command) bool {
 		cmd.done <- nil
 		return false
 
-	case cmdPrune:
-		w.executePrune(cmd.pruneKeepHeight)
-		return false
-
 	case cmdClose:
 		// TODO: propagate errors instead of panicking.
 		if err := w.db.Flush(); err != nil {
@@ -186,99 +177,4 @@ func (w *writer) commitBatch(batch *pebble.Batch, heights []uint64) {
 		panic(fmt.Sprintf("pebble batch commit failed: %v", err))
 	}
 	w.cache.evict(heights)
-}
-
-// executePrune removes all blocks with height < keepHeight.
-func (w *writer) executePrune(keepHeight uint64) {
-	loHeight, ok := w.getMetaHeight(metaKeyLo())
-	if !ok {
-		return
-	}
-	if keepHeight <= loHeight {
-		return
-	}
-
-	hiHeight, ok := w.getMetaHeight(metaKeyHi())
-	if !ok {
-		return
-	}
-
-	// Cap the prune target.
-	pruneUpTo := keepHeight
-	if pruneUpTo > hiHeight+1 {
-		pruneUpTo = hiHeight + 1
-	}
-
-	// Iterate block headers to collect secondary index keys to delete.
-	batch := w.db.NewBatch()
-	defer batch.Close()
-
-	blockStart, blockEnd := blockKeyRangeForPrune(loHeight, pruneUpTo)
-	iter, err := w.db.NewIter(&pebble.IterOptions{
-		LowerBound: blockStart,
-		UpperBound: blockEnd,
-	})
-	if err != nil {
-		panic(fmt.Sprintf("pebble new iter for prune failed: %v", err))
-	}
-
-	for valid := iter.First(); valid; valid = iter.Next() {
-		hdr, err := unmarshalBlockHeader(iter.Value())
-		if err != nil {
-			panic(fmt.Sprintf("unmarshal block header during prune: %v", err))
-		}
-		if err := batch.Delete(encodeHashIdxKey(hdr.hash), nil); err != nil {
-			panic(fmt.Sprintf("pebble batch delete hash idx: %v", err))
-		}
-		for _, txHash := range hdr.txHashes {
-			if err := batch.Delete(encodeTxIdxKey(txHash), nil); err != nil {
-				panic(fmt.Sprintf("pebble batch delete tx idx: %v", err))
-			}
-		}
-	}
-	if err := iter.Close(); err != nil {
-		panic(fmt.Sprintf("pebble iter close: %v", err))
-	}
-
-	// DeleteRange on primary block keys and tx data keys.
-	if err := batch.DeleteRange(blockStart, blockEnd, nil); err != nil {
-		panic(fmt.Sprintf("pebble delete range blocks: %v", err))
-	}
-	txStart, txEnd := txDataKeyRangeForPrune(loHeight, pruneUpTo)
-	if err := batch.DeleteRange(txStart, txEnd, nil); err != nil {
-		panic(fmt.Sprintf("pebble delete range tx data: %v", err))
-	}
-
-	// Update lowest-height metadata.
-	newLo := pruneUpTo
-	if newLo > hiHeight {
-		newLo = hiHeight
-	}
-	if err := batch.Set(metaKeyLo(), encodeHeightValue(newLo), nil); err != nil {
-		panic(fmt.Sprintf("pebble batch set meta lo: %v", err))
-	}
-
-	if err := batch.Commit(pebble.NoSync); err != nil {
-		panic(fmt.Sprintf("pebble prune commit: %v", err))
-	}
-
-	// Evict pruned heights from cache.
-	var prunedHeights []uint64
-	for h := loHeight; h < pruneUpTo; h++ {
-		prunedHeights = append(prunedHeights, h)
-	}
-	w.cache.evict(prunedHeights)
-}
-
-func (w *writer) getMetaHeight(key []byte) (uint64, bool) {
-	val, closer, err := w.db.Get(key)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return 0, false
-		}
-		panic(fmt.Sprintf("pebble get meta: %v", err))
-	}
-	h := decodeHeightValue(val)
-	closer.Close()
-	return h, true
 }

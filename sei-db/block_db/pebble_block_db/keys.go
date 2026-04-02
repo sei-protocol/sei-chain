@@ -21,6 +21,10 @@ func encodeBlockKey(height uint64) []byte {
 	return k
 }
 
+func decodeBlockKeyHeight(k []byte) uint64 {
+	return binary.BigEndian.Uint64(k[1:9])
+}
+
 func encodeTxDataKey(height uint64, txIndex uint32) []byte {
 	k := make([]byte, 13)
 	k[0] = prefixTxData
