@@ -8,10 +8,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 )
 
-type byter interface {
-	Bytes() []byte
-}
-
 func checkAminoJSON(t *testing.T, src interface{}, dst interface{}, isNil bool) {
 	// Marshal to JSON bytes.
 	js, err := cdc.MarshalAsJSON(src)

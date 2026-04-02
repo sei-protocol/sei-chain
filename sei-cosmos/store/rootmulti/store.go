@@ -66,19 +66,6 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
-// keysForStoreKeyMap returns a slice of keys for the provided map lexically sorted by StoreKey.Name()
-func keysForStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
-	keys := make([]types.StoreKey, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		ki, kj := keys[i], keys[j]
-		return ki.Name() < kj.Name()
-	})
-	return keys
-}
-
 // NewStore returns a reference to a new Store object with the provided DB. The
 // store will be created with a PruneNothing pruning strategy by default. After
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
@@ -731,25 +718,6 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 	default:
 		panic(fmt.Sprintf("unrecognized store type %v", params.typ))
-	}
-}
-
-func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
-	keys := keysForStoreKeyMap(rs.stores)
-	storeInfos := make([]types.StoreInfo, 0, len(keys))
-	for _, key := range keys {
-		store := rs.stores[key]
-		if store.GetStoreType() == types.StoreTypeTransient {
-			continue
-		}
-		storeInfos = append(storeInfos, types.StoreInfo{
-			Name:     key.Name(),
-			CommitId: store.LastCommitID(),
-		})
-	}
-	return &types.CommitInfo{
-		Version:    version,
-		StoreInfos: storeInfos,
 	}
 }
 
