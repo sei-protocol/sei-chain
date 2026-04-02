@@ -1,18 +1,19 @@
 package blocksim
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 const (
 	minHashSize         = 20
 	minCannedRandomSize = unit.MB
 )
+
+var _ utils.Config = (*BlocksimConfig)(nil)
 
 // Configuration for the blocksim benchmark.
 type BlocksimConfig struct {
@@ -45,29 +46,88 @@ type BlocksimConfig struct {
 
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
+
+	// The seed to use for the random number generator. Altering this seed for a pre-existing DB
+	// will result in undefined behavior, don't change the seed unless you are starting a new run
+	// from scratch.
+	Seed int64
+
+	// The directory to store the benchmark data.
+	DataDir string
+
+	// The BlockDB backend to use. Currently only "mem" is supported.
+	Backend string
+
+	// If this many seconds go by without a console update, the benchmark will print a report.
+	ConsoleUpdateIntervalSeconds float64
+
+	// If this many blocks are written without a console update, the benchmark will print a report.
+	// Prevents console spam when throughput is very high.
+	ConsoleUpdateIntervalBlocks uint64
+
+	// The amount of time to run the benchmark for, in seconds. If 0, runs until interrupted.
+	MaxRuntimeSeconds int
+
+	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
+	MetricsAddr string
+
+	// If true, pressing Enter in the terminal will toggle suspend/resume of the benchmark.
+	EnableSuspension bool
+
+	// How often (in blocks) to call Flush() on the database. 0 means never explicitly flush.
+	FlushIntervalBlocks uint64
+
+	// How often (in seconds) to scrape background metrics (data dir size, uptime).
+	// If 0, background metrics are disabled.
+	BackgroundMetricsScrapeInterval int
+
+	// Directory for seilog output files. Supports ~ expansion and relative paths.
+	LogDir string
+
+	// Log level for seilog output. Valid values: debug, info, warn, error.
+	LogLevel string
+
+	// If true, delete the contents of DataDir before opening the database.
+	CleanDataOnStart bool
+
+	// If true, delete the contents of LogDir before starting.
+	CleanLogsOnStart bool
+
+	// Throttle block write rate to this many blocks per second. 0 = disabled (unlimited throughput).
+	// Useful for testing steady-state performance rather than max-throughput thrashing.
+	MaxBlocksPerSecond float64
+
+	// This field is ignored, but allows for a comment to be added to the config file.
+	Comment string
 }
 
 // Returns the default configuration for the blocksim benchmark.
 func DefaultBlocksimConfig() *BlocksimConfig {
 	return &BlocksimConfig{
-		BytesPerTransaction:  512,
-		TransactionsPerBlock: 1024,
-		ExtraBytesPerBlock:   256,
-		BlockHashSize:        32,
-		TransactionHashSize:  32,
-		StagedBlockQueueSize: 8,
-		CannedRandomSize:     unit.GB,
-		UnprunedBlocks:       100_000,
+		BytesPerTransaction:             512,
+		TransactionsPerBlock:            1024,
+		ExtraBytesPerBlock:              256,
+		BlockHashSize:                   32,
+		TransactionHashSize:             32,
+		StagedBlockQueueSize:            8,
+		CannedRandomSize:                unit.GB,
+		UnprunedBlocks:                  100_000,
+		Seed:                            1337,
+		DataDir:                         "data",
+		Backend:                         "mem",
+		ConsoleUpdateIntervalSeconds:    1,
+		ConsoleUpdateIntervalBlocks:     10_000,
+		MaxRuntimeSeconds:               0,
+		MetricsAddr:                     ":9090",
+		EnableSuspension:                true,
+		FlushIntervalBlocks:             0,
+		BackgroundMetricsScrapeInterval: 60,
+		LogDir:                          "logs",
+		LogLevel:                        "info",
+		CleanDataOnStart:                false,
+		CleanLogsOnStart:                false,
+		MaxBlocksPerSecond:              0,
 	}
-}
-
-// StringifiedConfig returns the config as human-readable, multi-line JSON.
-func (c *BlocksimConfig) StringifiedConfig() (string, error) {
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }
 
 // Validate checks that the configuration is sane and returns an error if not.
@@ -94,32 +154,28 @@ func (c *BlocksimConfig) Validate() error {
 	if c.UnprunedBlocks < 1 {
 		return fmt.Errorf("UnprunedBlocks must be at least 1 (got %d)", c.UnprunedBlocks)
 	}
+	if c.DataDir == "" {
+		return fmt.Errorf("DataDir is required")
+	}
+	if c.LogDir == "" {
+		return fmt.Errorf("LogDir is required")
+	}
+	if c.ConsoleUpdateIntervalSeconds < 0 {
+		return fmt.Errorf("ConsoleUpdateIntervalSeconds must be non-negative (got %f)", c.ConsoleUpdateIntervalSeconds)
+	}
+	if c.MaxRuntimeSeconds < 0 {
+		return fmt.Errorf("MaxRuntimeSeconds must be non-negative (got %d)", c.MaxRuntimeSeconds)
+	}
+	if c.BackgroundMetricsScrapeInterval < 0 {
+		return fmt.Errorf("BackgroundMetricsScrapeInterval must be non-negative (got %d)", c.BackgroundMetricsScrapeInterval)
+	}
+	if c.MaxBlocksPerSecond < 0 {
+		return fmt.Errorf("MaxBlocksPerSecond must be non-negative (got %f)", c.MaxBlocksPerSecond)
+	}
+	switch strings.ToLower(c.LogLevel) {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
 	return nil
-}
-
-// LoadConfigFromFile parses a JSON config file at the given path.
-// Returns defaults with file values overlaid. Fails if the file contains
-// unrecognized configuration keys.
-func LoadConfigFromFile(path string) (*BlocksimConfig, error) {
-	cfg := DefaultBlocksimConfig()
-	//nolint:gosec // G304 - path comes from CLI arg, filepath.Clean used to mitigate traversal
-	f, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("open config file: %w", err)
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			fmt.Printf("failed to close config file: %v\n", err)
-		}
-	}()
-
-	dec := json.NewDecoder(f)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(cfg); err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-	return cfg, nil
 }

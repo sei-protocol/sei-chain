@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 const (
@@ -79,7 +80,7 @@ func NewDataGenerator(
 		nextAccountID = int64(binary.BigEndian.Uint64(nextAccountIDBinary))
 	}
 
-	fmt.Printf("There are currently %s keys in the database.\n", int64Commas(nextAccountID))
+	fmt.Printf("There are currently %s keys in the database.\n", utils.Int64Commas(nextAccountID))
 	hot := min(int64(config.NumberOfHotAccounts), max(0, nextAccountID-1))
 	cold := min(int64(config.MinimumNumberOfColdAccounts), max(0, nextAccountID-1-hot))
 	metrics.SetTotalNumberOfAccounts(nextAccountID, hot, cold)
@@ -94,7 +95,7 @@ func NewDataGenerator(
 		nextErc20ContractID = int64(binary.BigEndian.Uint64(nextErc20ContractIDBinary))
 	}
 
-	fmt.Printf("There are currently %s ERC20 contracts in the database.\n", int64Commas(nextErc20ContractID))
+	fmt.Printf("There are currently %s ERC20 contracts in the database.\n", utils.Int64Commas(nextErc20ContractID))
 	metrics.SetTotalNumberOfERC20Contracts(nextErc20ContractID)
 
 	nextBlockNumberBinary, found, err := database.Get(BlockNumberCounterKey())
@@ -106,7 +107,7 @@ func NewDataGenerator(
 		nextBlockNumber = binary.BigEndian.Uint64(nextBlockNumberBinary)
 	}
 
-	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber))) //nolint:gosec
+	fmt.Printf("Next block number: %s.\n", utils.Int64Commas(int64(nextBlockNumber))) //nolint:gosec
 
 	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
 		accountKeyPrefix,

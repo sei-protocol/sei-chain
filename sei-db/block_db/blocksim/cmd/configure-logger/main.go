@@ -1,4 +1,4 @@
-// configure-logger reads a cryptosim config file and prints shell export
+// configure-logger reads a blocksim config file and prints shell export
 // statements that configure seilog's environment variables. Intended to be
 // called via eval in a shell script before launching the benchmark binary.
 //
@@ -13,14 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/block_db/blocksim"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/cryptosim"
 )
-
-/*
-This extra binary for setting up logging is an unfortunate complexity, but we can't really avoid it
-given that the only way to configure logging is to set environment variables before the main process starts.
-*/
 
 func main() {
 	if err := run(); err != nil {
@@ -34,7 +29,7 @@ func run() error {
 		return fmt.Errorf("usage: configure-logger <config-file>")
 	}
 
-	cfg := cryptosim.DefaultCryptoSimConfig()
+	cfg := blocksim.DefaultBlocksimConfig()
 	if err := utils.LoadConfigFromFile(os.Args[1], cfg); err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -44,7 +39,7 @@ func run() error {
 		return fmt.Errorf("resolve log dir: %w", err)
 	}
 
-	logFile := filepath.Join(logDir, "cryptosim.log")
+	logFile := filepath.Join(logDir, "blocksim.log")
 
 	fmt.Printf("export SEI_LOG_OUTPUT=%s\n", shellQuote(logFile))
 	fmt.Printf("export SEI_LOG_LEVEL=%s\n", shellQuote(strings.ToLower(cfg.LogLevel)))
@@ -52,7 +47,6 @@ func run() error {
 	return nil
 }
 
-// shellQuote wraps s in single quotes, escaping any embedded single quotes.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

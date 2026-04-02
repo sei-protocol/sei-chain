@@ -22,7 +22,8 @@ type memBlockDB struct {
 	data *memBlockDBData
 }
 
-func newMemBlockDB() BlockDB {
+// NewMemBlockDB creates an in-memory BlockDB suitable for testing and benchmarks.
+func NewMemBlockDB() BlockDB {
 	return &memBlockDB{
 		data: &memBlockDBData{
 			blocksByHash:   make(map[string]*BinaryBlock),

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	"golang.org/x/time/rate"
 )
@@ -115,12 +116,12 @@ func NewCryptoSim(
 	ctx, cancel := context.WithCancel(ctx)
 
 	var err error
-	config.DataDir, err = ResolveAndCreateDir(config.DataDir)
+	config.DataDir, err = utils.ResolveAndCreateDir(config.DataDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
-	config.LogDir, err = ResolveAndCreateDir(config.LogDir)
+	config.LogDir, err = utils.ResolveAndCreateDir(config.LogDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create log directory: %w", err)
@@ -248,8 +249,8 @@ func (c *CryptoSim) setupAccounts() error {
 	}
 
 	fmt.Printf("Benchmark is configured to run with a minimum of %s accounts. Creating %s new accounts.\n",
-		int64Commas(int64(requiredNumberOfAccounts)),
-		int64Commas(int64(requiredNumberOfAccounts)-c.dataGenerator.NextAccountID()))
+		utils.Int64Commas(int64(requiredNumberOfAccounts)),
+		utils.Int64Commas(int64(requiredNumberOfAccounts)-c.dataGenerator.NextAccountID()))
 
 	for c.dataGenerator.NextAccountID() < int64(requiredNumberOfAccounts) {
 		if c.ctx.Err() != nil {
@@ -274,14 +275,14 @@ func (c *CryptoSim) setupAccounts() error {
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
 			fmt.Printf("Created %s of %s accounts.      \r",
-				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
+				utils.Int64Commas(c.dataGenerator.NextAccountID()), utils.Int64Commas(int64(requiredNumberOfAccounts)))
 		}
 	}
 	if c.dataGenerator.NextAccountID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
 	fmt.Printf("Created %s of %s accounts.      \n",
-		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
+		utils.Int64Commas(c.dataGenerator.NextAccountID()), utils.Int64Commas(int64(requiredNumberOfAccounts)))
 
 	err := c.database.FinalizeBlock(
 		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID(), true)
@@ -291,7 +292,7 @@ func (c *CryptoSim) setupAccounts() error {
 	c.dataGenerator.ReportAccountCounts()
 	c.dataGenerator.ReportEndOfBlock()
 
-	fmt.Printf("There are now %s accounts in the database.\n", int64Commas(c.dataGenerator.NextAccountID()))
+	fmt.Printf("There are now %s accounts in the database.\n", utils.Int64Commas(c.dataGenerator.NextAccountID()))
 
 	return nil
 }
@@ -310,8 +311,8 @@ func (c *CryptoSim) setupErc20Contracts() error {
 
 	fmt.Printf("Benchmark is configured to run with a minimum of %s simulated ERC20 contracts. "+
 		"Creating %s new ERC20 contracts.\n",
-		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)),
-		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)-c.dataGenerator.NextErc20ContractID()))
+		utils.Int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)),
+		utils.Int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)-c.dataGenerator.NextErc20ContractID()))
 
 	for c.dataGenerator.NextErc20ContractID() < int64(c.config.MinimumNumberOfErc20Contracts) {
 		if c.ctx.Err() != nil {
@@ -337,8 +338,8 @@ func (c *CryptoSim) setupErc20Contracts() error {
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
 			fmt.Printf("Created %s of %s simulated ERC20 contracts.      \r",
-				int64Commas(c.dataGenerator.NextErc20ContractID()),
-				int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+				utils.Int64Commas(c.dataGenerator.NextErc20ContractID()),
+				utils.Int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 		}
 	}
 
@@ -347,7 +348,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	}
 
 	fmt.Printf("Created %s of %s simulated ERC20 contracts.      \n",
-		int64Commas(c.dataGenerator.NextErc20ContractID()), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+		utils.Int64Commas(c.dataGenerator.NextErc20ContractID()), utils.Int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
 
 	err := c.database.FinalizeBlock(
 		c.dataGenerator.NextAccountID(),
@@ -360,7 +361,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 	c.metrics.SetTotalNumberOfERC20Contracts(c.dataGenerator.NextErc20ContractID())
 
 	fmt.Printf("There are now %s simulated ERC20 contracts in the database.\n",
-		int64Commas(c.dataGenerator.NextErc20ContractID()))
+		utils.Int64Commas(c.dataGenerator.NextErc20ContractID()))
 
 	c.nextERC20ContractID = c.dataGenerator.NextErc20ContractID()
 
@@ -393,7 +394,7 @@ func (c *CryptoSim) run() {
 				c.suspend()
 			}
 		case <-timeoutChan:
-			fmt.Printf("\nBenchmark timed out after %s.\n", formatDuration(time.Since(c.startTimestamp), 1))
+			fmt.Printf("\nBenchmark timed out after %s.\n", utils.FormatDuration(time.Since(c.startTimestamp), 1))
 			c.cancel()
 			return
 		case blk := <-c.blockBuilder.blocksChan:
@@ -531,10 +532,10 @@ func (c *CryptoSim) generateConsoleReport(force bool) {
 
 	// Generate the report.
 	fmt.Printf("%s txns executed in %s (%s txns/sec), total number of accounts: %s      \r",
-		int64Commas(c.database.TransactionCount()),
-		formatDuration(totalElapsedTime, 1),
-		formatNumberFloat64(transactionsPerSecond, 2),
-		int64Commas(c.dataGenerator.NextAccountID()))
+		utils.Int64Commas(c.database.TransactionCount()),
+		utils.FormatDuration(totalElapsedTime, 1),
+		utils.FormatNumberFloat64(transactionsPerSecond, 2),
+		utils.Int64Commas(c.dataGenerator.NextAccountID()))
 }
 
 // Shut down the benchmark and release any resources.

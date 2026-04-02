@@ -1,12 +1,10 @@
 package cryptosim
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
@@ -15,6 +13,8 @@ const (
 	minErc20StorageSlotSize     = 32
 	minErc20InteractionsPerAcct = 1
 )
+
+var _ utils.Config = (*CryptoSimConfig)(nil)
 
 // Defines the configuration for the cryptosim benchmark.
 type CryptoSimConfig struct {
@@ -221,15 +221,6 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	}
 }
 
-// StringifiedConfig returns the config as human-readable, multi-line JSON.
-func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
 // Validate checks that the configuration is sane and returns an error if not.
 func (c *CryptoSimConfig) Validate() error {
 	if c.DataDir == "" {
@@ -309,31 +300,4 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 
 	return nil
-}
-
-// LoadConfigFromFile parses a JSON config file at the given path.
-// Returns defaults with file values overlaid. Fails if the file contains
-// unrecognized configuration keys.
-func LoadConfigFromFile(path string) (*CryptoSimConfig, error) {
-	cfg := DefaultCryptoSimConfig()
-	//nolint:gosec // G304 - path comes from config file, filepath.Clean used to mitigate traversal
-	f, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("open config file: %w", err)
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			fmt.Printf("failed to close config file: %v\n", err)
-		}
-	}()
-
-	dec := json.NewDecoder(f)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(cfg); err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-	return cfg, nil
 }
