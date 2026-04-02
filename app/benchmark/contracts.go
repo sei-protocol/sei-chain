@@ -1,7 +1,6 @@
 package benchmark
 
 import (
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-load/generator/bindings"
 )
@@ -79,10 +78,4 @@ func getERC20NoopDeployData() []byte {
 func getDisperseDeployData() []byte {
 	// Disperse has no constructor args
 	return common.FromHex(bindings.DisperseBin)
-}
-
-// packConstructorArgs packs constructor arguments using the provided ABI.
-// The empty string "" selects the constructor.
-func packConstructorArgs(parsedABI *abi.ABI, args ...interface{}) ([]byte, error) {
-	return parsedABI.Pack("", args...)
 }

@@ -10,7 +10,6 @@ modules:
   - path: sei-tendermint/proto
   - path: sei-tendermint/internal
   - path: sei-wasmd/proto
-  - path: sei-iavl/proto
 
 lint:
   use:
