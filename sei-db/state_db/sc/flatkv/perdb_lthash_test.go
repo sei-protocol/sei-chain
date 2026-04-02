@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -435,7 +434,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for i := byte(1); i <= 10; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
@@ -447,7 +446,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)

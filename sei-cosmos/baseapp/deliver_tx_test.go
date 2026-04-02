@@ -25,10 +25,12 @@ import (
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 func TestLoadSnapshotChunk(t *testing.T) {
@@ -66,7 +68,6 @@ func TestLoadSnapshotChunk(t *testing.T) {
 }
 
 func TestOfferSnapshot_Errors(t *testing.T) {
-	// Set up app before test cases, since it's fairly expensive.
 	app := setupBaseAppWithSnapshots(t, 0, 0)
 
 	m := snapshottypes.Metadata{ChunkHashes: [][]byte{{1}, {2}, {3}}}
@@ -100,7 +101,6 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 		})
 	}
 
-	// Offering a snapshot after one has been accepted should error
 	resp, _ := app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
 		Height:   1,
 		Format:   snapshottypes.CurrentFormat,
@@ -125,19 +125,15 @@ func TestApplySnapshotChunk(t *testing.T) {
 
 	target := setupBaseAppWithSnapshots(t, 0, 0)
 
-	// Fetch latest snapshot to restore
 	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 	require.NotEmpty(t, respList.Snapshots)
 	snapshot := respList.Snapshots[0]
 
-	// Make sure the snapshot has at least 3 chunks
 	require.GreaterOrEqual(t, snapshot.Chunks, uint32(3), "Not enough snapshot chunks")
 
-	// Begin a snapshot restoration in the target
 	respOffer, _ := target.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: snapshot})
 	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, *respOffer)
 
-	// We should be able to pass an invalid chunk and get a verify failure, before reapplying it.
 	respApply, _ := target.ApplySnapshotChunk(context.Background(), &abci.RequestApplySnapshotChunk{
 		Index:  0,
 		Chunk:  []byte{9},
@@ -149,7 +145,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		RejectSenders: []string{"sender"},
 	}, *respApply)
 
-	// Fetch each chunk from the source and apply it to the target
 	for index := uint32(0); index < snapshot.Chunks; index++ {
 		respChunk, _ := source.LoadSnapshotChunk(context.Background(), &abci.RequestLoadSnapshotChunk{
 			Height: snapshot.Height,
@@ -166,7 +161,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		}, *respApply)
 	}
 
-	// The target should now have the same hash as the source
 	assert.Equal(t, source.LastCommitID(), target.LastCommitID())
 }
 
@@ -1702,7 +1696,8 @@ func TestLoadVersionInvalid(t *testing.T) {
 	require.Error(t, err)
 }
 
-// simple one store baseapp with data and snapshots. Each tx is 1 MB in size (uncompressed).
+// simple one store baseapp with data and snapshots using storev2/rootmulti (memiavl).
+// Each tx is 1 MB in size (uncompressed).
 func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) *BaseApp {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
@@ -1719,7 +1714,17 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
 
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.SnapshotInterval = 1
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssConfig := seidbconfig.StateStoreConfig{}
+	cms := storev2rootmulti.NewStore(t.TempDir(), scConfig, ssConfig, nil)
+
+	cmsOpt := func(bapp *BaseApp) { bapp.SetCMS(cms) }
+
 	app := setupBaseApp(t, append(options,
+		cmsOpt,
 		SetSnapshotStore(snapshotStore),
 		SetSnapshotInterval(snapshotInterval),
 		SetPruning(sdk.PruningOptions{KeepEvery: 1}),

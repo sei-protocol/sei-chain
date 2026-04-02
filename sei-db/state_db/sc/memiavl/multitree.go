@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const (
@@ -282,7 +281,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 }
 
 // ApplyChangeSet applies change set for a single tree.
-func (t *MultiTree) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
+func (t *MultiTree) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 	i, found := t.treesByName[name]
 	if !found {
 		return fmt.Errorf("unknown tree name %s", name)
@@ -424,7 +423,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 		}
 		for _, tree := range t.trees {
 			if _, found := updatedTrees[tree.Name]; !found {
-				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
+				tree.ApplyChangeSetAsync(proto.ChangeSet{})
 			}
 		}
 		t.lastCommitInfo.Version = entry.Version

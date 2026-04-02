@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // TestSnapshotWriterPipeline tests the pipeline write mechanism
@@ -42,8 +42,8 @@ func TestSnapshotWriterCancellation(t *testing.T) {
 	// Create a large tree to ensure cancellation happens during write
 	tree := New(0)
 	for i := range 100 {
-		changeset := iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		changeset := proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
 			},
 		}
@@ -72,8 +72,8 @@ func TestSnapshotWriterWithLargeBuffer(t *testing.T) {
 
 	// Add enough data to exceed 100M nodes threshold (simulated via multiple versions)
 	for i := range 50 {
-		changeset := iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		changeset := proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: make([]byte, 1024)},
 			},
 		}
@@ -107,8 +107,8 @@ func TestSnapshotWriterProgress(t *testing.T) {
 func TestMonitoringWriter(t *testing.T) {
 	tree := New(0)
 	for i := range 10 {
-		changeset := iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		changeset := proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: make([]byte, 1024*1024)}, // 1MB values
 			},
 		}
@@ -160,8 +160,8 @@ func TestPipelineMetrics(t *testing.T) {
 
 	// Create enough data to generate meaningful metrics
 	for i := range 100 {
-		changeset := iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		changeset := proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
 			},
 		}
@@ -236,8 +236,8 @@ func TestSnapshotWriterProgressReporting(t *testing.T) {
 	// Create enough nodes to trigger progress reporting (>30 seconds worth)
 	// We'll use a smaller interval for testing
 	for i := range 1000 {
-		changeset := iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		changeset := proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("key" + string(rune(i))), Value: []byte("value" + string(rune(i)))},
 			},
 		}

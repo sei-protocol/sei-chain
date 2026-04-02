@@ -6,7 +6,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Encapsulates the database for the cryptosim benchmark.
@@ -142,7 +141,7 @@ func (d *Database) FinalizeBlock(
 	for key, value := range d.batch.Iterator() {
 		changeSets = append(changeSets, &proto.NamedChangeSet{
 			Name:      wrappers.EVMStoreName,
-			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{{Key: []byte(key), Value: value}}},
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte(key), Value: value}}},
 		})
 	}
 	d.batch.Clear()
@@ -153,7 +152,7 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(nonceValue, uint64(nextAccountID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: AccountIDCounterKey(), Value: nonceValue},
 		}},
 	})
@@ -164,7 +163,7 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue},
 		}},
 	})
@@ -174,7 +173,7 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
 		}},
 	})

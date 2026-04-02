@@ -85,12 +85,18 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return "sei-test"
 	}
 	if s == FlagSCEnable {
-		return t.UseSc
+		return true
 	}
 	// Disable snapshot creation in tests to avoid background goroutines
 	// that are not relevant to the test logic
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
+	}
+	if s == FlagSSEnable {
+		return true
+	}
+	if s == FlagSSBackend {
+		return "pebbledb"
 	}
 	if s == gigaconfig.FlagEnabled {
 		return t.EnableGiga
@@ -362,12 +368,17 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 		}
 	}
 
+	homeDir, err := os.MkdirTemp("", "sei-testing")
+	if err != nil {
+		panic(err)
+	}
+
 	res = New(
 		dbm.NewMemDB(),
 		nil,
 		true,
 		map[int64]bool{},
-		DefaultNodeHome,
+		homeDir,
 		1,
 		enableEVMCustomPrecompiles,
 		config.TestConfig(),
