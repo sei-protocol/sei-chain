@@ -30,6 +30,7 @@ type BlockSim struct {
 	startTimestamp              time.Time
 	totalBlocksWritten          int64
 	totalTransactionsWritten    int64
+	totalBytesWritten           int64
 	highestBlockHeight          uint64
 
 	// A message is sent on this channel when the benchmark is fully stopped.
@@ -165,13 +166,18 @@ func (b *BlockSim) handleNextBlock(blk *blockdb.BinaryBlock) {
 	}
 
 	txCount := int64(len(blk.Transactions))
+	blockBytes := int64(len(blk.Hash) + len(blk.BlockData))
+	for _, tx := range blk.Transactions {
+		blockBytes += int64(len(tx.Hash) + len(tx.Transaction))
+	}
 	b.totalBlocksWritten++
 	b.totalTransactionsWritten += txCount
+	b.totalBytesWritten += blockBytes
 	b.highestBlockHeight = blk.Height
-	b.metrics.ReportBlockWritten(txCount)
+	b.metrics.ReportBlockWritten(txCount, blockBytes)
 
 	// Periodic flush.
-	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 {
+	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 { //nolint:gosec
 		if err := b.db.Flush(b.ctx); err != nil {
 			fmt.Printf("failed to flush: %v\n", err)
 			b.cancel()
@@ -226,6 +232,20 @@ func (b *BlockSim) teardown() {
 	if err := b.db.Close(b.ctx); err != nil {
 		fmt.Printf("failed to close database: %v\n", err)
 	}
+
+	if b.config.CleanDataOnExit {
+		fmt.Printf("CleanDataOnExit is enabled, removing contents of: %s\n", b.config.DataDir)
+		if err := removeContents(b.config.DataDir); err != nil {
+			fmt.Printf("failed to clean data directory on exit: %v\n", err)
+		}
+	}
+	if b.config.CleanLogsOnExit {
+		fmt.Printf("CleanLogsOnExit is enabled, removing contents of: %s\n", b.config.LogDir)
+		if err := removeContents(b.config.LogDir); err != nil {
+			fmt.Printf("failed to clean log directory on exit: %v\n", err)
+		}
+	}
+
 	b.closeChan <- struct{}{}
 }
 
@@ -236,7 +256,7 @@ func (b *BlockSim) generateConsoleReport(force bool) {
 
 	if !force &&
 		timeSinceLastUpdate < b.consoleUpdatePeriod &&
-		blocksSinceLastUpdate < int64(b.config.ConsoleUpdateIntervalBlocks) {
+		blocksSinceLastUpdate < int64(b.config.ConsoleUpdateIntervalBlocks) { //nolint:gosec // bounded by config validation
 		return
 	}
 
@@ -244,15 +264,13 @@ func (b *BlockSim) generateConsoleReport(force bool) {
 	b.lastConsoleUpdateBlockCount = b.totalBlocksWritten
 
 	elapsed := now.Sub(b.startTimestamp)
-	blocksPerSecond := float64(b.totalBlocksWritten) / elapsed.Seconds()
-	txnsPerSecond := float64(b.totalTransactionsWritten) / elapsed.Seconds()
+	bytesPerSecond := float64(b.totalBytesWritten) / elapsed.Seconds()
 
-	fmt.Printf("%s blocks (%s txns) in %s | %s blocks/sec | %s txns/sec      \r",
+	fmt.Printf("%s blocks in %s | %s written | %s/sec      \r",
 		utils.Int64Commas(b.totalBlocksWritten),
-		utils.Int64Commas(b.totalTransactionsWritten),
 		utils.FormatDuration(elapsed, 1),
-		utils.FormatNumberFloat64(blocksPerSecond, 1),
-		utils.FormatNumberFloat64(txnsPerSecond, 0))
+		utils.FormatBytes(b.totalBytesWritten),
+		utils.FormatBytes(int64(bytesPerSecond)))
 }
 
 // Blocks until the benchmark has halted.

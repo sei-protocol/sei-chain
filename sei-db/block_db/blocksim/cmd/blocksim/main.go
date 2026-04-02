@@ -4,62 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sei-protocol/sei-chain/sei-db/block_db/blocksim"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"go.opentelemetry.io/otel"
-	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
-	otelmetric "go.opentelemetry.io/otel/sdk/metric"
 )
-
-func setupOtelPrometheus() (*prometheus.Registry, func(context.Context) error, error) {
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
-
-	exporter, err := otelprometheus.New(
-		otelprometheus.WithRegisterer(reg),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	provider := otelmetric.NewMeterProvider(otelmetric.WithReader(exporter))
-	otel.SetMeterProvider(provider)
-
-	return reg, provider.Shutdown, nil
-}
-
-func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr string) {
-	if addr == "" {
-		return
-	}
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	go func() {
-		_ = srv.ListenAndServe()
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
 
 func main() {
 	err := run()
@@ -88,7 +39,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	reg, shutdown, err := setupOtelPrometheus()
+	reg, shutdown, err := metrics.SetupOtelPrometheus()
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
@@ -96,9 +47,9 @@ func run() error {
 		_ = shutdown(context.Background())
 	}()
 
-	metrics := blocksim.NewBlocksimMetrics(ctx, config)
+	bsMetrics := blocksim.NewBlocksimMetrics(ctx, config)
 
-	bs, err := blocksim.NewBlockSim(ctx, config, metrics)
+	bs, err := blocksim.NewBlockSim(ctx, config, bsMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create blocksim: %w", err)
 	}
@@ -108,7 +59,12 @@ func run() error {
 		}
 	}()
 
-	startMetricsServer(ctx, reg, config.MetricsAddr)
+	metrics.StartMetricsServer(ctx, reg, config.MetricsAddr)
+	metrics.StartSystemMetrics(ctx, "blocksim", config.BackgroundMetricsScrapeInterval,
+		[]metrics.MonitoredDir{
+			{Name: "data_dir", Path: config.DataDir, TrackAvailableSpace: true},
+			{Name: "log_dir", Path: config.LogDir},
+		})
 
 	if config.EnableSuspension {
 		go func() {

@@ -54,7 +54,7 @@ type BlockDB interface {
 	// Retrieves a transaction by its hash.
 	GetTransactionByHash(ctx context.Context, hash []byte) (transaction *BinaryTransaction, ok bool, err error)
 
-	// Schedules pruning for all blocks with a height less than the given height. Pruning is asyncronous,
+	// Schedules pruning for all blocks with a height less than the given height. Pruning is asynchronous,
 	// and so this method does not provide any guarantees about when the pruning will complete. It is possible
 	// that some data will not be pruned if the database is closed before the pruning is scheduled.
 	Prune(ctx context.Context, lowestHeightToKeep uint64) error

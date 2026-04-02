@@ -71,6 +71,33 @@ func FormatNumberFloat64(f float64, decimals int) string {
 	return b.String()
 }
 
+// FormatBytes formats a byte count using the most appropriate binary unit
+// (e.g. 1536 -> "1.50 KiB", 2097152 -> "2.00 MiB").
+func FormatBytes(b int64) string {
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+		tib = 1024 * gib
+	)
+	abs := b
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs >= tib:
+		return fmt.Sprintf("%.2f TiB", float64(b)/float64(tib))
+	case abs >= gib:
+		return fmt.Sprintf("%.2f GiB", float64(b)/float64(gib))
+	case abs >= mib:
+		return fmt.Sprintf("%.2f MiB", float64(b)/float64(mib))
+	case abs >= kib:
+		return fmt.Sprintf("%.2f KiB", float64(b)/float64(kib))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
 // FormatDuration formats d using the most appropriate unit (days, hours, minutes, seconds, ms, us, ns).
 func FormatDuration(d time.Duration, decimals int) string {
 	if decimals < 0 {

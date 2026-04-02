@@ -74,13 +74,13 @@ func (g *BlockGenerator) buildBlock() *blockdb.BinaryBlock {
 	for i := uint64(0); i < g.config.TransactionsPerBlock; i++ {
 		txID := int64(height)*int64(g.config.TransactionsPerBlock) + int64(i) //nolint:gosec
 		txs[i] = &blockdb.BinaryTransaction{
-			Hash:        g.rand.Address(txHashType, txID, int(g.config.TransactionHashSize)),
-			Transaction: g.rand.Bytes(int(g.config.BytesPerTransaction)),
+			Hash:        g.rand.Address(txHashType, txID, int(g.config.TransactionHashSize)), //nolint:gosec
+			Transaction: g.rand.Bytes(int(g.config.BytesPerTransaction)),                     //nolint:gosec
 		}
 	}
 
 	blockHash := g.rand.Address(blockHashType, int64(height), int(g.config.BlockHashSize)) //nolint:gosec
-	blockData := g.rand.Bytes(int(g.config.ExtraBytesPerBlock))
+	blockData := g.rand.Bytes(int(g.config.ExtraBytesPerBlock))                            //nolint:gosec
 
 	return &blockdb.BinaryBlock{
 		Height:       height,

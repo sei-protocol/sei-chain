@@ -93,6 +93,12 @@ type BlocksimConfig struct {
 	// If true, delete the contents of LogDir before starting.
 	CleanLogsOnStart bool
 
+	// If true, delete the contents of DataDir after the benchmark finishes.
+	CleanDataOnExit bool
+
+	// If true, delete the contents of LogDir after the benchmark finishes.
+	CleanLogsOnExit bool
+
 	// Throttle block write rate to this many blocks per second. 0 = disabled (unlimited throughput).
 	// Useful for testing steady-state performance rather than max-throughput thrashing.
 	MaxBlocksPerSecond float64
@@ -104,7 +110,7 @@ type BlocksimConfig struct {
 // Returns the default configuration for the blocksim benchmark.
 func DefaultBlocksimConfig() *BlocksimConfig {
 	return &BlocksimConfig{
-		BytesPerTransaction:             512,
+		BytesPerTransaction:             1024,
 		TransactionsPerBlock:            1024,
 		ExtraBytesPerBlock:              256,
 		BlockHashSize:                   32,
@@ -126,6 +132,8 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		LogLevel:                        "info",
 		CleanDataOnStart:                false,
 		CleanLogsOnStart:                false,
+		CleanDataOnExit:                 false,
+		CleanLogsOnExit:                 false,
 		MaxBlocksPerSecond:              0,
 	}
 }

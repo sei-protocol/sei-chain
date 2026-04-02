@@ -4,68 +4,14 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/cryptosim"
-	"go.opentelemetry.io/otel"
-	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
-	otelmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-// setupOtelPrometheus configures the global OTel MeterProvider to export to Prometheus.
-// Returns the registry (for HTTP serving) and a shutdown function.
-func setupOtelPrometheus() (*prometheus.Registry, func(context.Context) error, error) {
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
-
-	exporter, err := otelprometheus.New(
-		otelprometheus.WithRegisterer(reg),
-		// No namespace: instrument names (e.g. cryptosim_blocks_finalized_total) are used as-is for Grafana compatibility.
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	provider := otelmetric.NewMeterProvider(otelmetric.WithReader(exporter))
-	otel.SetMeterProvider(provider)
-
-	return reg, provider.Shutdown, nil
-}
-
-// startMetricsServer serves /metrics from the given gatherer. Shuts down when ctx is cancelled.
-func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr string) {
-	if addr == "" {
-		return
-	}
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	go func() {
-		_ = srv.ListenAndServe()
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}()
-}
-
-// Run the cryptosim benchmark.
 func main() {
 	err := run()
 	if err != nil {
@@ -93,8 +39,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	// Configure OTel to export to Prometheus before creating cryptosim (metrics use global provider).
-	reg, shutdown, err := setupOtelPrometheus()
+	reg, shutdown, err := metrics.SetupOtelPrometheus()
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
@@ -113,8 +58,11 @@ func run() error {
 		}
 	}()
 
-	// Start metrics HTTP server after cryptosim setup (metrics are populated).
-	startMetricsServer(ctx, reg, config.MetricsAddr)
+	metrics.StartMetricsServer(ctx, reg, config.MetricsAddr)
+	metrics.StartSystemMetrics(ctx, "cryptosim", config.BackgroundMetricsScrapeInterval, []metrics.MonitoredDir{
+		{Name: "data_dir", Path: config.DataDir, TrackAvailableSpace: true},
+		{Name: "log_dir", Path: config.LogDir},
+	})
 
 	// Toggle suspend/resume on Enter when enabled
 	if config.EnableSuspension {
