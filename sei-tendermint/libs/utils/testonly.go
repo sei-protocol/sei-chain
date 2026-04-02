@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
@@ -46,6 +47,9 @@ var cmpOpts = []cmp.Option{
 	protocmp.Transform(),
 	cmp.Exporter(isReadOnly),
 	cmpopts.EquateEmpty(),
+	// Optimization for comparing slices of bytes.
+	// Applies iff any of the slices is non-empty to avoid collision with EquateEmpty.
+	cmp.FilterValues(func(x, y []byte) bool { return len(x) > 0 || len(y) > 0 }, cmp.Comparer(bytes.Equal)),
 	cmp.Comparer(cmpComparer[big.Int]),
 }
 
