@@ -545,6 +545,8 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 		// the gzip stream to ensure the footer will be seen by the client in case the
 		// response is flushed after this call to write.
 		err = w.gz.Close()
+		gzPool.Put(w.gz)
+		w.gz = nil
 	}
 	return n, err
 }
