@@ -10,11 +10,11 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
@@ -559,7 +559,7 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version
 func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion uint64) error {
-	resp, err := s.conn.Info(ctx, &proxy.RequestInfo)
+	resp, err := s.conn.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("failed to query ABCI app for appHash: %w", err)
 	}

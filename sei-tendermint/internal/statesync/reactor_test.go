@@ -16,7 +16,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	smmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -26,6 +25,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
@@ -159,7 +159,7 @@ func TestReactor_Sync(t *testing.T) {
 	appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 	})
-	appConn.info.Push(mkHandler(&proxy.RequestInfo, &abci.ResponseInfo{
+	appConn.info.Push(mkHandler(&version.RequestInfo, &abci.ResponseInfo{
 		AppVersion:       testAppVersion,
 		LastBlockHeight:  snapshotHeight,
 		LastBlockAppHash: chain[snapshotHeight+1].AppHash,

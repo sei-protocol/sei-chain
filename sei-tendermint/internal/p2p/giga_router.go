@@ -3,54 +3,189 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"log"
+	"maps"
+	"slices"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
+type GigaNodeAddr struct {
+	Key      NodePublicKey
+	HostPort tcp.HostPort
+}
+
+func (a GigaNodeAddr) String() string {
+	return fmt.Sprintf("%v@%v", a.Key, a.HostPort)
+}
+
 type GigaRouterConfig struct {
-	InboundPeers  map[NodePublicKey]bool
-	OutboundPeers map[NodePublicKey]tcp.HostPort
-	State         *consensus.State
+	DialInterval   time.Duration
+	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
+	Consensus      *consensus.Config
+	Producer       *producer.Config
+	App            abci.Application
+	GenDoc         *types.GenesisDoc
 }
 
 type GigaRouter struct {
-	cfg     *GigaRouterConfig
-	key     NodeSecretKey
-	service *giga.Service
-	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
-	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+	cfg       *GigaRouterConfig
+	key       NodeSecretKey
+	data      *data.State
+	producer  *producer.State
+	consensus *consensus.State
+	service   *giga.Service
+	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
+	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
 
-func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) *GigaRouter {
+func (r *GigaRouter) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
+	return r.producer.PushToMempool(ctx, tx)
+}
+
+func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
+	if cfg.GenDoc.InitialHeight < 1 {
+		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
+	}
+	committee, err := atypes.NewRoundRobinElection(
+		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
+		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
+	)
+	if err != nil {
+		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
+	}
+	// Automated pruning is disabled, because it is controlled by the application.
+	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
+	if err != nil {
+		return nil, fmt.Errorf("consensus.NewState(): %w", err)
+	}
+	producerState := producer.NewState(cfg.Producer, consensusState)
 	return &GigaRouter{
-		cfg:     cfg,
-		key:     key,
-		service: giga.NewService(cfg.State),
-		poolIn:  giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		cfg:       cfg,
+		key:       key,
+		data:      dataState,
+		consensus: consensusState,
+		producer:  producerState,
+		service:   giga.NewService(consensusState),
+		poolIn:    giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		poolOut:   giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+	}, nil
+}
+
+func (r *GigaRouter) runExecute(ctx context.Context) error {
+	info, err := r.cfg.App.Info(ctx, &version.RequestInfo)
+	if err != nil {
+		return fmt.Errorf("App.Info(): %w", err)
+	}
+	last, ok := utils.SafeCast[atypes.GlobalBlockNumber](info.LastBlockHeight)
+	if !ok {
+		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
+	}
+	next := last + 1
+	if last == 0 {
+		if _, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+			return fmt.Errorf("App.InitChain(): %w", err)
+		}
+		var ok bool
+		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
+		if !ok {
+			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
+		}
+	} else {
+		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
+		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
+		if err := r.data.PushAppHash(last, info.LastBlockAppHash); err != nil {
+			return fmt.Errorf("r.data.PushAppHash(): %w", err)
+		}
+	}
+
+	for n := next; ; n += 1 {
+		b, err := r.data.Block(ctx, n)
+		if err != nil {
+			return err
+		}
+
+		hash := b.Header().Hash()
+		var proposerAddress types.Address
+		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
+			// Deterministically select a proposer from the app's validator committee.
+			// We need it so that app does not emit error logs.
+			proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+			key, err := crypto.PubKeyFromProto(proposer.PubKey)
+			if err != nil {
+				return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			}
+			proposerAddress = key.Address()
+		}
+		resp, err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+			Txs: b.Payload().Txs(),
+			// Empty DecidedLastCommit does not indicate missing votes.
+			DecidedLastCommit: abci.CommitInfo{},
+			// WARNING: this is a hash of the autobahn block header.
+			// It is used to identify block processed optimistically
+			// and is fed as block hash to EVM contracts.
+			Hash: hash[:],
+			Header: (&types.Header{
+				ChainID: r.cfg.GenDoc.ChainID,
+				Height:  int64(n), // nolint:gosec // different representations of the same value
+				Time:    b.Payload().CreatedAt(),
+				// WARNING: the reward distribution has corner cases where it forgets the proposer,
+				// because reward is distributed with a delay. This is not our problem here though.
+				ProposerAddress: proposerAddress,
+			}).ToProto(),
+		})
+		if err != nil {
+			return fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+		}
+		// TODO: we need the block to be persisted before we vote for apphash.
+		if err := r.data.PushAppHash(n, resp.AppHash); err != nil {
+			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
+		}
+		commitResp, err := r.cfg.App.Commit(ctx)
+		if err != nil {
+			return fmt.Errorf("r.cfg.App.Commit(): %w", err)
+		}
+		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+		if !ok {
+			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+		}
+		r.data.PruneBefore(pruneBefore)
 	}
 }
 
 func (r *GigaRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for key, hostport := range r.cfg.OutboundPeers {
+		// Spawn outbound connections dialing.
+		for _, addr := range r.cfg.ValidatorAddrs {
 			s.Spawn(func() error {
 				for {
-					err := r.dialAndRunConn(ctx, key, hostport)
-					log.Printf("[%v:%v] %v", key, hostport, err)
-					if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+					err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
+					logger.Info("giga connection failed", "addr", addr, "err", err)
+					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 						return err
 					}
 				}
 			})
 		}
+		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
+		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
+		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})
 }
@@ -96,7 +231,14 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	}
 	// Filter unwanded connections.
 	key := hConn.msg.NodeAuth.Key()
-	if !r.cfg.InboundPeers[key] {
+	ok := false
+	for _, addr := range r.cfg.ValidatorAddrs {
+		if addr.Key == key {
+			ok = true
+			break
+		}
+	}
+	if !ok {
 		return fmt.Errorf("peer not whitelisted")
 	}
 	server := rpc.NewServer[giga.API]()
