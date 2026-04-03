@@ -45,6 +45,7 @@ type DebugAPI struct {
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
+	profiledBlockTrace bool
 }
 
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
@@ -127,6 +128,7 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
 	}
 }
 
@@ -164,6 +166,7 @@ func NewSeiDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
 		backend:            backend,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
@@ -218,7 +221,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	if shouldUseProfiledBlockTrace(config) {
+	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
@@ -250,7 +253,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	}
 	defer done()
 
-	if shouldUseProfiledBlockTrace(config) {
+	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
@@ -340,7 +343,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
-	if shouldUseProfiledBlockTrace(config) {
+	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
@@ -358,7 +361,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	if shouldUseProfiledBlockTrace(config) {
+	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
