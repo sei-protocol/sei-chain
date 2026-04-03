@@ -2,6 +2,7 @@
 
 # Contents
 
+- [License](docs/licenses/README.md)
 - [What is LittDB?](#what-is-littdb)
     - [Features](#features)
     - [Consistency Guarantees](#consistency-guarantees)
