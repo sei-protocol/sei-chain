@@ -134,7 +134,7 @@ func (vs *ViewSpec) NextTimestamp(c *Committee) time.Time {
 type Proposal struct {
 	utils.ReadOnly
 	view       View
-	createdAt  time.Time
+	timestamp  time.Time
 	laneRanges map[LaneID]*LaneRange
 	app        utils.Option[*AppProposal]
 	// derived
@@ -144,7 +144,7 @@ type Proposal struct {
 	globalRangeWithoutOffset GlobalRange
 }
 
-func newProposal(view View, createdAt time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal]) *Proposal {
+func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal]) *Proposal {
 	laneRangesM := map[LaneID]*LaneRange{}
 	globalRangeWithoutOffset := GlobalRange{}
 	for _, r := range laneRanges {
@@ -154,7 +154,7 @@ func newProposal(view View, createdAt time.Time, laneRanges []*LaneRange, app ut
 	}
 	return &Proposal{
 		view:                     view,
-		createdAt:                createdAt,
+		timestamp:                timestamp,
 		laneRanges:               laneRangesM,
 		globalRangeWithoutOffset: globalRangeWithoutOffset,
 		app:                      app,
@@ -167,8 +167,8 @@ func (m *Proposal) Index() RoadIndex { return m.view.Index }
 // View of the proposal.
 func (m *Proposal) View() View { return m.view }
 
-// CreatedAt of the proposal.
-func (m *Proposal) CreatedAt() time.Time { return m.createdAt }
+// Timestamp of the proposal.
+func (m *Proposal) Timestamp() time.Time { return m.timestamp }
 
 // App .
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
@@ -194,12 +194,12 @@ func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Optio
 	if !gr.Has(n) {
 		return utils.None[time.Time]()
 	}
-	return utils.Some(m.CreatedAt().Add(time.Duration(n-gr.First) * minTimestampDiff))
+	return utils.Some(m.Timestamp().Add(time.Duration(n-gr.First) * minTimestampDiff))
 }
 
 // Lowest allowed timestamp for the next index proposal.
 func (m *Proposal) NextTimestamp() time.Time {
-	return m.CreatedAt().Add(time.Duration(m.globalRangeWithoutOffset.Len()) * minTimestampDiff)
+	return m.Timestamp().Add(time.Duration(m.globalRangeWithoutOffset.Len()) * minTimestampDiff)
 }
 
 // Verify checks that every present lane range belongs to the committee
@@ -252,12 +252,12 @@ func NewReproposal(
 }
 
 // NewProposal creates a new FullProposal.
-// createdAt timestamp might get replaced to ensure that timestamps are monotone.
+// timestamp might get replaced to ensure that timestamps are monotone.
 func NewProposal(
 	key SecretKey,
 	committee *Committee,
 	viewSpec ViewSpec,
-	createdAt time.Time,
+	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) (*FullProposal, error) {
@@ -292,10 +292,10 @@ func NewProposal(
 		appQC = utils.None[*AppQC]()
 	}
 	// Normalize the creation timestamp.
-	if wantMin := viewSpec.NextTimestamp(committee); createdAt.Before(wantMin) {
-		createdAt = wantMin
+	if wantMin := viewSpec.NextTimestamp(committee); timestamp.Before(wantMin) {
+		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), createdAt, laneRanges, app)
+	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app)
 
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
@@ -335,8 +335,8 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
 		// Is the timestamp monotone?
-		if got, wantMin := m.proposal.Msg().CreatedAt(), vs.NextTimestamp(c); got.Before(wantMin) {
-			return fmt.Errorf("proposal.CreatedAt() = %v, want >= %v", got, wantMin)
+		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(c); got.Before(wantMin) {
+			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v", got, wantMin)
 		}
 		// Is proposer valid?
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
@@ -501,7 +501,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
 		return &pb.Proposal{
 			View:       ViewConv.Encode(m.view),
-			CreatedAt:  TimeConv.Encode(m.createdAt),
+			Timestamp:  TimeConv.Encode(m.timestamp),
 			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
 			App:        AppProposalConv.EncodeOpt(m.app),
 		}
@@ -515,9 +515,9 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("laneRanges: %w", err)
 		}
-		createdAt, err := TimeConv.Decode(m.CreatedAt)
+		timestamp, err := TimeConv.Decode(m.Timestamp)
 		if err != nil {
-			return nil, fmt.Errorf("createdAt: %w", err)
+			return nil, fmt.Errorf("timestamp: %w", err)
 		}
 		app, err := AppProposalConv.DecodeOpt(m.App)
 		if err != nil {
@@ -525,7 +525,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		}
 		return newProposal(
 			view,
-			createdAt,
+			timestamp,
 			laneRanges,
 			app,
 		), nil

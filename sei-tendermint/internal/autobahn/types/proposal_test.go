@@ -195,7 +195,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 		}
 	}
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
+	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app)
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -227,7 +227,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -253,7 +253,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		i++
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -279,7 +279,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.createdAt, tamperedRanges, origP.app)
+	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 	}
