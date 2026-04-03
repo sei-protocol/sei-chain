@@ -63,3 +63,4 @@ integration_test/dapp_tests/artifacts
 sei-db/state_db/bench/cryptosim/data/**
 sei-db/state_db/bench/cryptosim/bin/
 sei-db/state_db/bench/cryptosim/logs/
+sei-db/db_engine/litt/bin/
