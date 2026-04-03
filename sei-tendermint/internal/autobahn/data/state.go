@@ -524,40 +524,34 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 	panic("unreachable")
 }
 
-// findPruneBoundary returns the highest block number we can prune to
-// while keeping entire QC ranges intact. canPrune is called with the end
-// of each candidate range; return false to stop. The last QC range
-// (qcEnd >= nextAppProposal) is always kept so WALs are never empty.
-func (i *inner) findPruneBoundary(committee *types.Committee, canPrune func(qcEnd types.GlobalBlockNumber) bool) types.GlobalBlockNumber {
-	target := i.first
-	for target < i.nextAppProposal {
-		qcEnd := i.qcs[target].QC().GlobalRange(committee).Next
-		if qcEnd >= i.nextAppProposal {
-			break // last QC range — keep it
-		}
-		if !canPrune(qcEnd) {
-			break
-		}
-		target = qcEnd
-	}
-	return target
-}
-
-func (s *State) PruneBefore(n types.GlobalBlockNumber) error {
+// PruneBefore removes blocks, QCs, and AppProposals before retainFrom.
+// Blocks at retainFrom and above are kept. Pruning respects QC range
+// boundaries: blocks are only removed up to the start of the first
+// surviving QC range, so restarts never see a QC with missing blocks.
+func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	pruningTime := time.Now()
 	for inner, ctrl := range s.inner.Lock() {
-		target := inner.findPruneBoundary(s.cfg.Committee, func(qcEnd types.GlobalBlockNumber) bool {
-			return qcEnd <= n
-		})
-		oldFirst := inner.first
-		for inner.first < target {
+		// Can only prune executed blocks (those with AppProposals).
+		firstToKeep := min(retainFrom, inner.nextAppProposal)
+		// At least one QC range always survives: qcs[firstToKeep-1]'s
+		// range is kept because we prune only before its First.
+		if firstToKeep <= inner.first {
+			return nil
+		}
+		// Find the first QC range that must survive. The QC covering
+		// firstToKeep-1 (last pruneable block) is kept, along with all
+		// blocks in its range.
+		firstSurvivingQC := inner.qcs[firstToKeep-1].QC().GlobalRange(s.cfg.Committee).First
+		if firstSurvivingQC <= inner.first {
+			return nil // nothing to prune (firstToKeep is within the first QC range)
+		}
+		// Prune blocks only before that QC's range.
+		for inner.first < firstSurvivingQC {
 			inner.pruneFirst(pruningTime, s.metrics)
 		}
-		if inner.first > oldFirst {
-			ctrl.Updated()
-			if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-				return err
-			}
+		ctrl.Updated()
+		if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -653,18 +647,25 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
 		for inner, ctrl := range s.inner.Lock() {
-			oldFirst := inner.first
-			// Always keep at least one QC range so that (1) WALs are
-			// never empty (inner.first is recoverable on restart) and
-			// (2) at least one block remains for AppProposal voting.
+			// Step 1: find the first block too new to prune.
 			// TODO: a proper fix would not prune until AppQC exists.
-			target := inner.findPruneBoundary(s.cfg.Committee, func(qcEnd types.GlobalBlockNumber) bool {
-				return pruningTime.Sub(inner.appProposals[qcEnd-1].timestamp) >= after
-			})
-			for inner.first < target {
-				inner.pruneFirst(pruningTime, s.metrics)
+			firstToKeep := inner.first
+			for firstToKeep < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[firstToKeep].timestamp) >= after {
+				firstToKeep++
 			}
-			if inner.first > oldFirst {
+			// Ensure at least one QC range survives so WALs are never empty.
+			lastQCStart := inner.qcs[inner.nextQC-1].QC().GlobalRange(s.cfg.Committee).First
+			if firstToKeep > lastQCStart {
+				firstToKeep = lastQCStart
+			}
+			if firstToKeep > inner.first {
+				// Step 2: find the first surviving QC range, then prune
+				// blocks only before it so restarts never see a QC with
+				// missing blocks.
+				firstSurvivingQC := inner.qcs[firstToKeep-1].QC().GlobalRange(s.cfg.Committee).First
+				for inner.first < firstSurvivingQC {
+					inner.pruneFirst(pruningTime, s.metrics)
+				}
 				ctrl.Updated()
 				if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
 					return err
