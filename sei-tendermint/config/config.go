@@ -72,6 +72,7 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
+	Autobahn        *AutobahnConfig        `mapstructure:"autobahn"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -87,6 +88,7 @@ func DefaultConfig() *Config {
 		Instrumentation: DefaultInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
 		SelfRemediation: DefaultSelfRemediationConfig(),
+		Autobahn:        DefaultAutobahnConfig(),
 	}
 }
 
@@ -111,6 +113,7 @@ func TestConfig() *Config {
 		Instrumentation: TestInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
 		SelfRemediation: DefaultSelfRemediationConfig(),
+		Autobahn:        DefaultAutobahnConfig(),
 	}
 }
 
@@ -148,6 +151,9 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.SelfRemediation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [self-remediation] section: %w", err)
+	}
+	if err := cfg.Autobahn.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [autobahn] section: %w", err)
 	}
 	return nil
 }
@@ -1431,6 +1437,102 @@ func (cfg *SelfRemediationConfig) ValidateBasic() error {
 	}
 	if cfg.RestartCooldownSeconds > math.MaxInt64 {
 		return errors.New("restart-cooldown-seconds exceeds max int64")
+	}
+	return nil
+}
+
+//-----------------------------------------------------------------------------
+// AutobahnConfig
+
+// AutobahnConfig defines the configuration for the Autobahn (GigaRouter) subsystem.
+type AutobahnConfig struct {
+	// Enable activates the Autobahn subsystem.
+	Enable bool `mapstructure:"enable"`
+
+	// Validators is a comma-separated list of "pubkey_hex@host:port" entries
+	// identifying autobahn committee members and their network addresses.
+	// The pubkey is the ed25519 node public key (used as both node and validator identity).
+	Validators string `mapstructure:"validators"`
+
+	// MaxGasPerBlock is the maximum gas allowed per block.
+	MaxGasPerBlock uint64 `mapstructure:"max-gas-per-block"`
+
+	// MaxTxsPerBlock is the maximum number of transactions per block.
+	MaxTxsPerBlock uint64 `mapstructure:"max-txs-per-block"`
+
+	// MaxTxsPerSecond is the maximum number of transactions per second. 0 means unlimited.
+	MaxTxsPerSecond uint64 `mapstructure:"max-txs-per-second"`
+
+	// MempoolSize is the maximum number of transactions in the mempool.
+	MempoolSize uint64 `mapstructure:"mempool-size"`
+
+	// BlockInterval is how often blocks are produced.
+	BlockInterval time.Duration `mapstructure:"block-interval"`
+
+	// AllowEmptyBlocks controls whether empty blocks are produced.
+	AllowEmptyBlocks bool `mapstructure:"allow-empty-blocks"`
+
+	// ViewTimeout is the timeout for each consensus view.
+	ViewTimeout time.Duration `mapstructure:"view-timeout"`
+
+	// PersistentStateDir is the directory for persisting consensus state.
+	// Empty string disables persistence (DANGEROUS: may lead to slashing on restart).
+	PersistentStateDir string `mapstructure:"persistent-state-dir"`
+
+	// DialInterval controls how often the GigaRouter retries outbound connections.
+	DialInterval time.Duration `mapstructure:"dial-interval"`
+}
+
+// DefaultAutobahnConfig returns a default configuration for the Autobahn subsystem.
+func DefaultAutobahnConfig() *AutobahnConfig {
+	return &AutobahnConfig{
+		Enable:             false,
+		Validators:         "",
+		MaxGasPerBlock:     50_000_000,
+		MaxTxsPerBlock:     5_000,
+		MaxTxsPerSecond:    0,
+		MempoolSize:        5_000,
+		BlockInterval:      400 * time.Millisecond,
+		AllowEmptyBlocks:   false,
+		ViewTimeout:        1500 * time.Millisecond,
+		PersistentStateDir: "",
+		DialInterval:       10 * time.Second,
+	}
+}
+
+// TestAutobahnConfig returns a test configuration for the Autobahn subsystem.
+func TestAutobahnConfig() *AutobahnConfig {
+	return DefaultAutobahnConfig()
+}
+
+// ValidateBasic performs basic validation.
+func (cfg *AutobahnConfig) ValidateBasic() error {
+	if cfg == nil {
+		return nil
+	}
+	if !cfg.Enable {
+		return nil
+	}
+	if cfg.Validators == "" {
+		return errors.New("autobahn.validators must be set when autobahn is enabled")
+	}
+	if cfg.MaxGasPerBlock == 0 {
+		return errors.New("autobahn.max-gas-per-block must be > 0")
+	}
+	if cfg.MaxTxsPerBlock == 0 {
+		return errors.New("autobahn.max-txs-per-block must be > 0")
+	}
+	if cfg.MempoolSize == 0 {
+		return errors.New("autobahn.mempool-size must be > 0")
+	}
+	if cfg.BlockInterval <= 0 {
+		return errors.New("autobahn.block-interval must be > 0")
+	}
+	if cfg.ViewTimeout <= 0 {
+		return errors.New("autobahn.view-timeout must be > 0")
+	}
+	if cfg.DialInterval <= 0 {
+		return errors.New("autobahn.dial-interval must be > 0")
 	}
 	return nil
 }

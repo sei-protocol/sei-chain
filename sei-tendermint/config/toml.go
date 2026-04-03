@@ -659,6 +659,33 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
+#######################################################################
+###              Autobahn Configuration (Auto-managed)              ###
+#######################################################################
+[autobahn]
+
+# Enable the Autobahn (GigaRouter) subsystem
+enable = {{ .Autobahn.Enable }}
+
+# Comma-separated list of "pubkey_hex@host:port" entries identifying
+# autobahn committee members. The pubkey is the ed25519 node public key.
+validators = "{{ .Autobahn.Validators }}"
+
+# Producer settings
+max-gas-per-block = {{ .Autobahn.MaxGasPerBlock }}
+max-txs-per-block = {{ .Autobahn.MaxTxsPerBlock }}
+max-txs-per-second = {{ .Autobahn.MaxTxsPerSecond }}
+mempool-size = {{ .Autobahn.MempoolSize }}
+block-interval = "{{ .Autobahn.BlockInterval }}"
+allow-empty-blocks = {{ .Autobahn.AllowEmptyBlocks }}
+
+# Consensus settings
+view-timeout = "{{ .Autobahn.ViewTimeout }}"
+persistent-state-dir = "{{ .Autobahn.PersistentStateDir }}"
+
+# How often to retry outbound GigaRouter connections
+dial-interval = "{{ .Autobahn.DialInterval }}"
+
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility

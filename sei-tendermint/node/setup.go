@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -12,6 +13,10 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -27,6 +32,7 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -197,12 +203,110 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
+// buildGigaConfig constructs a GigaRouterConfig from the AutobahnConfig, node key, app, and genesis doc.
+// Returns nil if autobahn is not enabled.
+func buildGigaConfig(
+	autobahnCfg *config.AutobahnConfig,
+	nodeKey types.NodeKey,
+	appClient abci.Application,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterConfig, error) {
+	if autobahnCfg == nil || !autobahnCfg.Enable {
+		return nil, nil
+	}
+
+	entries := tmstrings.SplitAndTrimEmpty(autobahnCfg.Validators, ",", " ")
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("autobahn enabled but no validators configured")
+	}
+
+	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
+
+	for _, entry := range entries {
+		// Format: "pubkey_hex@host:port"
+		// The pubkey serves as both the autobahn validator key and the node key.
+		parts := strings.SplitN(entry, "@", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid autobahn validator entry %q: expected pubkey@host:port", entry)
+		}
+		pubHex := parts[0]
+		hostPortStr := parts[1]
+
+		hostPort, err := tcp.ParseHostPort(hostPortStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid host:port in autobahn validator entry %q: %w", entry, err)
+		}
+
+		pubBytes, err := hex.DecodeString(pubHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pubkey hex in autobahn entry %q: %w", entry, err)
+		}
+		autobahnPubKey, err := atypes.PublicKeyFromBytes(pubBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ed25519 pubkey in autobahn entry %q: %w", entry, err)
+		}
+		nodePubKey, err := ed25519.PublicKeyFromBytes(pubBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ed25519 pubkey in autobahn entry %q: %w", entry, err)
+		}
+
+		if _, exists := validatorAddrs[autobahnPubKey]; exists {
+			return nil, fmt.Errorf("duplicate pubkey in autobahn validators: %s", pubHex)
+		}
+		validatorAddrs[autobahnPubKey] = p2p.GigaNodeAddr{
+			Key:      p2p.NodePublicKey(nodePubKey),
+			HostPort: hostPort,
+		}
+	}
+
+	// Convert node key to autobahn secret key and verify self is in the validator set.
+	autobahnSecretKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(nodeKey))
+	if _, ok := validatorAddrs[autobahnSecretKey.Public()]; !ok {
+		return nil, fmt.Errorf("node's own public key not found in autobahn validators; the node must be a committee member")
+	}
+
+	// Build persistent state dir option.
+	persistentStateDir := utils.None[string]()
+	if autobahnCfg.PersistentStateDir != "" {
+		persistentStateDir = utils.Some(autobahnCfg.PersistentStateDir)
+	}
+
+	// Build MaxTxsPerSecond option.
+	maxTxsPerSecond := utils.None[uint64]()
+	if autobahnCfg.MaxTxsPerSecond > 0 {
+		maxTxsPerSecond = utils.Some(autobahnCfg.MaxTxsPerSecond)
+	}
+
+	return &p2p.GigaRouterConfig{
+		DialInterval:   autobahnCfg.DialInterval,
+		ValidatorAddrs: validatorAddrs,
+		Consensus: &autobahnConsensus.Config{
+			Key: autobahnSecretKey,
+			ViewTimeout: func(atypes.View) time.Duration {
+				return autobahnCfg.ViewTimeout
+			},
+			PersistentStateDir: persistentStateDir,
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   autobahnCfg.MaxGasPerBlock,
+			MaxTxsPerBlock:   autobahnCfg.MaxTxsPerBlock,
+			MaxTxsPerSecond:  maxTxsPerSecond,
+			MempoolSize:      autobahnCfg.MempoolSize,
+			BlockInterval:    autobahnCfg.BlockInterval,
+			AllowEmptyBlocks: autobahnCfg.AllowEmptyBlocks,
+		},
+		App:    appClient,
+		GenDoc: genDoc,
+	}, nil
+}
+
 func createRouter(
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
 	appClient abci.Application,
+	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -283,6 +387,15 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
+	// Wire up Autobahn (GigaRouter) if enabled.
+	gigaCfg, err := buildGigaConfig(cfg.Autobahn, nodeKey, appClient, genDoc)
+	if err != nil {
+		return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+	}
+	if gigaCfg != nil {
+		options.Giga = utils.Some(gigaCfg)
+	}
+
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
 		return nil, closer, fmt.Errorf("unable to initialize peer store: %w", err)
