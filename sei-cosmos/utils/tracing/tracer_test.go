@@ -82,7 +82,7 @@ func TestInfo_StartWithContext_DisabledTracing(t *testing.T) {
 	require.NotNil(t, ctx)
 	require.Equal(t, inputCtx, ctx)
 	require.Equal(t, NoOpSpan, span)
-	require.Equal(t, "value", ctx.Value("key"))
+	require.Equal(t, "value", ctx.Value(key("key")))
 
 	// NoOpSpan should not record anything
 	span.End()
