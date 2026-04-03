@@ -87,6 +87,10 @@ func (g *seiLegacyHTTPGate) handleSingle(w http.ResponseWriter, r *http.Request,
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(body))
 	sub.ContentLength = int64(len(body))
+	// Prevent the inner gzip handler from compressing into the recorder;
+	// we need plain JSON so copyHTTPHeader does not propagate a stale
+	// Content-Encoding: gzip for a body that is replayed uncompressed.
+	sub.Header.Del("Accept-Encoding")
 	sub.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
@@ -178,6 +182,9 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(forwardBody))
 	sub.ContentLength = int64(len(forwardBody))
+	// Prevent the inner gzip handler from compressing into the recorder;
+	// mergeSeiLegacyHTTPBatch needs plain JSON to unmarshal inner results.
+	sub.Header.Del("Accept-Encoding")
 	sub.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(forwardBody)), nil
 	}
