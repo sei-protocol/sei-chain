@@ -45,7 +45,6 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 	bytesWrittenTotal, _ := meter.Int64Counter(
 		"blocksim_bytes_written_total",
 		metric.WithDescription("Total bytes of block and transaction data written to the database"),
-		metric.WithUnit("By"),
 	)
 	pruneCallsTotal, _ := meter.Int64Counter(
 		"blocksim_prune_calls_total",
