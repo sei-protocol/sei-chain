@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 // get a single validator
@@ -235,6 +236,17 @@ func (k Keeper) GetBondedValidatorsByPower(ctx sdk.Context) []types.Validator {
 	}
 
 	return validators[:i] // trim
+}
+
+// GetBondedValidators returns the bonded validator set.
+func (k Keeper) GetBondedValidators(ctx sdk.Context) []abci.ValidatorUpdate {
+	validators := k.GetBondedValidatorsByPower(ctx)
+	updates := make([]abci.ValidatorUpdate, len(validators))
+	powerReduction := k.PowerReduction(ctx)
+	for i, validator := range validators {
+		updates[i] = validator.ABCIValidatorUpdate(powerReduction)
+	}
+	return updates
 }
 
 // returns an iterator for the current validator power store
