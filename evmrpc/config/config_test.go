@@ -35,7 +35,7 @@ type opts struct {
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
-	enableProfiledBlockTrace     interface{}
+	enableParallelizedBlockTrace interface{}
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
@@ -120,8 +120,8 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trace_timeout" {
 		return o.traceTimeout
 	}
-	if k == "evm.enable_profiled_block_trace" {
-		return o.enableProfiledBlockTrace
+	if k == "evm.enable_parallelized_block_trace" {
+		return o.enableParallelizedBlockTrace
 	}
 	if k == "evm.rpc_stats_interval" {
 		return o.rpcStatsInterval
@@ -178,7 +178,7 @@ func TestReadConfig(t *testing.T) {
 	goodOpts := getDefaultOpts()
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
-	require.False(t, cfg.EnableProfiledBlockTrace)
+	require.False(t, cfg.EnableParallelizedBlockTrace)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -271,7 +271,7 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 
 	badOpts = goodOpts
-	badOpts.enableProfiledBlockTrace = "bad"
+	badOpts.enableParallelizedBlockTrace = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
@@ -344,11 +344,11 @@ func TestReadConfigWorkerPool(t *testing.T) {
 	}
 }
 
-func TestReadConfigEnableProfiledBlockTrace(t *testing.T) {
+func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	opts := getDefaultOpts()
-	opts.enableProfiledBlockTrace = true
+	opts.enableParallelizedBlockTrace = true
 
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
-	require.True(t, cfg.EnableProfiledBlockTrace)
+	require.True(t, cfg.EnableParallelizedBlockTrace)
 }

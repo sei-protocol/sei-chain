@@ -124,8 +124,8 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
-	// EnableProfiledBlockTrace enables the profiled/parallelized default debug_traceBlock* path.
-	EnableProfiledBlockTrace bool `mapstructure:"enable_profiled_block_trace"`
+	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
+	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
 
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
@@ -169,7 +169,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
-	EnableProfiledBlockTrace:     false,
+	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
 	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
@@ -206,7 +206,7 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
-	flagEnableProfiledBlockTrace     = "evm.enable_profiled_block_trace"
+	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
 	flagWorkerQueueSize              = "evm.worker_queue_size"
@@ -341,8 +341,8 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagEnableProfiledBlockTrace); v != nil {
-		if cfg.EnableProfiledBlockTrace, err = cast.ToBoolE(v); err != nil {
+	if v := opts.Get(flagEnableParallelizedBlockTrace); v != nil {
+		if cfg.EnableParallelizedBlockTrace, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -510,8 +510,8 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
-# Enable the profiled/parallelized default debug_traceBlock* path.
-enable_profiled_block_trace = {{ .EVM.EnableProfiledBlockTrace }}
+# Enable the parallelized default debug_traceBlock* path.
+enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}
 
 # WorkerPoolSize defines the number of workers in the worker pool.
 # Default: min(64, CPU cores × 2). Capped at 64 to prevent excessive goroutines on high-core machines.
