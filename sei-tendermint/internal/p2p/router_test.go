@@ -308,6 +308,12 @@ func makeRouter(rng utils.Rng) *Router {
 	return makeRouterWithKey(makeKey(rng))
 }
 
+func TestRouter_GigaNotSetByDefault(t *testing.T) {
+	rng := utils.TestRng()
+	router := makeRouter(rng)
+	require.False(t, router.giga.IsPresent(), "GigaRouter should not be set with default options")
+}
+
 func TestRouter_FilterByIP(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

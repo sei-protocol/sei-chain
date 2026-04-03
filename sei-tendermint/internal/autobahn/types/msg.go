@@ -73,6 +73,11 @@ func NewHashed[T Msg](msg T) *Hashed[T] {
 // SecretKey is the secret key of the validator.
 type SecretKey struct{ key ed25519.SecretKey }
 
+// SecretKeyFromED25519 constructs a SecretKey from an ed25519.SecretKey.
+func SecretKeyFromED25519(key ed25519.SecretKey) SecretKey {
+	return SecretKey{key: key}
+}
+
 // Public returns the public key corresponding to the secret key.
 func (k SecretKey) Public() PublicKey {
 	return PublicKey{key: k.key.Public()}
