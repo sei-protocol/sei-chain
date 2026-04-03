@@ -93,6 +93,7 @@ func TestState(t *testing.T) {
 
 			wantG := &types.GlobalBlock{
 				GlobalNumber:  n,
+				Timestamp:     want.QCs[n].QC().Proposal().BlockTimestamp(committee, n).OrPanic("global block not in QC"),
 				Header:        wantB.Header(),
 				Payload:       wantB.Payload(),
 				FinalAppState: want.QCs[n].QC().Proposal().App(),
