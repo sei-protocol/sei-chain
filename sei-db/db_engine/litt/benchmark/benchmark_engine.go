@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"golang.org/x/time/rate"
 )
@@ -70,7 +69,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 
 	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths)) //nolint:gosec
 
-	db, err := littbuilder.NewDB(cfg.LittConfig)
+	db, err := litt.NewDB(cfg.LittConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}

@@ -1,4 +1,4 @@
-package littbuilder
+package litt
 
 import (
 	"context"
@@ -10,23 +10,20 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
-	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-var _ litt.DB = &db{}
+var _ DB = &db{}
 
 // db is an implementation of DB.
 type db struct {
 	ctx    context.Context
-	config *litt.Config
+	config *Config
 	logger *slog.Logger
 
 	// A map of all tables in the database.
-	tables map[string]litt.ManagedTable
+	tables map[string]ManagedTable
 
 	// Protects access to tables.
 	lock sync.Mutex
@@ -35,7 +32,7 @@ type db struct {
 	stopped atomic.Bool
 
 	// Metrics for the database.
-	metrics *metrics.LittDBMetrics
+	metrics *littDBMetrics
 
 	// The HTTP server for metrics. nil if metrics are disabled or if an external party is managing the server.
 	metricsServer *http.Server
@@ -48,7 +45,7 @@ type db struct {
 }
 
 // NewDB creates a new DB instance. After this method is called, the config object should not be modified.
-func NewDB(config *litt.Config) (litt.DB, error) {
+func NewDB(config *Config) (DB, error) {
 	if config.Logger == nil {
 		var err error
 		config.Logger, err = buildLogger(config)
@@ -81,7 +78,7 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 
 	if config.PurgeLocks {
 		config.Logger.Warn(fmt.Sprintf("Purging LittDB locks from paths %v", config.Paths))
-		err := litttable.Unlock(config.Logger, config.Paths)
+		err := Unlock(config.Logger, config.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("error purging locks: %w", err)
 		}
@@ -95,7 +92,7 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 		return nil, fmt.Errorf("error acquiring locks on paths %v: %w", config.Paths, err)
 	}
 
-	var dbMetrics *metrics.LittDBMetrics
+	var dbMetrics *littDBMetrics
 	var metricsServer *http.Server
 	if config.MetricsEnabled {
 		dbMetrics, metricsServer = buildMetrics(config, config.Logger)
@@ -110,7 +107,7 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 		ctx:           config.CTX,
 		config:        config,
 		logger:        config.Logger,
-		tables:        make(map[string]litt.ManagedTable),
+		tables:        make(map[string]ManagedTable),
 		metrics:       dbMetrics,
 		metricsServer: metricsServer,
 		releaseLocks:  releaseLocks,
@@ -151,13 +148,13 @@ func (d *db) lockFreeSize() uint64 {
 	return size
 }
 
-func (d *db) GetTable(name string) (litt.Table, error) {
+func (d *db) GetTable(name string) (Table, error) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
 	table, ok := d.tables[name]
 	if !ok {
-		if !litt.IsTableNameValid(name) {
+		if !IsTableNameValid(name) {
 			return nil, fmt.Errorf(
 				"table name '%s' is invalid, must be at least one character long and "+
 					"contain only letters, numbers, and underscores, and dashes", name)
@@ -265,7 +262,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 			return
 		case <-ticker.C:
 			d.lock.Lock()
-			tablesCopy := make(map[string]litt.ManagedTable, len(d.tables))
+			tablesCopy := make(map[string]ManagedTable, len(d.tables))
 			for name, table := range d.tables {
 				tablesCopy[name] = table
 			}

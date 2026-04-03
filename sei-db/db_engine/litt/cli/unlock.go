@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/urfave/cli/v2"
 )
 
@@ -40,7 +40,7 @@ func unlockCommand(ctx *cli.Context) error {
 		}
 	}
 
-	err = table.Unlock(logger, sources)
+	err = litt.Unlock(logger, sources)
 	if err != nil {
 		return fmt.Errorf("failed to unlock LittDB files: %w", err)
 	}

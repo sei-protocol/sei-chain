@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -7,12 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +33,7 @@ func TestSnapshot(t *testing.T) {
 	snapshotDir := testDirectory + "/snapshot"
 
 	// Configure the DB to enable snapshots.
-	config, err := litt.DefaultConfig(rootPaths...)
+	config, err := DefaultConfig(rootPaths...)
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
@@ -44,11 +41,11 @@ func TestSnapshot(t *testing.T) {
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint64Range(2, 5)
-	tables := make(map[string]litt.Table, tableCount)
+	tables := make(map[string]Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
 		table, err := db.GetTable(tableName)
@@ -120,7 +117,7 @@ func TestSnapshot(t *testing.T) {
 
 		// There should be a boundary file in the snapshot directory signaling the highest legal segment index in the
 		// snapshot.
-		boundaryFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(snapshotDir, tableName))
+		boundaryFile, err := LoadBoundaryFile(UpperBound, path.Join(snapshotDir, tableName))
 		require.NoError(t, err)
 		require.True(t, boundaryFile.IsDefined())
 		require.Equal(t, snapshotHighestSegmentIndex, boundaryFile.BoundaryIndex())
@@ -187,7 +184,7 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen the database and ensure that it still works.
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 
 	for tableName := range tables {
@@ -231,7 +228,7 @@ func TestSnapshotRebuilding(t *testing.T) {
 	snapshotDir := testDirectory + "/snapshot"
 
 	// Configure the DB to enable snapshots.
-	config, err := litt.DefaultConfig(rootPaths...)
+	config, err := DefaultConfig(rootPaths...)
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
@@ -239,11 +236,11 @@ func TestSnapshotRebuilding(t *testing.T) {
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint64Range(2, 5)
-	tables := make(map[string]litt.Table, tableCount)
+	tables := make(map[string]Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
 		table, err := db.GetTable(tableName)
@@ -313,7 +310,7 @@ func TestSnapshotRebuilding(t *testing.T) {
 
 	errorMonitor = util.NewErrorMonitor(ctx, logger, nil)
 
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 
 	for tableName := range tables {
@@ -367,7 +364,7 @@ func TestSnapshotRebuilding(t *testing.T) {
 
 		// There should be a boundary file in the snapshot directory signaling the highest legal segment index in the
 		// snapshot.
-		boundaryFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(snapshotDir, tableName))
+		boundaryFile, err := LoadBoundaryFile(UpperBound, path.Join(snapshotDir, tableName))
 		require.NoError(t, err)
 		require.True(t, boundaryFile.IsDefined())
 		require.Equal(t, snapshotHighestSegmentIndex, boundaryFile.BoundaryIndex())
@@ -449,7 +446,7 @@ func TestSnapshotLowerBound(t *testing.T) {
 	snapshotDir := testDirectory + "/snapshot"
 
 	// Configure the DB to enable snapshots.
-	config, err := litt.DefaultConfig(rootPaths...)
+	config, err := DefaultConfig(rootPaths...)
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
@@ -457,11 +454,11 @@ func TestSnapshotLowerBound(t *testing.T) {
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint64Range(2, 5)
-	tables := make(map[string]litt.Table, tableCount)
+	tables := make(map[string]Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
 		table, err := db.GetTable(tableName)
@@ -516,7 +513,7 @@ func TestSnapshotLowerBound(t *testing.T) {
 
 		lowerBound := snapshotLowestSegmentIndex + (snapshotHighestSegmentIndex-snapshotLowestSegmentIndex)/2
 		lowerBoundsByTable[tableName] = lowerBound
-		boundaryFile, err := table.LoadBoundaryFile(table.LowerBound, path.Join(snapshotDir, tableName))
+		boundaryFile, err := LoadBoundaryFile(LowerBound, path.Join(snapshotDir, tableName))
 		require.NoError(t, err)
 		err = boundaryFile.Update(lowerBound)
 		require.NoError(t, err)
@@ -541,7 +538,7 @@ func TestSnapshotLowerBound(t *testing.T) {
 
 	errorMonitor = util.NewErrorMonitor(ctx, logger, nil)
 
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 
 	for tableName := range tables {
@@ -594,13 +591,13 @@ func TestSnapshotLowerBound(t *testing.T) {
 
 		// There should be a boundary file in the snapshot directory signaling the highest legal segment index in the
 		// snapshot.
-		boundaryFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(snapshotDir, tableName))
+		boundaryFile, err := LoadBoundaryFile(UpperBound, path.Join(snapshotDir, tableName))
 		require.NoError(t, err)
 		require.True(t, boundaryFile.IsDefined())
 		require.Equal(t, snapshotHighestSegmentIndex, boundaryFile.BoundaryIndex())
 
 		// The lower bound file we previously wrote should still be present.
-		lowerBoundFile, err := table.LoadBoundaryFile(table.LowerBound, path.Join(snapshotDir, tableName))
+		lowerBoundFile, err := LoadBoundaryFile(LowerBound, path.Join(snapshotDir, tableName))
 		require.NoError(t, err)
 		require.True(t, lowerBoundFile.IsDefined())
 		require.Equal(t, lowerBoundsByTable[tableName], lowerBoundFile.BoundaryIndex())

@@ -1,4 +1,4 @@
-package table
+package litt
 
 import (
 	"fmt"
@@ -9,9 +9,8 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -20,7 +19,7 @@ type controlLoop struct {
 	logger *slog.Logger
 
 	// diskTable is the disk table that this control loop is associated with.
-	diskTable *DiskTable
+	diskTable *diskTable
 
 	// errorMonitor is used to react to fatal errors anywhere in the disk table.
 	errorMonitor *util.ErrorMonitor
@@ -93,7 +92,7 @@ type controlLoop struct {
 	stopped atomic.Bool
 
 	// Encapsulates metrics for the database.
-	metrics *metrics.LittDBMetrics
+	metrics *littDBMetrics
 
 	// The table's name.
 	name string

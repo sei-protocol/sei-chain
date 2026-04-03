@@ -1,4 +1,4 @@
-package test
+package litt
 
 // This map is used for migration tests. This data is written to a table at the old version, and used to verify that
 // the data after migration is the same as the data before migration.

@@ -1,12 +1,10 @@
-package test
+package litt
 
 import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +13,7 @@ func TestCache(t *testing.T) {
 
 	directory := t.TempDir()
 
-	config, err := litt.DefaultConfig(directory)
+	config, err := DefaultConfig(directory)
 	require.NoError(t, err)
 
 	config.WriteCacheSize = rand.Uint64Range(1000, 2000)
@@ -23,7 +21,7 @@ func TestCache(t *testing.T) {
 	config.Fsync = false
 	config.DoubleWriteProtection = true
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	table, err := db.GetTable("test_table")

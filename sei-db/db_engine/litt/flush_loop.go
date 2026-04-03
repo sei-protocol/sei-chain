@@ -1,4 +1,4 @@
-package table
+package litt
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -15,7 +14,7 @@ type flushLoop struct {
 	logger *slog.Logger
 
 	// the parent disk table
-	diskTable *DiskTable
+	diskTable *diskTable
 
 	// Responsible for handling fatal DB errors.
 	errorMonitor *util.ErrorMonitor
@@ -24,7 +23,7 @@ type flushLoop struct {
 	flushChannel chan any
 
 	// metrics encapsulates metrics for the DB.
-	metrics *metrics.LittDBMetrics
+	metrics *littDBMetrics
 
 	// provides the current time
 	clock func() time.Time

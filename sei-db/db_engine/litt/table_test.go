@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -8,25 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/lcache"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/require"
 )
 
-type tableBuilder struct {
+type integrationTableBuilder struct {
 	name    string
-	builder func(clock func() time.Time, name string, path string) (litt.ManagedTable, error)
+	builder func(clock func() time.Time, name string, path string) (ManagedTable, error)
 }
 
 // This test executes against different table implementations.
-var tableBuilders = []*tableBuilder{
+var integrationTableBuilders = []*integrationTableBuilder{
 	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
@@ -45,7 +41,7 @@ var tableBuilders = []*tableBuilder{
 	},
 }
 
-var noCacheTableBuilders = []*tableBuilder{
+var integrationNoCacheTableBuilders = []*integrationTableBuilder{
 	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
@@ -56,36 +52,10 @@ var noCacheTableBuilders = []*tableBuilder{
 	},
 }
 
-func setupKeymapTypeFile(keymapPath string, keymapType keymap.KeymapType) (*keymap.KeymapTypeFile, error) {
-	exists, err := keymap.KeymapFileExists(keymapPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if keymap file exists: %w", err)
-	}
-	var keymapTypeFile *keymap.KeymapTypeFile
-	if exists {
-		keymapTypeFile, err = keymap.LoadKeymapTypeFile(keymapPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load keymap type file: %w", err)
-		}
-	} else {
-		err = os.MkdirAll(keymapPath, 0755)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create keymap directory: %w", err)
-		}
-		keymapTypeFile = keymap.NewKeymapTypeFile(keymapPath, keymapType)
-		err = keymapTypeFile.Write()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create keymap type file: %w", err)
-		}
-	}
-
-	return keymapTypeFile, nil
-}
-
 func buildMemKeyDiskTable(
 	clock func() time.Time,
 	name string,
-	path string) (litt.ManagedTable, error) {
+	path string) (ManagedTable, error) {
 
 	logger := test.GetLogger()
 
@@ -100,7 +70,7 @@ func buildMemKeyDiskTable(
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
 
-	config, err := litt.DefaultConfig(path)
+	config, err := DefaultConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
@@ -112,7 +82,7 @@ func buildMemKeyDiskTable(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
-	table, err := litttable.NewDiskTable(
+	table, err := newDiskTable(
 		config,
 		name,
 		keys,
@@ -132,7 +102,7 @@ func buildMemKeyDiskTable(
 func buildLevelDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
-	path string) (litt.ManagedTable, error) {
+	path string) (ManagedTable, error) {
 
 	logger := test.GetLogger()
 
@@ -147,7 +117,7 @@ func buildLevelDBKeyDiskTable(
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
 
-	config, err := litt.DefaultConfig(path)
+	config, err := DefaultConfig(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
@@ -159,7 +129,7 @@ func buildLevelDBKeyDiskTable(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
-	table, err := litttable.NewDiskTable(
+	table, err := newDiskTable(
 		config,
 		name,
 		keys,
@@ -179,7 +149,7 @@ func buildLevelDBKeyDiskTable(
 func buildCachedMemKeyDiskTable(
 	clock func() time.Time,
 	name string,
-	path string) (litt.ManagedTable, error) {
+	path string) (ManagedTable, error) {
 
 	baseTable, err := buildMemKeyDiskTable(clock, name, path)
 	if err != nil {
@@ -193,13 +163,13 @@ func buildCachedMemKeyDiskTable(
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return newCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedLevelDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
-	path string) (litt.ManagedTable, error) {
+	path string) (ManagedTable, error) {
 
 	baseTable, err := buildLevelDBKeyDiskTable(clock, name, path)
 	if err != nil {
@@ -213,16 +183,16 @@ func buildCachedLevelDBKeyDiskTable(
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return newCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
-func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
+func randomTableOperationsTest(t *testing.T, integrationTableBuilder *integrationTableBuilder) {
 	rand := random.NewTestRandom()
 
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
-	table, err := tableBuilder.builder(time.Now, tableName, directory)
+	table, err := integrationTableBuilder.builder(time.Now, tableName, directory)
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -303,14 +273,14 @@ func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
 
 func TestRandomTableOperations(t *testing.T) {
 	t.Parallel()
-	for _, tb := range tableBuilders {
+	for _, tb := range integrationTableBuilders {
 		t.Run(tb.name, func(t *testing.T) {
 			randomTableOperationsTest(t, tb)
 		})
 	}
 }
 
-func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
+func garbageCollectionTest(t *testing.T, integrationTableBuilder *integrationTableBuilder) {
 	rand := random.NewTestRandom()
 
 	directory := t.TempDir()
@@ -325,7 +295,7 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 
 	tableName := rand.String(8)
-	table, err := tableBuilder.builder(clock, tableName, directory)
+	table, err := integrationTableBuilder.builder(clock, tableName, directory)
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
@@ -471,7 +441,7 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 
 func TestGarbageCollection(t *testing.T) {
 	t.Parallel()
-	for _, tb := range noCacheTableBuilders {
+	for _, tb := range integrationNoCacheTableBuilders {
 		t.Run(tb.name, func(t *testing.T) {
 			garbageCollectionTest(t, tb)
 		})
@@ -482,10 +452,10 @@ func TestInvalidTableName(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 
-	config, err := litt.DefaultConfig(directory)
+	config, err := DefaultConfig(directory)
 	require.NoError(t, err)
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableName := "invalid name"

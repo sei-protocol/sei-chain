@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"os"
@@ -7,10 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	testrandom "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +19,13 @@ func TestUnlock(t *testing.T) {
 	rand := testrandom.NewTestRandom()
 	volumes := []string{path.Join(testDir, "volume1"), path.Join(testDir, "volume2"), path.Join(testDir, "volume3")}
 
-	config, err := litt.DefaultConfig(volumes...)
+	config, err := DefaultConfig(volumes...)
 	config.Fsync = false // Disable fsync for faster tests
 	config.TargetSegmentFileSize = 100
 	config.ShardingFactor = uint32(len(volumes))
 	require.NoError(t, err)
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	table, err := db.GetTable("test_table")
@@ -66,7 +63,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 3, lockFileCount)
 
 	// Unlock the DB. This should remove all lock files, but leave other files intact.
-	err = litttable.Unlock(config.Logger, volumes)
+	err = Unlock(config.Logger, volumes)
 	require.NoError(t, err, "Failed to unlock the database")
 
 	// There should be no lock files left.
@@ -89,7 +86,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 0, lockFileCount, "There should be no lock files left after unlocking")
 
 	// Calling unlock again should not cause any issues.
-	err = litttable.Unlock(config.Logger, volumes)
+	err = Unlock(config.Logger, volumes)
 	require.NoError(t, err, "Failed to unlock the database again")
 
 	// Verify that the data is still intact.
@@ -104,7 +101,7 @@ func TestUnlock(t *testing.T) {
 	err = db.Close()
 	require.NoError(t, err)
 
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 
 	table, err = db.GetTable("test_table")
@@ -126,12 +123,12 @@ func TestPurgeLocks(t *testing.T) {
 	rand := testrandom.NewTestRandom()
 	volumes := []string{path.Join(testDir, "volume1", path.Join(testDir, "volume2"), path.Join(testDir, "volume3"))}
 
-	config, err := litt.DefaultConfig(volumes...)
+	config, err := DefaultConfig(volumes...)
 	config.Fsync = false // Disable fsync for faster tests
 	config.TargetSegmentFileSize = 100
 	require.NoError(t, err)
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	table, err := db.GetTable("test_table")
@@ -150,13 +147,13 @@ func TestPurgeLocks(t *testing.T) {
 	}
 
 	// Opening a second instance of the database should fail due to existing locks.
-	_, err = littbuilder.NewDB(config)
+	_, err = NewDB(config)
 	require.Error(t, err, "Expected error when opening a second instance of the database with existing locks")
 
 	// Open a new instance of the database at the same time. Normally this is not possible, but it becomes possible
 	// when we purge locks.
 	config.PurgeLocks = true
-	db2, err := littbuilder.NewDB(config)
+	db2, err := NewDB(config)
 	require.NoError(t, err, "Failed to open a second instance of the database")
 
 	// This test doesn't bother to verify the table data, since we are in unsafe territory now with multiple instances

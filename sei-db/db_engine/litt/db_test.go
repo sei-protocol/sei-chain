@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -6,17 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/require"
 )
 
 type dbBuilder struct {
 	name    string
-	builder func(t *testing.T, tableDirectory string) (litt.DB, error)
+	builder func(t *testing.T, tableDirectory string) (DB, error)
 }
 
 var builders = []*dbBuilder{
@@ -46,8 +44,8 @@ var flushLimitedBuilder = &dbBuilder{
 	builder: buildLevelDBDiskDBWithFlushLimiter,
 }
 
-func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {
-	config, err := litt.DefaultConfig(path)
+func buildMemKeyDiskDB(t *testing.T, path string) (DB, error) {
+	config, err := DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.MemKeymapType
 	config.WriteCacheSize = 1000
@@ -56,11 +54,11 @@ func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
-	return littbuilder.NewDB(config)
+	return NewDB(config)
 }
 
-func buildLevelDBDiskDB(t *testing.T, path string) (litt.DB, error) {
-	config, err := litt.DefaultConfig(path)
+func buildLevelDBDiskDB(t *testing.T, path string) (DB, error) {
+	config, err := DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.UnsafeLevelDBKeymapType
 	config.WriteCacheSize = 1000
@@ -69,11 +67,11 @@ func buildLevelDBDiskDB(t *testing.T, path string) (litt.DB, error) {
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
-	return littbuilder.NewDB(config)
+	return NewDB(config)
 }
 
-func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, error) {
-	config, err := litt.DefaultConfig(path)
+func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (DB, error) {
+	config, err := DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.UnsafeLevelDBKeymapType
 	config.WriteCacheSize = 1000
@@ -83,7 +81,7 @@ func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, err
 	config.DoubleWriteProtection = true
 	config.MinimumFlushInterval = 50 * time.Millisecond
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build levelDB: %w", err)
 	}

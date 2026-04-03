@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/enforce"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -241,7 +241,7 @@ func pushTable(
 				tableName, sources)
 		}
 
-		boundaryFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(sources[0], tableName))
+		boundaryFile, err := litt.LoadBoundaryFile(litt.UpperBound, path.Join(sources[0], tableName))
 		if err != nil {
 			return fmt.Errorf("failed to load boundary file for table %s at path %s: %w",
 				tableName, sources[0], err)
@@ -350,7 +350,7 @@ func deleteLocalSegments(
 
 	if isSnapshot {
 		// If we are dealing with a snapshot, update the lower bound file.
-		boundaryFile, err := table.LoadBoundaryFile(table.LowerBound, path.Join(sources[0], tableName))
+		boundaryFile, err := litt.LoadBoundaryFile(litt.LowerBound, path.Join(sources[0], tableName))
 		if err != nil {
 			return fmt.Errorf("failed to load boundary file for table %s at path %s: %w",
 				tableName, sources[0], err)

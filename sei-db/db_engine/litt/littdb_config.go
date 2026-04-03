@@ -12,7 +12,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 

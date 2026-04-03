@@ -11,8 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +39,7 @@ func TestPrune(t *testing.T) {
 	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
-	db, err := littbuilder.NewDB(config)
+	db, err := litt.NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint64Range(2, 5)
@@ -141,7 +140,7 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen the DB and verify its contents.
-	db, err = littbuilder.NewDB(config)
+	db, err = litt.NewDB(config)
 	require.NoError(t, err)
 
 	for tableName := range tables {
@@ -196,7 +195,7 @@ func TestPruneSubset(t *testing.T) {
 	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
-	db, err := littbuilder.NewDB(config)
+	db, err := litt.NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint64Range(2, 5)
@@ -308,7 +307,7 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen the DB and verify its contents.
-	db, err = littbuilder.NewDB(config)
+	db, err = litt.NewDB(config)
 	require.NoError(t, err)
 
 	for tableName := range tables {

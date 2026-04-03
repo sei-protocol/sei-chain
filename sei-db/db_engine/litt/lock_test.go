@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -6,9 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +26,7 @@ func TestDBLocking(t *testing.T) {
 		roots = append(roots, fmt.Sprintf("%s/root-%d", directory, i))
 	}
 
-	config, err := litt.DefaultConfig(roots...)
+	config, err := DefaultConfig(roots...)
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
@@ -42,11 +40,11 @@ func TestDBLocking(t *testing.T) {
 	config.TargetSegmentFileSize = 100
 
 	// Build the DB and a handful of tables.
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint32Range(2, 5)
-	tables := make([]litt.Table, 0, tableCount)
+	tables := make([]Table, 0, tableCount)
 	expectedData := make(map[string]map[string][]byte)
 	for i := 0; i < int(tableCount); i++ {
 		tableName := fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8))
@@ -81,24 +79,24 @@ func TestDBLocking(t *testing.T) {
 	}
 
 	// Attempt to open a second instance of the database with the same root directories. Locking should prevent this.
-	shadowConfig, err := litt.DefaultConfig(roots...)
+	shadowConfig, err := DefaultConfig(roots...)
 	require.NoError(t, err)
 	shadowConfig.ShardingFactor = config.ShardingFactor
 	shadowConfig.DoubleWriteProtection = true
 	shadowConfig.Fsync = false
 
-	_, err = littbuilder.NewDB(shadowConfig)
+	_, err = NewDB(shadowConfig)
 	require.Error(t, err,
 		"Expected error when opening a second instance of the database with the same root directories")
 
 	// Even sharing just one root should be enough to torpedo the second instance.
-	shadowConfig, err = litt.DefaultConfig(roots[:1]...)
+	shadowConfig, err = DefaultConfig(roots[:1]...)
 	require.NoError(t, err)
 	shadowConfig.ShardingFactor = config.ShardingFactor
 	shadowConfig.DoubleWriteProtection = true
 	shadowConfig.Fsync = false
 
-	_, err = littbuilder.NewDB(shadowConfig)
+	_, err = NewDB(shadowConfig)
 	require.Error(t, err,
 		"Expected error when opening a second instance of the database with the same root directories")
 
@@ -107,10 +105,10 @@ func TestDBLocking(t *testing.T) {
 	require.NoError(t, err, "Failed to close the database")
 
 	// Ensure that we can now open a second instance of the database.
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err, "Failed to open a second instance of the database after closing the first")
 
-	tables = make([]litt.Table, 0, tableCount)
+	tables = make([]Table, 0, tableCount)
 	for tableName := range expectedData {
 		table, err := db.GetTable(tableName)
 		require.NoError(t, err, "Failed to get table %s after reopening the database", tableName)
@@ -146,7 +144,7 @@ func TestDeadProcessSimulation(t *testing.T) {
 		roots = append(roots, fmt.Sprintf("%s/root-%d", directory, i))
 	}
 
-	config, err := litt.DefaultConfig(roots...)
+	config, err := DefaultConfig(roots...)
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
@@ -160,11 +158,11 @@ func TestDeadProcessSimulation(t *testing.T) {
 	config.TargetSegmentFileSize = 100
 
 	// Build the DB and a handful of tables.
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint32Range(2, 5)
-	tables := make([]litt.Table, 0, tableCount)
+	tables := make([]Table, 0, tableCount)
 	expectedData := make(map[string]map[string][]byte)
 	for i := 0; i < int(tableCount); i++ {
 		tableName := fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8))
@@ -218,10 +216,10 @@ func TestDeadProcessSimulation(t *testing.T) {
 	}
 
 	// We should still be able to open a new instance of the database since there is no process running with the PID.
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err, "Failed to open a new instance of the database after simulating dead process")
 
-	tables = make([]litt.Table, 0, tableCount)
+	tables = make([]Table, 0, tableCount)
 	for tableName := range expectedData {
 		table, err := db.GetTable(tableName)
 		require.NoError(t, err, "Failed to get table %s after reopening the database", tableName)

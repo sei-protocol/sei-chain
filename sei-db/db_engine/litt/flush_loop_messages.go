@@ -1,9 +1,9 @@
-package table
+package litt
 
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 )
 
 // FlushLoopMessage is an interface for messages sent to the flush loop via flushLoop.enqueue.

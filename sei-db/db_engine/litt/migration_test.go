@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -7,11 +7,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -38,14 +36,14 @@ func TestGenerateData(t *testing.T) {
 	err = os.MkdirAll(dataDir, 0777)
 	require.NoError(t, err)
 
-	config, err := litt.DefaultConfig(dataDir)
+	config, err := DefaultConfig(dataDir)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
 	config.Fsync = false
 	config.ShardingFactor = 4
 	config.TargetSegmentFileSize = 100
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	table, err := db.GetTable("test")
@@ -119,12 +117,12 @@ func testMigration(t *testing.T, migrationPath string) {
 	require.NoError(t, err)
 
 	// Now open the database and verify the data matches our expectations
-	config, err := litt.DefaultConfig(testDir)
+	config, err := DefaultConfig(testDir)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
 	config.Fsync = false
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { common.CloseLogOnError(db, "littdb", nil) })
 
@@ -172,7 +170,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	require.NoError(t, err, "Failed to close database")
 
 	// Reopen the database
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err, "Failed to reopen database")
 
 	table, err = db.GetTable("test")

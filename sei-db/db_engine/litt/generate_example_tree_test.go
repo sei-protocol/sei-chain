@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -8,10 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,14 +22,14 @@ func TestGenerateExampleTree(t *testing.T) {
 
 	rootDirectories := []string{path.Join(testDir, "root0"), path.Join(testDir, "root1"), path.Join(testDir, "root2")}
 
-	config, err := litt.DefaultConfig(rootDirectories...)
+	config, err := DefaultConfig(rootDirectories...)
 	require.NoError(t, err)
 
 	config.ShardingFactor = 4
 	config.TargetSegmentFileSize = 100 // use a small value to intentionally create several segments
 	config.SnapshotDirectory = path.Join(testDir, "rolling_snapshot")
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 
 	tableA, err := db.GetTable("tableA")
@@ -69,8 +66,8 @@ func TestGenerateExampleTree(t *testing.T) {
 
 	// Simulate a lower bound files. This normally only gets generated when there is GC done externally.
 	for _, tableName := range []string{"tableA", "tableB", "tableC"} {
-		lowerBoundFile, err := table.LoadBoundaryFile(
-			table.LowerBound,
+		lowerBoundFile, err := LoadBoundaryFile(
+			LowerBound,
 			path.Join(testDir, "rolling_snapshot", tableName))
 		require.NoError(t, err)
 		err = lowerBoundFile.Update(0)

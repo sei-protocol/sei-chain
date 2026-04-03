@@ -8,7 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +43,7 @@ func TestLs(t *testing.T) {
 	config.SnapshotDirectory = snapshotDir
 
 	// Build the DB and a handful of tables.
-	db, err := littbuilder.NewDB(config)
+	db, err := litt.NewDB(config)
 	require.NoError(t, err)
 
 	tableCount := rand.Uint32Range(2, 5)

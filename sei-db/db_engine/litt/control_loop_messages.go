@@ -1,4 +1,4 @@
-package table
+package litt
 
 import "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 

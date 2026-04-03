@@ -1,37 +1,35 @@
-package cache
+package litt
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-var _ litt.ManagedTable = &cachedTable{}
+var _ ManagedTable = &cachedTable{}
 
 // cachedTable wraps a table and adds caching functionality.
 type cachedTable struct {
 	// The base table to wrap.
-	base litt.ManagedTable
+	base ManagedTable
 	// This cache holds values that were recently written to the table.
 	writeCache cache.Cache[string, []byte]
 	// This cache holds values that were recently read from the base table.
 	readCache cache.Cache[string, []byte]
 	// Metrics for the table.
-	metrics *metrics.LittDBMetrics
+	metrics *littDBMetrics
 }
 
-// NewCachedTable creates wrapper around a table that caches recently written and read values.
-func NewCachedTable(
-	base litt.ManagedTable,
+// newCachedTable creates wrapper around a table that caches recently written and read values.
+func newCachedTable(
+	base ManagedTable,
 	writeCache cache.Cache[string, []byte],
 	readCache cache.Cache[string, []byte],
-	metrics *metrics.LittDBMetrics,
-) litt.ManagedTable {
+	metrics *littDBMetrics,
+) ManagedTable {
 	return &cachedTable{
 		base:       base,
 		writeCache: writeCache,

@@ -1,4 +1,4 @@
-package test
+package litt
 
 import (
 	"fmt"
@@ -7,10 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -30,14 +28,14 @@ func TestKeymapMigration(t *testing.T) {
 	}
 
 	// Build the table using LevelDBKeymap.
-	config, err := litt.DefaultConfig(shardDirectories...)
+	config, err := DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
 	config.ShardingFactor = uint32(directoryCount)
 	config.KeymapType = keymap.UnsafeLevelDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 	table, err := db.GetTable("test")
 	require.NoError(t, err)
@@ -112,7 +110,7 @@ func TestKeymapMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reload the table and check the data
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 	table, err = db.GetTable("test")
 	require.NoError(t, err)
@@ -129,7 +127,7 @@ func TestKeymapMigration(t *testing.T) {
 	require.NoError(t, err)
 	config.KeymapType = keymap.MemKeymapType
 
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 	table, err = db.GetTable("test")
 	require.NoError(t, err)
@@ -151,7 +149,7 @@ func TestKeymapMigration(t *testing.T) {
 	require.NoError(t, err)
 	config.KeymapType = keymap.UnsafeLevelDBKeymapType
 
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 	table, err = db.GetTable("test")
 	require.NoError(t, err)
@@ -179,14 +177,14 @@ func TestFailedKeymapMigration(t *testing.T) {
 	}
 
 	// Build the table using LevelDBKeymap.
-	config, err := litt.DefaultConfig(shardDirectories...)
+	config, err := DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
 	config.ShardingFactor = uint32(directoryCount)
 	config.KeymapType = keymap.UnsafeLevelDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
-	db, err := littbuilder.NewDB(config)
+	db, err := NewDB(config)
 	require.NoError(t, err)
 	table, err := db.GetTable("test")
 	require.NoError(t, err)
@@ -277,7 +275,7 @@ func TestFailedKeymapMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reload the table and check the data
-	db, err = littbuilder.NewDB(config)
+	db, err = NewDB(config)
 	require.NoError(t, err)
 	table, err = db.GetTable("test")
 	require.NoError(t, err)

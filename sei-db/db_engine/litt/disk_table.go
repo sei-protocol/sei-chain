@@ -1,4 +1,4 @@
-package table
+package litt
 
 import (
 	"errors"
@@ -13,23 +13,21 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-var _ litt.ManagedTable = (*DiskTable)(nil)
+var _ ManagedTable = (*diskTable)(nil)
 
 // keymapReloadBatchSize is the size of the batch used for reloading keys from segments into the keymap.
 const keymapReloadBatchSize = 1024
 
 const tableFlushChannelCapacity = 8
 
-// DiskTable manages a table's Segments.
-type DiskTable struct {
+// diskTable manages a table's Segments.
+type diskTable struct {
 	// The logger for the disk table.
 	logger *slog.Logger
 
@@ -81,7 +79,7 @@ type DiskTable struct {
 	flushLoop *flushLoop
 
 	// Encapsulates metrics for the database.
-	metrics *metrics.LittDBMetrics
+	metrics *littDBMetrics
 
 	// Set to true when the table is closed. This is used to prevent double closing.
 	closed atomic.Bool
@@ -96,16 +94,16 @@ type DiskTable struct {
 	flushCoordinator *flushCoordinator
 }
 
-// NewDiskTable creates a new DiskTable.
-func NewDiskTable(
-	config *litt.Config,
+// newDiskTable creates a new diskTable.
+func newDiskTable(
+	config *Config,
 	name string,
 	keymap keymap.Keymap,
 	keymapPath string,
 	keymapTypeFile *keymap.KeymapTypeFile,
 	roots []string,
 	reloadKeymap bool,
-	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
+	metrics *littDBMetrics) (ManagedTable, error) {
 
 	if config.GCPeriod <= 0 {
 		return nil, errors.New("garbage collection period must be greater than 0")
@@ -176,7 +174,7 @@ func NewDiskTable(
 
 	errorMonitor := util.NewErrorMonitor(config.CTX, config.Logger, config.FatalErrorCallback)
 
-	table := &DiskTable{
+	table := &diskTable{
 		logger:         config.Logger,
 		errorMonitor:   errorMonitor,
 		clock:          config.Clock,
@@ -325,11 +323,11 @@ func NewDiskTable(
 	return table, nil
 }
 
-func (d *DiskTable) KeyCount() uint64 {
+func (d *diskTable) KeyCount() uint64 {
 	return uint64(d.keyCount.Load()) //nolint:gosec
 }
 
-func (d *DiskTable) Size() uint64 {
+func (d *diskTable) Size() uint64 {
 	return d.size.Load()
 }
 
@@ -337,7 +335,7 @@ func (d *DiskTable) Size() uint64 {
 // if there is a crash, resulting in a segment not being fully snapshotted. It is also needed if LittDB has
 // been rebased (which breaks symlinks) or manually modified (e.g. by the LittDB cli). Returns the new upper bound
 // file for the repaired snapshot.
-func (d *DiskTable) repairSnapshot(
+func (d *diskTable) repairSnapshot(
 	symlinkDirectory string,
 	lowestSegmentIndex uint32,
 	highestSegmentIndex uint32,
@@ -422,7 +420,7 @@ func (d *DiskTable) repairSnapshot(
 
 // reloadKeymap reloads the keymap from the segments. This is necessary when the keymap is lost, the keymap doesn't
 // save its data on disk, or we are migrating from one keymap type to another.
-func (d *DiskTable) reloadKeymap(
+func (d *diskTable) reloadKeymap(
 	segments map[uint32]*segment.Segment,
 	lowestSegmentIndex uint32,
 	highestSegmentIndex uint32) error {
@@ -486,12 +484,12 @@ func (d *DiskTable) reloadKeymap(
 	return nil
 }
 
-func (d *DiskTable) Name() string {
+func (d *diskTable) Name() string {
 	return d.name
 }
 
 // Close stops the disk table. Flushes all data out to disk.
-func (d *DiskTable) Close() error {
+func (d *diskTable) Close() error {
 	firstTimeClosing := d.closed.CompareAndSwap(false, true)
 	if !firstTimeClosing {
 		return nil
@@ -522,7 +520,7 @@ func (d *DiskTable) Close() error {
 }
 
 // Destroy stops the disk table and delete all files.
-func (d *DiskTable) Destroy() error {
+func (d *diskTable) Destroy() error {
 	firstTimeDestroying := d.destroyed.CompareAndSwap(false, true)
 	if !firstTimeDestroying {
 		return nil // already destroyed
@@ -613,7 +611,7 @@ func (d *DiskTable) Destroy() error {
 
 // SetTTL sets the TTL for the disk table. If set to 0, no TTL is enforced. This setting affects both new
 // data and data already written.
-func (d *DiskTable) SetTTL(ttl time.Duration) error {
+func (d *diskTable) SetTTL(ttl time.Duration) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process SetTTL() request, DB is in panicked state due to error: %w", err)
 	}
@@ -625,7 +623,7 @@ func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
+func (d *diskTable) SetShardingFactor(shardingFactor uint32) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetShardingFactor() request, DB is in panicked state due to error: %w", err)
@@ -646,7 +644,7 @@ func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
 	return nil
 }
 
-func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
+func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return nil, false, fmt.Errorf(
 			"cannot process Get() request, DB is in panicked state due to error: %w", err)
@@ -684,7 +682,7 @@ func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	return data, true, nil
 }
 
-func (d *DiskTable) CacheAwareGet(
+func (d *diskTable) CacheAwareGet(
 	key []byte,
 	onlyReadFromCache bool,
 ) (value []byte, exists bool, hot bool, err error) {
@@ -736,11 +734,11 @@ func (d *DiskTable) CacheAwareGet(
 	return value, true, false, nil
 }
 
-func (d *DiskTable) Put(key []byte, value []byte) error {
+func (d *diskTable) Put(key []byte, value []byte) error {
 	return d.PutBatch([]*types.KVPair{{Key: key, Value: value}})
 }
 
-func (d *DiskTable) PutBatch(batch []*types.KVPair) error {
+func (d *diskTable) PutBatch(batch []*types.KVPair) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process PutBatch() request, DB is in panicked state due to error: %w", err)
 	}
@@ -788,7 +786,7 @@ func (d *DiskTable) PutBatch(batch []*types.KVPair) error {
 	return nil
 }
 
-func (d *DiskTable) Exists(key []byte) (bool, error) {
+func (d *diskTable) Exists(key []byte) (bool, error) {
 	_, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
 	if ok {
 		return true, nil
@@ -803,7 +801,7 @@ func (d *DiskTable) Exists(key []byte) (bool, error) {
 }
 
 // Flush flushes all data to disk. Blocks until all data previously submitted to Put has been written to disk.
-func (d *DiskTable) Flush() error {
+func (d *diskTable) Flush() error {
 	// The flush coordinator batches flush requests together to improve performance if
 	// flushes are being requested very frequently.
 	err := d.flushCoordinator.Flush()
@@ -814,7 +812,7 @@ func (d *DiskTable) Flush() error {
 }
 
 // actually flushes the internal DB
-func (d *DiskTable) flushInternal() error {
+func (d *diskTable) flushInternal() error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process Flush() request, DB is in panicked state due to error: %w", err)
 	}
@@ -844,7 +842,7 @@ func (d *DiskTable) flushInternal() error {
 	return nil
 }
 
-func (d *DiskTable) SetWriteCacheSize(size uint64) error {
+func (d *diskTable) SetWriteCacheSize(size uint64) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetWriteCacheSize() request, DB is in panicked state due to error: %w", err)
@@ -854,7 +852,7 @@ func (d *DiskTable) SetWriteCacheSize(size uint64) error {
 	return nil
 }
 
-func (d *DiskTable) SetReadCacheSize(size uint64) error {
+func (d *diskTable) SetReadCacheSize(size uint64) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetReadCacheSize() request, DB is in panicked state due to error: %w", err)
@@ -864,7 +862,7 @@ func (d *DiskTable) SetReadCacheSize(size uint64) error {
 	return nil
 }
 
-func (d *DiskTable) RunGC() error {
+func (d *diskTable) RunGC() error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process RunGC() request, DB is in panicked state due to error: %w", err)
@@ -889,7 +887,7 @@ func (d *DiskTable) RunGC() error {
 
 // writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the
 // unflushedDataCache.
-func (d *DiskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
+func (d *diskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
 	if len(keys) == 0 {
 		// Nothing to flush.
 		return nil

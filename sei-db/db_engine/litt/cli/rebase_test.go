@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +75,7 @@ func rebaseTest(
 	config.Fsync = false
 	config.TargetSegmentFileSize = 100
 
-	db, err := littbuilder.NewDB(config)
+	db, err := litt.NewDB(config)
 	require.NoError(t, err)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)
@@ -195,7 +194,7 @@ func rebaseTest(
 
 	// Reopen the DB at the new destination directories.
 	config.Paths = destDirList
-	db, err = littbuilder.NewDB(config)
+	db, err = litt.NewDB(config)
 	require.NoError(t, err, "failed to open DB after rebase")
 
 	// Verify the data in the DB.
@@ -322,7 +321,7 @@ func TestRebaseSnapshot(t *testing.T) {
 	config.SnapshotDirectory = snapshotDir
 	config.TargetSegmentFileSize = 100
 
-	db, err := littbuilder.NewDB(config)
+	db, err := litt.NewDB(config)
 	require.NoError(t, err)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)

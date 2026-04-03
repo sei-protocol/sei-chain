@@ -1,11 +1,10 @@
-package metrics
+package litt
 
 import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 )
@@ -23,8 +22,8 @@ import (
 //  - segment creation rate
 //  - used/unused segment space (useful for detecting shard assignment issues)
 
-// LittDBMetrics encapsulates metrics for a LittDB.
-type LittDBMetrics struct {
+// littDBMetrics encapsulates metrics for a LittDB.
+type littDBMetrics struct {
 	// The size of individual tables in the database.
 	tableSizeInBytes *prometheus.GaugeVec
 
@@ -81,8 +80,8 @@ type LittDBMetrics struct {
 	readCacheMetrics *cache.CacheMetrics
 }
 
-// NewLittDBMetrics creates a new LittDBMetrics instance.
-func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMetrics {
+// newLittDBMetrics creates a new littDBMetrics instance.
+func newLittDBMetrics(registry *prometheus.Registry, namespace string) *littDBMetrics {
 	if registry == nil {
 		return nil
 	}
@@ -255,7 +254,7 @@ func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMe
 		"chunk_read",
 	)
 
-	return &LittDBMetrics{
+	return &littDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
 		tableKeyCount:            tableKeyCount,
 		bytesReadCounter:         bytesReadCounter,
@@ -279,7 +278,7 @@ func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMe
 
 // CollectPeriodicMetrics is a method that is periodically called to collect metrics. Tables are not permitted to be
 // added or dropped while this method is running.
-func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTable) {
+func (m *littDBMetrics) CollectPeriodicMetrics(tables map[string]ManagedTable) {
 	if m == nil {
 		return
 	}
@@ -296,7 +295,7 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 }
 
 // ReportReadOperation reports the results of a read operation.
-func (m *LittDBMetrics) ReportReadOperation(
+func (m *littDBMetrics) ReportReadOperation(
 	tableName string,
 	latency time.Duration,
 	dataSize uint64,
@@ -319,7 +318,7 @@ func (m *LittDBMetrics) ReportReadOperation(
 }
 
 // ReportWriteOperation reports the results of a write operation.
-func (m *LittDBMetrics) ReportWriteOperation(
+func (m *littDBMetrics) ReportWriteOperation(
 	tableName string,
 	latency time.Duration,
 	batchSize uint64,
@@ -335,7 +334,7 @@ func (m *LittDBMetrics) ReportWriteOperation(
 }
 
 // ReportFlushOperation reports the results of a flush operation.
-func (m *LittDBMetrics) ReportFlushOperation(tableName string, latency time.Duration) {
+func (m *littDBMetrics) ReportFlushOperation(tableName string, latency time.Duration) {
 	if m == nil {
 		return
 	}
@@ -345,7 +344,7 @@ func (m *LittDBMetrics) ReportFlushOperation(tableName string, latency time.Dura
 }
 
 // ReportSegmentFlushLatency reports the amount of time taken to flush value files.
-func (m *LittDBMetrics) ReportSegmentFlushLatency(tableName string, latency time.Duration) {
+func (m *littDBMetrics) ReportSegmentFlushLatency(tableName string, latency time.Duration) {
 	if m == nil {
 		return
 	}
@@ -354,7 +353,7 @@ func (m *LittDBMetrics) ReportSegmentFlushLatency(tableName string, latency time
 }
 
 // ReportKeymapFlushLatency reports the amount of time taken to flush the keymap.
-func (m *LittDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.Duration) {
+func (m *littDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.Duration) {
 	if m == nil {
 		return
 	}
@@ -363,7 +362,7 @@ func (m *LittDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.
 }
 
 // ReportGarbageCollectionLatency reports the latency of a garbage collection operation.
-func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency time.Duration) {
+func (m *littDBMetrics) ReportGarbageCollectionLatency(tableName string, latency time.Duration) {
 	if m == nil {
 		return
 	}
@@ -371,14 +370,14 @@ func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
 }
 
-func (m *LittDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {
+func (m *littDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {
 	if m == nil {
 		return nil
 	}
 	return m.writeCacheMetrics
 }
 
-func (m *LittDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
+func (m *littDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
 	if m == nil {
 		return nil
 	}
