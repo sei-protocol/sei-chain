@@ -59,10 +59,14 @@ type Store struct {
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
-	// interBlockCaches holds one persistent in-memory cache per giga-registered
-	// store key. Each cache wraps the underlying CommitKVStore and survives
-	// across block boundaries, eliminating cold reads for hot EVM state.
-	interBlockCaches map[types.StoreKey]*interblock.Cache
+	// interBlockCachesDeliver and interBlockCachesProcessProposal each hold one
+	// persistent in-memory cache per giga-registered store key for the
+	// corresponding ABCI state. checkState intentionally has no inter-block
+	// cache so it always reads from the last committed state. Keeping deliver
+	// and processProposal caches separate prevents mid-block writes in one
+	// state from being visible in the other.
+	interBlockCachesDeliver         map[types.StoreKey]*interblock.Cache
+	interBlockCachesProcessProposal map[types.StoreKey]*interblock.Cache
 }
 
 type VersionedChangesets struct {
@@ -177,12 +181,17 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 }
 
 // updateInterBlockCacheParents refreshes the parent CommitKVStore pointer in
-// each interblock cache. Must be called after rs.ckvStores entries are
-// reloaded in Commit() to avoid stale references.
+// every per-state interblock cache. Must be called after rs.ckvStores entries
+// are reloaded in Commit() to avoid stale references.
 func (rs *Store) updateInterBlockCacheParents() {
-	for sk, cache := range rs.interBlockCaches {
-		if store, ok := rs.ckvStores[sk]; ok {
-			cache.UpdateParent(store)
+	for _, caches := range []map[types.StoreKey]*interblock.Cache{
+		rs.interBlockCachesDeliver,
+		rs.interBlockCachesProcessProposal,
+	} {
+		for sk, cache := range caches {
+			if store, ok := rs.ckvStores[sk]; ok {
+				cache.UpdateParent(store)
+			}
 		}
 	}
 }
@@ -284,7 +293,17 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 }
 
 // cacheMultiStoreLocked must be called with rs.mtx held (at least RLock).
+// It is used for generic/query purposes and does not attach any per-state
+// interblock cache. Use CacheMultiStoreForCheck, CacheMultiStoreForDeliver, or
+// CacheMultiStoreForProcessProposal for the three ABCI execution states.
 func (rs *Store) cacheMultiStoreLocked() types.CacheMultiStore {
+	return rs.cacheMultiStoreLockedWithCaches(nil)
+}
+
+// cacheMultiStoreLockedWithCaches builds a CacheMultiStore using the provided
+// interblock caches as the giga parent layer. Must be called with rs.mtx held
+// (at least RLock). Pass nil to omit the interblock cache entirely.
+func (rs *Store) cacheMultiStoreLockedWithCaches(interBlockCaches map[types.StoreKey]*interblock.Cache) types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range rs.ckvStores {
 		store := types.KVStore(v)
@@ -300,14 +319,30 @@ func (rs *Store) cacheMultiStoreLocked() types.CacheMultiStore {
 	// flush writes into the interblock cache rather than directly to the
 	// CommitKVStore. FlushDirty() then propagates the dirty subset to disk at
 	// Commit time.
-	if len(rs.interBlockCaches) > 0 {
-		gigaStores := make(map[types.StoreKey]types.KVStore, len(rs.interBlockCaches))
-		for sk, cache := range rs.interBlockCaches {
+	if len(interBlockCaches) > 0 {
+		gigaStores := make(map[types.StoreKey]types.KVStore, len(interBlockCaches))
+		for sk, cache := range interBlockCaches {
 			gigaStores[sk] = cache
 		}
 		return cachemulti.NewFromKVStore(dbadapter.Store{DB: nil}, stores, gigaStores, rs.storeKeys, gigaKeys, nil, nil)
 	}
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, gigaKeys, nil, nil)
+}
+
+// CacheMultiStoreForDeliver returns a CacheMultiStore backed by the
+// deliverState interblock caches for use in setDeliverState.
+func (rs *Store) CacheMultiStoreForDeliver() types.CacheMultiStore {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	return rs.cacheMultiStoreLockedWithCaches(rs.interBlockCachesDeliver)
+}
+
+// CacheMultiStoreForProcessProposal returns a CacheMultiStore backed by the
+// processProposalState interblock caches for use in setProcessProposalState.
+func (rs *Store) CacheMultiStoreForProcessProposal() types.CacheMultiStore {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	return rs.cacheMultiStoreLockedWithCaches(rs.interBlockCachesProcessProposal)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -518,21 +553,25 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	return nil
 }
 
-// initInterBlockCaches creates one interblock.Cache per giga-registered store
-// key backed by the corresponding CommitKVStore. Must be called after
-// rs.ckvStores is populated (i.e. at the end of LoadVersionAndUpgrade).
+// initInterBlockCaches creates two independent interblock.Cache maps — one
+// each for deliverState and processProposalState — so that in-memory cache
+// state is isolated between those two ABCI execution contexts. checkState
+// intentionally has no inter-block cache. Must be called after rs.ckvStores
+// is populated (i.e. at the end of LoadVersionAndUpgrade).
 func (rs *Store) initInterBlockCaches() {
 	if len(rs.gigaKeys) == 0 {
 		return
 	}
-	rs.interBlockCaches = make(map[types.StoreKey]*interblock.Cache, len(rs.gigaKeys))
+	rs.interBlockCachesDeliver = make(map[types.StoreKey]*interblock.Cache, len(rs.gigaKeys))
+	rs.interBlockCachesProcessProposal = make(map[types.StoreKey]*interblock.Cache, len(rs.gigaKeys))
 	for _, k := range rs.gigaKeys {
 		sk := rs.storeKeys[k]
 		if sk == nil {
 			continue
 		}
 		if parent, ok := rs.ckvStores[sk]; ok {
-			rs.interBlockCaches[sk] = interblock.NewCache(parent, sk)
+			rs.interBlockCachesDeliver[sk] = interblock.NewCache(parent, sk)
+			rs.interBlockCachesProcessProposal[sk] = interblock.NewCache(parent, sk)
 		}
 	}
 }
