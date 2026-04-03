@@ -203,6 +203,11 @@ func (i *inner) insertQC(committee *types.Committee, qc *types.FullCommitQC) err
 // insertBlock inserts a pre-verified block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
 // the block signature before calling.
+//
+// insertBlock does NOT advance nextBlock — callers should call
+// updateNextBlock after inserting one or more blocks. This separation
+// allows batch insertion (e.g. PushQC inserts multiple blocks, then
+// advances nextBlock once).
 func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
 	if n < i.first || n >= i.nextQC {
 		return nil // outside QC range
