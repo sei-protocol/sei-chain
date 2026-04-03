@@ -63,6 +63,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
 		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
+		cfg.GenDoc.GenesisTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
@@ -114,12 +115,12 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 
 	for n := next; ; n += 1 {
-		b, err := r.data.Block(ctx, n)
+		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return err
 		}
 
-		hash := b.Header().Hash()
+		hash := b.Header.Hash()
 		var proposerAddress types.Address
 		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
 			// Deterministically select a proposer from the app's validator committee.
@@ -132,7 +133,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 			proposerAddress = key.Address()
 		}
 		resp, err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-			Txs: b.Payload().Txs(),
+			Txs: b.Payload.Txs(),
 			// Empty DecidedLastCommit does not indicate missing votes.
 			DecidedLastCommit: abci.CommitInfo{},
 			// WARNING: this is a hash of the autobahn block header.
@@ -142,7 +143,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 			Header: (&types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
 				Height:  int64(n), // nolint:gosec // different representations of the same value
-				Time:    b.Payload().CreatedAt(),
+				Time:    b.Timestamp,
 				// WARNING: the reward distribution has corner cases where it forgets the proposer,
 				// because reward is distributed with a delay. This is not our problem here though.
 				ProposerAddress: proposerAddress,
