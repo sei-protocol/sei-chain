@@ -29,6 +29,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.4
 sei-chain
+* [#3190](https://github.com/sei-protocol/sei-chain/pull/3190) Backport `release/v6.4`: Debug Trace Speedup
+* [#3189](https://github.com/sei-protocol/sei-chain/pull/3189) Backport `release/v6.4`: Make profiled block tracing opt-in by default
 * [#3188](https://github.com/sei-protocol/sei-chain/pull/3188) Backport `release/v6.4`: Fix gzip corruption in EVM JSON-RPC responses via seiLegacyHTTPGate
 * [#3186](https://github.com/sei-protocol/sei-chain/pull/3186) Backport `release/v6.4`: Guard LastCommitID with rootmulti read lock
 * [#3177](https://github.com/sei-protocol/sei-chain/pull/3177) Backport `release/v6.4`: Fix gzip double-close in EVM JSON-RPC responses
