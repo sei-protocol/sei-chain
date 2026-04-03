@@ -102,9 +102,9 @@ func (dw *DataWAL) reconcile(committee *types.Committee) error {
 	}
 	// Fix tail: remove blocks past QCs range. TruncateAfter handles the
 	// case where qcEnd-1 is before the first block (removes all).
-	qcEnd := dw.CommitQCs.Next()
-	if dw.Blocks.Next() > qcEnd && qcEnd > 0 {
-		if err := dw.Blocks.TruncateAfter(qcEnd - 1); err != nil {
+	qcNext := dw.CommitQCs.Next()
+	if dw.Blocks.Next() > qcNext && qcNext > 0 {
+		if err := dw.Blocks.TruncateAfter(qcNext - 1); err != nil {
 			return fmt.Errorf("truncate blocks tail: %w", err)
 		}
 	}
@@ -191,9 +191,6 @@ func (i *inner) insertQC(committee *types.Committee, qc *types.FullCommitQC) err
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	gr := qc.QC().GlobalRange(committee)
-	if i.nextQC == committee.FirstBlock() && gr.First > committee.FirstBlock() {
-		i.skipTo(gr.First)
-	}
 	if gr.First != i.nextQC {
 		return fmt.Errorf("QC gap: expected first=%d, got %d", i.nextQC, gr.First)
 	}
@@ -263,7 +260,13 @@ type State struct {
 // preloaded data from the previous run. Use NewDataWAL to construct it.
 func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	inner := newInner(cfg.Committee)
-	// Restore QCs first (they set inner.first and nextQC), then blocks.
+	// If WAL data starts past committee.FirstBlock() (due to pruning in a
+	// previous run), fast-forward all cursors to where data actually starts.
+	qcFirst := dataWAL.CommitQCs.LoadedFirst()
+	if qcFirst > cfg.Committee.FirstBlock() {
+		inner.skipTo(qcFirst)
+	}
+	// Restore QCs first (they set nextQC), then blocks.
 	// All loaded data is verified as if it came from the network.
 	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
 		if err := inner.insertQC(cfg.Committee, qc); err != nil {
