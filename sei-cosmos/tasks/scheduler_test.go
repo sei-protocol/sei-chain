@@ -319,7 +319,7 @@ func TestProcessAll(t *testing.T) {
 				newVal := val + fmt.Sprintf("%d", ctx.TxIndex())
 				kv.Set(itemKey, []byte(newVal))
 
-				if v, ok := ctx.Context().Value("test_tracer").(*testTxTracer); ok {
+				if v, ok := ctx.Context().Value(testTracerKey).(*testTxTracer); ok {
 					v.OnTxExecute()
 				}
 
@@ -382,6 +382,10 @@ func addTxTracerToTxEntries(txEntries []*sdk.DeliverTxEntry) []*sdk.DeliverTxEnt
 
 var _ sdk.TxTracer = &testTxTracer{}
 
+type testTracerKeyType string
+
+const testTracerKey testTracerKeyType = "test_tracer"
+
 func newTestTxTracer(txIndex int) *testTxTracer {
 	return &testTxTracer{txIndex: txIndex, canExecute: true}
 }
@@ -396,7 +400,7 @@ func (t *testTxTracer) Commit() {
 }
 
 func (t *testTxTracer) InjectInContext(ctx sdk.Context) sdk.Context {
-	return ctx.WithContext(context.WithValue(ctx.Context(), "test_tracer", t))
+	return ctx.WithContext(context.WithValue(ctx.Context(), testTracerKey, t))
 }
 
 func (t *testTxTracer) Reset() {
