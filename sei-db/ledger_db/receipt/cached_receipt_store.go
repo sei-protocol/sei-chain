@@ -94,6 +94,7 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 
 	cacheMin, hasCacheLogs := s.cache.LogMinBlock()
 	if hasCacheLogs && fromBlock >= cacheMin {
+		// Cache logs come from map-backed chunks, so direct cache hits need sorting.
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
@@ -110,6 +111,8 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 	}
 
 	if len(cacheLogs) == 0 {
+		// ReceiptStore backends are not required to return ordered logs.
+		sortLogs(backendLogs)
 		return backendLogs, nil
 	}
 	if len(backendLogs) == 0 {

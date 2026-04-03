@@ -205,8 +205,8 @@ func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
 	backend.logs = []*ethtypes.Log{
-		{BlockNumber: 1, TxIndex: 0, Index: 0},
 		{BlockNumber: 2, TxIndex: 0, Index: 0},
+		{BlockNumber: 1, TxIndex: 0, Index: 0},
 	}
 	store := newCachedReceiptStore(backend)
 
@@ -217,6 +217,8 @@ func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
 	require.Equal(t, uint64(1), backend.lastFilterFromBlock)
 	require.Equal(t, uint64(5), backend.lastFilterToBlock, "full range passed when cache is empty")
 	require.Len(t, logs, 2)
+	require.Equal(t, uint64(1), logs[0].BlockNumber)
+	require.Equal(t, uint64(2), logs[1].BlockNumber)
 }
 
 func TestFilterLogsMultipleBlocksCacheOnly(t *testing.T) {
