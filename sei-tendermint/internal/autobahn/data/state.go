@@ -288,7 +288,7 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		qc := inner.qcs[n].QC()
 		return &types.GlobalBlock{
 			GlobalNumber:  n,
-			Timestamp:     qc.Proposal().BlockTimestamp(s.Committee(),n).OrPanic("global block not in QC"),
+			Timestamp:     qc.Proposal().BlockTimestamp(s.Committee(), n).OrPanic("global block not in QC"),
 			Header:        b.Header(),
 			Payload:       b.Payload(),
 			FinalAppState: qc.Proposal().App(),

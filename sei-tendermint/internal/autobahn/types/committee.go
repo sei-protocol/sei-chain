@@ -84,6 +84,9 @@ func (c *Committee) Replicas() SortedSet[PublicKey] { return c.replicas }
 // FirstBlock is the index of the first global block finalized by this committee.
 func (c *Committee) FirstBlock() GlobalBlockNumber { return c.firstBlock }
 
+// GenesisTimestamp is the timestamp at genesis.
+func (c *Committee) GenesisTimestamp() time.Time { return c.genesisTimestamp }
+
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {
 	d := binary.BigEndian.AppendUint64(nil, uint64(view.Index))
@@ -127,12 +130,13 @@ func (c *Committee) LaneQuorum() int {
 }
 
 // NewRoundRobinElection creates a Committee with round robin election starting at firstBlock.
-func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber) (*Committee, error) {
+func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) (*Committee, error) {
 	if len(replicas) == 0 {
 		return nil, errors.New("replicas cannot be empty")
 	}
 	return &Committee{
-		replicas:   NewSortedSet(replicas),
-		firstBlock: firstBlock,
+		replicas:         NewSortedSet(replicas),
+		firstBlock:       firstBlock,
+		genesisTimestamp: genesisTimestamp,
 	}, nil
 }
