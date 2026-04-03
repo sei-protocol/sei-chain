@@ -82,6 +82,7 @@ type Block struct {
 // GlobalBlock is a finalized block with global block number.
 type GlobalBlock struct {
 	Header       *BlockHeader
+	Timestamp    time.Time
 	GlobalNumber GlobalBlockNumber
 	Payload      *Payload
 	// Highest known finalized state.

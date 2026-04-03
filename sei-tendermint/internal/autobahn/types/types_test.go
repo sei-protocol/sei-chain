@@ -86,6 +86,25 @@ func TestMarshal(t *testing.T) {
 	}
 }
 
+func TestNewRoundRobinElection_GenesisTimestamp(t *testing.T) {
+	rng := utils.TestRng()
+	replicas := []PublicKey{GenPublicKey(rng), GenPublicKey(rng)}
+	firstBlock := GenGlobalBlockNumber(rng)
+	genesisTimestamp := time.Now()
+
+	committee, err := NewRoundRobinElection(replicas, firstBlock, genesisTimestamp)
+	if err != nil {
+		t.Fatalf("NewRoundRobinElection(): %v", err)
+	}
+
+	if got := committee.FirstBlock(); got != firstBlock {
+		t.Fatalf("FirstBlock() = %v, want %v", got, firstBlock)
+	}
+	if got := committee.GenesisTimestamp(); !got.Equal(genesisTimestamp) {
+		t.Fatalf("GenesisTimestamp() = %v, want %v", got, genesisTimestamp)
+	}
+}
+
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {

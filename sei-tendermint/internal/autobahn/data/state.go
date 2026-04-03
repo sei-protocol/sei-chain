@@ -284,11 +284,14 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, ErrPruned
 		}
+		b := inner.blocks[n]
+		qc := inner.qcs[n].QC()
 		return &types.GlobalBlock{
 			GlobalNumber:  n,
-			Header:        inner.blocks[n].Header(),
-			Payload:       inner.blocks[n].Payload(),
-			FinalAppState: inner.qcs[n].QC().Proposal().App(),
+			Timestamp:     qc.Proposal().BlockTimestamp(s.Committee(), n).OrPanic("global block not in QC"),
+			Header:        b.Header(),
+			Payload:       b.Payload(),
+			FinalAppState: qc.Proposal().App(),
 		}, nil
 	}
 	panic("unreachable")
