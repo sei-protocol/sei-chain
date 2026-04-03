@@ -25,6 +25,7 @@ const (
 	CompositeCosmos DBType = "CompositeCosmos"
 
 	SSComposite               DBType = "SSComposite"
+	SSHistoricalOffload       DBType = "SSHistoricalOffload"
 	CompositeDual_SSComposite DBType = "CompositeDual+SSComposite"
 )
 
@@ -133,6 +134,8 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string) (DBWrapper, e
 		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir)
+	case SSHistoricalOffload:
+		return newSSHistoricalOffloadStateStore(dataDir)
 	case CompositeDual_SSComposite:
 		return newCombinedCompositeDualSSComposite(ctx, dataDir)
 	default:
