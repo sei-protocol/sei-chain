@@ -22,6 +22,7 @@ require (
 	github.com/creachadair/atomicfile v0.4.0
 	github.com/creachadair/taskgroup v0.3.2
 	github.com/creachadair/tomledit v0.0.29
+	github.com/dchest/siphash v1.2.3
 	github.com/duckdb/duckdb-go/v2 v2.5.3
 	github.com/dvsekhvalnov/jose2go v1.7.0
 	github.com/ethereum/evmc/v12 v12.1.0
@@ -110,7 +111,6 @@ require (
 )
 
 require (
-	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
@@ -163,7 +163,7 @@ require (
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/docker/cli v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
-	github.com/docker/go-units v0.5.0 // indirect
+	github.com/docker/go-units v0.5.0
 	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.1.23 // indirect
 	github.com/duckdb/duckdb-go-bindings/darwin-amd64 v0.1.23 // indirect

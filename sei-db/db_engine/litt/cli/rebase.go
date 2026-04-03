@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -165,7 +165,7 @@ func countSegmentFiles(sources []string) (count int64, symlinkFound bool, err er
 			}
 
 			// Ignore "table.metadata" files, as they are not segment files.
-			if d.Name() == disktable.TableMetadataFileName {
+			if d.Name() == table.TableMetadataFileName {
 				return nil
 			}
 
@@ -327,7 +327,7 @@ func transferDataInTable(
 // deleteBoundaryFiles deletes the boundary files for a table. Only will be present if the source
 // directory contains symlink snapshots.
 func deleteBoundaryFiles(logger *slog.Logger, source string, tableName string, verbose bool) error {
-	lowerBoundPath := path.Join(source, tableName, disktable.LowerBoundFileName)
+	lowerBoundPath := path.Join(source, tableName, table.LowerBoundFileName)
 	exists, err := util.Exists(lowerBoundPath)
 	if err != nil {
 		return fmt.Errorf("failed to check if lower bound file %s exists: %w", lowerBoundPath, err)
@@ -342,7 +342,7 @@ func deleteBoundaryFiles(logger *slog.Logger, source string, tableName string, v
 		}
 	}
 
-	upperBoundPath := path.Join(source, tableName, disktable.UpperBoundFileName)
+	upperBoundPath := path.Join(source, tableName, table.UpperBoundFileName)
 	exists, err = util.Exists(upperBoundPath)
 	if err != nil {
 		return fmt.Errorf("failed to check if upper bound file %s exists: %w", upperBoundPath, err)
@@ -544,7 +544,7 @@ func transferTableMetadata(
 
 	sourceTableDir := filepath.Join(source, tableName)
 
-	sourceMetadataPath := filepath.Join(sourceTableDir, disktable.TableMetadataFileName)
+	sourceMetadataPath := filepath.Join(sourceTableDir, table.TableMetadataFileName)
 	exists, err := util.Exists(sourceMetadataPath)
 	if err != nil {
 		return fmt.Errorf("failed to check if table metadata file %s exists: %w", sourceMetadataPath, err)
@@ -559,7 +559,7 @@ func transferTableMetadata(
 		return fmt.Errorf("failed to determine destination for table metadata %s: %w", sourceMetadataPath, err)
 	}
 
-	destinationMetadataPath := filepath.Join(destination, tableName, disktable.TableMetadataFileName)
+	destinationMetadataPath := filepath.Join(destination, tableName, table.TableMetadataFileName)
 
 	if verbose {
 		text := fmt.Sprintf("Transferring table '%s' metadata", tableName)

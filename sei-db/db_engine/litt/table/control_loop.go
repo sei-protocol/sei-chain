@@ -1,4 +1,4 @@
-package disktable
+package table
 
 import (
 	"fmt"
@@ -9,9 +9,9 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 

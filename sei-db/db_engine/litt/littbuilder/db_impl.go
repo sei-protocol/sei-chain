@@ -12,41 +12,23 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ litt.DB = &db{}
 
-// TableBuilderFunc is a function that creates a new table.
-type TableBuilderFunc func(
-	ctx context.Context,
-	logger *slog.Logger,
-	name string,
-	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error)
-
 // db is an implementation of DB.
 type db struct {
 	ctx    context.Context
+	config *litt.Config
 	logger *slog.Logger
-
-	// A function that returns the current time.
-	clock func() time.Time
-
-	// The default time-to-live for new tables. Once created, the TTL for a table can be changed.
-	ttl time.Duration
-
-	// The period between garbage collection runs.
-	gcPeriod time.Duration
-
-	// A function that creates new tables.
-	tableBuilder TableBuilderFunc
 
 	// A map of all tables in the database.
 	tables map[string]litt.ManagedTable
 
-	// Protects access to tables and ttl.
+	// Protects access to tables.
 	lock sync.Mutex
 
 	// True if the database has been stopped.
@@ -90,21 +72,6 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 			"Fsync is disabled. Ok for unit tests that need to run fast, NOT OK FOR PRODUCTION USE.")
 	}
 
-	tableBuilder := func(
-		ctx context.Context,
-		logger *slog.Logger,
-		name string,
-		metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
-
-		return buildTable(config, logger, name, metrics)
-	}
-
-	return NewDBUnsafe(config, tableBuilder)
-}
-
-// NewDBUnsafe creates a new DB instance with a custom table builder. This is intended for unit test use,
-// and should not be considered a stable API.
-func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, error) {
 	for _, rootPath := range config.Paths {
 		err := util.EnsureDirectoryExists(rootPath, config.Fsync)
 		if err != nil {
@@ -114,7 +81,7 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 
 	if config.PurgeLocks {
 		config.Logger.Warn(fmt.Sprintf("Purging LittDB locks from paths %v", config.Paths))
-		err := disktable.Unlock(config.Logger, config.Paths)
+		err := litttable.Unlock(config.Logger, config.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("error purging locks: %w", err)
 		}
@@ -126,13 +93,6 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	releaseLocks, err := util.LockDirectories(config.Logger, config.Paths, util.LockfileName, config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("error acquiring locks on paths %v: %w", config.Paths, err)
-	}
-
-	if config.Logger == nil {
-		config.Logger, err = buildLogger(config)
-		if err != nil {
-			return nil, fmt.Errorf("error building logger: %w", err)
-		}
 	}
 
 	var dbMetrics *metrics.LittDBMetrics
@@ -148,11 +108,8 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 
 	database := &db{
 		ctx:           config.CTX,
+		config:        config,
 		logger:        config.Logger,
-		clock:         config.Clock,
-		ttl:           config.TTL,
-		gcPeriod:      config.GCPeriod,
-		tableBuilder:  tableBuilder,
 		tables:        make(map[string]litt.ManagedTable),
 		metrics:       dbMetrics,
 		metricsServer: metricsServer,
@@ -207,7 +164,7 @@ func (d *db) GetTable(name string) (litt.Table, error) {
 		}
 
 		var err error
-		table, err = d.tableBuilder(d.ctx, d.logger, name, d.metrics)
+		table, err = buildTable(d.config, d.logger, name, d.metrics)
 		if err != nil {
 			return nil, fmt.Errorf("error creating table: %w", err)
 		}

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -131,7 +131,7 @@ func pruneTable(
 			return 0, fmt.Errorf("this is a symlinked snapshot directory, " +
 				"snapshot directory cannot be spread across multiple sources")
 		}
-		upperBoundFile, err := disktable.LoadBoundaryFile(disktable.UpperBound, path.Join(sources[0], tableName))
+		upperBoundFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(sources[0], tableName))
 		if err != nil {
 			return 0, fmt.Errorf("failed to load boundary file for table %s at path %s: %w",
 				tableName, sources[0], err)
@@ -197,7 +197,7 @@ func writeLowerBoundFile(snapshotRoot string, tableName string, deletedSegments 
 		// No segments were deleted, no need to write a lower bound file.
 		return nil
 	}
-	lowerBoundFile, err := disktable.LoadBoundaryFile(disktable.LowerBound, path.Join(snapshotRoot, tableName))
+	lowerBoundFile, err := table.LoadBoundaryFile(table.LowerBound, path.Join(snapshotRoot, tableName))
 	if err != nil {
 		return fmt.Errorf("failed to load boundary file for table %s at path %s: %w",
 			tableName, snapshotRoot, err)

@@ -10,8 +10,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,8 +69,8 @@ func TestGenerateExampleTree(t *testing.T) {
 
 	// Simulate a lower bound files. This normally only gets generated when there is GC done externally.
 	for _, tableName := range []string{"tableA", "tableB", "tableC"} {
-		lowerBoundFile, err := disktable.LoadBoundaryFile(
-			disktable.LowerBound,
+		lowerBoundFile, err := table.LoadBoundaryFile(
+			table.LowerBound,
 			path.Join(testDir, "rolling_snapshot", tableName))
 		require.NoError(t, err)
 		err = lowerBoundFile.Update(0)

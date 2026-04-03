@@ -1,4 +1,4 @@
-package disktable
+package table
 
 import (
 	"os"

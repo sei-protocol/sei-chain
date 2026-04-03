@@ -12,11 +12,10 @@ import (
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/lcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
+	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/require"
 )
@@ -28,14 +27,6 @@ type tableBuilder struct {
 
 // This test executes against different table implementations.
 var tableBuilders = []*tableBuilder{
-	{
-		"memtable",
-		buildMemTable,
-	},
-	{
-		"cached memtable",
-		buildCachedMemTable,
-	},
 	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
@@ -56,10 +47,6 @@ var tableBuilders = []*tableBuilder{
 
 var noCacheTableBuilders = []*tableBuilder{
 	{
-		"memtable",
-		buildMemTable,
-	},
-	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
 	},
@@ -67,22 +54,6 @@ var noCacheTableBuilders = []*tableBuilder{
 		"leveldb keymap disk table",
 		buildLevelDBKeyDiskTable,
 	},
-}
-
-func buildMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	config, err := litt.DefaultConfig(path)
-	config.Clock = clock
-	config.GCPeriod = time.Millisecond
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config: %w", err)
-	}
-
-	return memtable.NewMemTable(config, name), nil
 }
 
 func setupKeymapTypeFile(keymapPath string, keymapType keymap.KeymapType) (*keymap.KeymapTypeFile, error) {
@@ -141,7 +112,7 @@ func buildMemKeyDiskTable(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
-	table, err := disktable.NewDiskTable(
+	table, err := litttable.NewDiskTable(
 		config,
 		name,
 		keys,
@@ -188,7 +159,7 @@ func buildLevelDBKeyDiskTable(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
-	table, err := disktable.NewDiskTable(
+	table, err := litttable.NewDiskTable(
 		config,
 		name,
 		keys,
@@ -203,26 +174,6 @@ func buildLevelDBKeyDiskTable(
 	}
 
 	return table, nil
-}
-
-func buildCachedMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	baseTable, err := buildMemTable(clock, name, path)
-	if err != nil {
-		return nil, err
-	}
-
-	writeCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-	readCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedMemKeyDiskTable(

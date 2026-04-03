@@ -9,9 +9,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -152,7 +152,7 @@ func tableInfo(logger *slog.Logger, tableName string, paths []string, fsync bool
 				tableName, paths)
 		}
 
-		upperBoundFile, err := disktable.LoadBoundaryFile(disktable.UpperBound, path.Join(paths[0], tableName))
+		upperBoundFile, err := table.LoadBoundaryFile(table.UpperBound, path.Join(paths[0], tableName))
 		if err != nil {
 			return nil, fmt.Errorf("failed to load boundary file for table %s at path %s: %w",
 				tableName, paths[0], err)

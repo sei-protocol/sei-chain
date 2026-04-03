@@ -9,8 +9,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	testrandom "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +66,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 3, lockFileCount)
 
 	// Unlock the DB. This should remove all lock files, but leave other files intact.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = litttable.Unlock(config.Logger, volumes)
 	require.NoError(t, err, "Failed to unlock the database")
 
 	// There should be no lock files left.
@@ -89,7 +89,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 0, lockFileCount, "There should be no lock files left after unlocking")
 
 	// Calling unlock again should not cause any issues.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = litttable.Unlock(config.Logger, volumes)
 	require.NoError(t, err, "Failed to unlock the database again")
 
 	// Verify that the data is still intact.

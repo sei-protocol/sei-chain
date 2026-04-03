@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
 	"github.com/urfave/cli/v2"
 )
 
@@ -40,7 +40,7 @@ func unlockCommand(ctx *cli.Context) error {
 		}
 	}
 
-	err = disktable.Unlock(logger, sources)
+	err = table.Unlock(logger, sources)
 	if err != nil {
 		return fmt.Errorf("failed to unlock LittDB files: %w", err)
 	}

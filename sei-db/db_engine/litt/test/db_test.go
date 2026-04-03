@@ -1,20 +1,15 @@
 package test
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/require"
 )
@@ -25,10 +20,6 @@ type dbBuilder struct {
 }
 
 var builders = []*dbBuilder{
-	{
-		name:    "mem",
-		builder: buildMemDB,
-	},
 	{
 		name:    "mem keymap disk table",
 		builder: buildMemKeyDiskDB,
@@ -53,25 +44,6 @@ var restartableBuilders = []*dbBuilder{
 var flushLimitedBuilder = &dbBuilder{
 	name:    "levelDB keymap disk table with flush limiter",
 	builder: buildLevelDBDiskDBWithFlushLimiter,
-}
-
-func buildMemDB(t *testing.T, path string) (litt.DB, error) {
-	config, err := litt.DefaultConfig(path)
-	require.NoError(t, err)
-
-	config.GCPeriod = 50 * time.Millisecond
-	config.Logger = test.GetLogger()
-
-	tb := func(
-		ctx context.Context,
-		logger *slog.Logger,
-		name string,
-		metrics *metrics.LittDBMetrics,
-	) (litt.ManagedTable, error) {
-		return memtable.NewMemTable(config, name), nil
-	}
-
-	return littbuilder.NewDBUnsafe(config, tb)
 }
 
 func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {

@@ -15,10 +15,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/lcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	litttable "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/table/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -212,7 +212,7 @@ func buildTable(
 		return nil, fmt.Errorf("error creating keymap: %w", err)
 	}
 
-	table, err = disktable.NewDiskTable(
+	table, err = litttable.NewDiskTable(
 		config,
 		name,
 		kmap,
