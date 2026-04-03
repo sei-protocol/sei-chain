@@ -1513,12 +1513,8 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	// Giga only supports synchronous execution for now
 	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-<<<<<<< HEAD
-		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
-=======
-		results, _ := app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs, absoluteTxIndices)
+		results, _ := app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 		return results, ctx
->>>>>>> 74b5005b7 ([wip][giga] inter block cache)
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
@@ -1597,14 +1593,10 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 }
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
-<<<<<<< HEAD
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
-=======
-func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	ms := ctx.MultiStore().CacheMultiStore()
 	defer ms.Write()
 	ctx = ctx.WithMultiStore(ms)
->>>>>>> 74b5005b7 ([wip][giga] inter block cache)
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	firstCosmosSeen := false
