@@ -165,8 +165,8 @@ func TestEmptyState(t *testing.T) {
 func TestInitNodeValidatorFiles(t *testing.T) {
 	home := t.TempDir()
 	cfg, err := genutiltest.CreateDefaultTendermintConfig(home)
+	require.Nil(t, err)
 	nodeID, valPubKey, err := genutil.InitializeNodeValidatorFiles(cfg)
-
 	require.Nil(t, err)
 	require.NotEqual(t, "", nodeID)
 	require.NotEqual(t, 0, len(valPubKey.Bytes()))

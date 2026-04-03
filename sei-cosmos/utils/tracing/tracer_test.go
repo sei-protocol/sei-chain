@@ -8,6 +8,8 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
+type key string
+
 func TestNewTracingInfo(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -73,7 +75,7 @@ func TestInfo_StartWithContext_DisabledTracing(t *testing.T) {
 	tracer := noop.NewTracerProvider().Tracer("test")
 	info := NewTracingInfo(tracer, false)
 
-	inputCtx := context.WithValue(context.Background(), "key", "value")
+	inputCtx := context.WithValue(context.Background(), key("key"), "value")
 	ctx, span := info.StartWithContext("test-span", inputCtx)
 
 	// When tracing is disabled, should return the input context and NoOpSpan
@@ -92,7 +94,7 @@ func TestInfo_StartWithContext_EnabledTracing(t *testing.T) {
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
 
-	inputCtx := context.WithValue(context.Background(), "key", "value")
+	inputCtx := context.WithValue(context.Background(), key("key"), "value")
 	ctx, span := info.StartWithContext("test-span", inputCtx)
 
 	// When tracing is enabled, should return valid context and span

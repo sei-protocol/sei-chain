@@ -11,7 +11,6 @@ import (
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -205,7 +204,7 @@ func TestSignatureV2Conversions(t *testing.T) {
 		pubKey, pubKey2,
 	})
 	dummy2 := []byte("dummySig2")
-	bitArray := types.NewCompactBitArray(2)
+	bitArray := cryptotypes.NewCompactBitArray(2)
 	bitArray.SetIndex(0, true)
 	bitArray.SetIndex(1, true)
 	msigData := &signing.MultiSignatureData{
