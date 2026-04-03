@@ -338,6 +338,7 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 					return
 				default:
 				}
+				//lint:ignore SA2001 intentional empty critical section to test lock contention
 				store.mtx.Lock()
 				store.mtx.Unlock()
 			}

@@ -1825,6 +1825,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// For successful txs, the nonce is bumped by the EVM during execution.
 		if validation.bumpNonce {
 			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
+			app.EvmKeeper.SetNonceBumped(ctx)
 		}
 		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
 		// but no actual balance is deducted
@@ -2181,6 +2182,17 @@ func (app *App) ModuleAccountAddrs() map[string]bool {
 // for modules to register their own custom testing types.
 func (app *App) LegacyAmino() *codec.LegacyAmino {
 	return app.cdc
+}
+
+func (app *App) GetValidators() []abci.ValidatorUpdate {
+	ctx := app.NewUncachedContext(false, tmproto.Header{Height: app.LastBlockHeight()})
+	validators := app.DistrKeeper.GetAllValidators(ctx)
+	updates := make([]abci.ValidatorUpdate, len(validators))
+	powerReduction := app.StakingKeeper.PowerReduction(ctx)
+	for i, validator := range validators {
+		updates[i] = validator.ABCIValidatorUpdate(powerReduction)
+	}
+	return updates
 }
 
 // AppCodec returns an app codec.
