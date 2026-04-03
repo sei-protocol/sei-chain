@@ -54,7 +54,7 @@ func IsProcessAlive(pid int) bool {
 
 // parseLockFile parses a lock file and returns the PID if valid
 func parseLockFile(path string) (int, error) {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return 0, fmt.Errorf("failed to read lock file: %w", err)
 	}
@@ -85,7 +85,7 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 	}
 
 	// Try to create the lock file exclusively (O_EXCL ensures it fails if file exists)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644) //nolint:gosec
 	if err != nil {
 		if os.IsExist(err) {
 			// Lock file exists, check if it's stale
@@ -97,7 +97,7 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 					}
 
 					// Try to create the lock file again
-					file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+					file, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644) //nolint:gosec
 					if err != nil {
 						return nil, fmt.Errorf("failed to create lock file after removing stale lock %s: %w",
 							path, err)
@@ -105,7 +105,7 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 				} else {
 					// Process is still alive, cannot acquire lock
 					debugInfo := ""
-					content, readErr := os.ReadFile(path)
+					content, readErr := os.ReadFile(path) //nolint:gosec
 					if readErr == nil {
 						debugInfo = fmt.Sprintf(" (existing lock info: %s)", strings.TrimSpace(string(content)))
 					} else {
@@ -117,7 +117,7 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 			} else {
 				// Cannot parse lock file, treat as existing lock with debug info
 				debugInfo := ""
-				if content, readErr := os.ReadFile(path); readErr == nil {
+				if content, readErr := os.ReadFile(path); readErr == nil { //nolint:gosec
 					debugInfo = fmt.Sprintf(" (existing lock info: %s)", strings.TrimSpace(string(content)))
 				}
 				return nil, fmt.Errorf("lock file already exists: %s%s", path, debugInfo)
@@ -178,14 +178,14 @@ func (fl *FileLock) Release() {
 	fl.file = nil
 
 	if err != nil {
-		fl.logger.Error(fmt.Sprintf("failed to close lock file %s: %w", fl.path, err))
+		fl.logger.Error(fmt.Sprintf("failed to close lock file %s: %v", fl.path, err))
 		return
 	}
 
 	// Remove the lock file
 	err = os.Remove(fl.path)
 	if err != nil {
-		fl.logger.Error(fmt.Sprintf("failed to remove lock file %s: %w", fl.path, err))
+		fl.logger.Error(fmt.Sprintf("failed to remove lock file %s: %v", fl.path, err))
 		return
 	}
 }

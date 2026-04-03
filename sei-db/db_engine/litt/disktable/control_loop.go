@@ -7,11 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // controlLoop runs a goroutine that handles control messages for the disk table.

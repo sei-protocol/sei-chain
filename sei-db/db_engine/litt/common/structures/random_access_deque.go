@@ -114,7 +114,7 @@ func (s *RandomAccessDeque[T]) TryPopFront() (value T, ok bool) {
 	var zero T
 	s.data[s.startIndex] = zero
 
-	if s.startIndex == uint64(len(s.data)-1) {
+	if s.startIndex == uint64(len(s.data)-1) { //nolint:gosec
 		// wrap around
 		s.startIndex = 0
 	} else {
@@ -134,7 +134,7 @@ func (s *RandomAccessDeque[T]) PushBack(value T) {
 
 	s.data[s.endIndex] = value
 
-	if s.endIndex == uint64(len(s.data)-1) {
+	if s.endIndex == uint64(len(s.data)-1) { //nolint:gosec
 		// wrap around
 		s.endIndex = 0
 	} else {

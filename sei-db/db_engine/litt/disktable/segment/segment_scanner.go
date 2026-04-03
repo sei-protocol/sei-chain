@@ -7,8 +7,9 @@ import (
 	"path"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // scanDirectories scans directories for segment files and returns a map of metadata, key, and value files.
@@ -116,15 +117,16 @@ func diagnoseMissingFile(
 	fileType string,
 	damagedSegments map[uint32]struct{}) error {
 
-	if index == highestFileIndex {
+	switch index {
+	case highestFileIndex:
 		// This can happen if we crash while creating a new segment. Recoverable.
 		logger.Warn(fmt.Sprintf("Missing %s file for last segment %d", fileType, index))
 		damagedSegments[index] = struct{}{}
-	} else if index == lowestFileIndex {
+	case lowestFileIndex:
 		// This can happen when deleting the oldest segment. Recoverable.
 		logger.Warn(fmt.Sprintf("Missing %s file for first segment %d", fileType, index))
 		damagedSegments[index] = struct{}{}
-	} else {
+	default:
 		// Database is missing internal files. Catastrophic failure.
 		return fmt.Errorf("missing %s file for segment %d", fileType, index)
 	}
@@ -213,7 +215,7 @@ func lookForMissingFiles(
 					fmt.Errorf("failed to load metadata file: %v", err)
 			}
 
-			if uint32(len(valueFiles[segment])) > metadata.shardingFactor {
+			if uint32(len(valueFiles[segment])) > metadata.shardingFactor { //nolint:gosec
 				return nil, nil,
 					fmt.Errorf("too many value files for segment %d, expected at most %d, got %d",
 						segment, metadata.shardingFactor, len(valueFiles[segment]))

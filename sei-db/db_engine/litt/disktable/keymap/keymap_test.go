@@ -5,12 +5,13 @@ import (
 	"path"
 	"testing"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
-	"log/slog"
 )
 
 var builders = []keymapBuilder{

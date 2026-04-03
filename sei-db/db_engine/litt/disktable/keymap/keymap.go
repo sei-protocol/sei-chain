@@ -1,8 +1,9 @@
 package keymap
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 // KeymapDirectoryName is the name of the directory where the keymap stores its files. One keymap directory is

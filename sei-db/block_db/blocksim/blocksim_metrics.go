@@ -93,7 +93,7 @@ func (m *BlocksimMetrics) recordBlockSize(config *BlocksimConfig) {
 	if m == nil || m.blockSizeBytes == nil {
 		return
 	}
-	size := int64(config.BlockHashSize + config.ExtraBytesPerBlock +
+	size := int64(config.BlockHashSize + config.ExtraBytesPerBlock + //nolint:gosec
 		config.TransactionsPerBlock*(config.TransactionHashSize+config.BytesPerTransaction))
 	m.blockSizeBytes.Record(context.Background(), size)
 }

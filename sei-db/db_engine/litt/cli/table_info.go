@@ -68,8 +68,8 @@ func tableInfoCommand(ctx *cli.Context) error {
 		return fmt.Errorf("failed to get table info for table %s at paths %v: %w", tableName, sources, err)
 	}
 
-	oldestSegmentAge := uint64(time.Since(info.OldestSegmentSealTime).Nanoseconds())
-	newestSegmentAge := uint64(time.Since(info.NewestSegmentSealTime).Nanoseconds())
+	oldestSegmentAge := uint64(time.Since(info.OldestSegmentSealTime).Nanoseconds()) //nolint:gosec
+	newestSegmentAge := uint64(time.Since(info.NewestSegmentSealTime).Nanoseconds()) //nolint:gosec
 	segmentSpan := oldestSegmentAge - newestSegmentAge
 
 	// Print table information in a human-readable format

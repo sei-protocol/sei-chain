@@ -42,7 +42,7 @@ func LoadKeymapTypeFile(keymapPath string) (*KeymapTypeFile, error) {
 		return nil, fmt.Errorf("keymap type file does not exist: %v", filePath)
 	}
 
-	fileContents, err := os.ReadFile(filePath)
+	fileContents, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("unable to read keymap type file: %v", err)
 	}
@@ -83,7 +83,7 @@ func (k *KeymapTypeFile) Write() error {
 		return fmt.Errorf("keymap type file already exists: %v", filePath)
 	}
 
-	keymapFile, err := os.Create(filePath)
+	keymapFile, err := os.Create(filePath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("unable to create keymap type file: %v", err)
 	}

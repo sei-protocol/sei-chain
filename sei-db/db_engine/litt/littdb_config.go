@@ -7,12 +7,13 @@ import (
 	"math/rand"
 	"time"
 
+	"log/slog"
+
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // Config is configuration for a litt.DB.

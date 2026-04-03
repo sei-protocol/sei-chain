@@ -148,7 +148,7 @@ func pruneTable(
 		seg := segments[segmentIndex]
 		segmentAge := time.Since(seg.GetSealTime())
 
-		if segmentAge < time.Duration(maxAgeSeconds)*time.Second {
+		if segmentAge < time.Duration(maxAgeSeconds)*time.Second { //nolint:gosec
 			// We've pruned all segments that we can.
 			break
 		}

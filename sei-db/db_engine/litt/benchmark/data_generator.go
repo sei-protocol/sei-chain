@@ -29,7 +29,7 @@ func NewDataGenerator(seed int64, poolSize uint64) *DataGenerator {
 
 	dataPool := make([]byte, poolSize)
 	rng := randPool.Get().(*rand.Rand)
-	rng.Read(dataPool)
+	rng.Read(dataPool) //nolint:gosec
 	randPool.Put(rng)
 
 	return &DataGenerator{
@@ -41,10 +41,10 @@ func NewDataGenerator(seed int64, poolSize uint64) *DataGenerator {
 // Key generates a new key. The value is deterministic for the same index and seed.
 func (g *DataGenerator) Key(index uint64) []byte {
 	rng := g.randPool.Get().(*rand.Rand)
-	rng.Seed(g.seed + int64(index))
+	rng.Seed(g.seed + int64(index)) //nolint:gosec
 
 	key := make([]byte, 32)
-	rng.Read(key)
+	rng.Read(key) //nolint:gosec
 	g.randPool.Put(rng)
 
 	return key
@@ -53,7 +53,7 @@ func (g *DataGenerator) Key(index uint64) []byte {
 // Value generates a new value. The value is deterministic for the same index, seed, and value size.
 func (g *DataGenerator) Value(index uint64, valueLength uint64) []byte {
 	rng := g.randPool.Get().(*rand.Rand)
-	rng.Seed(g.seed + int64(index))
+	rng.Seed(g.seed + int64(index)) //nolint:gosec
 
 	var value []byte
 
@@ -62,10 +62,10 @@ func (g *DataGenerator) Value(index uint64, valueLength uint64) []byte {
 		// For the sake of completeness, just generate the data if this happens.
 		// This shouldn't be encountered for sane configurations (i.e. with a pool size much larger than value sizes).
 		value = make([]byte, valueLength)
-		rng.Read(value)
+		rng.Read(value) //nolint:gosec
 	} else {
-		startIndex := rng.Intn(len(g.dataPool) - int(valueLength))
-		value = g.dataPool[startIndex : startIndex+int(valueLength)]
+		startIndex := rng.Intn(len(g.dataPool) - int(valueLength))   //nolint:gosec
+		value = g.dataPool[startIndex : startIndex+int(valueLength)] //nolint:gosec
 	}
 
 	g.randPool.Put(rng)

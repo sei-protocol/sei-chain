@@ -12,8 +12,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // ValuesFileExtension is the file extension for the values file. This file contains the values for the data
@@ -82,7 +83,7 @@ func createValueFile(
 	}
 
 	// Open the file for writing.
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file %s: %v", filePath, err)
 	}
@@ -128,7 +129,7 @@ func loadValueFile(
 		return nil, fmt.Errorf("value file %s does not exist", filePath)
 	}
 
-	values.size = uint64(size)
+	values.size = uint64(size) //nolint:gosec
 	values.flushedSize.Store(values.size)
 
 	return values, nil
@@ -151,7 +152,7 @@ func getValueFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %v", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec
 }
 
 // getValueFileShard returns the shard number of the value file from the file name. Value file names have the form
@@ -171,7 +172,7 @@ func getValueFileShard(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse shard from file name %s: %v", fileName, err)
 	}
 
-	return uint32(shard), nil
+	return uint32(shard), nil //nolint:gosec
 }
 
 // Size returns the size of the value file in bytes.
@@ -197,7 +198,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 			firstByteIndex, flushedSize)
 	}
 
-	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0644)
+	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0644) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file: %v", err)
 	}
@@ -225,7 +226,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read value from value file: %v", err)
 	}
 
-	if uint32(bytesRead) != length {
+	if uint32(bytesRead) != length { //nolint:gosec
 		return nil, fmt.Errorf("failed to read value from value file: read %d bytes, expected %d", bytesRead, length)
 	}
 
@@ -247,7 +248,7 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 	firstByteIndex := uint32(v.size)
 
 	// First, write the length of the value.
-	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value)))
+	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value))) //nolint:gosec
 	if err != nil {
 		return 0, fmt.Errorf("failed to write value length to value file: %v", err)
 	}
@@ -258,7 +259,7 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	v.size += uint64(len(value) + 4)
+	v.size += uint64(len(value) + 4) //nolint:gosec
 
 	return firstByteIndex, nil
 }

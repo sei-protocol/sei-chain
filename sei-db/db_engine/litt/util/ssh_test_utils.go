@@ -40,7 +40,7 @@ func GetUniqueSSHTestPort(testName string) (int, error) {
 	hash := h.Sum32()
 
 	for i := 0; i < 10; i++ {
-		portOffset := int((hash + uint32(i)) % 100)
+		portOffset := int((hash + uint32(i)) % 100) //nolint:gosec
 		port := SSHTestPortBase + portOffset
 
 		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
@@ -66,7 +66,7 @@ func GenerateSSHKeyPair(privateKeyPath string, publicKeyPath string) error {
 		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
 	}
 
-	privateKeyFile, err := os.Create(privateKeyPath)
+	privateKeyFile, err := os.Create(privateKeyPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create private key file: %w", err)
 	}
@@ -88,7 +88,7 @@ func GenerateSSHKeyPair(privateKeyPath string, publicKeyPath string) error {
 	}
 
 	publicKeyBytes := ssh.MarshalAuthorizedKey(publicKey)
-	err = os.WriteFile(publicKeyPath, publicKeyBytes, 0644)
+	err = os.WriteFile(publicKeyPath, publicKeyBytes, 0644) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to write public key: %w", err)
 	}

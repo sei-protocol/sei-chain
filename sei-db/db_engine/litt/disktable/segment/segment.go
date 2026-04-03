@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // unflushedKeysInitialCapacity is the initial capacity of the unflushedKeys slice. This slice is used to store keys
@@ -306,11 +307,11 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 		s.keys = swapFile
 	}
 
-	err = s.metadata.seal(now, uint32(len(goodKeys)))
+	err = s.metadata.seal(now, uint32(len(goodKeys))) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to seal metadata file: %w", err)
 	}
-	s.keyCount = uint32(len(goodKeys))
+	s.keyCount = uint32(len(goodKeys)) //nolint:gosec
 
 	return nil
 }
@@ -434,7 +435,7 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 	keyRequest := &types.ScopedKey{
 		Key:       data.Key,
 		Address:   types.NewAddress(s.index, firstByteIndex),
-		ValueSize: uint32(len(data.Value)),
+		ValueSize: uint32(len(data.Value)), //nolint:gosec
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -609,7 +610,7 @@ func (s *Segment) IsSealed() bool {
 // GetSealTime returns the time at which the segment was sealed. If the file is not sealed, this method will return
 // the zero time.
 func (s *Segment) GetSealTime() time.Time {
-	return time.Unix(0, int64(s.metadata.lastValueTimestamp))
+	return time.Unix(0, int64(s.metadata.lastValueTimestamp)) //nolint:gosec
 }
 
 // Reserve reserves the segment, preventing it from being deleted. Returns true if the reservation was successful, and

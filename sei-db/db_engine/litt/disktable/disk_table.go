@@ -11,13 +11,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 var _ litt.ManagedTable = (*DiskTable)(nil)
@@ -325,7 +326,7 @@ func NewDiskTable(
 }
 
 func (d *DiskTable) KeyCount() uint64 {
-	return uint64(d.keyCount.Load())
+	return uint64(d.keyCount.Load()) //nolint:gosec
 }
 
 func (d *DiskTable) Size() uint64 {
@@ -377,7 +378,7 @@ func (d *DiskTable) repairSnapshot(
 		}
 	}
 
-	err = os.MkdirAll(symlinkSegmentsDirectory, 0755)
+	err = os.MkdirAll(symlinkSegmentsDirectory, 0755) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to create symlink segments directory: %w", err)
 	}
@@ -468,12 +469,12 @@ func (d *DiskTable) reloadKeymap(
 	// Now that the keymap is loaded, write the marker file that indicates that the keymap is fully loaded.
 	// If we crash prior to writing this file, the keymap will reload from the segments again.
 	keymapInitializedFile := path.Join(d.keymapPath, keymap.KeymapInitializedFileName)
-	err := os.MkdirAll(d.keymapPath, 0755)
+	err := os.MkdirAll(d.keymapPath, 0755) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create keymap directory: %w", err)
 	}
 
-	f, err := os.Create(keymapInitializedFile)
+	f, err := os.Create(keymapInitializedFile) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create keymap initialized file after reload: %w", err)
 	}

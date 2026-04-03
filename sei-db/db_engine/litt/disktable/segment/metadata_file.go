@@ -142,7 +142,7 @@ func loadMetadataFile(index uint32, segmentPaths []*SegmentPath, fsync bool) (*m
 
 	filePath := file.path()
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata file %s: %v", filePath, err)
 	}
@@ -163,7 +163,7 @@ func getMetadataFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %v", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec
 }
 
 // Size returns the size of the metadata file in bytes.
@@ -192,7 +192,7 @@ func (m *metadataFile) path() string {
 // and should only be performed when all data that will be written to the key/value files has been made durable.
 func (m *metadataFile) seal(now time.Time, keyCount uint32) error {
 	m.sealed = true
-	m.lastValueTimestamp = uint64(now.UnixNano())
+	m.lastValueTimestamp = uint64(now.UnixNano()) //nolint:gosec
 	m.keyCount = keyCount
 	err := m.write()
 	if err != nil {
@@ -253,9 +253,10 @@ func (m *metadataFile) serializeV1Legacy() []byte {
 
 // serialize serializes the metadata file to a byte array.
 func (m *metadataFile) serialize() []byte {
-	if m.segmentVersion == OldHashFunctionSegmentVersion {
+	switch m.segmentVersion {
+	case OldHashFunctionSegmentVersion:
 		return m.serializeV0Legacy()
-	} else if m.segmentVersion == SipHashSegmentVersion {
+	case SipHashSegmentVersion:
 		return m.serializeV1Legacy()
 	}
 
@@ -325,9 +326,10 @@ func (m *metadataFile) deserialize(data []byte) error {
 		return fmt.Errorf("unsupported serialization version: %d", m.segmentVersion)
 	}
 
-	if m.segmentVersion == OldHashFunctionSegmentVersion {
+	switch m.segmentVersion {
+	case OldHashFunctionSegmentVersion:
 		return m.deserializeV0Legacy(data)
-	} else if m.segmentVersion == SipHashSegmentVersion {
+	case SipHashSegmentVersion:
 		return m.deserializeV1Legacy(data)
 	}
 

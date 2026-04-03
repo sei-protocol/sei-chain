@@ -7,18 +7,19 @@ import (
 	"path"
 	"strings"
 
+	"log/slog"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
+	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/lcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // keymapBuilders contains builders for all supported keymap types.
@@ -30,7 +31,7 @@ var keymapBuilders = map[keymap.KeymapType]keymap.BuildKeymap{
 
 // cacheWeight is a function that calculates the weight of a cache entry.
 func cacheWeight(key string, value []byte) uint64 {
-	return uint64(len(key) + len(value))
+	return uint64(len(key) + len(value)) //nolint:gosec
 }
 
 // Look for a table's keymap directory in the provided segment paths.
@@ -126,7 +127,7 @@ func buildKeymap(
 		keymapTypeFile = keymap.NewKeymapTypeFile(keymapDirectory, config.KeymapType)
 
 		// create the keymap directory
-		err := os.MkdirAll(keymapDirectory, 0755)
+		err := os.MkdirAll(keymapDirectory, 0755) //nolint:gosec
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("error creating keymap directory: %w", err)
@@ -154,7 +155,7 @@ func buildKeymap(
 			}
 
 			// write the new keymap type file
-			err = os.MkdirAll(keymapDirectory, 0755)
+			err = os.MkdirAll(keymapDirectory, 0755) //nolint:gosec
 			if err != nil {
 				return nil, "", nil, false,
 					fmt.Errorf("error creating keymap directory: %w", err)
@@ -178,7 +179,7 @@ func buildKeymap(
 	if !requiresReload {
 		// If the keymap does not need to be reloaded, then it is already fully initialized.
 		keymapInitializedFile := path.Join(keymapDirectory, keymap.KeymapInitializedFileName)
-		f, err := os.Create(keymapInitializedFile)
+		f, err := os.Create(keymapInitializedFile) //nolint:gosec
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("failed to create keymap initialized file: %v", err)
@@ -268,7 +269,7 @@ func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetr
 				registry,
 				promhttp.HandlerOpts{},
 			))
-			server = &http.Server{
+			server = &http.Server{ //nolint:gosec
 				Addr:    addr,
 				Handler: mux,
 			}

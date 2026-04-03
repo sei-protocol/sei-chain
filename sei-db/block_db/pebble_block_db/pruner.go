@@ -106,7 +106,7 @@ func (pr *pruner) executePending() {
 	}
 
 	batch := pr.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	blockStart, blockEnd := blockKeyRangeForPrune(loHeight, pruneUpTo)
 	iter, err := pr.db.NewIter(&pebble.IterOptions{
@@ -174,6 +174,6 @@ func (pr *pruner) getMetaHeight(key []byte) (uint64, bool) {
 		panic(fmt.Sprintf("pebble get meta: %v", err))
 	}
 	h := decodeHeightValue(val)
-	closer.Close()
+	_ = closer.Close()
 	return h, true
 }

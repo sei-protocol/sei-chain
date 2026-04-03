@@ -104,7 +104,7 @@ func (p *pebbleBlockDB) readMeta(key []byte) (uint64, bool) {
 		panic(fmt.Sprintf("pebble read meta: %v", err))
 	}
 	h := decodeHeightValue(val)
-	closer.Close()
+	_ = closer.Close()
 	return h, true
 }
 
@@ -147,7 +147,7 @@ func (p *pebbleBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*blockdb
 		return nil, false, err
 	}
 	height := decodeHeightValue(val)
-	closer.Close()
+	_ = closer.Close()
 
 	blk, ok, err := p.getBlockByHeightFromDB(height)
 	if err != nil {
@@ -175,7 +175,7 @@ func (p *pebbleBlockDB) GetTransactionByHash(
 		return nil, false, err
 	}
 	height, txIndex := decodeTxIdxValue(val)
-	closer.Close()
+	_ = closer.Close()
 
 	txData, txCloser, err := p.db.Get(encodeTxDataKey(height, txIndex))
 	if err != nil {
@@ -185,7 +185,7 @@ func (p *pebbleBlockDB) GetTransactionByHash(
 		return nil, false, err
 	}
 	data := bytes.Clone(txData)
-	txCloser.Close()
+	_ = txCloser.Close()
 
 	return &blockdb.BinaryTransaction{
 		Hash:        bytes.Clone(txHash),
@@ -252,7 +252,7 @@ func (p *pebbleBlockDB) buildBlockOps(block *blockdb.BinaryBlock) *blockOps {
 
 	for i, tx := range block.Transactions {
 		entries = append(entries, kvEntry{
-			key:   encodeTxDataKey(block.Height, uint32(i)),
+			key:   encodeTxDataKey(block.Height, uint32(i)), //nolint:gosec
 			value: tx.Transaction,
 		})
 	}
@@ -265,7 +265,7 @@ func (p *pebbleBlockDB) buildBlockOps(block *blockdb.BinaryBlock) *blockOps {
 	for i, tx := range block.Transactions {
 		entries = append(entries, kvEntry{
 			key:   encodeTxIdxKey(tx.Hash),
-			value: encodeTxIdxValue(block.Height, uint32(i)),
+			value: encodeTxIdxValue(block.Height, uint32(i)), //nolint:gosec
 		})
 	}
 
@@ -317,14 +317,14 @@ func (p *pebbleBlockDB) getBlockByHeightFromDB(height uint64) (*blockdb.BinaryBl
 		return nil, false, err
 	}
 	hdr, err := unmarshalBlockHeader(val)
-	closer.Close()
+	_ = closer.Close()
 	if err != nil {
 		return nil, false, fmt.Errorf("unmarshal block header at height %d: %w", height, err)
 	}
 
 	txs := make([]*blockdb.BinaryTransaction, len(hdr.txHashes))
 	for i, txHash := range hdr.txHashes {
-		txData, txCloser, getErr := p.db.Get(encodeTxDataKey(height, uint32(i)))
+		txData, txCloser, getErr := p.db.Get(encodeTxDataKey(height, uint32(i))) //nolint:gosec
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				return nil, false, fmt.Errorf("tx data missing at height %d index %d", height, i)
@@ -335,7 +335,7 @@ func (p *pebbleBlockDB) getBlockByHeightFromDB(height uint64) (*blockdb.BinaryBl
 			Hash:        bytes.Clone(txHash),
 			Transaction: bytes.Clone(txData),
 		}
-		txCloser.Close()
+		_ = txCloser.Close()
 	}
 
 	return &blockdb.BinaryBlock{

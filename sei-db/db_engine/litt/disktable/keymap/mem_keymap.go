@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 var _ Keymap = &memKeymap{}

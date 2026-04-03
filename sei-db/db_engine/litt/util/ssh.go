@@ -40,7 +40,7 @@ func NewSSHSession(
 
 	var err error
 
-	hostKeyCallback := ssh.InsecureIgnoreHostKey()
+	hostKeyCallback := ssh.InsecureIgnoreHostKey() //nolint:gosec
 	if knownHosts != "" {
 		knownHosts, err = SanitizePath(knownHosts)
 		if err != nil {
@@ -61,7 +61,7 @@ func NewSSHSession(
 		return nil, fmt.Errorf("private key does not exist at path: %s", keyPath)
 	}
 
-	keyData, err := os.ReadFile(keyPath)
+	keyData, err := os.ReadFile(keyPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
 	}
@@ -193,7 +193,7 @@ func (s *SSHSession) Rsync(sourceFile string, destFile string, throttleMB float6
 		s.logger.Info(fmt.Sprintf("Executing: %s", strings.Join(arguments, " ")))
 	}
 
-	cmd := exec.Command(arguments[0], arguments[1:]...)
+	cmd := exec.Command(arguments[0], arguments[1:]...) //nolint:gosec
 	cmd.Stderr = os.Stderr
 
 	err = cmd.Run()

@@ -8,8 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 const tableMetadataSerializationVersion = 0
@@ -65,7 +66,7 @@ func loadTableMetadata(logger *slog.Logger, tableDirectory string) (*tableMetada
 		return nil, fmt.Errorf("table metadata file does not exist: %s", mPath)
 	}
 
-	data, err := os.ReadFile(mPath)
+	data, err := os.ReadFile(mPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read table metadata file %s: %v", mPath, err)
 	}
@@ -137,7 +138,7 @@ func (t *tableMetadata) serialize() []byte {
 
 	// Write the TTL
 	ttlNanoseconds := t.GetTTL().Nanoseconds()
-	binary.BigEndian.PutUint64(data[4:12], uint64(ttlNanoseconds))
+	binary.BigEndian.PutUint64(data[4:12], uint64(ttlNanoseconds)) //nolint:gosec
 
 	// Write the sharding factor
 	binary.BigEndian.PutUint32(data[12:16], t.GetShardingFactor())
@@ -159,7 +160,7 @@ func deserialize(data []byte) (*tableMetadata, error) {
 		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
 	}
 
-	ttl := time.Duration(binary.BigEndian.Uint64(data[4:12]))
+	ttl := time.Duration(binary.BigEndian.Uint64(data[4:12])) //nolint:gosec
 	shardingFactor := binary.BigEndian.Uint32(data[12:16])
 
 	metadata := &tableMetadata{}

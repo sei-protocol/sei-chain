@@ -71,7 +71,7 @@ func (w *writer) run() {
 	defer close(w.stopped)
 
 	batch := w.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	var pendingHeights []uint64
 

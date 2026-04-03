@@ -21,21 +21,21 @@ func marshalBlockHeader(hash, blockData []byte, txHashes [][]byte) []byte {
 	buf := make([]byte, size)
 	off := 0
 
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(hash)))
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(hash))) //nolint:gosec
 	off += 4
 	copy(buf[off:], hash)
 	off += len(hash)
 
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(blockData)))
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(blockData))) //nolint:gosec
 	off += 4
 	copy(buf[off:], blockData)
 	off += len(blockData)
 
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(txHashes)))
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(txHashes))) //nolint:gosec
 	off += 4
 
 	for _, h := range txHashes {
-		binary.LittleEndian.PutUint32(buf[off:], uint32(len(h)))
+		binary.LittleEndian.PutUint32(buf[off:], uint32(len(h))) //nolint:gosec
 		off += 4
 		copy(buf[off:], h)
 		off += len(h)

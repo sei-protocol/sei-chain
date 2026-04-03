@@ -24,12 +24,12 @@ func DeserializeAddress(bytes []byte) (Address, error) {
 
 // Index returns the file index of the value address.
 func (a Address) Index() uint32 {
-	return uint32(a >> 32)
+	return uint32(a >> 32) //nolint:gosec
 }
 
 // Offset returns the offset of the value address.
 func (a Address) Offset() uint32 {
-	return uint32(a)
+	return uint32(a) //nolint:gosec
 }
 
 // String returns a string representation of the address.

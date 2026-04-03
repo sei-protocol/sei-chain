@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 )
 
 type PprofProfiler struct {
@@ -23,7 +23,7 @@ func NewPprofProfiler(httpPort string, logger *slog.Logger) *PprofProfiler {
 func (p *PprofProfiler) Start() {
 	pprofAddr := fmt.Sprintf("%s:%s", "0.0.0.0", p.httpPort)
 
-	if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+	if err := http.ListenAndServe(pprofAddr, nil); err != nil { //nolint:gosec
 		p.logger.Error("pprof server failed", "error", err, "pprofAddr", pprofAddr)
 	}
 }

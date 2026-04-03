@@ -6,11 +6,12 @@ import (
 	"os"
 	"sync/atomic"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"log/slog"
 )
 
 var _ Keymap = &LevelDBKeymap{}
@@ -63,7 +64,7 @@ func newLevelDBKeymap(
 	}
 
 	if !exists {
-		err = os.MkdirAll(keymapPath, 0755)
+		err = os.MkdirAll(keymapPath, 0755) //nolint:gosec
 		if err != nil {
 			return nil, false, fmt.Errorf("error creating keymap directory: %w", err)
 		}

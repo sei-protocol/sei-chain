@@ -185,8 +185,8 @@ func NewDataTracker(
 		activeCohort:              activeCohort,
 		lowestCohortIndex:         lowestCohortIndex,
 		highestCohortIndex:        highestCohortIndex,
-		highestWrittenKeyIndex:    int64(activeCohort.LowKeyIndex()) - 1,
-		highestWrittenCohortIndex: int64(highestCohortIndex) - 1,
+		highestWrittenKeyIndex:    int64(activeCohort.LowKeyIndex()) - 1, //nolint:gosec
+		highestWrittenCohortIndex: int64(highestCohortIndex) - 1,         //nolint:gosec
 		safeTTL:                   safeTTL,
 		valueSize:                 valueSize,
 		generator:                 NewDataGenerator(config.Seed, config.RandomPoolSize),
@@ -405,10 +405,10 @@ func (t *DataTracker) handleWrittenKey(keyIndex uint64) {
 
 	// Determine the highest key index written so far that also has all lower key indices written.
 	for {
-		nextKeyIndex := uint64(t.highestWrittenKeyIndex + 1)
+		nextKeyIndex := uint64(t.highestWrittenKeyIndex + 1) //nolint:gosec
 		if _, ok := t.writtenKeysSet[nextKeyIndex]; ok {
 			// The next key has been written, mark it as such.
-			t.highestWrittenKeyIndex = int64(nextKeyIndex)
+			t.highestWrittenKeyIndex = int64(nextKeyIndex) //nolint:gosec
 			delete(t.writtenKeysSet, nextKeyIndex)
 		} else {
 			// Once we find the first key that has not been written, we can stop checking.
@@ -420,15 +420,15 @@ func (t *DataTracker) handleWrittenKey(keyIndex uint64) {
 
 	// Determine the highest cohort index written so far that also has all lower cohorts written.
 	for {
-		nextCohortIndex := uint64(t.highestWrittenCohortIndex + 1)
+		nextCohortIndex := uint64(t.highestWrittenCohortIndex + 1) //nolint:gosec
 		if nextCohortIndex >= t.activeCohort.CohortIndex() {
 			// Don't ever mark the active cohort as complete.
 			break
 		}
 		nextCohort := t.cohorts[nextCohortIndex]
-		if int64(nextCohort.HighKeyIndex()) <= t.highestWrittenKeyIndex {
+		if int64(nextCohort.HighKeyIndex()) <= t.highestWrittenKeyIndex { //nolint:gosec
 			// We've found a cohort that has all keys written.
-			t.highestWrittenCohortIndex = int64(nextCohort.CohortIndex())
+			t.highestWrittenCohortIndex = int64(nextCohort.CohortIndex()) //nolint:gosec
 			t.completeCohortSet[nextCohort.CohortIndex()] = struct{}{}
 			err := nextCohort.MarkComplete()
 			if err != nil {

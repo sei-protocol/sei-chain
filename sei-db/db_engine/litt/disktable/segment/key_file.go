@@ -8,9 +8,10 @@ import (
 	"path"
 	"strconv"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // KeyFileExtension is the file extension for the keys file. This file contains the keys for the data segment,
@@ -77,7 +78,7 @@ func createKeyFile(
 	}
 
 	flags := os.O_RDWR | os.O_CREATE
-	file, err := os.OpenFile(filePath, flags, 0644)
+	file, err := os.OpenFile(filePath, flags, 0644) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open key file: %w", err)
 	}
@@ -121,7 +122,7 @@ func loadKeyFile(
 	}
 
 	if exists {
-		keys.size = uint64(size)
+		keys.size = uint64(size) //nolint:gosec
 	}
 
 	if !exists {
@@ -176,7 +177,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	}
 
 	// Write the length of the key.
-	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key)))
+	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key))) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to write key length to key file: %w", err)
 	}
@@ -199,7 +200,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 		return fmt.Errorf("failed to write value size to key file: %w", err)
 	}
 
-	k.size += uint64(
+	k.size += uint64( //nolint:gosec
 		4 /* uint32 size of key */ +
 			len(scopedKey.Key) +
 			8 /* uint64 address */ +
@@ -218,7 +219,7 @@ func getKeyFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %w", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec
 }
 
 // flush flushes the key file to disk.

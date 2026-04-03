@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
-	"log/slog"
 )
 
 // flushLoop is a struct that runs a goroutine that is responsible for blocking on flush operations.

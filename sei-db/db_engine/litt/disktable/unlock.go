@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // Unlocks a LittDB file system.
