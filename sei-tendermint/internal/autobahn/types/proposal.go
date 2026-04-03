@@ -268,7 +268,7 @@ func NewProposal(
 		return p, nil
 	}
 	var laneRanges []*LaneRange
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
@@ -376,7 +376,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 			return fmt.Errorf("proposal: %w", err)
 		}
 		// Verify each lane range against the previous commitQC and its laneQC justification.
-		for _, lane := range c.Lanes().All() {
+		for lane := range c.Lanes().All() {
 			r := proposal.LaneRange(lane)
 			// Verify that range matches previous commitQC.
 			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
