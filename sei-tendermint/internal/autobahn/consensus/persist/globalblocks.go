@@ -94,29 +94,6 @@ func (s *globalBlockState) truncateBefore(n types.GlobalBlockNumber) error {
 	return nil
 }
 
-func (s *globalBlockState) truncateAfter(n types.GlobalBlockNumber) error {
-	iw, ok := s.iw.Get()
-	if !ok || iw.Count() == 0 {
-		return nil
-	}
-	if n+1 >= s.next {
-		return nil
-	}
-	firstGlobal := s.next - types.GlobalBlockNumber(iw.Count())
-	if n < firstGlobal {
-		if err := iw.TruncateAll(); err != nil {
-			return err
-		}
-	} else {
-		walIdx := iw.FirstIdx() + uint64(n-firstGlobal)
-		if err := iw.TruncateAfter(walIdx); err != nil {
-			return fmt.Errorf("truncate global block WAL after %d: %w", n, err)
-		}
-	}
-	s.next = firstGlobal + types.GlobalBlockNumber(iw.Count())
-	return nil
-}
-
 // GlobalBlockPersister manages persistence of globally-ordered blocks using a WAL.
 // Each entry embeds its GlobalBlockNumber since Block doesn't carry it.
 // When stateDir is None, all disk I/O is skipped (no-op mode).
@@ -186,15 +163,6 @@ func (gp *GlobalBlockPersister) ConsumeLoaded() []LoadedGlobalBlock {
 	panic("unreachable")
 }
 
-// TruncateAfter removes all block entries after global block number n.
-// Used to discard blocks that were persisted without corresponding QCs.
-func (gp *GlobalBlockPersister) TruncateAfter(n types.GlobalBlockNumber) error {
-	for s := range gp.state.Lock() {
-		return s.truncateAfter(n)
-	}
-	panic("unreachable")
-}
-
 // PersistBlock appends a block to the WAL. Duplicates are silently ignored.
 // Gaps return an error.
 func (gp *GlobalBlockPersister) PersistBlock(n types.GlobalBlockNumber, block *types.Block) error {
@@ -208,6 +176,35 @@ func (gp *GlobalBlockPersister) PersistBlock(n types.GlobalBlockNumber, block *t
 func (gp *GlobalBlockPersister) TruncateBefore(n types.GlobalBlockNumber) error {
 	for s := range gp.state.Lock() {
 		return s.truncateBefore(n)
+	}
+	panic("unreachable")
+}
+
+// TruncateAfter removes block entries >= n from the WAL, updates the
+// persister cursor, and trims loaded data. Called by DataWAL.reconcile
+// to remove blocks persisted without corresponding QCs.
+func (gp *GlobalBlockPersister) TruncateAfter(n types.GlobalBlockNumber) error {
+	for s := range gp.state.Lock() {
+		iw, ok := s.iw.Get()
+		if ok && iw.Count() > 0 && n < s.next {
+			firstGlobal := s.next - types.GlobalBlockNumber(iw.Count())
+			walIdx := iw.FirstIdx()
+			if n > firstGlobal {
+				walIdx += uint64(n - firstGlobal)
+			}
+			if err := iw.TruncateAfter(walIdx); err != nil {
+				return fmt.Errorf("truncate global block WAL after %d: %w", n, err)
+			}
+			s.next = firstGlobal + types.GlobalBlockNumber(iw.Count())
+		}
+		trimmed := s.loaded[:0]
+		for _, lb := range s.loaded {
+			if lb.Number < n {
+				trimmed = append(trimmed, lb)
+			}
+		}
+		s.loaded = trimmed
+		return nil
 	}
 	panic("unreachable")
 }

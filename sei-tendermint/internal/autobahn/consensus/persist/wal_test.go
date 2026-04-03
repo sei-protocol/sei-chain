@@ -513,8 +513,8 @@ func TestIndexedWAL_TruncateAfterMiddle(t *testing.T) {
 	require.NoError(t, iw.Write("d"))
 	require.NoError(t, iw.Write("e"))
 
-	// Keep "a", "b", "c" (indices 1,2,3); remove "d", "e".
-	require.NoError(t, iw.TruncateAfter(3))
+	// Keep "a", "b", "c" (indices 1,2,3); remove "d", "e" (indices 4,5).
+	require.NoError(t, iw.TruncateAfter(4))
 	require.Equal(t, uint64(3), iw.Count())
 	require.Equal(t, uint64(4), iw.nextIdx)
 
@@ -534,11 +534,11 @@ func TestIndexedWAL_TruncateAfterLast(t *testing.T) {
 	require.NoError(t, iw.Write("a"))
 	require.NoError(t, iw.Write("b"))
 
-	// TruncateAfter the last entry is a no-op.
-	require.NoError(t, iw.TruncateAfter(2))
+	// TruncateAfter past the end is a no-op.
+	require.NoError(t, iw.TruncateAfter(3))
 	require.Equal(t, uint64(2), iw.Count())
 
-	// TruncateAfter past the end is a no-op.
+	// TruncateAfter well past the end is a no-op.
 	require.NoError(t, iw.TruncateAfter(100))
 	require.Equal(t, uint64(2), iw.Count())
 	require.NoError(t, iw.Close())
@@ -580,7 +580,7 @@ func TestIndexedWAL_TruncateAfterReopen(t *testing.T) {
 	for _, s := range []string{"a", "b", "c", "d", "e"} {
 		require.NoError(t, iw.Write(s))
 	}
-	require.NoError(t, iw.TruncateAfter(3)) // keep a, b, c
+	require.NoError(t, iw.TruncateAfter(4)) // keep a, b, c (indices 1,2,3)
 	require.NoError(t, iw.Close())
 
 	iw2, err := openIndexedWAL(dir, stringCodec{})

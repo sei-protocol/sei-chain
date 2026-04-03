@@ -220,24 +220,33 @@ func TestGlobalBlockTruncateAfterMiddle(t *testing.T) {
 	fb := committee.FirstBlock()
 	blocks := makeGlobalBlocks(rng, 5)
 
+	// First session: persist 5 blocks.
 	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
 	}
-	// Keep blocks [fb, fb+2], remove fb+3 and fb+4.
-	require.NoError(t, gp.TruncateAfter(fb+2))
-	require.Equal(t, fb+3, gp.Next())
 	require.NoError(t, gp.Close())
 
-	// Reload — should see 3 blocks.
+	// Second session: reload, then TruncateAfter trims WAL and loaded.
 	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
 	require.NoError(t, err)
+	require.NoError(t, gp2.TruncateAfter(fb+3))
+	require.Equal(t, fb+3, gp2.Next())
 	loaded := gp2.ConsumeLoaded()
 	require.Equal(t, 3, len(loaded))
 	require.Equal(t, fb, loaded[0].Number)
 	require.Equal(t, fb+2, loaded[2].Number)
 	require.NoError(t, gp2.Close())
+
+	// Third session: verify WAL persistence.
+	gp3, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	require.NoError(t, err)
+	loaded = gp3.ConsumeLoaded()
+	require.Equal(t, 3, len(loaded))
+	require.Equal(t, fb, loaded[0].Number)
+	require.Equal(t, fb+2, loaded[2].Number)
+	require.NoError(t, gp3.Close())
 }
 
 func TestGlobalBlockTruncateAfterNoop(t *testing.T) {
@@ -253,7 +262,7 @@ func TestGlobalBlockTruncateAfterNoop(t *testing.T) {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
 	}
 	// TruncateAfter at or past the last block is a no-op.
-	require.NoError(t, gp.TruncateAfter(fb+10))
+	require.NoError(t, gp.TruncateAfter(fb+11))
 	require.Equal(t, fb+3, gp.Next())
 	require.NoError(t, gp.Close())
 }
@@ -274,14 +283,8 @@ func TestGlobalBlockTruncateAfterBeforeFirst(t *testing.T) {
 	require.NoError(t, gp.TruncateBefore(fb+2))
 	require.Equal(t, fb+5, gp.Next())
 
-	// TruncateAfter before the first remaining block removes everything.
-	if fb > 0 {
-		require.NoError(t, gp.TruncateAfter(fb))
-	} else {
-		// fb==0: TruncateAfter(0) would keep block 0, but we truncated it.
-		// Use a value before firstGlobal.
-		require.NoError(t, gp.TruncateAfter(fb+1))
-	}
+	// TruncateAfter at or before the first remaining block removes everything.
+	require.NoError(t, gp.TruncateAfter(fb+2))
 	require.Equal(t, fb+2, gp.Next()) // cursor stays at firstGlobal
 	require.NoError(t, gp.Close())
 

@@ -188,20 +188,20 @@ func (w *indexedWAL[T]) TruncateAll() error {
 	return nil
 }
 
-// TruncateAfter removes all entries after walIdx, keeping walIdx as the last
-// entry. If walIdx is before firstIdx, all entries are removed.
-// If walIdx is at or past nextIdx, this is a no-op.
+// TruncateAfter removes all entries >= walIdx (keeps entries < walIdx).
+// If walIdx <= firstIdx, all entries are removed.
+// If walIdx >= nextIdx, this is a no-op.
 func (w *indexedWAL[T]) TruncateAfter(walIdx uint64) error {
+	if walIdx <= w.firstIdx {
+		return w.TruncateAll()
+	}
 	if walIdx >= w.nextIdx {
 		return nil
 	}
-	if walIdx < w.firstIdx {
-		return w.TruncateAll()
+	if err := w.wal.TruncateAfter(walIdx - 1); err != nil {
+		return fmt.Errorf("truncate after WAL index %d: %w", walIdx-1, err)
 	}
-	if err := w.wal.TruncateAfter(walIdx); err != nil {
-		return fmt.Errorf("truncate after WAL index %d: %w", walIdx, err)
-	}
-	w.nextIdx = walIdx + 1
+	w.nextIdx = walIdx
 	return nil
 }
 

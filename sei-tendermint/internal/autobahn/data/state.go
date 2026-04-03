@@ -100,13 +100,12 @@ func (dw *DataWAL) reconcile(committee *types.Committee) error {
 			return err
 		}
 	}
-	// Fix tail: remove blocks past QCs range. TruncateAfter handles the
-	// case where qcEnd-1 is before the first block (removes all).
+	// Fix tail and trim loaded blocks to match QC range.
+	// QCs are the source of truth; blocks outside [reconciled, qcNext)
+	// are stale (from prefix desync or parallel persistence crash).
 	qcNext := dw.CommitQCs.Next()
-	if dw.Blocks.Next() > qcNext && qcNext > 0 {
-		if err := dw.Blocks.TruncateAfter(qcNext - 1); err != nil {
-			return fmt.Errorf("truncate blocks tail: %w", err)
-		}
+	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
+		return fmt.Errorf("truncate blocks tail: %w", err)
 	}
 	return nil
 }

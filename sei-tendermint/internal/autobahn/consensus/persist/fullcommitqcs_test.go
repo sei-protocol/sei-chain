@@ -37,7 +37,7 @@ func makeSequentialFullCommitQCs(
 		}
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		var headers []*types.BlockHeader
-		for _, lane := range committee.Lanes().All() {
+		for lane := range committee.Lanes().All() {
 			if bs := blocks[lane]; len(bs) > 0 {
 				votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 				for _, k := range keys {
