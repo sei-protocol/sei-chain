@@ -38,6 +38,7 @@ var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 // SecretKey represents a secret key in the Ed25519 signature scheme.
 type SecretKey struct {
+	// When using the key make sure to use runtime.KeepAlive, so that key is not zeroized midway.
 	// This is a pointer to avoid copying the secret to stack when used.
 	// This is a pointer to pointer, so that runtime.AddCleanup can actually work:
 	// AddCleanup requires the referenced pointer to be unreachable, even from the cleanup function.
@@ -53,7 +54,10 @@ type SecretKey struct {
 
 // WARNING: this function should only be used when persisting the private key.
 // WARNING: caller is responsible for zeroizing the returned slice.
-func (k SecretKey) SecretBytes() []byte { return slices.Clone((*k.key())[:]) }
+func (k SecretKey) SecretBytes() []byte {
+	defer runtime.KeepAlive(k)
+	return slices.Clone((*k.key())[:])
+}
 
 // SecretKeyFromSecretBytes constructs a secret key from a raw secret material.
 // WARNING: this function zeroes the content of the input slice.
@@ -108,6 +112,7 @@ func GenerateSecretKey() SecretKey {
 
 // Public returns the public key corresponding to the secret key.
 func (k SecretKey) Public() PublicKey {
+	defer runtime.KeepAlive(k)
 	p := ed25519.PrivateKey((*k.key())[:]).Public().(ed25519.PublicKey)
 	return PublicKey{key: [ed25519.PublicKeySize]byte(p)}
 }
@@ -126,6 +131,7 @@ type Signature struct {
 
 // Sign signs a message using the secret key.
 func (k SecretKey) Sign(message []byte) Signature {
+	defer runtime.KeepAlive(k)
 	return Signature{
 		sig: [ed25519.SignatureSize]byte(ed25519.Sign((*k.key())[:], message)),
 	}
@@ -146,6 +152,7 @@ func NewTag(tag string) (Tag, error) {
 // It is also safe to assume that Sign() signatures do not collide with SignWithTag() signatures.
 // It is secure to use the same secret key for signing with both Sign() and SignWithTag() [https://datatracker.ietf.org/doc/html/rfc8032#section-8.6].
 func (k SecretKey) SignWithTag(tag Tag, msg []byte) Signature {
+	defer runtime.KeepAlive(k)
 	opts := &ed25519.Options{Context: tag.tag}
 	// Returns no error if opts.Context is of correct size.
 	sig := utils.OrPanic1(ed25519.PrivateKey((*k.key())[:]).Sign(nil, msg, opts))
