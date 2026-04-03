@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +16,7 @@ import (
 func TestDBLocking(t *testing.T) {
 	t.Parallel()
 
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	// Spread data across several root directories.
@@ -134,7 +134,7 @@ func TestDBLocking(t *testing.T) {
 func TestDeadProcessSimulation(t *testing.T) {
 	t.Parallel()
 
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	// Spread data across several root directories.

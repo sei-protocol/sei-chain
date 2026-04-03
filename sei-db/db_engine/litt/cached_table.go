@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
 )
 
 var _ ManagedTable = &cachedTable{}

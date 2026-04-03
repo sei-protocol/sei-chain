@@ -3,12 +3,12 @@ package benchmark
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDeterminism(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	seed := rand.Int63()
 	bufferSize := 1024 * rand.Uint64Range(1, 10)

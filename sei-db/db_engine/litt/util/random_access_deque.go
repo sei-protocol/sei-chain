@@ -1,9 +1,7 @@
-package structures
+package util
 
 import (
 	"math"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/enforce"
 )
 
 // The minimum initial capacity of a RandomAccessDeque.
@@ -80,7 +78,7 @@ func (s *RandomAccessDeque[T]) PushFront(value T) {
 // O(1)
 func (s *RandomAccessDeque[T]) PeekFront() T {
 	value, ok := s.TryPeekFront()
-	enforce.True(ok, "cannot peek front: deque is empty")
+	True(ok, "cannot peek front: deque is empty")
 	return value
 }
 
@@ -96,7 +94,7 @@ func (s *RandomAccessDeque[T]) TryPeekFront() (value T, ok bool) {
 // O(1)
 func (s *RandomAccessDeque[T]) PopFront() T {
 	value, ok := s.TryPopFront()
-	enforce.True(ok, "cannot pop front: deque is empty")
+	True(ok, "cannot pop front: deque is empty")
 	return value
 }
 
@@ -149,7 +147,7 @@ func (s *RandomAccessDeque[T]) PushBack(value T) {
 // O(1)
 func (s *RandomAccessDeque[T]) PeekBack() T {
 	value, ok := s.TryPeekBack()
-	enforce.True(ok, "cannot peek back: deque is empty")
+	True(ok, "cannot peek back: deque is empty")
 	return value
 }
 
@@ -169,7 +167,7 @@ func (s *RandomAccessDeque[T]) TryPeekBack() (value T, ok bool) {
 // O(1)
 func (s *RandomAccessDeque[T]) PopBack() T {
 	value, ok := s.TryPopBack()
-	enforce.True(ok, "cannot pop back: deque is empty")
+	True(ok, "cannot pop back: deque is empty")
 	return value
 }
 
@@ -206,7 +204,7 @@ func (s *RandomAccessDeque[T]) TryPopBack() (value T, ok bool) {
 // O(1)
 func (s *RandomAccessDeque[T]) Get(index uint64) T {
 	value, ok := s.TryGet(index)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return value
 }
 
@@ -229,7 +227,7 @@ func (s *RandomAccessDeque[T]) TryGet(index uint64) (value T, ok bool) {
 // O(1)
 func (s *RandomAccessDeque[T]) GetFromBack(index uint64) T {
 	value, ok := s.TryGetFromBack(index)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return value
 }
 
@@ -251,7 +249,7 @@ func (s *RandomAccessDeque[T]) TryGetFromBack(index uint64) (value T, ok bool) {
 // O(1)
 func (s *RandomAccessDeque[T]) Set(index uint64, value T) T {
 	previousValue, ok := s.TrySet(index, value)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return previousValue
 }
 
@@ -278,7 +276,7 @@ func (s *RandomAccessDeque[T]) TrySet(index uint64, value T) (previousValue T, o
 // O(1)
 func (s *RandomAccessDeque[T]) SetFromBack(index uint64, value T) T {
 	previousValue, ok := s.TrySetFromBack(index, value)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return previousValue
 }
 
@@ -327,7 +325,7 @@ func (s *RandomAccessDeque[T]) Iterator() func(yield func(uint64, T) bool) {
 // O(1) to call this method, O(1) per iteration step.
 func (s *RandomAccessDeque[T]) IteratorFrom(index uint64) func(yield func(uint64, T) bool) {
 	iterator, ok := s.TryIteratorFrom(index)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return iterator
 }
 
@@ -371,7 +369,7 @@ func (s *RandomAccessDeque[T]) ReverseIterator() func(yield func(uint64, T) bool
 // O(1) to call this method, O(1) per iteration step.
 func (s *RandomAccessDeque[T]) ReverseIteratorFrom(index uint64) func(yield func(uint64, T) bool) {
 	iterator, ok := s.TryReverseIteratorFrom(index)
-	enforce.True(ok, "index %d out of bounds (size %d)", index, s.size)
+	True(ok, "index %d out of bounds (size %d)", index, s.size)
 	return iterator
 }
 

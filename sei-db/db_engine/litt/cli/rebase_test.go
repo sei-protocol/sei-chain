@@ -5,9 +5,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +25,7 @@ func rebaseTest(
 		require.Fail(t, "Invalid test configuration, cannot preserve original when there is overlap")
 	}
 
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	testDir := t.TempDir()
 
 	sourceDirList := make([]string, 0, sourceDirs)
@@ -296,7 +295,7 @@ func TestRebaseSnapshot(t *testing.T) {
 	t.Parallel()
 
 	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	testDir := t.TempDir()
 
 	tableCount := rand.Uint64Range(2, 4)

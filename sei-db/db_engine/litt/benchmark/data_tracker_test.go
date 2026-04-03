@@ -7,14 +7,14 @@ import (
 
 	"github.com/docker/go-units"
 	config2 "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTrackerDeterminism(t *testing.T) {
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()
@@ -79,7 +79,7 @@ func TestTrackerDeterminism(t *testing.T) {
 
 func TestTrackerRestart(t *testing.T) {
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()
@@ -137,7 +137,7 @@ func TestTrackerRestart(t *testing.T) {
 
 func TestTrackReads(t *testing.T) {
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()

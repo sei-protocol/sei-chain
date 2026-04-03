@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -18,7 +18,7 @@ import (
 // Tests migration from one type of Keymap to another.
 func TestKeymapMigration(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	directoryCount := 8
@@ -167,7 +167,7 @@ func TestKeymapMigration(t *testing.T) {
 
 func TestFailedKeymapMigration(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	directory := t.TempDir()
 
 	directoryCount := 8

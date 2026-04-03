@@ -7,10 +7,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,7 +103,7 @@ func TestMigration(t *testing.T) {
 }
 
 func testMigration(t *testing.T, migrationPath string) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	// Make a copy of the data so we don't modify the original (which is checked into git).
 	testDir := t.TempDir()
@@ -124,7 +123,7 @@ func testMigration(t *testing.T, migrationPath string) {
 
 	db, err := NewDB(config)
 	require.NoError(t, err)
-	t.Cleanup(func() { common.CloseLogOnError(db, "littdb", nil) })
+	t.Cleanup(func() { util.CloseLogOnError(db, "littdb", nil) })
 
 	table, err := db.GetTable("test")
 	require.NoError(t, err)

@@ -3,7 +3,7 @@ package cache
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/structures"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ Cache[string, string] = &FIFOCache[string, string]{}
@@ -16,7 +16,7 @@ type FIFOCache[K comparable, V any] struct {
 	currentWeight uint64
 	maxWeight     uint64
 	data          map[K]V
-	evictionQueue *structures.Queue[*insertionRecord]
+	evictionQueue *util.Queue[*insertionRecord]
 	metrics       *CacheMetrics
 }
 
@@ -43,7 +43,7 @@ func NewFIFOCache[K comparable, V any](
 		maxWeight:        maxWeight,
 		data:             make(map[K]V),
 		weightCalculator: calculator,
-		evictionQueue:    structures.NewQueue[*insertionRecord](1024),
+		evictionQueue:    util.NewQueue[*insertionRecord](1024),
 		metrics:          metrics,
 	}
 }

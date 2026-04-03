@@ -7,10 +7,9 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +39,7 @@ func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
 }
 
 func testBasicBehavior(t *testing.T, keymap Keymap) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	expected := make(map[string]types.Address)
 
@@ -135,7 +134,7 @@ func TestBasicBehavior(t *testing.T) {
 
 func TestRestart(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")

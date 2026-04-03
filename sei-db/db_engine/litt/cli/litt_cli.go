@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/pprof"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
 
@@ -348,7 +348,7 @@ func handlePProfMode(ctx *cli.Context, logger *slog.Logger) error {
 	}
 
 	logger.Info(fmt.Sprintf("pprof enabled on port %d", pprofPort))
-	profiler := pprof.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
+	profiler := util.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
 	go profiler.Start()
 
 	return nil

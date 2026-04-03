@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -20,7 +19,7 @@ func syncCommand(ctx *cli.Context) error {
 		return fmt.Errorf("not enough arguments provided, must provide USER@HOST")
 	}
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}

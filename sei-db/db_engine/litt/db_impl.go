@@ -10,7 +10,6 @@ import (
 
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -167,7 +166,7 @@ func (d *db) GetTable(name string) (Table, error) {
 		}
 		d.logger.Info(fmt.Sprintf(
 			"Table '%s' initialized, table contains %d key-value pairs and has a size of %s.",
-			name, table.KeyCount(), common.PrettyPrintBytes(table.Size())))
+			name, table.KeyCount(), util.PrettyPrintBytes(table.Size())))
 
 		d.tables[name] = table
 	}

@@ -1,4 +1,4 @@
-package structures
+package util
 
 // A standard generic queue.
 //

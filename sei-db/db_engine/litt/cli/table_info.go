@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -43,7 +42,7 @@ func tableInfoCommand(ctx *cli.Context) error {
 			"table-info command requires exactly at least one argument: <table-name>")
 	}
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -73,14 +72,14 @@ func tableInfoCommand(ctx *cli.Context) error {
 
 	// Print table information in a human-readable format
 	logger.Info(fmt.Sprintf("Table:                       %s", tableName))
-	logger.Info(fmt.Sprintf("Key count:                   %s", common.CommaOMatic(info.KeyCount)))
-	logger.Info(fmt.Sprintf("Size:                        %s", common.PrettyPrintBytes(info.Size)))
+	logger.Info(fmt.Sprintf("Key count:                   %s", util.CommaOMatic(info.KeyCount)))
+	logger.Info(fmt.Sprintf("Size:                        %s", util.PrettyPrintBytes(info.Size)))
 	logger.Info(fmt.Sprintf("Is snapshot:                 %t", info.IsSnapshot))
-	logger.Info(fmt.Sprintf("Oldest segment age:          %s", common.PrettyPrintTime(oldestSegmentAge)))
+	logger.Info(fmt.Sprintf("Oldest segment age:          %s", util.PrettyPrintTime(oldestSegmentAge)))
 	logger.Info(fmt.Sprintf("Oldest segment seal time:    %s", info.OldestSegmentSealTime.Format(time.RFC3339)))
-	logger.Info(fmt.Sprintf("Newest segment age:          %s", common.PrettyPrintTime(newestSegmentAge)))
+	logger.Info(fmt.Sprintf("Newest segment age:          %s", util.PrettyPrintTime(newestSegmentAge)))
 	logger.Info(fmt.Sprintf("Newest segment seal time:    %s", info.NewestSegmentSealTime.Format(time.RFC3339)))
-	logger.Info(fmt.Sprintf("Segment span:                %s", common.PrettyPrintTime(segmentSpan)))
+	logger.Info(fmt.Sprintf("Segment span:                %s", util.PrettyPrintTime(segmentSpan)))
 	logger.Info(fmt.Sprintf("Lowest segment index:        %d", info.LowestSegmentIndex))
 	logger.Info(fmt.Sprintf("Highest segment index:       %d", info.HighestSegmentIndex))
 	logger.Info(fmt.Sprintf("Key map type:                %s", info.KeymapType))

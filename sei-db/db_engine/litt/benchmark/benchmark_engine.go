@@ -13,7 +13,6 @@ import (
 	"github.com/docker/go-units"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"golang.org/x/time/rate"
 )
@@ -62,7 +61,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 	}
 
-	cfg.LittConfig.Logger, err = common.NewLogger(cfg.LittConfig.LoggerConfig)
+	cfg.LittConfig.Logger, err = util.NewLogger(cfg.LittConfig.LoggerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}

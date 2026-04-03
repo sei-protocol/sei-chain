@@ -10,12 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,7 +103,7 @@ func buildMemKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := newDiskTable(
@@ -151,7 +150,7 @@ func buildMemKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -198,7 +197,7 @@ func buildLevelDBKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := newDiskTable(
@@ -244,7 +243,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -266,7 +265,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 }
 
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -384,7 +383,7 @@ func TestRestart(t *testing.T) {
 // This test deletes a random file from a middle segment. This is considered unrecoverable corruption, and should
 // cause the table to fail to restart.
 func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 
@@ -507,7 +506,7 @@ func TestMiddleFileMissing(t *testing.T) {
 // This test deletes a random file from the first segment. This is considered recoverable, since it can happen
 // if the table crashes during garbage collection.
 func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 	directory := t.TempDir()
@@ -699,7 +698,7 @@ func TestInitialFileMissing(t *testing.T) {
 // This test deletes a random file from the last segment. This can happen if the table crashes prior to the
 // last segment being flushed.
 func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 	directory := t.TempDir()
@@ -897,7 +896,7 @@ func TestLastFileMissing(t *testing.T) {
 
 // This test simulates the scenario where a key file is truncated.
 func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 	directory := t.TempDir()
@@ -1127,7 +1126,7 @@ func TestTruncatedKeyFile(t *testing.T) {
 
 // This test simulates the scenario where a value file is truncated.
 func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 	directory := t.TempDir()
@@ -1374,7 +1373,7 @@ func TestTruncatedValueFile(t *testing.T) {
 // This test simulates the scenario where keys have not been flushed to the key store. The important thing
 // is to ensure that garbage collection doesn't explode when it encounters keys that are not in the key store.
 func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	logger := test.GetLogger()
 	directory := t.TempDir()
@@ -1591,7 +1590,7 @@ func TestUnflushedKeys(t *testing.T) {
 }
 
 func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -1640,7 +1639,7 @@ func TestMetadataPreservedOnRestart(t *testing.T) {
 }
 
 func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -1700,7 +1699,7 @@ func TestOrphanedMetadata(t *testing.T) {
 }
 
 func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directoryCount := rand.Uint32Range(5, 10)
 
@@ -1906,7 +1905,7 @@ func getLatestSegmentIndex(table Table) uint32 {
 }
 
 func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 	rootCount := rand.Uint32Range(1, 5)
@@ -2054,7 +2053,7 @@ func TestChangingShardingFactor(t *testing.T) {
 
 // verifies that the size reported by the table matches the actual size of the table on disk
 func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 

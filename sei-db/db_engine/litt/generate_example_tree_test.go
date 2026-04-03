@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +17,7 @@ func TestGenerateExampleTree(t *testing.T) {
 
 	t.Skip("this should only be run manually")
 
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	testDir := t.TempDir()
 
 	rootDirectories := []string{path.Join(testDir, "root0"), path.Join(testDir, "root1"), path.Join(testDir, "root2")}

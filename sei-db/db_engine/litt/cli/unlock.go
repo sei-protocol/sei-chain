@@ -7,13 +7,13 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
 
 // called by the CLI to unlock a LittDB file system.
 func unlockCommand(ctx *cli.Context) error {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}

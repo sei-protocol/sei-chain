@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -19,7 +18,7 @@ import (
 // pruneCommand can be used to remove data from a LittDB instance/snapshot.
 func pruneCommand(ctx *cli.Context) error {
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -80,7 +79,7 @@ func prune(logger *slog.Logger, sources []string, allowedTables []string, maxAge
 			return fmt.Errorf("failed to prune table %s in paths %v: %w", table, sources, err)
 		}
 
-		logger.Info(fmt.Sprintf("Deleted %s from table '%s'.", common.PrettyPrintBytes(bytesDeleted), table))
+		logger.Info(fmt.Sprintf("Deleted %s from table '%s'.", util.PrettyPrintBytes(bytesDeleted), table))
 	}
 
 	return nil

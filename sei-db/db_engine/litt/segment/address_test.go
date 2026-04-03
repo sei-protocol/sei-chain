@@ -3,14 +3,14 @@ package segment
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAddress(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	index := rand.Uint32()
 	offset := rand.Uint32()

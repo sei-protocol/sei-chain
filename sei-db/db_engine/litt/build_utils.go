@@ -10,9 +10,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
 )
 
 // cacheWeight is a function that calculates the weight of a cache entry.
@@ -70,7 +70,7 @@ func buildLogger(config *Config) (*slog.Logger, error) {
 		return config.Logger, nil
 	}
 
-	return common.NewLogger(config.LoggerConfig)
+	return util.NewLogger(config.LoggerConfig)
 }
 
 // buildMetrics creates a new metrics object based on the configuration. If the returned server is not nil,

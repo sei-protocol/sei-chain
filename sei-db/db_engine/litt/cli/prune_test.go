@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ func TestPrune(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
@@ -176,7 +175,7 @@ func TestPruneSubset(t *testing.T) {
 
 	ctx := t.Context()
 	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)

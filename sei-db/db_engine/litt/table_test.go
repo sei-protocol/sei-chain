@@ -8,11 +8,10 @@ import (
 	"testing"
 	"time"
 
-	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,7 +77,7 @@ func buildMemKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -125,7 +124,7 @@ func buildLevelDBKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = test.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -187,7 +186,7 @@ func buildCachedLevelDBKeyDiskTable(
 }
 
 func randomTableOperationsTest(t *testing.T, integrationTableBuilder *integrationTableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -281,7 +280,7 @@ func TestRandomTableOperations(t *testing.T) {
 }
 
 func garbageCollectionTest(t *testing.T, integrationTableBuilder *integrationTableBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 

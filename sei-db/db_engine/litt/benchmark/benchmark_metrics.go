@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // metrics is a struct that holds various performance metrics for the benchmark. If configured, periodically
@@ -186,7 +186,7 @@ func (m *metrics) logMetrics() {
 	totalTime := ""
 	if m.config.TimeLimitSeconds > 0 {
 		totalTime = fmt.Sprintf(" / %s",
-			common.PrettyPrintTime(uint64(m.config.TimeLimitSeconds*float64(time.Second))))
+			util.PrettyPrintTime(uint64(m.config.TimeLimitSeconds*float64(time.Second))))
 	}
 
 	m.logger.Info(fmt.Sprintf("Benchmark Metrics (since most recent restart):\n"+
@@ -204,19 +204,19 @@ func (m *metrics) logMetrics() {
 		"    Flush Count:            %s\n"+
 		"    Average Flush Latency:  %s\n"+
 		"    Longest Flush Duration: %s",
-		common.PrettyPrintTime(elapsedTimeNanoseconds),
+		util.PrettyPrintTime(elapsedTimeNanoseconds),
 		totalTime,
-		common.PrettyPrintBytes(writeThroughput),
-		common.PrettyPrintBytes(bytesWritten),
-		common.CommaOMatic(writeCount),
-		common.PrettyPrintTime(averageWriteLatency),
-		common.PrettyPrintTime(m.longestWriteDuration.Load()),
-		common.PrettyPrintBytes(readThroughput),
-		common.PrettyPrintBytes(m.bytesRead.Load()),
-		common.CommaOMatic(readCount),
-		common.PrettyPrintTime(averageReadLatency),
-		common.PrettyPrintTime(m.longestReadDuration.Load()),
-		common.CommaOMatic(flushCount),
-		common.PrettyPrintTime(averageFlushLatency),
-		common.PrettyPrintTime(m.longestFlushDuration.Load())))
+		util.PrettyPrintBytes(writeThroughput),
+		util.PrettyPrintBytes(bytesWritten),
+		util.CommaOMatic(writeCount),
+		util.PrettyPrintTime(averageWriteLatency),
+		util.PrettyPrintTime(m.longestWriteDuration.Load()),
+		util.PrettyPrintBytes(readThroughput),
+		util.PrettyPrintBytes(m.bytesRead.Load()),
+		util.CommaOMatic(readCount),
+		util.PrettyPrintTime(averageReadLatency),
+		util.PrettyPrintTime(m.longestReadDuration.Load()),
+		util.CommaOMatic(flushCount),
+		util.PrettyPrintTime(averageFlushLatency),
+		util.PrettyPrintTime(m.longestFlushDuration.Load())))
 }

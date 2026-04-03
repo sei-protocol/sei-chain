@@ -5,8 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 )
 
 // SwapFileExtension is the file extension used for temporary swap files created during atomic writes.
@@ -313,7 +311,7 @@ func CopyRegularFile(src string, dst string, fsync bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file %s: %w", src, err)
 	}
-	defer common.CloseLogOnError(in, src, nil)
+	defer CloseLogOnError(in, src, nil)
 
 	// If there is already a file at the destination, remove it.
 	// This ensures we don't have issues with file permissions or existing symlinks
@@ -333,7 +331,7 @@ func CopyRegularFile(src string, dst string, fsync bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
 	}
-	defer common.CloseLogOnError(out, dst, nil)
+	defer CloseLogOnError(out, dst, nil)
 
 	// Copy content
 	if _, err = io.Copy(out, in); err != nil {

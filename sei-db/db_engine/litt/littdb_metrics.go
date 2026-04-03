@@ -5,8 +5,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
-	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
 )
 
 // Metrics to possibly add in the future:
@@ -313,7 +313,7 @@ func (m *littDBMetrics) ReportReadOperation(
 		m.cacheHitCounter.WithLabelValues(tableName).Inc()
 	} else {
 		m.cacheMissCounter.WithLabelValues(tableName).Inc()
-		m.cacheMissLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+		m.cacheMissLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 	}
 }
 
@@ -330,7 +330,7 @@ func (m *littDBMetrics) ReportWriteOperation(
 
 	m.bytesWrittenCounter.WithLabelValues(tableName).Add(float64(dataSize))
 	m.keysWrittenCounter.WithLabelValues(tableName).Add(float64(batchSize))
-	m.writeLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.writeLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportFlushOperation reports the results of a flush operation.
@@ -340,7 +340,7 @@ func (m *littDBMetrics) ReportFlushOperation(tableName string, latency time.Dura
 	}
 
 	m.flushCount.WithLabelValues(tableName).Inc()
-	m.flushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.flushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportSegmentFlushLatency reports the amount of time taken to flush value files.
@@ -349,7 +349,7 @@ func (m *littDBMetrics) ReportSegmentFlushLatency(tableName string, latency time
 		return
 	}
 
-	m.segmentFlushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.segmentFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportKeymapFlushLatency reports the amount of time taken to flush the keymap.
@@ -358,7 +358,7 @@ func (m *littDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.
 		return
 	}
 
-	m.keymapFlushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.keymapFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportGarbageCollectionLatency reports the latency of a garbage collection operation.
@@ -367,7 +367,7 @@ func (m *littDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 		return
 	}
 
-	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 func (m *littDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {

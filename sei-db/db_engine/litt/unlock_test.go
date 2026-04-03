@@ -7,12 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	testrandom "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	testrandom "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
-
-// Note: this test is defined in the test package to avoid circular dependencies.
 
 func TestUnlock(t *testing.T) {
 	testDir := t.TempDir()

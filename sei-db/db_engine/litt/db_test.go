@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,7 +89,7 @@ func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (DB, error) {
 }
 
 func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -196,7 +196,7 @@ func TestRandomDBOperationsWithFlushLimiter(t *testing.T) {
 }
 
 func dbRestartTest(t *testing.T, builder *dbBuilder) {
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 
 	directory := t.TempDir()
 

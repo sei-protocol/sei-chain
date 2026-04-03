@@ -5,7 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // CacheMetrics is a struct that holds metrics for a cache. A nil CacheMetrics instance acts as a no-op.
@@ -94,7 +94,7 @@ func (m *CacheMetrics) reportEviction(age time.Duration) {
 		return
 	}
 
-	m.evictionLatency.WithLabelValues().Observe(common.ToMilliseconds(age))
+	m.evictionLatency.WithLabelValues().Observe(util.ToMilliseconds(age))
 }
 
 // reportCurrentSize is used to report the current size/weight of the cache.

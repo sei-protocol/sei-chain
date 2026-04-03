@@ -1,4 +1,4 @@
-package enforce
+package util
 
 import (
 	"fmt"

@@ -4,14 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteThenReadValues(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -97,7 +96,7 @@ func TestWriteThenReadValues(t *testing.T) {
 
 func TestReadingTruncatedValueFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 

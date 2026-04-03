@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +24,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -177,7 +176,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -337,7 +336,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -460,7 +459,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 
 func TestGetFilePaths(t *testing.T) {
 	ctx := t.Context()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 

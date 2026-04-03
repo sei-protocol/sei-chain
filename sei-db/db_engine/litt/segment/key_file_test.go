@@ -4,16 +4,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReadWriteKeys(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -87,7 +86,7 @@ func TestReadWriteKeys(t *testing.T) {
 
 func TestReadingTruncatedKeyFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 
@@ -169,7 +168,7 @@ func TestReadingTruncatedKeyFile(t *testing.T) {
 
 func TestSwappingKeyFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := test.NewTestRandom()
 	logger := test.GetLogger()
 	directory := t.TempDir()
 

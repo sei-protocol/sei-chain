@@ -11,7 +11,6 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -37,7 +36,7 @@ type Config struct {
 	Logger *slog.Logger
 
 	// The logger configuration for the database. Ignored if Logger is not nil.
-	LoggerConfig *common.LoggerConfig
+	LoggerConfig *util.LoggerConfig
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.LevelDBKeymapType.
 	// Default is keymap.LevelDBKeymapType.
@@ -186,7 +185,7 @@ func DefaultConfigNoPaths() *Config {
 	seed := time.Now().UnixNano()
 	saltShaker := rand.New(rand.NewSource(seed))
 
-	loggerConfig := common.DefaultLoggerConfig()
+	loggerConfig := util.DefaultLoggerConfig()
 
 	return &Config{
 		CTX:                      context.Background(),
