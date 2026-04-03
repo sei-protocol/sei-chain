@@ -2258,7 +2258,7 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		return app.GetCheckCtx().WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
@@ -2269,7 +2269,7 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 		closestUpgrade = LatestUpgrade
 	}
 	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
-	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
+	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
