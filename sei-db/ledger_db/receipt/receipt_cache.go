@@ -208,8 +208,18 @@ func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) 
 
 // FilterLogs returns cached logs matching the filter criteria.
 func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterCriteria) []*ethtypes.Log {
+	logs, _, _ := c.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
+	return logs
+}
+
+// FilterLogsWithMinBlock returns cached logs matching the filter criteria together
+// with the lowest block number present in the same cache snapshot. Callers that
+// need both values should use this helper so rotation cannot prune between reads.
+func (c *ledgerCache) FilterLogsWithMinBlock(fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, uint64, bool) {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
+
+	minBlock, hasMin := c.logMinBlockLocked()
 
 	var result []*ethtypes.Log
 	for i := 0; i < numCacheChunks; i++ {
@@ -229,7 +239,7 @@ func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterC
 			}
 		}
 	}
-	return result
+	return result, minBlock, hasMin
 }
 
 // LogMinBlock returns the lowest block number present across all non-nil log
@@ -238,6 +248,10 @@ func (c *ledgerCache) LogMinBlock() (uint64, bool) {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
 
+	return c.logMinBlockLocked()
+}
+
+func (c *ledgerCache) logMinBlockLocked() (uint64, bool) {
 	var min uint64
 	var found bool
 	for i := 0; i < numCacheChunks; i++ {

@@ -90,9 +90,9 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 // When the cache fully covers the requested range the backend is skipped
 // entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
-	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
-
-	cacheMin, hasCacheLogs := s.cache.LogMinBlock()
+	// Take a single cache snapshot so rotation cannot advance the cache minimum
+	// past the logs we already copied out of the cache.
+	cacheLogs, cacheMin, hasCacheLogs := s.cache.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
 	if hasCacheLogs && fromBlock >= cacheMin {
 		// Cache logs come from map-backed chunks, so direct cache hits need sorting.
 		sortLogs(cacheLogs)

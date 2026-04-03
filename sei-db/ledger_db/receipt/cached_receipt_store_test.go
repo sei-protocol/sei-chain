@@ -201,6 +201,43 @@ func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
 	require.Equal(t, uint64(11), logs[3].BlockNumber)
 }
 
+func TestFilterLogsPartialCacheNarrowsBackendRangeAcrossRotatedChunks(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	backend.logs = []*ethtypes.Log{
+		{BlockNumber: 5, TxIndex: 0, Index: 0},
+		{BlockNumber: 9, TxIndex: 0, Index: 0},
+	}
+	store := newCachedReceiptStore(backend).(*cachedReceiptStore)
+
+	receipt10 := makeTestReceipt(common.HexToHash("0xc"), 10, 0, common.HexToAddress("0x1"), nil)
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: common.HexToHash("0xc"), Receipt: receipt10},
+	}))
+
+	// Put newer logs in a later cache chunk so the backend range decision must
+	// use the oldest block across the whole cache window.
+	store.cache.Rotate()
+
+	receipt20 := makeTestReceipt(common.HexToHash("0xd"), 20, 0, common.HexToAddress("0x2"), nil)
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: common.HexToHash("0xd"), Receipt: receipt20},
+	}))
+
+	backend.filterLogCalls = 0
+	logs, err := store.FilterLogs(ctx, 5, 20, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Equal(t, 1, backend.filterLogCalls)
+	require.Equal(t, uint64(5), backend.lastFilterFromBlock)
+	require.Equal(t, uint64(9), backend.lastFilterToBlock, "backend toBlock should still be based on the oldest cached block")
+
+	require.Len(t, logs, 4)
+	require.Equal(t, uint64(5), logs[0].BlockNumber)
+	require.Equal(t, uint64(9), logs[1].BlockNumber)
+	require.Equal(t, uint64(10), logs[2].BlockNumber)
+	require.Equal(t, uint64(20), logs[3].BlockNumber)
+}
+
 func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
