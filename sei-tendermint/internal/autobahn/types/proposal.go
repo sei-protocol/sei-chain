@@ -121,6 +121,13 @@ func (vs *ViewSpec) View() View {
 	return View{Index: idx, Number: 0}
 }
 
+func (vs *ViewSpec) NextTimestamp(c *Committee) time.Time {
+	if cQC, ok := vs.CommitQC.Get(); ok {
+		return cQC.Proposal().NextTimestamp()
+	}
+	return c.GenesisTimestamp()
+}
+
 // Proposal is the road tipcut proposal.
 // It consists of ranges of blocks of each lane.
 // AppQC could be nil if we haven't reached any quorum state hash.
@@ -177,6 +184,9 @@ func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
 	return gr
 }
 
+// Arbitrary deterministic minimal diff between consecutive blocks.
+const minTimestampDiff = time.Microsecond
+
 // Monotone timestamp assigned to each block of the proposal.
 // Returns None, if n doed not belong to the proposal's global range.
 func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Option[time.Time] {
@@ -184,8 +194,12 @@ func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Optio
 	if !gr.Has(n) {
 		return utils.None[time.Time]()
 	}
-	// Timestamps for consecutive blocks are 1us apart, which is an arbitrary deterministic constant.
-	return utils.Some(m.CreatedAt().Add(time.Duration(n-gr.First) * time.Microsecond))
+	return utils.Some(m.CreatedAt().Add(time.Duration(n-gr.First) * minTimestampDiff))
+}
+
+// Lowest allowed timestamp for the next index proposal.
+func (m *Proposal) NextTimestamp() time.Time {
+	return m.CreatedAt().Add(time.Duration(m.globalRangeWithoutOffset.Len()) * minTimestampDiff)
 }
 
 // Verify checks that every present lane range belongs to the committee
@@ -238,6 +252,7 @@ func NewReproposal(
 }
 
 // NewProposal creates a new FullProposal.
+// createdAt timestamp might get replaced to ensure that timestamps are monotone.
 func NewProposal(
 	key SecretKey,
 	committee *Committee,
@@ -276,12 +291,11 @@ func NewProposal(
 		app = utils.None[*AppProposal]()
 		appQC = utils.None[*AppQC]()
 	}
-	proposal := newProposal(
-		viewSpec.View(),
-		createdAt,
-		laneRanges,
-		app,
-	)
+	// Normalize the creation timestamp.
+	if wantMin := viewSpec.NextTimestamp(committee); createdAt.Before(wantMin) {
+		createdAt = wantMin
+	}
+	proposal := newProposal(viewSpec.View(), createdAt, laneRanges, app)
 
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
@@ -319,6 +333,10 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 		}
 		if got, want := m.proposal.Msg().GlobalRange(c).First, GlobalRangeOpt(vs.CommitQC, c).Next; got != want {
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
+		}
+		// Is the timestamp monotone?
+		if got, wantMin := m.proposal.Msg().CreatedAt(), vs.NextTimestamp(c); got.Before(wantMin) {
+			return fmt.Errorf("proposal.CreatedAt() = %v, want >= %v", got, wantMin)
 		}
 		// Is proposer valid?
 		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
