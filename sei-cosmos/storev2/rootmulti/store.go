@@ -213,6 +213,9 @@ func (rs *Store) Close() error {
 
 // LastCommitID Implements interface Committer
 func (rs *Store) LastCommitID() types.CommitID {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+
 	if rs.lastCommitInfo == nil {
 		v, err := rs.scStore.GetLatestVersion()
 		if err != nil {
