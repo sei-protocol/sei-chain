@@ -764,13 +764,18 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
-	// Try efficient range query first (supported by parquet/DuckDB backend)
-	// #nosec G115 -- begin and end are validated to be positive block heights above
-	if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
-		return logs, end, nil
-	} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
-		// If it's a real error (not just unsupported), return it
-		return nil, 0, rangeErr
+	// blockHash queries must use the hash-aware block fetch path below.
+	// Range-query receipt stores only constrain by numeric block range and
+	// do not enforce crit.BlockHash.
+	if crit.BlockHash == nil {
+		// Try efficient range query first (supported by parquet/DuckDB backend)
+		// #nosec G115 -- begin and end are validated to be positive block heights above
+		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
+			return logs, end, nil
+		} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
+			// If it's a real error (not just unsupported), return it
+			return nil, 0, rangeErr
+		}
 	}
 	// Fall back to block-by-block querying for backends that don't support range queries
 
@@ -1026,33 +1031,6 @@ func (f *LogFetcher) getBlockForRangeQueryNormalization(ctx context.Context, hei
 	}
 
 	return block, nil
-}
-
-// filterOutSyntheticLogs removes logs that originate from synthetic (non-EVM)
-// with TxType == ShellEVMTxType are considered synthetic.
-func (f *LogFetcher) filterOutSyntheticLogs(ctx sdk.Context, store receipt.ReceiptStore, logs []*ethtypes.Log) ([]*ethtypes.Log, error) {
-	type synthFlag struct {
-		synthetic bool
-		err       error
-	}
-	seen := make(map[common.Hash]synthFlag, len(logs))
-	filtered := make([]*ethtypes.Log, 0, len(logs))
-	for _, lg := range logs {
-		sf, ok := seen[lg.TxHash]
-		if !ok {
-			r, err := store.GetReceipt(ctx, lg.TxHash)
-			if err != nil {
-				sf = synthFlag{synthetic: true, err: err}
-			} else {
-				sf = synthFlag{synthetic: r.TxType == evmtypes.ShellEVMTxType}
-			}
-			seen[lg.TxHash] = sf
-		}
-		if !sf.synthetic {
-			filtered = append(filtered, lg)
-		}
-	}
-	return filtered, nil
 }
 
 // Pooled version that reuses slice allocation
