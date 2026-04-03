@@ -14,7 +14,6 @@ import (
 
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/stretchr/testify/require"
@@ -74,7 +73,7 @@ func snapshotItems(items [][]byte) [][]byte {
 		zWriter, _ := zlib.NewWriterLevel(bufWriter, 7)
 		protoWriter := protoio.NewDelimitedWriter(zWriter)
 		for _, item := range items {
-			types.WriteExtensionItem(protoWriter, item)
+			snapshottypes.WriteExtensionItem(protoWriter, item)
 		}
 		_ = protoWriter.Close()
 		_ = zWriter.Close()
@@ -101,7 +100,7 @@ func (m *mockSnapshotter) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
 	if format == 0 {
-		return snapshottypes.SnapshotItem{}, types.ErrUnknownFormat
+		return snapshottypes.SnapshotItem{}, snapshottypes.ErrUnknownFormat
 	}
 	if m.items != nil {
 		return snapshottypes.SnapshotItem{}, errors.New("already has contents")
@@ -128,7 +127,7 @@ func (m *mockSnapshotter) Restore(
 
 func (m *mockSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	for _, item := range m.items {
-		if err := types.WriteExtensionItem(protoWriter, item); err != nil {
+		if err := snapshottypes.WriteExtensionItem(protoWriter, item); err != nil {
 			return err
 		}
 	}

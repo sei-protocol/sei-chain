@@ -10,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // StorageBenchSuite defines a reusable benchmark suite for all storage backends.
@@ -42,11 +41,11 @@ func (s *StorageBenchSuite) BenchmarkGet(b *testing.B) {
 	require.NoError(b, err)
 	defer func() { _ = db.Close() }()
 
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
+	cs := &proto.ChangeSet{}
+	cs.Pairs = []*proto.KVPair{}
 
 	for i := 0; i < numKeyVals; i++ {
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: keys[i], Value: vals[i]})
+		cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: keys[i], Value: vals[i]})
 	}
 
 	ncs := &proto.NamedChangeSet{
@@ -81,8 +80,8 @@ func (s *StorageBenchSuite) BenchmarkApplyChangeset(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			b.StopTimer()
 
-			cs := &iavl.ChangeSet{}
-			cs.Pairs = []*iavl.KVPair{}
+			cs := &proto.ChangeSet{}
+			cs.Pairs = []*proto.KVPair{}
 
 			for j := 0; j < 1000; j++ {
 				key := make([]byte, 128)
@@ -93,7 +92,7 @@ func (s *StorageBenchSuite) BenchmarkApplyChangeset(b *testing.B) {
 				_, err = rng.Read(val)
 				require.NoError(b, err)
 
-				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: key, Value: val})
+				cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: key, Value: val})
 			}
 
 			ncs := &proto.NamedChangeSet{
@@ -130,10 +129,10 @@ func (s *StorageBenchSuite) BenchmarkIterate(b *testing.B) {
 
 	b.StopTimer()
 
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
+	cs := &proto.ChangeSet{}
+	cs.Pairs = []*proto.KVPair{}
 	for i := 0; i < numKeyVals; i++ {
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: keys[i], Value: vals[i]})
+		cs.Pairs = append(cs.Pairs, &proto.KVPair{Key: keys[i], Value: vals[i]})
 	}
 	ncs := &proto.NamedChangeSet{
 		Name:      storeKey1,

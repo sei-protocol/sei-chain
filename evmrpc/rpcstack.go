@@ -358,6 +358,8 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 }
 
 // stopWS disables JSON-RPC over WebSocket and also stops the server if it only serves WebSocket.
+//
+//lint:ignore U1000 lifecycle method retained for completeness
 func (h *HTTPServer) stopWS() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -497,7 +499,7 @@ func (w *gzipResponseWriter) init() {
 	hdr := w.resp.Header()
 	length := hdr.Get("content-length")
 	if len(length) > 0 {
-		if n, err := strconv.ParseUint(length, 10, 64); err != nil {
+		if n, err := strconv.ParseUint(length, 10, 64); err == nil {
 			w.hasLength = true
 			w.contentLength = n
 		}
@@ -545,6 +547,8 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 		// the gzip stream to ensure the footer will be seen by the client in case the
 		// response is flushed after this call to write.
 		err = w.gz.Close()
+		gzPool.Put(w.gz)
+		w.gz = nil
 	}
 	return n, err
 }

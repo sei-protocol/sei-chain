@@ -1,6 +1,7 @@
 {
     "Comment": "For testing with the state store and reciept store both enabled.",
     "DataDir": "data",
+    "LogDir": "logs",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 1000000,
     "GenerateReceipts": true
