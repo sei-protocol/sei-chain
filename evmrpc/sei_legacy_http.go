@@ -164,6 +164,16 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 		g.serveInnerWithBody(w, r, body)
 		return
 	}
+
+	// Fast path: every element is forwarded (nothing blocked/invalid) and none
+	// are gated sei_*/sei2_* methods.  Skip the recorder so the gzip handler
+	// writes directly to the real http.ResponseWriter — same fix as handleSingle.
+	allForwarded := len(forward) == len(msgs)
+	if allForwarded && !forwardLegacy {
+		g.serveInnerWithBody(w, r, body)
+		return
+	}
+
 	rec := httptest.NewRecorder()
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(forwardBody))
