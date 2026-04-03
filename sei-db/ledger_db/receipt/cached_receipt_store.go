@@ -92,15 +92,15 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
 
-	cacheMin := s.cache.LogMinBlock()
-	if cacheMin > 0 && fromBlock >= cacheMin {
+	cacheMin, hasCacheLogs := s.cache.LogMinBlock()
+	if hasCacheLogs && fromBlock >= cacheMin {
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
 
 	// Narrow the backend query to only the block range not covered by cache.
 	backendTo := toBlock
-	if cacheMin > 0 && cacheMin <= toBlock && cacheMin > fromBlock {
+	if hasCacheLogs && cacheMin <= toBlock && cacheMin > fromBlock {
 		backendTo = cacheMin - 1
 	}
 

@@ -21,7 +21,7 @@ type receiptCacheEntry struct {
 type logChunk struct {
 	logs     map[uint64][]*ethtypes.Log // blockNum -> logs
 	minBlock uint64
-	maxBlock uint64
+	hasMin   bool
 }
 
 type receiptChunk struct {
@@ -200,11 +200,9 @@ func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) 
 		c.logChunks[slot].Store(chunk)
 	}
 	chunk.logs[blockNumber] = logsCopy
-	if chunk.minBlock == 0 || blockNumber < chunk.minBlock {
+	if !chunk.hasMin || blockNumber < chunk.minBlock {
 		chunk.minBlock = blockNumber
-	}
-	if blockNumber > chunk.maxBlock {
-		chunk.maxBlock = blockNumber
+		chunk.hasMin = true
 	}
 }
 
@@ -235,22 +233,24 @@ func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterC
 }
 
 // LogMinBlock returns the lowest block number present across all non-nil log
-// chunks. Returns 0 when the cache contains no log data.
-func (c *ledgerCache) LogMinBlock() uint64 {
+// chunks. The bool return value reports whether the cache contains any log data.
+func (c *ledgerCache) LogMinBlock() (uint64, bool) {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
 
 	var min uint64
+	var found bool
 	for i := 0; i < numCacheChunks; i++ {
 		chunk := c.logChunks[i].Load()
-		if chunk == nil || chunk.minBlock == 0 {
+		if chunk == nil || !chunk.hasMin {
 			continue
 		}
-		if min == 0 || chunk.minBlock < min {
+		if !found || chunk.minBlock < min {
 			min = chunk.minBlock
+			found = true
 		}
 	}
-	return min
+	return min, found
 }
 
 // matchLog checks if a log matches the filter criteria.

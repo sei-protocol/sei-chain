@@ -119,6 +119,29 @@ func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCovers(t *testing.T) {
 	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache covers the range")
 }
 
+func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCoversGenesis(t *testing.T) {
+	ctx, _ := newTestContext()
+	ctx = ctx.WithBlockHeight(0)
+	backend := newFakeReceiptBackend()
+	store := newCachedReceiptStore(backend)
+
+	txHash := common.HexToHash("0x21")
+	addr := common.HexToAddress("0x201")
+	topic := common.HexToHash("0xaaa")
+	receipt := makeTestReceipt(txHash, 0, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
+
+	backend.filterLogCalls = 0
+	logs, err := store.FilterLogs(ctx, 0, 0, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache fully covers genesis")
+}
+
 func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()

@@ -77,6 +77,30 @@ func TestLedgerCacheRotatePrunes(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestLedgerCacheLogMinBlockIncludesGenesis(t *testing.T) {
+	cache := newLedgerCache()
+	addr := common.HexToAddress("0x300")
+
+	cache.AddLogsForBlock(0, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 0,
+			TxHash:      common.HexToHash("0x3"),
+		},
+	})
+	cache.AddLogsForBlock(1, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 1,
+			TxHash:      common.HexToHash("0x4"),
+		},
+	})
+
+	minBlock, ok := cache.LogMinBlock()
+	require.True(t, ok)
+	require.Equal(t, uint64(0), minBlock)
+}
+
 func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
