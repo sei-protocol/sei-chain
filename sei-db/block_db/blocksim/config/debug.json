@@ -7,5 +7,6 @@
   "CleanDataOnStart": true,
   "CleanLogsOnStart": true,
   "CleanDataOnExit": true,
-  "CleanLogsOnExit": true
+  "CleanLogsOnExit": true,
+  "UnprunedBlocks": 1000
 }
