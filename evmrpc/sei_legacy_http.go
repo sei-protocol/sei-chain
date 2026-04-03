@@ -76,10 +76,21 @@ func (g *seiLegacyHTTPGate) handleSingle(w http.ResponseWriter, r *http.Request,
 		writeSeiLegacyBlocked(w, orNullID(msg.ID), err)
 		return
 	}
+	// Non-gated methods (eth_*, web3_*, net_*, etc.) need no recording or
+	// header injection — pass straight through so the gzip handler writes
+	// directly to the real http.ResponseWriter.
+	if !seiLegacyIsGatedNamespaceMethod(msg.Method) {
+		g.serveInnerWithBody(w, r, body)
+		return
+	}
 	rec := httptest.NewRecorder()
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(body))
 	sub.ContentLength = int64(len(body))
+	// Prevent the inner gzip handler from compressing into the recorder;
+	// we need plain JSON so copyHTTPHeader does not propagate a stale
+	// Content-Encoding: gzip for a body that is replayed uncompressed.
+	sub.Header.Del("Accept-Encoding")
 	sub.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
@@ -136,7 +147,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 			continue
 		}
 		forward = append(forward, msgs[i])
-		if seiLegacyForwardedGatedMethod(methods[i], g.allowlist) {
+		if !forwardLegacy && seiLegacyForwardedGatedMethod(methods[i], g.allowlist) {
 			forwardLegacy = true
 		}
 	}
@@ -157,10 +168,23 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 		g.serveInnerWithBody(w, r, body)
 		return
 	}
+
+	// Fast path: every element is forwarded (nothing blocked/invalid) and none
+	// are gated sei_*/sei2_* methods.  Skip the recorder so the gzip handler
+	// writes directly to the real http.ResponseWriter — same fix as handleSingle.
+	allForwarded := len(forward) == len(msgs)
+	if allForwarded && !forwardLegacy {
+		g.serveInnerWithBody(w, r, body)
+		return
+	}
+
 	rec := httptest.NewRecorder()
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(forwardBody))
 	sub.ContentLength = int64(len(forwardBody))
+	// Prevent the inner gzip handler from compressing into the recorder;
+	// mergeSeiLegacyHTTPBatch needs plain JSON to unmarshal inner results.
+	sub.Header.Del("Accept-Encoding")
 	sub.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(forwardBody)), nil
 	}
