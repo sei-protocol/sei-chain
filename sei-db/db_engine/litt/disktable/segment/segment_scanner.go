@@ -7,14 +7,14 @@ import (
 	"path"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"log/slog"
 )
 
 // scanDirectories scans directories for segment files and returns a map of metadata, key, and value files.
 // Also returns a list of garbage files that should be deleted. Does not do anything to files with unrecognized
 // extensions.
-func scanDirectories(logger logging.Logger, segmentPaths []*SegmentPath) (
+func scanDirectories(logger *slog.Logger, segmentPaths []*SegmentPath) (
 	metadataFiles map[uint32]string,
 	keyFiles map[uint32]string,
 	valueFiles map[uint32][]string,
@@ -77,7 +77,7 @@ func scanDirectories(logger logging.Logger, segmentPaths []*SegmentPath) (
 				}
 				valueFiles[index] = append(valueFiles[index], filePath)
 			default:
-				logger.Debugf("Ignoring unknown file %s", filePath)
+				logger.Debug(fmt.Sprintf("Ignoring unknown file %s", filePath))
 				continue
 			}
 
@@ -109,7 +109,7 @@ func scanDirectories(logger logging.Logger, segmentPaths []*SegmentPath) (
 // non-catastrophic reasons (i.e. a crash during cleanup). If the segment is neither the lowest nor highest segment,
 // then missing files signal non-recoverable DB corruption, and an error is returned.
 func diagnoseMissingFile(
-	logger logging.Logger,
+	logger *slog.Logger,
 	index uint32,
 	lowestFileIndex uint32,
 	highestFileIndex uint32,
@@ -118,11 +118,11 @@ func diagnoseMissingFile(
 
 	if index == highestFileIndex {
 		// This can happen if we crash while creating a new segment. Recoverable.
-		logger.Warnf("Missing %s file for last segment %d", fileType, index)
+		logger.Warn(fmt.Sprintf("Missing %s file for last segment %d", fileType, index))
 		damagedSegments[index] = struct{}{}
 	} else if index == lowestFileIndex {
 		// This can happen when deleting the oldest segment. Recoverable.
-		logger.Warnf("Missing %s file for first segment %d", fileType, index)
+		logger.Warn(fmt.Sprintf("Missing %s file for first segment %d", fileType, index))
 		damagedSegments[index] = struct{}{}
 	} else {
 		// Database is missing internal files. Catastrophic failure.
@@ -137,7 +137,7 @@ func diagnoseMissingFile(
 // An "orphaned file" is defined as a file on disk for a segment that is missing one or more of its files.
 // For example, if a segment has a metadata file but is missing its key file, the metadata file is considered orphaned.
 func lookForMissingFiles(
-	logger logging.Logger,
+	logger *slog.Logger,
 	lowestSegmentIndex uint32,
 	highestSegmentIndex uint32,
 	metadataFiles map[uint32]string,
@@ -260,9 +260,9 @@ func lookForMissingFiles(
 }
 
 // deleteOrphanedFiles deletes any files that are in the orphan set.
-func deleteOrphanedFiles(logger logging.Logger, orphanedFiles []string) error {
+func deleteOrphanedFiles(logger *slog.Logger, orphanedFiles []string) error {
 	for _, orphanedFile := range orphanedFiles {
-		logger.Infof("deleting orphaned file %s", orphanedFile)
+		logger.Info(fmt.Sprintf("deleting orphaned file %s", orphanedFile))
 		err := os.Remove(orphanedFile)
 		if err != nil {
 			return fmt.Errorf("failed to remove orphaned file %s: %v", orphanedFile, err)
@@ -294,7 +294,7 @@ func linkSegments(lowestSegmentIndex uint32, highestSegmentIndex uint32, segment
 
 // GatherSegmentFiles scans a directory for segment files and loads them into memory.
 func GatherSegmentFiles(
-	logger logging.Logger,
+	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
@@ -315,7 +315,7 @@ func GatherSegmentFiles(
 
 	// Delete any garbage files. Ignore files with unrecognized extensions.
 	for _, garbageFile := range garbageFiles {
-		logger.Infof("deleting file %s", garbageFile)
+		logger.Info(fmt.Sprintf("deleting file %s", garbageFile))
 		err = os.Remove(garbageFile)
 		if err != nil {
 			return 0, 0, nil,

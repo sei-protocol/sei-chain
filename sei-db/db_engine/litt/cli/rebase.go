@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
@@ -59,7 +59,7 @@ func rebaseCommand(ctx *cli.Context) error {
 // rebase moves LittDB database files from one location to another (locally). This function is idempotent. If it
 // crashes part of the way through, just run it again and it will continue where it left off.
 func rebase(
-	logger logging.Logger,
+	logger *slog.Logger,
 	sources []string,
 	destinations []string,
 	preserveOriginal bool,
@@ -198,7 +198,7 @@ func countSegmentFiles(sources []string) (count int64, symlinkFound bool, err er
 
 // transfers all data in a directory to the specified destinations.
 func transferDataInDirectory(
-	logger logging.Logger,
+	logger *slog.Logger,
 	source string,
 	destinations []string,
 	preserveOriginal bool,
@@ -263,7 +263,7 @@ func transferDataInDirectory(
 }
 
 func transferDataInTable(
-	logger logging.Logger,
+	logger *slog.Logger,
 	source string,
 	tableName string,
 	destinations []string,
@@ -326,7 +326,7 @@ func transferDataInTable(
 
 // deleteBoundaryFiles deletes the boundary files for a table. Only will be present if the source
 // directory contains symlink snapshots.
-func deleteBoundaryFiles(logger logging.Logger, source string, tableName string, verbose bool) error {
+func deleteBoundaryFiles(logger *slog.Logger, source string, tableName string, verbose bool) error {
 	lowerBoundPath := path.Join(source, tableName, disktable.LowerBoundFileName)
 	exists, err := util.Exists(lowerBoundPath)
 	if err != nil {
@@ -334,7 +334,7 @@ func deleteBoundaryFiles(logger logging.Logger, source string, tableName string,
 	}
 	if exists {
 		if verbose {
-			logger.Infof("Deleting lower bound file: %s", lowerBoundPath)
+			logger.Info(fmt.Sprintf("Deleting lower bound file: %s", lowerBoundPath))
 		}
 		err = os.Remove(lowerBoundPath)
 		if err != nil {
@@ -349,7 +349,7 @@ func deleteBoundaryFiles(logger logging.Logger, source string, tableName string,
 	}
 	if exists {
 		if verbose {
-			logger.Infof("Deleting upper bound file: %s", upperBoundPath)
+			logger.Info(fmt.Sprintf("Deleting upper bound file: %s", upperBoundPath))
 		}
 		err = os.Remove(upperBoundPath)
 		if err != nil {

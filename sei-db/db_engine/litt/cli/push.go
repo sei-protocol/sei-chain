@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/enforce"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
@@ -85,7 +85,7 @@ func pushCommand(ctx *cli.Context) error {
 
 // push uses rsync to transfer LittDB data to the remote location(s)
 func push(
-	logger logging.Logger,
+	logger *slog.Logger,
 	sources []string,
 	destinations []string,
 	user string,
@@ -187,7 +187,7 @@ func mapExistingFiles(
 
 // Push the data in a single table to the remote location(s).
 func pushTable(
-	logger logging.Logger,
+	logger *slog.Logger,
 	tableName string,
 	sources []string,
 	destinations []string,
@@ -226,7 +226,7 @@ func pushTable(
 	}
 
 	if len(segments) == 0 {
-		logger.Infof("No segments found for table %s", tableName)
+		logger.Info(fmt.Sprintf("No segments found for table %s", tableName))
 		return nil
 	}
 

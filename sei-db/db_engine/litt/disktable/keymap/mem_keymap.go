@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"log/slog"
 )
 
 var _ Keymap = &memKeymap{}
@@ -18,7 +18,7 @@ var _ Keymap = &memKeymap{}
 // - potentially slow startup time for large keymaps
 // - very fast after startup
 type memKeymap struct {
-	logger logging.Logger
+	logger *slog.Logger
 	data   map[string]types.Address
 	// if true, then return an error if an update would overwrite an existing key
 	doubleWriteProtection bool
@@ -28,7 +28,7 @@ type memKeymap struct {
 var _ BuildKeymap = NewMemKeymap
 
 // NewMemKeymap creates a new in-memory keymap.
-func NewMemKeymap(logger logging.Logger,
+func NewMemKeymap(logger *slog.Logger,
 	_ string,
 	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
 

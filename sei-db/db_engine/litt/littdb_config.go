@@ -7,12 +7,12 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"log/slog"
 )
 
 // Config is configuration for a litt.DB.
@@ -33,7 +33,7 @@ type Config struct {
 	Paths []string
 
 	// The logger for the database. If nil, a logger is built using the LoggerConfig.
-	Logger logging.Logger
+	Logger *slog.Logger
 
 	// The logger configuration for the database. Ignored if Logger is not nil.
 	LoggerConfig *common.LoggerConfig

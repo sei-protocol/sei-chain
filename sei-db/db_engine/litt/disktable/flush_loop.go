@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"log/slog"
 )
 
 // flushLoop is a struct that runs a goroutine that is responsible for blocking on flush operations.
 type flushLoop struct {
-	logger logging.Logger
+	logger *slog.Logger
 
 	// the parent disk table
 	diskTable *DiskTable
@@ -49,7 +49,7 @@ func (f *flushLoop) run() {
 	for {
 		select {
 		case <-f.errorMonitor.ImmediateShutdownRequired():
-			f.logger.Infof("context done, shutting down disk table flush loop")
+			f.logger.Info("context done, shutting down disk table flush loop")
 			return
 		case message := <-f.flushChannel:
 			if req, ok := message.(*flushLoopFlushRequest); ok {

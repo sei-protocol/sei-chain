@@ -5,12 +5,12 @@ import (
 	"path"
 	"testing"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
+	"log/slog"
 )
 
 var builders = []keymapBuilder{
@@ -18,9 +18,9 @@ var builders = []keymapBuilder{
 	buildLevelDBKeymap,
 }
 
-type keymapBuilder func(logger logging.Logger, path string) (Keymap, error)
+type keymapBuilder func(logger *slog.Logger, path string) (Keymap, error)
 
-func buildMemKeymap(logger logging.Logger, path string) (Keymap, error) {
+func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	kmap, _, err := NewMemKeymap(logger, path, true)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func buildMemKeymap(logger logging.Logger, path string) (Keymap, error) {
 	return kmap, nil
 }
 
-func buildLevelDBKeymap(logger logging.Logger, path string) (Keymap, error) {
+func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true)
 	if err != nil {
 		return nil, err

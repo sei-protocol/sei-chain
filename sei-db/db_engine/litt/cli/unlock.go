@@ -26,9 +26,9 @@ func unlockCommand(ctx *cli.Context) error {
 	force := ctx.Bool(forceFlag.Name)
 	if !force {
 		magicString := "I know what I am doing"
-		logger.Warnf("About to delete LittDB lock files. This is potentially dangerous. "+
+		logger.Warn(fmt.Sprintf("About to delete LittDB lock files. This is potentially dangerous. "+
 			"Type \"%s\" to continue, or use "+
-			"the --force flag.", magicString)
+			"the --force flag.", magicString))
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
 		if err != nil {

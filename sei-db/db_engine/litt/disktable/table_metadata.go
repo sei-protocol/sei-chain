@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"log/slog"
 )
 
 const tableMetadataSerializationVersion = 0
@@ -18,7 +18,7 @@ const tableMetadataSize = 16
 
 // tableMetadata contains table data that is preserved across restarts.
 type tableMetadata struct {
-	logger logging.Logger
+	logger *slog.Logger
 
 	tableDirectory string
 
@@ -35,7 +35,7 @@ type tableMetadata struct {
 
 // newTableMetadata creates a new table metadata object.
 func newTableMetadata(
-	logger logging.Logger,
+	logger *slog.Logger,
 	tableDirectory string,
 	ttl time.Duration,
 	shardingFactor uint32,
@@ -58,7 +58,7 @@ func newTableMetadata(
 }
 
 // loadTableMetadata loads the table metadata from disk.
-func loadTableMetadata(logger logging.Logger, tableDirectory string) (*tableMetadata, error) {
+func loadTableMetadata(logger *slog.Logger, tableDirectory string) (*tableMetadata, error) {
 	mPath := metadataPath(tableDirectory)
 
 	if err := util.ErrIfNotExists(mPath); err != nil {

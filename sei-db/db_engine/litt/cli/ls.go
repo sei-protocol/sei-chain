@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -44,13 +44,13 @@ func lsCommand(ctx *cli.Context) error {
 		sb.WriteString("\n")
 	}
 
-	logger.Infof("Tables found:\n%s", sb.String())
+	logger.Info(fmt.Sprintf("Tables found:\n%s", sb.String()))
 
 	return nil
 }
 
 // Similar to ls, but searches for tables in multiple paths.
-func lsPaths(logger logging.Logger, rootPaths []string, lock bool, fsync bool) ([]string, error) {
+func lsPaths(logger *slog.Logger, rootPaths []string, lock bool, fsync bool) ([]string, error) {
 	tableSet := make(map[string]struct{})
 
 	for _, rootPath := range rootPaths {
@@ -75,7 +75,7 @@ func lsPaths(logger logging.Logger, rootPaths []string, lock bool, fsync bool) (
 
 // Returns a list of LittDB tables at the specified LittDB path. Tables are alphabetically sorted by their names.
 // Returns an error if the path does not exist or if no tables are found.
-func ls(logger logging.Logger, rootPath string, lock bool, fsync bool) ([]string, error) {
+func ls(logger *slog.Logger, rootPath string, lock bool, fsync bool) ([]string, error) {
 
 	if lock {
 		// Forbid touching tables in active use.
