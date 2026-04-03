@@ -147,7 +147,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 			continue
 		}
 		forward = append(forward, msgs[i])
-		if seiLegacyForwardedGatedMethod(methods[i], g.allowlist) {
+		if !forwardLegacy && seiLegacyForwardedGatedMethod(methods[i], g.allowlist) {
 			forwardLegacy = true
 		}
 	}
