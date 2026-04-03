@@ -945,92 +945,50 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 		return logs, nil
 	}
 
-	return f.rebuildRangeQueryLogs(ctx, logs, crit)
+	if err := f.populateBlockHashes(ctx, logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
 }
 
-// Range-query backends efficiently identify which blocks contain matching logs,
-// but the returned logs can include receipts that the RPC namespace would later
-// exclude. Rebuild those blocks through collectLogs so index assignment exactly
-// matches the fallback path.
-func (f *LogFetcher) rebuildRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
-	blockSet := make(map[uint64]struct{})
-	blockNumbers := make([]uint64, 0, len(candidateLogs))
-	for _, lg := range candidateLogs {
-		if _, exists := blockSet[lg.BlockNumber]; exists {
+// populateBlockHashes fills in the BlockHash field on logs returned from range
+// query backends, which store logs with a zero BlockHash (because the hash is
+// not yet known at receipt flush time).
+func (f *LogFetcher) populateBlockHashes(ctx context.Context, logs []*ethtypes.Log) error {
+	blockHashes := make(map[uint64]common.Hash)
+	for _, lg := range logs {
+		if _, exists := blockHashes[lg.BlockNumber]; exists {
 			continue
 		}
-		blockSet[lg.BlockNumber] = struct{}{}
-		blockNumbers = append(blockNumbers, lg.BlockNumber)
-	}
-	sort.Slice(blockNumbers, func(i, j int) bool {
-		return blockNumbers[i] < blockNumbers[j]
-	})
-
-	rebuilt := make([]*ethtypes.Log, 0, len(candidateLogs))
-	collector := &pooledCollector{logs: &rebuilt}
-	for _, blockNumber := range blockNumbers {
 		// #nosec G115 -- block numbers fit within int64
-		height := int64(blockNumber)
-		block, err := f.getBlockForRangeQueryNormalization(ctx, height)
+		hash, err := f.resolveBlockHash(ctx, int64(lg.BlockNumber))
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch block at height %d for range query log rebuild: %w", height, err)
+			return fmt.Errorf("failed to resolve block hash for height %d: %w", lg.BlockNumber, err)
 		}
-		f.collectLogs(block, crit, collector)
+		blockHashes[lg.BlockNumber] = hash
 	}
-	return rebuilt, nil
+	for _, lg := range logs {
+		lg.BlockHash = blockHashes[lg.BlockNumber]
+	}
+	return nil
 }
 
-func (f *LogFetcher) getBlockForRangeQueryNormalization(ctx context.Context, height int64) (*coretypes.ResultBlock, error) {
+func (f *LogFetcher) resolveBlockHash(ctx context.Context, height int64) (common.Hash, error) {
 	if f.globalBlockCache != nil {
 		if entry, found := f.globalBlockCache.Get(height); found {
 			entry.RLock()
 			block := entry.Block
 			entry.RUnlock()
 			if block != nil {
-				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, height); err != nil {
-					return nil, err
-				}
-				return block, nil
+				return common.BytesToHash(block.BlockID.Hash), nil
 			}
 		}
 	}
-
-	if f.cacheCreationMutex != nil {
-		f.cacheCreationMutex.Lock()
-		defer f.cacheCreationMutex.Unlock()
-
-		if f.globalBlockCache != nil {
-			if entry, found := f.globalBlockCache.Get(height); found {
-				entry.RLock()
-				block := entry.Block
-				entry.RUnlock()
-				if block != nil {
-					if err := f.watermarks.EnsureBlockHeightAvailable(ctx, height); err != nil {
-						return nil, err
-					}
-					return block, nil
-				}
-			}
-		}
-	}
-
-	block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+	header, err := f.tmClient.Header(ctx, &height)
 	if err != nil {
-		return nil, err
+		return common.Hash{}, err
 	}
-
-	if f.globalBlockCache != nil {
-		if entry, found := f.globalBlockCache.Get(height); found {
-			fillMissingFields(entry, block, ethtypes.Bloom{})
-		} else {
-			f.globalBlockCache.Add(height, &BlockCacheEntry{
-				Block:    block,
-				Receipts: make(map[common.Hash]*evmtypes.Receipt),
-			})
-		}
-	}
-
-	return block, nil
+	return common.BytesToHash(header.Header.Hash()), nil
 }
 
 // Pooled version that reuses slice allocation
