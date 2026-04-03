@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt/benchmark/config"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
 )
 
 // metrics is a struct that holds various performance metrics for the benchmark. If configured, periodically

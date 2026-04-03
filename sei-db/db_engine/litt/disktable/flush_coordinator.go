@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/structures"
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/structures"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"golang.org/x/time/rate"
 )
 

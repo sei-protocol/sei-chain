@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	testrandom "github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	testrandom "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 

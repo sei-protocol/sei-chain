@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/core"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable/segment"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -126,7 +126,7 @@ func testMigration(t *testing.T, migrationPath string) {
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
-	t.Cleanup(func() { core.CloseLogOnError(db, "littdb", nil) })
+	t.Cleanup(func() { common.CloseLogOnError(db, "littdb", nil) })
 
 	table, err := db.GetTable("test")
 	require.NoError(t, err)

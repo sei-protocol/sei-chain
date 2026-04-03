@@ -7,8 +7,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // scanDirectories scans directories for segment files and returns a map of metadata, key, and value files.

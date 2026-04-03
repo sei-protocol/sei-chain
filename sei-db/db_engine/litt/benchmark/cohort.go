@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // CohortFileExtension is the file extension used for cohort files.

@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/Layr-Labs/eigenda/litt/benchmark"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark"
 )
 
 func main() {

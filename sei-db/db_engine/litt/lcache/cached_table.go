@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ litt.ManagedTable = &cachedTable{}

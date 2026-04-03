@@ -7,18 +7,18 @@ import (
 	"path"
 	"strings"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
-	tablecache "github.com/Layr-Labs/eigenda/litt/cache"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/common/datacache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/lcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // keymapBuilders contains builders for all supported keymap types.

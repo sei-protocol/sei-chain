@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 // TableNameRegex is a regular expression that matches valid table names.
