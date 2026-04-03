@@ -16,24 +16,11 @@ import (
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 
-<<<<<<< HEAD
-=======
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/interblock"
-	"github.com/cosmos/cosmos-sdk/store/mem"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/transient"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/storev2/commitment"
-	"github.com/cosmos/cosmos-sdk/storev2/state"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
->>>>>>> 74b5005b7 ([wip][giga] inter block cache)
 	protoio "github.com/gogo/protobuf/io"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/interblock"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
@@ -61,14 +48,14 @@ var (
 )
 
 type Store struct {
-	mtx            sync.RWMutex
-	scStore        sctypes.Committer
-	ssStore        seidbtypes.StateStore
-	lastCommitInfo *types.CommitInfo
-	storesParams   map[types.StoreKey]storeParams
-	storeKeys      map[string]types.StoreKey
-	ckvStores      map[types.StoreKey]types.CommitKVStore
-	gigaKeys       []string
+	mtx              sync.RWMutex
+	scStore          sctypes.Committer
+	ssStore          seidbtypes.StateStore
+	lastCommitInfo   *types.CommitInfo
+	storesParams     map[types.StoreKey]storeParams
+	storeKeys        map[string]types.StoreKey
+	ckvStores        map[types.StoreKey]types.CommitKVStore
+	gigaKeys         []string
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 

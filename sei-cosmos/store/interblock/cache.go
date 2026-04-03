@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 // Cache is a KVStore that persists across block boundaries. It is a
