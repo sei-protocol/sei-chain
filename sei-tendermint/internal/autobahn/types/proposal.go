@@ -194,11 +194,13 @@ func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Optio
 	if !gr.Has(n) {
 		return utils.None[time.Time]()
 	}
+	//nolint:gosec // TODO: do stricter timestamp validation before running in prod.
 	return utils.Some(m.Timestamp().Add(time.Duration(n-gr.First) * minTimestampDiff))
 }
 
 // Lowest allowed timestamp for the next index proposal.
 func (m *Proposal) NextTimestamp() time.Time {
+	//nolint:gosec // TODO: do stricter timestamp validation before running in prod.
 	return m.Timestamp().Add(time.Duration(m.globalRangeWithoutOffset.Len()) * minTimestampDiff)
 }
 
