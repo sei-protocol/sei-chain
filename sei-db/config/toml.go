@@ -126,6 +126,23 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
+# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
+
+# WriteMode controls how EVM data writes are routed.
+# Supported values: "cosmos_only", "dual_write", "split_write"
+evm-ss-write-mode = "{{ .StateStore.WriteMode }}"
+
+# ReadMode controls how EVM data reads are routed.
+# Supported values: "cosmos_only", "evm_first", "split_read"
+evm-ss-read-mode = "{{ .StateStore.ReadMode }}"
+
+# SeparateEVMSubDBs controls whether EVM data is split across per-type DBs.
+# When false, all EVM data stays in one DB using the current unified layout.
+# When true, data is routed to separate DBs while preserving the same evm key prefix format.
+evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

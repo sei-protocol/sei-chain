@@ -428,6 +428,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
+			WriteMode:            config.WriteMode(v.GetString("state-store.evm-ss-write-mode")),
+			ReadMode:             config.ReadMode(v.GetString("state-store.evm-ss-read-mode")),
+			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

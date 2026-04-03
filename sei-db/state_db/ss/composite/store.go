@@ -68,7 +68,12 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		logger.Info("EVM state store enabled", "dir", evmDir, "writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
+		logger.Info("EVM state store enabled",
+			"dir", evmDir,
+			"writeMode", ssConfig.WriteMode,
+			"readMode", ssConfig.ReadMode,
+			"separateDBs", ssConfig.SeparateEVMSubDBs,
+		)
 	}
 
 	changelogPath := utils.GetChangelogPath(dbHome)

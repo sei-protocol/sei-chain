@@ -41,9 +41,10 @@ const (
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
-	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
-	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
-	FlagEVMSSReadMode  = "state-store.evm-ss-read-mode"
+	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
+	FlagEVMSSWriteMode   = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode    = "state-store.evm-ss-read-mode"
+	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -69,7 +70,10 @@ func SetupSeiDB(
 	}
 	if ssConfig.EVMEnabled() {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",
-			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
+			"writeMode", ssConfig.WriteMode,
+			"readMode", ssConfig.ReadMode,
+			"separateDBs", ssConfig.SeparateEVMSubDBs,
+		)
 	}
 	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
@@ -146,6 +150,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
+	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
 		parsedWM, err := config.ParseWriteMode(wm)
 		if err != nil {
