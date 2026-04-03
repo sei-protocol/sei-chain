@@ -76,6 +76,13 @@ func (g *seiLegacyHTTPGate) handleSingle(w http.ResponseWriter, r *http.Request,
 		writeSeiLegacyBlocked(w, orNullID(msg.ID), err)
 		return
 	}
+	// Non-gated methods (eth_*, web3_*, net_*, etc.) need no recording or
+	// header injection — pass straight through so the gzip handler writes
+	// directly to the real http.ResponseWriter.
+	if !seiLegacyIsGatedNamespaceMethod(msg.Method) {
+		g.serveInnerWithBody(w, r, body)
+		return
+	}
 	rec := httptest.NewRecorder()
 	sub := r.Clone(r.Context())
 	sub.Body = io.NopCloser(bytes.NewReader(body))
