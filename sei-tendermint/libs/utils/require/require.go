@@ -71,6 +71,12 @@ var Fail = require.Fail
 // FailNow .
 var FailNow = require.FailNow
 
+// NoFileExists .
+var NoFileExists = require.NoFileExists
+
+// FileExists .
+var FileExists = require.FileExists
+
 // Positive .
 func Positive[T cmp.Ordered](t TestingT, e T, msgAndArgs ...any) {
 	require.Positive(t, e, msgAndArgs...)

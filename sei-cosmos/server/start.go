@@ -9,7 +9,6 @@ import (
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec
 	"os"
-	"path"
 	"path/filepath"
 	"runtime/pprof"
 	"sync"
@@ -60,23 +59,10 @@ const (
 	FlagPruningKeepEvery  = "pruning-keep-every"
 	FlagPruningInterval   = "pruning-interval"
 
-	// New pruning config keys under [iavl] section (v6.3.0+)
-	// TODO: Remove legacy fallback once all nodes have migrated to v6.3.0+
-	FlagIAVLPruning           = "iavl.pruning"
-	FlagIAVLPruningKeepRecent = "iavl.pruning-keep-recent"
-	FlagIAVLPruningKeepEvery  = "iavl.pruning-keep-every"
-	FlagIAVLPruningInterval   = "iavl.pruning-interval"
-
-	FlagIndexEvents                  = "index-events"
-	FlagMinRetainBlocks              = "min-retain-blocks"
-	FlagIAVLCacheSize                = "iavl-cache-size"
-	FlagIAVLFastNode                 = "iavl-disable-fastnode"
-	FlagCompactionInterval           = "compaction-interval"
-	FlagSeparateOrphanStorage        = "separate-orphan-storage"
-	FlagSeparateOrphanVersionsToKeep = "separate-orphan-versions-to-keep"
-	FlagNumOrphanPerFile             = "num-orphan-per-file"
-	FlagOrphanDirectory              = "orphan-dir"
-	FlagConcurrencyWorkers           = "concurrency-workers"
+	FlagIndexEvents        = "index-events"
+	FlagMinRetainBlocks    = "min-retain-blocks"
+	FlagCompactionInterval = "compaction-interval"
+	FlagConcurrencyWorkers = "concurrency-workers"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -244,10 +230,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
-	cmd.Flags().Bool(FlagSeparateOrphanStorage, false, "Whether to store orphans outside main application levelDB")
-	cmd.Flags().Int64(FlagSeparateOrphanVersionsToKeep, 2, "Number of versions to keep if storing orphans separately")
-	cmd.Flags().Int(FlagNumOrphanPerFile, 100000, "Number of orphans to store on each file if storing orphans separately")
-	cmd.Flags().String(FlagOrphanDirectory, path.Join(defaultNodeHome, "orphans"), "Directory to store orphan files if storing orphans separately")
 	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
@@ -264,8 +246,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
 	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
 	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
-	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
-
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
 	// add support for all Tendermint-specific command line options
@@ -303,10 +283,6 @@ func startInProcess(
 	}
 
 	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
-	db, err := openDB(home)
-	if err != nil {
-		return err
-	}
 
 	traceWriter, err := openTraceWriter(traceWriterFile)
 	if err != nil {
@@ -323,7 +299,7 @@ func startInProcess(
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	var tmNode service.Service

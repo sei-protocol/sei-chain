@@ -64,19 +64,6 @@ func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
 	}
 }
 
-func (c *BoundedCache) emitCacheSizeMetric() {
-	telemetry.SetGaugeWithLabels(
-		c.metricName,
-		float32(c.Len()),
-		[]metrics.Label{telemetry.NewLabel("type", "bounded_cache_size")},
-	)
-	telemetry.SetGaugeWithLabels(
-		c.metricName,
-		float32(c.limit),
-		[]metrics.Label{telemetry.NewLabel("type", "bounded_cache_limit")},
-	)
-}
-
 func (c *BoundedCache) emitKeysEvictedMetrics(keysToEvict int) {
 	telemetry.SetGaugeWithLabels(
 		c.metricName,
@@ -88,7 +75,6 @@ func (c *BoundedCache) emitKeysEvictedMetrics(keysToEvict int) {
 func (c *BoundedCache) Set(key string, val *CValue) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// defer c.emitCacheSizeMetric()
 
 	if c.Len() >= c.limit {
 		numEntries := c.Len()
@@ -112,7 +98,6 @@ func (c *BoundedCache) Set(key string, val *CValue) {
 func (c *BoundedCache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// defer c.emitCacheSizeMetric()
 
 	c.CacheBackend.Delete(key)
 }
@@ -120,7 +105,6 @@ func (c *BoundedCache) Delete(key string) {
 func (c *BoundedCache) DeleteAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// defer c.emitCacheSizeMetric()
 
 	c.CacheBackend.Range(func(key string, _ *CValue) bool {
 		c.CacheBackend.Delete(key)

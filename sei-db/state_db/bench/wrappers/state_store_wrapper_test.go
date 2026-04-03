@@ -6,14 +6,13 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testing.T) {
 	dataDir := t.TempDir()
 
-	store, err := openSSComposite(dataDir)
+	store, err := openSSComposite(dataDir, *DefaultBenchStateStoreConfig())
 	require.NoError(t, err)
 
 	wrapper := NewStateStoreWrapper(store)
@@ -24,7 +23,7 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	require.NoError(t, wrapper.ApplyChangeSets(changelogEntry(1, []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreName,
-			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: keyV1AndV2, Value: []byte("value-v1")},
 			}},
 		},
@@ -37,7 +36,7 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 	require.NoError(t, wrapper.ApplyChangeSets(changelogEntry(2, []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreName,
-			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: keyV1AndV2, Value: []byte("value-v2")},
 				{Key: keyV2Only, Value: []byte("value-v2-only")},
 			}},
@@ -50,7 +49,7 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 
 	require.NoError(t, wrapper.Close())
 
-	reopened, err := openSSComposite(dataDir)
+	reopened, err := openSSComposite(dataDir, *DefaultBenchStateStoreConfig())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, reopened.Close())
