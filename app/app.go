@@ -1825,6 +1825,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// For successful txs, the nonce is bumped by the EVM during execution.
 		if validation.bumpNonce {
 			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
+			app.EvmKeeper.SetNonceBumped(ctx)
 		}
 		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
 		// but no actual balance is deducted
