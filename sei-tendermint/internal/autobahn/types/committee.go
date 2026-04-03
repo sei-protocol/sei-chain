@@ -42,8 +42,8 @@ func NewSortedSet[T Compare[T]](vs []T) SortedSet[T] {
 }
 
 // All returns an iterator over all elements in order.
-func (s SortedSet[T]) All() iter.Seq2[int, T] {
-	return slices.All(s.sorted)
+func (s SortedSet[T]) All() iter.Seq[T] {
+	return slices.Values(s.sorted)
 }
 
 // Len returns the number of elements in the set.
