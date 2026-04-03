@@ -1029,7 +1029,6 @@ func (f *LogFetcher) getBlockForRangeQueryNormalization(ctx context.Context, hei
 }
 
 // filterOutSyntheticLogs removes logs that originate from synthetic (non-EVM)
-// receipts. The receipt for each distinct TxHash is looked up once; receipts
 // with TxType == ShellEVMTxType are considered synthetic.
 func (f *LogFetcher) filterOutSyntheticLogs(ctx sdk.Context, store receipt.ReceiptStore, logs []*ethtypes.Log) ([]*ethtypes.Log, error) {
 	type synthFlag struct {
