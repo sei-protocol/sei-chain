@@ -43,7 +43,7 @@ func handlerKVStore(capKey sdk.StoreKey) sdk.Handler {
 		txIndex := ctx.TxIndex()
 
 		// Use the unique ID to get a specific key for this transaction
-		sharedKey := []byte(fmt.Sprintf("shared"))
+		sharedKey := []byte("shared")
 		txKey := []byte(fmt.Sprintf("tx-%d", txIndex))
 
 		// Similar steps as before: Get the store, retrieve a value, increment it, store back, emit an event

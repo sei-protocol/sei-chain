@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -62,6 +63,24 @@ func TestFinalizeBlockRequiresChainID(t *testing.T) {
 		Header: &types.Header{Height: 1},
 	})
 	require.Error(t, err)
+}
+
+func TestGetValidators(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+
+	ctx := testWrapper.App.NewUncachedContext(false, types.Header{Height: testWrapper.App.LastBlockHeight()})
+	expectedValidators := testWrapper.App.DistrKeeper.GetAllValidators(ctx)
+	expectedUpdates := make([]abci.ValidatorUpdate, len(expectedValidators))
+	powerReduction := testWrapper.App.StakingKeeper.PowerReduction(ctx)
+	for i, validator := range expectedValidators {
+		expectedUpdates[i] = validator.ABCIValidatorUpdate(powerReduction)
+	}
+
+	var appIfc abci.Application = testWrapper.App
+	require.Equal(t, expectedUpdates, appIfc.GetValidators())
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
