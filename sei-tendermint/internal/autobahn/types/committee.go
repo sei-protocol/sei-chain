@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"time"
 )
 
 // SortedSet is an immutable set of elements.
@@ -70,6 +71,8 @@ type Committee struct {
 	// which should be passed around to verify autobahn messages.
 	// Once we introduce the chain spec it should wrap Committee and firstBlock.
 	firstBlock GlobalBlockNumber
+	// timestamp at genesis. All blocks need to have a timestamp later than genesis.
+	genesisTimestamp time.Time
 }
 
 // Lanes is the list of nodes which are eligible to produce blocks.

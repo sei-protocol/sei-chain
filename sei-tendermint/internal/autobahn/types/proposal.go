@@ -177,6 +177,15 @@ func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
 	return gr
 }
 
+// Monotone timestamp assigned to each block of the proposal.
+// Returns None, if n doed not belong to the proposal's global range.
+func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Option[time.Time] {
+	gr := m.GlobalRange(c)
+	if !gr.Has(n) { return utils.None[time.Time]() }
+	// Timestamps for consecutive blocks are 1us apart, which is an arbitrary deterministic constant.
+	return utils.Some(m.CreatedAt().Add(time.Duration(n-gr.First)*time.Microsecond))
+}
+
 // Verify checks that every present lane range belongs to the committee
 // and is internally valid. Lanes may be omitted — omitted lanes are
 // treated as implicit empty ranges by FullProposal.Verify.
