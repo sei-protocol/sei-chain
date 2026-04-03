@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"bytes"
 	"sort"
 	"sync"
 
@@ -86,19 +87,32 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 }
 
 // FilterLogs queries logs across a range of blocks.
-// Checks the cache first for recent blocks, then delegates to the backend.
+// When the cache fully covers the requested range the backend is skipped
+// entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
-	// First get logs from backend (parquet closed files)
-	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, toBlock, crit)
+	// Take a single cache snapshot so rotation cannot advance the cache minimum
+	// past the logs we already copied out of the cache.
+	cacheLogs, cacheMin, hasCacheLogs := s.cache.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
+	if hasCacheLogs && fromBlock >= cacheMin {
+		// Cache logs come from map-backed chunks, so direct cache hits need sorting.
+		sortLogs(cacheLogs)
+		return cacheLogs, nil
+	}
+
+	// Narrow the backend query to only the block range not covered by cache.
+	backendTo := toBlock
+	if hasCacheLogs && cacheMin <= toBlock && cacheMin > fromBlock {
+		backendTo = cacheMin - 1
+	}
+
+	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, backendTo, crit)
 	if err != nil {
 		return nil, err
 	}
 
-	// Then check cache for blocks that might not be in closed files yet
-	cacheLogs := s.cache.FilterLogs(fromBlock, toBlock, crit)
-
-	// Merge results, avoiding duplicates by tracking seen (blockNum, txIndex, logIndex)
 	if len(cacheLogs) == 0 {
+		// ReceiptStore backends are not required to return ordered logs.
+		sortLogs(backendLogs)
 		return backendLogs, nil
 	}
 	if len(backendLogs) == 0 {
@@ -106,7 +120,6 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		return cacheLogs, nil
 	}
 
-	// Build set of backend log keys to deduplicate
 	type logKey struct {
 		blockNum uint64
 		txIndex  uint
@@ -117,7 +130,6 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 		seen[logKey{lg.BlockNumber, lg.TxIndex, lg.Index}] = struct{}{}
 	}
 
-	// Add cache logs that aren't already in backend results
 	result := backendLogs
 	for _, lg := range cacheLogs {
 		key := logKey{lg.BlockNumber, lg.TxIndex, lg.Index}
@@ -154,56 +166,54 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
-	var (
-		currentBlock  uint64
-		hasBlock      bool
-		logStartIndex uint
-		cacheLogs     []*ethtypes.Log
-	)
-	cacheEntries := make([]receiptCacheEntry, 0, len(receipts))
-
-	fillCache := func(blockNumber uint64) {
-		if len(cacheEntries) == 0 && len(cacheLogs) == 0 {
-			return
+	receiptsByBlock := make(map[uint64][]ReceiptRecord)
+	blockNumbers := make([]uint64, 0, len(receipts))
+	for _, record := range receipts {
+		if record.Receipt == nil {
+			continue
 		}
+		blockNumber := record.Receipt.BlockNumber
+		if _, exists := receiptsByBlock[blockNumber]; !exists {
+			blockNumbers = append(blockNumbers, blockNumber)
+		}
+		receiptsByBlock[blockNumber] = append(receiptsByBlock[blockNumber], record)
+	}
+
+	sort.Slice(blockNumbers, func(i, j int) bool {
+		return blockNumbers[i] < blockNumbers[j]
+	})
+
+	for _, blockNumber := range blockNumbers {
+		blockReceipts := receiptsByBlock[blockNumber]
+		sort.Slice(blockReceipts, func(i, j int) bool {
+			left := blockReceipts[i].Receipt
+			right := blockReceipts[j].Receipt
+			if left.TransactionIndex != right.TransactionIndex {
+				return left.TransactionIndex < right.TransactionIndex
+			}
+			return bytes.Compare(blockReceipts[i].TxHash[:], blockReceipts[j].TxHash[:]) < 0
+		})
+
+		logStartIndex := uint(0)
+		cacheEntries := make([]receiptCacheEntry, 0, len(blockReceipts))
+		cacheLogs := make([]*ethtypes.Log, 0)
+		for _, record := range blockReceipts {
+			receipt := record.Receipt
+			txLogs := getLogsForTx(receipt, logStartIndex)
+			logStartIndex += uint(len(txLogs))
+
+			cacheEntries = append(cacheEntries, receiptCacheEntry{
+				TxHash:  record.TxHash,
+				Receipt: receipt,
+			})
+			cacheLogs = append(cacheLogs, txLogs...)
+		}
+
 		s.maybeRotateCacheLocked(blockNumber)
 		s.cache.AddReceiptsBatch(blockNumber, cacheEntries)
 		if len(cacheLogs) > 0 {
 			s.cache.AddLogsForBlock(blockNumber, cacheLogs)
 		}
-		cacheEntries = cacheEntries[:0]
-		cacheLogs = cacheLogs[:0]
-	}
-
-	for _, record := range receipts {
-		if record.Receipt == nil {
-			continue
-		}
-
-		receipt := record.Receipt
-		blockNumber := receipt.BlockNumber
-		if !hasBlock {
-			currentBlock = blockNumber
-			hasBlock = true
-		}
-		if blockNumber != currentBlock {
-			fillCache(currentBlock)
-			currentBlock = blockNumber
-			logStartIndex = 0
-		}
-
-		txLogs := getLogsForTx(receipt, logStartIndex)
-		logStartIndex += uint(len(txLogs))
-
-		cacheEntries = append(cacheEntries, receiptCacheEntry{
-			TxHash:  record.TxHash,
-			Receipt: receipt,
-		})
-		cacheLogs = append(cacheLogs, txLogs...)
-	}
-
-	if hasBlock {
-		fillCache(currentBlock)
 	}
 }
 
