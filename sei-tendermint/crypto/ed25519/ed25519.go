@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"runtime"
+	"slices"
 
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
@@ -37,22 +38,22 @@ var cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
 
 // SecretKey represents a secret key in the Ed25519 signature scheme.
 type SecretKey struct {
-	// This is a pointer to avoid copying the secret all over the memory.
+	// This is a pointer to avoid copying the secret to stack when used.
 	// This is a pointer to pointer, so that runtime.AddCleanup can actually work:
-	// Cleanup requires the referenced pointer to be unreachable, even from
-	// the cleanup function.
-	key **[ed25519.PrivateKeySize]byte
-	// Comparing the secrets is not allowed.
-	// If you have to, compare the public keys instead.
-	_ utils.NoCompare
+	// AddCleanup requires the referenced pointer to be unreachable, even from the cleanup function.
+	// This is a closure returning pointer to pointer , so that secret is not extractable via golang reflection,
+	// because reflection is not able to call closures stored in private fields of types in other modules.
+	// this protects us from reflection-based traversing (like default stringer implementation)
+	// We cannot reuse the closure interface as the outer pointer (i.e. reduce it to func() *[...]byte),
+	// because closure is not a pointer in go.
+	// The cost of dereferencing multiple times is assumed to be dwarfed by the crypto operations.
+	// Secret is not comparable and that's intentional. Compare the public keys instead.
+	key func() **[ed25519.PrivateKeySize]byte
 }
 
 // WARNING: this function should only be used when persisting the private key.
-// TODO(gprusak): this should return a read-only slice - in particular,
-// SecretKeyFromSecretBytes(k.SecretBytes()) would wipe k currently.
-func (k SecretKey) SecretBytes() []byte {
-	return (*k.key)[:]
-}
+// WARNING: caller is responsible for zeroizing the returned slice.
+func (k SecretKey) SecretBytes() []byte { return slices.Clone((*k.key())[:]) }
 
 // SecretKeyFromSecretBytes constructs a secret key from a raw secret material.
 // WARNING: this function zeroes the content of the input slice.
@@ -68,7 +69,7 @@ func SecretKeyFromSecretBytes(b []byte) (SecretKey, error) {
 			raw[i] = 0
 		}
 	}, raw)
-	key := SecretKey{key: &raw}
+	key := SecretKey{key: func() **Secret { return &raw }}
 	// Zero the input slice to avoid leaking the secret.
 	for i := range b {
 		b[i] = 0
@@ -107,7 +108,7 @@ func GenerateSecretKey() SecretKey {
 
 // Public returns the public key corresponding to the secret key.
 func (k SecretKey) Public() PublicKey {
-	p := ed25519.PrivateKey((*k.key)[:]).Public().(ed25519.PublicKey)
+	p := ed25519.PrivateKey((*k.key())[:]).Public().(ed25519.PublicKey)
 	return PublicKey{key: [ed25519.PublicKeySize]byte(p)}
 }
 
@@ -126,7 +127,7 @@ type Signature struct {
 // Sign signs a message using the secret key.
 func (k SecretKey) Sign(message []byte) Signature {
 	return Signature{
-		sig: [ed25519.SignatureSize]byte(ed25519.Sign((*k.key)[:], message)),
+		sig: [ed25519.SignatureSize]byte(ed25519.Sign((*k.key())[:], message)),
 	}
 }
 
@@ -147,7 +148,7 @@ func NewTag(tag string) (Tag, error) {
 func (k SecretKey) SignWithTag(tag Tag, msg []byte) Signature {
 	opts := &ed25519.Options{Context: tag.tag}
 	// Returns no error if opts.Context is of correct size.
-	sig := utils.OrPanic1(ed25519.PrivateKey((*k.key)[:]).Sign(nil, msg, opts))
+	sig := utils.OrPanic1(ed25519.PrivateKey((*k.key())[:]).Sign(nil, msg, opts))
 	return Signature{sig: [ed25519.SignatureSize]byte(sig)}
 }
 
