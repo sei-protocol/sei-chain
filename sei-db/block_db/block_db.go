@@ -1,6 +1,13 @@
 package blockdb
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNoBlocks is returned by GetLowestBlockHeight and GetHighestBlockHeight
+// when the database contains no blocks.
+var ErrNoBlocks = errors.New("block db: no blocks")
 
 // A binary transaction with its hash.
 type BinaryTransaction struct {
@@ -58,6 +65,12 @@ type BlockDB interface {
 	// and so this method does not provide any guarantees about when the pruning will complete. It is possible
 	// that some data will not be pruned if the database is closed before the pruning is scheduled.
 	Prune(ctx context.Context, lowestHeightToKeep uint64) error
+
+	// Retrieves the lowest block height in the database.
+	GetLowestBlockHeight(ctx context.Context) (uint64, error)
+
+	// Retrieves the highest block height in the database.
+	GetHighestBlockHeight(ctx context.Context) (uint64, error)
 
 	// Closes the database and releases any resources. Any in-flight writes are fully flushed to disk before this
 	// method returns.

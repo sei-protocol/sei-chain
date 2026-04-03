@@ -2,7 +2,9 @@ package blocksim
 
 import (
 	"context"
+	"time"
 
+	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -18,6 +20,10 @@ type BlocksimMetrics struct {
 	bytesWrittenTotal        metric.Int64Counter
 	pruneCallsTotal          metric.Int64Counter
 	flushCallsTotal          metric.Int64Counter
+
+	lowestBlockHeight  metric.Int64Gauge
+	highestBlockHeight metric.Int64Gauge
+	blockSizeBytes     metric.Int64Gauge
 }
 
 // NewBlocksimMetrics creates metrics for the blocksim benchmark using the
@@ -51,13 +57,78 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 		metric.WithDescription("Total number of flush calls"),
 		metric.WithUnit("{count}"),
 	)
-	return &BlocksimMetrics{
+
+	lowestBlockHeight, _ := meter.Int64Gauge(
+		"blocksim_lowest_block_height",
+		metric.WithDescription("Lowest block height currently stored in the database"),
+		metric.WithUnit("{height}"),
+	)
+	highestBlockHeight, _ := meter.Int64Gauge(
+		"blocksim_highest_block_height",
+		metric.WithDescription("Highest block height currently stored in the database"),
+		metric.WithUnit("{height}"),
+	)
+	blockSizeBytes, _ := meter.Int64Gauge(
+		"blocksim_block_size_bytes",
+		metric.WithDescription("Size in bytes of a single generated block (constant for a given config)"),
+		metric.WithUnit("By"),
+	)
+
+	m := &BlocksimMetrics{
 		ctx:                      ctx,
 		blocksWrittenTotal:       blocksWrittenTotal,
 		transactionsWrittenTotal: transactionsWrittenTotal,
 		bytesWrittenTotal:        bytesWrittenTotal,
 		pruneCallsTotal:          pruneCallsTotal,
 		flushCallsTotal:          flushCallsTotal,
+		lowestBlockHeight:        lowestBlockHeight,
+		highestBlockHeight:       highestBlockHeight,
+		blockSizeBytes:           blockSizeBytes,
+	}
+
+	m.recordBlockSize(config)
+	return m
+}
+
+func (m *BlocksimMetrics) recordBlockSize(config *BlocksimConfig) {
+	if m == nil || m.blockSizeBytes == nil {
+		return
+	}
+	size := int64(config.BlockHashSize + config.ExtraBytesPerBlock +
+		config.TransactionsPerBlock*(config.TransactionHashSize+config.BytesPerTransaction))
+	m.blockSizeBytes.Record(context.Background(), size)
+}
+
+// StartBlockDBPolling launches a background goroutine that periodically queries
+// the database for the current lowest and highest block heights, recording them
+// as gauge metrics. The goroutine exits when ctx is cancelled.
+func (m *BlocksimMetrics) StartBlockDBPolling(ctx context.Context, db blockdb.BlockDB, intervalSeconds int) {
+	if m == nil || intervalSeconds <= 0 {
+		return
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		m.pollBlockHeights(ctx, db)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.pollBlockHeights(ctx, db)
+			}
+		}
+	}()
+}
+
+func (m *BlocksimMetrics) pollBlockHeights(ctx context.Context, db blockdb.BlockDB) {
+	bg := context.Background()
+	if lo, err := db.GetLowestBlockHeight(ctx); err == nil {
+		m.lowestBlockHeight.Record(bg, int64(lo)) //nolint:gosec
+	}
+	if hi, err := db.GetHighestBlockHeight(ctx); err == nil {
+		m.highestBlockHeight.Record(bg, int64(hi)) //nolint:gosec
 	}
 }
 

@@ -121,6 +121,28 @@ func (m *memBlockDB) Prune(_ context.Context, lowestHeightToKeep uint64) error {
 	return nil
 }
 
+func (m *memBlockDB) GetLowestBlockHeight(_ context.Context) (uint64, error) {
+	d := m.data
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if !d.hasBlocks {
+		return 0, blockdb.ErrNoBlocks
+	}
+	return d.lowestHeight, nil
+}
+
+func (m *memBlockDB) GetHighestBlockHeight(_ context.Context) (uint64, error) {
+	d := m.data
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if !d.hasBlocks {
+		return 0, blockdb.ErrNoBlocks
+	}
+	return d.highestHeight, nil
+}
+
 func (m *memBlockDB) Close(_ context.Context) error {
 	return nil
 }

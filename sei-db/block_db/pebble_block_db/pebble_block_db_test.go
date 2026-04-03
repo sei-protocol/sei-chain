@@ -170,6 +170,95 @@ func TestPruneAfterReopen(t *testing.T) {
 	}
 }
 
+func TestGetBlockHeightsEmpty(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	_, err := db.GetLowestBlockHeight(ctx)
+	if err == nil {
+		t.Fatal("expected error on empty db, got nil")
+	}
+	_, err = db.GetHighestBlockHeight(ctx)
+	if err == nil {
+		t.Fatal("expected error on empty db, got nil")
+	}
+}
+
+func TestGetBlockHeightsAfterWrites(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	for _, h := range []uint64{5, 3, 8, 1, 10} {
+		requireNoError(t, db.WriteBlock(ctx, makeBlock(h, 1)))
+	}
+	requireNoError(t, db.Flush(ctx))
+
+	lo, err := db.GetLowestBlockHeight(ctx)
+	requireNoError(t, err)
+	if lo != 1 {
+		t.Fatalf("expected lowest height 1, got %d", lo)
+	}
+
+	hi, err := db.GetHighestBlockHeight(ctx)
+	requireNoError(t, err)
+	if hi != 10 {
+		t.Fatalf("expected highest height 10, got %d", hi)
+	}
+}
+
+func TestGetBlockHeightsAfterPrune(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+
+	for i := uint64(1); i <= 10; i++ {
+		requireNoError(t, db.WriteBlock(ctx, makeBlock(i, 1)))
+	}
+	requireNoError(t, db.Flush(ctx))
+	requireNoError(t, db.Prune(ctx, 6))
+	requireNoError(t, db.Flush(ctx))
+
+	lo, err := db.GetLowestBlockHeight(ctx)
+	requireNoError(t, err)
+	if lo != 6 {
+		t.Fatalf("expected lowest height 6 after prune, got %d", lo)
+	}
+
+	hi, err := db.GetHighestBlockHeight(ctx)
+	requireNoError(t, err)
+	if hi != 10 {
+		t.Fatalf("expected highest height 10 after prune, got %d", hi)
+	}
+}
+
+func TestGetBlockHeightsAfterReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	db, err := Open(ctx, dir)
+	requireNoError(t, err)
+	for i := uint64(3); i <= 7; i++ {
+		requireNoError(t, db.WriteBlock(ctx, makeBlock(i, 1)))
+	}
+	requireNoError(t, db.Flush(ctx))
+	requireNoError(t, db.Close(ctx))
+
+	db, err = Open(ctx, dir)
+	requireNoError(t, err)
+	defer db.Close(ctx)
+
+	lo, err := db.GetLowestBlockHeight(ctx)
+	requireNoError(t, err)
+	if lo != 3 {
+		t.Fatalf("expected lowest height 3 after reopen, got %d", lo)
+	}
+
+	hi, err := db.GetHighestBlockHeight(ctx)
+	requireNoError(t, err)
+	if hi != 7 {
+		t.Fatalf("expected highest height 7 after reopen, got %d", hi)
+	}
+}
+
 func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

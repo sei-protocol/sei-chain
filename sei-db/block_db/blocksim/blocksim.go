@@ -116,6 +116,8 @@ func NewBlockSim(
 		rateLimiter:           rateLimiter,
 	}
 
+	metrics.StartBlockDBPolling(ctx, db, config.BackgroundMetricsScrapeInterval)
+
 	go b.run()
 	return b, nil
 }

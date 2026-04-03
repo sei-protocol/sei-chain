@@ -208,6 +208,20 @@ func (p *pebbleBlockDB) Prune(_ context.Context, lowestHeightToKeep uint64) erro
 	return nil
 }
 
+func (p *pebbleBlockDB) GetLowestBlockHeight(_ context.Context) (uint64, error) {
+	if !p.hasBlocks.Load() {
+		return 0, blockdb.ErrNoBlocks
+	}
+	return p.loHeight.Load(), nil
+}
+
+func (p *pebbleBlockDB) GetHighestBlockHeight(_ context.Context) (uint64, error) {
+	if !p.hasBlocks.Load() {
+		return 0, blockdb.ErrNoBlocks
+	}
+	return p.hiHeight.Load(), nil
+}
+
 func (p *pebbleBlockDB) Close(_ context.Context) error {
 	done := make(chan error, 1)
 	p.cmdCh <- command{kind: cmdClose, done: done}
