@@ -1203,7 +1203,7 @@ func (cfg *ConsensusConfig) WalFile() string {
 
 	if cfg.WalPath == oldDefault || cfg.WalPath == newDefault {
 		legacyDir := filepath.Join(rootify(defaultDataDir, cfg.RootDir), "cs.wal")
-		if pathExists(legacyDir) {
+		if dirExists(legacyDir) {
 			return filepath.Join(legacyDir, "wal")
 		}
 		return filepath.Join(rootify(defaultDataDir, cfg.RootDir), "tendermint", "cs.wal", "wal")

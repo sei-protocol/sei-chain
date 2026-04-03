@@ -9,14 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPathExists(t *testing.T) {
+func TestDirExists(t *testing.T) {
 	dir := t.TempDir()
-	assert.True(t, PathExists(dir))
-	assert.False(t, PathExists(filepath.Join(dir, "nonexistent")))
+	assert.True(t, DirExists(dir))
+	assert.False(t, DirExists(filepath.Join(dir, "nonexistent")))
 
 	f := filepath.Join(dir, "file.txt")
 	require.NoError(t, os.WriteFile(f, []byte("hi"), 0644))
-	assert.True(t, PathExists(f))
+	assert.False(t, DirExists(f), "regular file should not match DirExists")
+}
+
+func TestFileExists(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, FileExists(dir), "directory should not match FileExists")
+	assert.False(t, FileExists(filepath.Join(dir, "nonexistent")))
+
+	f := filepath.Join(dir, "file.txt")
+	require.NoError(t, os.WriteFile(f, []byte("hi"), 0644))
+	assert.True(t, FileExists(f))
 }
 
 // --- GetCosmosSCStorePath ---

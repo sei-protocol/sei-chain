@@ -5,10 +5,16 @@ import (
 	"path/filepath"
 )
 
-// PathExists returns true if the given path exists on disk.
-func PathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+// DirExists returns true if path exists and is a directory.
+func DirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// FileExists returns true if path exists and is a regular file.
+func FileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // GetCosmosSCStorePath returns the path for the memiavl state commitment store.
@@ -16,7 +22,7 @@ func PathExists(path string) bool {
 // continue using the legacy path for backward compatibility.
 func GetCosmosSCStorePath(homePath string) string {
 	legacyPath := filepath.Join(homePath, "data", "committer.db")
-	if PathExists(legacyPath) {
+	if DirExists(legacyPath) {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "state_commit", "memiavl")
@@ -27,7 +33,7 @@ func GetCosmosSCStorePath(homePath string) string {
 // continue using the legacy path for backward compatibility.
 func GetFlatKVPath(homePath string) string {
 	legacyPath := filepath.Join(homePath, "data", "flatkv")
-	if PathExists(legacyPath) {
+	if DirExists(legacyPath) {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "state_commit", "flatkv")
@@ -38,7 +44,7 @@ func GetFlatKVPath(homePath string) string {
 // data/{backend} continue using the legacy path for backward compatibility.
 func GetStateStorePath(homePath string, backend string) string {
 	legacyPath := filepath.Join(homePath, "data", backend)
-	if PathExists(legacyPath) {
+	if DirExists(legacyPath) {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "state_store", "cosmos", backend)
@@ -49,7 +55,7 @@ func GetStateStorePath(homePath string, backend string) string {
 // data/evm_ss continue using the legacy path for backward compatibility.
 func GetEVMStateStorePath(homePath string, backend string) string {
 	legacyPath := filepath.Join(homePath, "data", "evm_ss")
-	if PathExists(legacyPath) {
+	if DirExists(legacyPath) {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "state_store", "evm", backend)
@@ -60,7 +66,7 @@ func GetEVMStateStorePath(homePath string, backend string) string {
 // data/receipt.db continue using the legacy path for backward compatibility.
 func GetReceiptStorePath(homePath string, backend string) string {
 	legacyPath := filepath.Join(homePath, "data", "receipt.db")
-	if PathExists(legacyPath) {
+	if DirExists(legacyPath) {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "ledger", "receipt", backend)

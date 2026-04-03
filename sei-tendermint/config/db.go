@@ -46,13 +46,13 @@ func ResolveDBDir(dbID string, baseDir string) string {
 		return baseDir
 	}
 	legacyPath := filepath.Join(baseDir, dbID+".db")
-	if pathExists(legacyPath) {
+	if dirExists(legacyPath) {
 		return baseDir
 	}
 	return filepath.Join(baseDir, subDir)
 }
 
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
