@@ -222,10 +222,10 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 }
 
 // TestProcessProposalResetsBetweenRounds verifies that:
-// 1. InitChain genesis state is preserved for block 1's ProcessProposal.
-// 2. processProposalState is reset with a fresh CacheMultiStore on each
-//    subsequent ProcessProposal call, so that state written by a previous
-//    round's optimistic processing does not leak.
+//  1. InitChain genesis state is preserved for block 1's ProcessProposal.
+//  2. processProposalState is reset with a fresh CacheMultiStore on each
+//     subsequent ProcessProposal call, so that state written by a previous
+//     round's optimistic processing does not leak.
 func TestProcessProposalResetsBetweenRounds(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
