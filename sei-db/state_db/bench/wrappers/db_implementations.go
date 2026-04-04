@@ -152,7 +152,7 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
 	case SSHistoricalOffload:
-		return newSSHistoricalOffloadStateStore(dataDir)
+		return newSSHistoricalOffloadStateStore(ctx, dataDir)
 	case CompositeDual_SSComposite:
 		return newCombinedCompositeDualSSComposite(ctx, dataDir, dbConfig.(*config.StateStoreConfig))
 	default:
