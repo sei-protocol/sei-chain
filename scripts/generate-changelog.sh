@@ -1,66 +1,53 @@
 #!/bin/bash
 #
-# Generate a changelog section for a new version by discovering PRs merged
-# since a given git tag.
+# Generate a changelog between two release/* branches.
 #
 # Usage:
-#   ./scripts/generate-changelog.sh <new-version> <since-tag>
+#   ./scripts/generate-changelog.sh <base-branch> <head-branch>
 #
 # Example:
-#   ./scripts/generate-changelog.sh v6.4 v6.3.0
+#   ./scripts/generate-changelog.sh release/v6.3 release/v6.4
 #
-# The script will:
-#   1. Find the merge date of the <since-tag> on the remote
-#   2. Fetch all PRs merged after that date via `gh`
-#   3. Output a sorted changelog section (descending by PR number)
-#
-# Prerequisites: gh (GitHub CLI) must be authenticated.
- 
+# The script extracts PR numbers and titles directly from squash-merge
+# commit subjects (which follow the pattern "Title (#NNN)"), so it
+# requires no GitHub API calls and runs in under a second.
+
 set -euo pipefail
- 
+
 REPO="sei-protocol/sei-chain"
-VERSION="${1:-}"
-SINCE_TAG="${2:-}"
- 
-if [ -z "$VERSION" ] || [ -z "$SINCE_TAG" ]; then
-    echo "Usage: $0 <new-version> <since-tag>" >&2
-    echo "Example: $0 v6.4 v6.3.0" >&2
+BASE_BRANCH="${1:-}"
+HEAD_BRANCH="${2:-}"
+
+if [ -z "$BASE_BRANCH" ] || [ -z "$HEAD_BRANCH" ]; then
+    echo "Usage: $0 <base-branch> <head-branch>" >&2
+    echo "Example: $0 release/v6.3 release/v6.4" >&2
     exit 1
 fi
- 
-if ! command -v gh &>/dev/null; then
-    echo "Error: gh (GitHub CLI) is required but not found." >&2
-    exit 1
-fi
- 
-# Get the date of the since-tag commit so we can query PRs merged after it.
-# Try local first, fall back to fetching the tag.
-if ! tag_date=$(git log -1 --format='%aI' "$SINCE_TAG" 2>/dev/null); then
-    echo "Tag $SINCE_TAG not found locally, fetching..." >&2
-    git fetch origin "refs/tags/${SINCE_TAG}:refs/tags/${SINCE_TAG}"
-    tag_date=$(git log -1 --format='%aI' "$SINCE_TAG")
-fi
- 
-echo "Tag ${SINCE_TAG} date: ${tag_date}" >&2
-echo "Fetching PRs merged after ${tag_date}..." >&2
- 
-# Fetch merged PRs after the tag date.
-prs=$(gh pr list \
-    --repo "$REPO" \
-    --state merged \
-    --limit 500 \
-    --search "merged:>${tag_date}" \
-    --json number,title \
-    --jq ".[] | \"* [#\\(.number)](https://github.com/${REPO}/pull/\\(.number)) \\(.title)\"")
- 
-if [ -z "$prs" ]; then
-    echo "No new PRs found after tag ${SINCE_TAG}." >&2
+
+# Ensure both branches are available locally.
+for branch in "$BASE_BRANCH" "$HEAD_BRANCH"; do
+    if ! git rev-parse --verify "$branch" &>/dev/null; then
+        echo "Branch $branch not found locally, fetching..." >&2
+        git fetch origin "$branch"
+    fi
+done
+
+# Parse squash-merge subjects: "Some title (#1234)"
+# Extract the PR number and everything before it as the title.
+changelog=$(git log --format='%s' "origin/${BASE_BRANCH}..origin/${HEAD_BRANCH}" \
+    | sed -n 's/\(.*\) (#\([0-9]*\))$/\2 \1/p' \
+    | sort -t' ' -k1 -rn \
+    | awk -v repo="$REPO" '!seen[$1]++ { printf "* [#%s](https://github.com/%s/pull/%s) %s\n", $1, repo, $1, substr($0, index($0," ")+1) }')
+
+if [ -z "$changelog" ]; then
+    echo "No PRs found between ${BASE_BRANCH} and ${HEAD_BRANCH}." >&2
     exit 0
 fi
- 
-# Sort by PR number descending
-sorted_prs=$(echo "$prs" | sort -t'#' -k2 -rn)
- 
-echo "## ${VERSION}"
+
+total=$(echo "$changelog" | wc -l | tr -d ' ')
+echo "Found ${total} PRs." >&2
+
+head_label="${HEAD_BRANCH#release/}"
+echo "## ${head_label}"
 echo "sei-chain"
-echo "$sorted_prs"
+echo "$changelog"
