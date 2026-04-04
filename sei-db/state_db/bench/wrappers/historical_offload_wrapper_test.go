@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
@@ -140,6 +141,42 @@ func TestHistoricalOffloadWrapperImporterUnsupported(t *testing.T) {
 func TestHistoricalOffloadWrapperGetPhaseTimerIsNil(t *testing.T) {
 	wrapper := NewHistoricalOffloadWrapper(&mockHistoricalOffloadStateStore{}, &mockOffloadStream{})
 	require.Nil(t, wrapper.GetPhaseTimer())
+}
+
+func TestSetHistoricalOffloadStreamFactoryAllowsOverrideAndReset(t *testing.T) {
+	original := currentHistoricalOffloadStreamFactory()
+	t.Cleanup(func() {
+		SetHistoricalOffloadStreamFactory(original)
+	})
+
+	custom := func(_ context.Context, _ string, _ config.StateStoreConfig) (offload.Stream, error) {
+		return &mockOffloadStream{}, nil
+	}
+
+	SetHistoricalOffloadStreamFactory(custom)
+	require.NotNil(t, currentHistoricalOffloadStreamFactory())
+
+	stream, err := currentHistoricalOffloadStreamFactory()(context.Background(), "", config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	require.IsType(t, &mockOffloadStream{}, stream)
+
+	SetHistoricalOffloadStreamFactory(nil)
+	stream, err = currentHistoricalOffloadStreamFactory()(context.Background(), "", config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	require.Implements(t, (*offload.Stream)(nil), stream)
+}
+
+func TestNewBufferedHistoricalOffloadStreamAcceptsPublish(t *testing.T) {
+	stream := NewBufferedHistoricalOffloadStream(1)
+	closer, ok := stream.(interface{ Close() error })
+	require.True(t, ok)
+	t.Cleanup(func() {
+		require.NoError(t, closer.Close())
+	})
+
+	ack, err := stream.Publish(context.Background(), &proto.ChangelogEntry{Version: 1})
+	require.NoError(t, err)
+	require.True(t, ack.Accepted)
 }
 
 var _ DBWrapper = NewHistoricalOffloadWrapper(&mockHistoricalOffloadStateStore{}, &mockOffloadStream{})
