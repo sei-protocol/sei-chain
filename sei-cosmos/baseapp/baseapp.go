@@ -528,10 +528,21 @@ func (app *BaseApp) Seal() { app.sealed = true }
 // IsSealed returns true if the BaseApp is sealed and false otherwise.
 func (app *BaseApp) IsSealed() bool { return app.sealed }
 
+// perStateCacheMultiStore is implemented by store backends that maintain
+// isolated inter-block caches for deliverState and processProposalState. When
+// app.cms satisfies this interface the two setter helpers use the dedicated
+// per-state methods so that in-memory cache state does not leak across states.
+// checkState intentionally does not use an inter-block cache.
+type perStateCacheMultiStore interface {
+	CacheMultiStoreForDeliver() sdk.CacheMultiStore
+	CacheMultiStoreForProcessProposal() sdk.CacheMultiStore
+}
+
 // setCheckState sets the BaseApp's checkState with a branched multi-store
 // (i.e. a CacheMultiStore) and a new Context with the same multi-store branch,
 // provided header, and minimum gas prices set. It is set on InitChain and reset
-// on Commit.
+// on Commit. checkState does not use an inter-block cache so that it always
+// reads from the last committed state without any cross-state cache pollution.
 func (app *BaseApp) setCheckState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, true).WithMinGasPrices(app.minGasPrices)
@@ -554,7 +565,12 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // and provided header. It is set on InitChain and BeginBlock and set to nil on
 // Commit.
 func (app *BaseApp) setDeliverState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	var ms sdk.CacheMultiStore
+	if psms, ok := app.cms.(perStateCacheMultiStore); ok {
+		ms = psms.CacheMultiStoreForDeliver()
+	} else {
+		ms = app.cms.CacheMultiStore()
+	}
 	ctx := sdk.NewContext(ms, header, false)
 	if app.deliverState == nil {
 		app.deliverState = &state{
@@ -569,7 +585,12 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 }
 
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	var ms sdk.CacheMultiStore
+	if psms, ok := app.cms.(perStateCacheMultiStore); ok {
+		ms = psms.CacheMultiStoreForProcessProposal()
+	} else {
+		ms = app.cms.CacheMultiStore()
+	}
 	ctx := sdk.NewContext(ms, header, false)
 	if app.processProposalState == nil {
 		app.processProposalState = &state{
