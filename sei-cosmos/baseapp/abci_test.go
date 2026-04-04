@@ -221,6 +221,93 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }
 
+// TestProcessProposalResetsBetweenRounds verifies that:
+// 1. InitChain genesis state is preserved for block 1's ProcessProposal.
+// 2. processProposalState is reset with a fresh CacheMultiStore on each
+//    subsequent ProcessProposal call, so that state written by a previous
+//    round's optimistic processing does not leak.
+func TestProcessProposalResetsBetweenRounds(t *testing.T) {
+	db := dbm.NewMemDB()
+	name := t.Name()
+	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
+	capKey := sdk.NewKVStoreKey("main")
+	app.MountStores(capKey)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
+
+	genesisKey, genesisVal := []byte("genesis_key"), []byte("genesis_val")
+	stateKey, stateVal := []byte("round_key"), []byte("round_val")
+	round := 0
+	leakedFromPreviousRound := false
+
+	app.SetInitChainer(func(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
+		store := ctx.KVStore(capKey)
+		store.Set(genesisKey, genesisVal)
+		return abci.ResponseInitChain{}
+	})
+
+	app.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+		round++
+		store := ctx.KVStore(capKey)
+
+		if round == 1 {
+			// Block 1: genesis state from InitChain must be visible
+			require.Equal(t, genesisVal, store.Get(genesisKey),
+				"genesis state from InitChain not visible in block 1 ProcessProposal")
+		}
+
+		if round > 2 {
+			// Rounds after round 1 at height 2: check for leaked state
+			if store.Get(stateKey) != nil {
+				leakedFromPreviousRound = true
+			}
+		}
+		// Write state that should NOT be visible in the next round
+		store.Set(stateKey, stateVal)
+		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
+	})
+
+	err := app.LoadLatestVersion()
+	require.NoError(t, err)
+
+	app.InitChain(context.Background(), &abci.RequestInitChain{
+		AppStateBytes: []byte("{}"),
+		ChainId:       "test-chain",
+	})
+
+	// Block 1: ProcessProposal should see InitChain genesis state (round=1)
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
+		Hash:   []byte("hash0"),
+	})
+	require.Equal(t, 1, round)
+
+	// Commit block 1
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
+	})
+	app.SetDeliverStateToCommit()
+	app.Commit(context.Background())
+	require.Equal(t, int64(1), app.LastBlockHeight())
+
+	header := tmproto.Header{ChainID: "test-chain", Height: 2}
+
+	// Height 2, Round 1 (round=2)
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &header,
+		Hash:   []byte("hash1"),
+	})
+	require.Equal(t, 2, round)
+
+	// Height 2, Round 2 — simulates a new consensus round (round=3)
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &header,
+		Hash:   []byte("hash2"),
+	})
+	require.Equal(t, 3, round)
+	require.False(t, leakedFromPreviousRound,
+		"state from round 1 ProcessProposal leaked into round 2")
+}
+
 type mockNonQueryableMultiStore struct {
 	sdk.CommitMultiStore
 }
