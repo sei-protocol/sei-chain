@@ -2,7 +2,6 @@ package composite
 
 import (
 	"fmt"
-	"path/filepath"
 	"sync"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
@@ -59,7 +58,7 @@ func NewCompositeStateStore(
 	if ssConfig.EVMEnabled() {
 		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
-			evmDir = filepath.Join(homeDir, "data", "evm_ss")
+			evmDir = utils.GetEVMStateStorePath(homeDir, ssConfig.Backend)
 		}
 
 		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig)

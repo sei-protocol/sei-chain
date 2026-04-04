@@ -74,7 +74,7 @@ type StateStoreConfig struct {
 	ReadMode ReadMode `mapstructure:"read-mode"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
-	// If not set, defaults to <home>/data/evm_ss
+	// If not set, defaults to <home>/data/state_store/evm/{backend}
 	EVMDBDirectory string `mapstructure:"evm-db-directory"`
 }
 
