@@ -228,6 +228,39 @@ func (cms Store) CacheMultiStore() types.CacheMultiStore {
 	return newCacheMultiStoreFromCMS(cms)
 }
 
+// CacheMultiStoreForOCC creates a hollow CMS where all stores are directly
+// provided by the caller via handler functions. This skips creating
+// intermediate cachekv instances that would be immediately discarded when
+// the OCC scheduler replaces all stores with VersionIndexedStores.
+func (cms Store) CacheMultiStoreForOCC(
+	kvHandler func(sk types.StoreKey) types.CacheWrap,
+	gigaHandler func(sk types.StoreKey) types.KVStore,
+) types.CacheMultiStore {
+	// Use cms.keys as the canonical set of store keys — no need to
+	// materialize parent stores just to discover which keys exist.
+	result := Store{
+		db:              cachekv.NewStore(cms.db, nil, types.DefaultCacheSizeLimit),
+		stores:          make(map[types.StoreKey]types.CacheWrap, len(cms.keys)),
+		parents:         make(map[types.StoreKey]types.CacheWrapper),
+		keys:            cms.keys,
+		gigaKeys:        cms.gigaKeys,
+		gigaStores:      make(map[types.StoreKey]types.KVStore, len(cms.gigaKeys)),
+		traceWriter:     cms.traceWriter,
+		traceContext:    cms.traceContext,
+		mu:              &sync.RWMutex{},
+		materializeOnce: &sync.Once{},
+	}
+
+	for _, k := range cms.keys {
+		result.stores[k] = kvHandler(k)
+	}
+	for _, k := range cms.gigaKeys {
+		result.gigaStores[k] = gigaHandler(k)
+	}
+
+	return result
+}
+
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
 // as an already cached multi-store cannot load previous versions.
 //
