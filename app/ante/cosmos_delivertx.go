@@ -33,19 +33,27 @@ func CosmosDeliverTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
+
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
 	if err != nil {
 		return ctx, err
-	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	authParams := accountKeeper.GetParams(ctx)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
+	}
+
+	if !isGasless {
+		if err := ChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk); err != nil {
+			return ctx, err
+		}
+	}
+
+	if !isGasless {
+		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	ctx.GasMeter().ConsumeGas(authParams.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "txSize")
@@ -66,10 +74,6 @@ func CosmosDeliverTxAnte(
 		return ctx, err
 	}
 	ctx.EventManager().EmitEvents(signerEvents)
-
-	if err := ChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk); err != nil {
-		return ctx, err
-	}
 
 	return ctx, nil
 }

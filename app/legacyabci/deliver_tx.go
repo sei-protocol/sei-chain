@@ -105,11 +105,19 @@ func DeliverTx(
 	}
 
 	events := ctx.EventManager().Events()
+
+	isEVM, _ := evmante.IsEVMMessage(tx)
+	if !isEVM {
+		msCache.Write()
+	}
+
 	if err != nil {
 		return gInfo, nil, nil, ctx, err
 	}
 	gasWanted = ctx.GasMeter().Limit()
-	msCache.Write()
+	if isEVM {
+		msCache.Write()
+	}
 	anteEvents = events.ToABCIEvents()
 	anteSpan.End()
 

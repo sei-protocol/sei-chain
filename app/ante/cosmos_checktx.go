@@ -81,19 +81,26 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
+
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
 	if err != nil {
 		return ctx, err
-	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	authParams := accountKeeper.GetParams(ctx)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
+	}
+
+	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk, isGasless)
+	if err != nil {
+		return ctx, err
+	}
+
+	if !isGasless {
+		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	ctx.GasMeter().ConsumeGas(authParams.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "txSize")
@@ -111,10 +118,6 @@ func CosmosCheckTxAnte(
 		return ctx, err
 	}
 
-	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk, isGasless)
-	if err != nil {
-		return ctx, err
-	}
 	ctx = DecoratePriority(ctx, priority, oracleVote)
 
 	return ctx, CheckMessage(ctx, tx, ibcKeeper, oraclek)
