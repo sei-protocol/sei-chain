@@ -221,12 +221,10 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }
 
-// TestProcessProposalResetsBetweenRounds verifies that:
-//  1. InitChain genesis state is preserved for block 1's ProcessProposal.
-//  2. processProposalState is reset with a fresh CacheMultiStore on each
-//     subsequent ProcessProposal call, so that state written by a previous
-//     round's optimistic processing does not leak.
-func TestProcessProposalResetsBetweenRounds(t *testing.T) {
+// TestProcessProposalStateResetOnDifferentHash verifies that
+// processProposalState is reset when a different proposal hash arrives,
+// but preserved when the same hash is re-proposed.
+func TestProcessProposalStateResetOnDifferentHash(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
@@ -236,8 +234,13 @@ func TestProcessProposalResetsBetweenRounds(t *testing.T) {
 
 	genesisKey, genesisVal := []byte("genesis_key"), []byte("genesis_val")
 	stateKey, stateVal := []byte("round_key"), []byte("round_val")
-	round := 0
-	leakedFromPreviousRound := false
+
+	// Track observations from the handler
+	type observation struct {
+		genesisVisible bool
+		stateVisible   bool
+	}
+	var observations []observation
 
 	app.SetInitChainer(func(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 		store := ctx.KVStore(capKey)
@@ -246,22 +249,11 @@ func TestProcessProposalResetsBetweenRounds(t *testing.T) {
 	})
 
 	app.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-		round++
 		store := ctx.KVStore(capKey)
-
-		if round == 1 {
-			// Block 1: genesis state from InitChain must be visible
-			require.Equal(t, genesisVal, store.Get(genesisKey),
-				"genesis state from InitChain not visible in block 1 ProcessProposal")
-		}
-
-		if round > 2 {
-			// Rounds after round 1 at height 2: check for leaked state
-			if store.Get(stateKey) != nil {
-				leakedFromPreviousRound = true
-			}
-		}
-		// Write state that should NOT be visible in the next round
+		observations = append(observations, observation{
+			genesisVisible: store.Get(genesisKey) != nil,
+			stateVisible:   store.Get(stateKey) != nil,
+		})
 		store.Set(stateKey, stateVal)
 		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 	})
@@ -274,12 +266,11 @@ func TestProcessProposalResetsBetweenRounds(t *testing.T) {
 		ChainId:       "test-chain",
 	})
 
-	// Block 1: ProcessProposal should see InitChain genesis state (round=1)
+	// Call 0: Block 1 — should see genesis state
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
 		Hash:   []byte("hash0"),
 	})
-	require.Equal(t, 1, round)
 
 	// Commit block 1
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
@@ -287,25 +278,46 @@ func TestProcessProposalResetsBetweenRounds(t *testing.T) {
 	})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
-	require.Equal(t, int64(1), app.LastBlockHeight())
 
 	header := tmproto.Header{ChainID: "test-chain", Height: 2}
 
-	// Height 2, Round 1 (round=2)
+	// Call 1: Height 2, hash=A — fresh start after commit
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header,
-		Hash:   []byte("hash1"),
+		Header: &header, Hash: []byte("hashA"),
 	})
-	require.Equal(t, 2, round)
 
-	// Height 2, Round 2 — simulates a new consensus round (round=3)
+	// Call 2: Height 2, hash=A again (same hash re-proposed) — should see state
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header,
-		Hash:   []byte("hash2"),
+		Header: &header, Hash: []byte("hashA"),
 	})
-	require.Equal(t, 3, round)
-	require.False(t, leakedFromPreviousRound,
-		"state from round 1 ProcessProposal leaked into round 2")
+
+	// Call 3: Height 2, hash=B (different hash) — should NOT see state
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &header, Hash: []byte("hashB"),
+	})
+
+	// Call 4: Height 2, hash=A again — should NOT see state from earlier hash=A rounds
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &header, Hash: []byte("hashA"),
+	})
+
+	require.Len(t, observations, 5)
+
+	// Call 0: block 1 — genesis visible, no prior state
+	require.True(t, observations[0].genesisVisible, "genesis state must be visible for block 1")
+	require.False(t, observations[0].stateVisible)
+
+	// Call 1: fresh after commit — no state
+	require.False(t, observations[1].stateVisible, "state should not survive commit")
+
+	// Call 2: same hash re-proposed — state preserved
+	require.True(t, observations[2].stateVisible, "state should be preserved for same hash")
+
+	// Call 3: different hash — state reset
+	require.False(t, observations[3].stateVisible, "state should be reset for different hash")
+
+	// Call 4: hash=A returns after hash=B — state reset (no stale reuse)
+	require.False(t, observations[4].stateVisible, "state from earlier hash=A must not be reused after hash=B")
 }
 
 type mockNonQueryableMultiStore struct {

@@ -174,8 +174,8 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_UpgradePl
 	require.True(finalInfo.Aborted)
 }
 
-// Test ProcessProposalHandler with hash mismatch (should abort)
-func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMismatchAborts() {
+// Test ProcessProposalHandler with hash mismatch (should restart fresh)
+func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMismatchRestarts() {
 	require := suite.Require()
 
 	// Set up existing optimistic processing
@@ -198,9 +198,11 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMisma
 	require.NoError(err)
 	require.Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
 
-	// Verify processing was aborted due to hash mismatch
+	// Verify new optimistic processing was started with the new hash
 	info := suite.app.GetOptimisticProcessingInfo()
-	require.True(info.Aborted)
+	require.Equal([]byte("different-hash"), info.Hash)
+	require.NotNil(info.Completion)
+	require.False(info.Aborted)
 }
 
 // Test ProcessProposalHandler with same hash (should not abort)

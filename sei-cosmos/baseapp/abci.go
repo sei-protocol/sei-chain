@@ -1,6 +1,7 @@
 package baseapp
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -926,18 +927,16 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
-	if app.LastBlockHeight() == 0 && app.processProposalState != nil {
-		// For the very first block, InitChain has written genesis state
-		// (consensus params, module init) into processProposalState's
-		// CacheMultiStore without committing to the root store. We must
-		// preserve that cache; only update the header.
+	// 1. Block 1, need genesis state written by InitChain: reuse cache
+	// 2. New height, last block committed (state will be nil): create fresh cache
+	// 3. Same height, timed out, re-proposal with same hash: reuse cache
+	// 4. Same height, timed out, re-proposal with different hash: create fresh cache
+	if app.processProposalState != nil &&
+		(app.LastBlockHeight() == 0 || bytes.Equal(req.Hash, app.processProposalState.Context().HeaderHash())) {
+		// Case 1 or 3
 		app.setProcessProposalHeader(*req.Header)
 	} else {
-		// Reset processProposalState with a fresh CacheMultiStore from the
-		// committed root store. processProposalState is speculative and only
-		// promoted via SetProcessProposalStateToCommit in FinalizeBlock when
-		// the proposal hash matches. If this is a new consensus round, the
-		// old speculative state is stale and must be discarded.
+		// Case 2 or 4
 		app.setProcessProposalState(*req.Header)
 	}
 
