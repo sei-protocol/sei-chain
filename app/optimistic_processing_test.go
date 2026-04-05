@@ -205,17 +205,18 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMisma
 	require.False(info.Aborted)
 }
 
-// Test ProcessProposalHandler with same hash (should not abort)
-func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashContinues() {
+// Test ProcessProposalHandler with same hash (should still restart fresh)
+func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashRestarts() {
 	require := suite.Require()
 
 	hash := []byte("same-hash")
 
 	// Set up existing optimistic processing
+	initialCompletion := make(chan struct{}, 1)
 	initialInfo := OptimisticProcessingInfo{
 		Height:     suite.ctx.BlockHeight(),
 		Hash:       hash,
-		Completion: make(chan struct{}, 1),
+		Completion: initialCompletion,
 	}
 	suite.app.optimisticProcessingInfoMutex.Lock()
 	suite.app.optimisticProcessingInfo = initialInfo
@@ -231,9 +232,11 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashC
 	require.NoError(err)
 	require.Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
 
-	// Verify processing was not aborted
+	// Verify new optimistic processing was started (new completion channel)
 	info := suite.app.GetOptimisticProcessingInfo()
+	require.NotNil(info.Completion)
 	require.False(info.Aborted)
+	require.True(info.Completion != initialCompletion, "should have a new completion channel")
 }
 
 // Test concurrent access to optimistic processing methods

@@ -221,10 +221,10 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }
 
-// TestProcessProposalStateResetOnDifferentHash verifies that
-// processProposalState is reset when a different proposal hash arrives,
-// but preserved when the same hash is re-proposed.
-func TestProcessProposalStateResetOnDifferentHash(t *testing.T) {
+// TestProcessProposalAlwaysResetsState verifies that processProposalState
+// gets a fresh CacheMultiStore on every ProcessProposal call (except block 1
+// where InitChain genesis state must be preserved).
+func TestProcessProposalAlwaysResetsState(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
@@ -235,7 +235,6 @@ func TestProcessProposalStateResetOnDifferentHash(t *testing.T) {
 	genesisKey, genesisVal := []byte("genesis_key"), []byte("genesis_val")
 	stateKey, stateVal := []byte("round_key"), []byte("round_val")
 
-	// Track observations from the handler
 	type observation struct {
 		genesisVisible bool
 		stateVisible   bool
@@ -281,43 +280,35 @@ func TestProcessProposalStateResetOnDifferentHash(t *testing.T) {
 
 	header := tmproto.Header{ChainID: "test-chain", Height: 2}
 
-	// Call 1: Height 2, hash=A — fresh start after commit
+	// Call 1: Height 2, hash=A — fresh after commit
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &header, Hash: []byte("hashA"),
 	})
 
-	// Call 2: Height 2, hash=A again (same hash re-proposed) — should see state
+	// Call 2: Height 2, hash=A again (same hash) — still fresh
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &header, Hash: []byte("hashA"),
 	})
 
-	// Call 3: Height 2, hash=B (different hash) — should NOT see state
+	// Call 3: Height 2, hash=B (different hash) — fresh
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &header, Hash: []byte("hashB"),
 	})
 
-	// Call 4: Height 2, hash=A again — should NOT see state from earlier hash=A rounds
-	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header, Hash: []byte("hashA"),
-	})
-
-	require.Len(t, observations, 5)
+	require.Len(t, observations, 4)
 
 	// Call 0: block 1 — genesis visible, no prior state
 	require.True(t, observations[0].genesisVisible, "genesis state must be visible for block 1")
 	require.False(t, observations[0].stateVisible)
 
-	// Call 1: fresh after commit — no state
+	// Call 1: fresh after commit
 	require.False(t, observations[1].stateVisible, "state should not survive commit")
 
-	// Call 2: same hash re-proposed — state preserved
-	require.True(t, observations[2].stateVisible, "state should be preserved for same hash")
+	// Call 2: same hash — still reset, no stale state
+	require.False(t, observations[2].stateVisible, "state should not carry over even for same hash")
 
-	// Call 3: different hash — state reset
-	require.False(t, observations[3].stateVisible, "state should be reset for different hash")
-
-	// Call 4: hash=A returns after hash=B — state reset (no stale reuse)
-	require.False(t, observations[4].stateVisible, "state from earlier hash=A must not be reused after hash=B")
+	// Call 3: different hash — reset
+	require.False(t, observations[3].stateVisible, "state should not carry over for different hash")
 }
 
 type mockNonQueryableMultiStore struct {

@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -927,16 +926,16 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
-	// 1. Block 1, need genesis state written by InitChain: reuse cache
-	// 2. New height, last block committed (state will be nil): create fresh cache
-	// 3. Same height, timed out, re-proposal with same hash: reuse cache
-	// 4. Same height, timed out, re-proposal with different hash: create fresh cache
-	if app.processProposalState != nil &&
-		(app.LastBlockHeight() == 0 || bytes.Equal(req.Hash, app.processProposalState.Context().HeaderHash())) {
-		// Case 1 or 3
+	// Three cases:
+	// 1. Block 1: InitChain wrote genesis state into the cache without
+	//    committing. Preserve that cache; only update the header.
+	// 2. New height after Commit: processProposalState is nil, create fresh.
+	// 3. Same height, timed out: create fresh CacheMultiStore so speculative
+	//    state from the previous round's optimistic processing does not
+	//    affect state-dependent checks (e.g. gasless eligibility).
+	if app.LastBlockHeight() == 0 {
 		app.setProcessProposalHeader(*req.Header)
 	} else {
-		// Case 2 or 4
 		app.setProcessProposalState(*req.Header)
 	}
 
