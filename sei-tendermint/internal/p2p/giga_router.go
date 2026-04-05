@@ -69,7 +69,14 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	if err != nil {
+		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
+	}
+	dataState, err := data.NewState(&data.Config{Committee: committee}, dataWAL)
+	if err != nil {
+		return nil, fmt.Errorf("data.NewState(): %w", err)
+	}
 	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
@@ -109,7 +116,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
-		if err := r.data.PushAppHash(last, info.LastBlockAppHash); err != nil {
+		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
@@ -153,7 +160,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 			return fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 		}
 		// TODO: we need the block to be persisted before we vote for apphash.
-		if err := r.data.PushAppHash(n, resp.AppHash); err != nil {
+		if err := r.data.PushAppHash(ctx, n, resp.AppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
 		commitResp, err := r.cfg.App.Commit(ctx)
@@ -164,7 +171,9 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 		}
-		r.data.PruneBefore(pruneBefore)
+		if err := r.data.PruneBefore(pruneBefore); err != nil {
+			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+		}
 	}
 }
 

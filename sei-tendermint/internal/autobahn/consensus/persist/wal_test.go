@@ -342,3 +342,255 @@ func TestIndexedWAL_SuccessiveTruncateBefore(t *testing.T) {
 	require.Equal(t, "f", entries[1])
 	require.NoError(t, iw.Close())
 }
+
+func TestIndexedWAL_TruncateBeforePastEnd(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+	require.Equal(t, uint64(3), iw.Count())
+
+	// TruncateBefore past the end removes everything (verify skipped).
+	require.NoError(t, iw.TruncateBefore(iw.nextIdx, acceptAny))
+	require.Equal(t, uint64(0), iw.Count())
+	require.Equal(t, uint64(4), iw.FirstIdx()) // advanced to nextIdx
+
+	// Can write after.
+	require.NoError(t, iw.Write("x"))
+	require.Equal(t, uint64(1), iw.Count())
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entries))
+	require.Equal(t, "x", entries[0])
+	require.NoError(t, iw.Close())
+
+	// Reopen — should see only the post-truncate entry.
+	iw2, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), iw2.Count())
+	entries, err = iw2.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entries))
+	require.Equal(t, "x", entries[0])
+	require.NoError(t, iw2.Close())
+}
+
+func TestIndexedWAL_TruncateBeforePastEndErrors(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+
+	// TruncateBefore past nextIdx is an error (use TruncateAll for gaps).
+	err = iw.TruncateBefore(100, acceptAny)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "past next index")
+
+	// State unchanged.
+	require.Equal(t, uint64(2), iw.Count())
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateWhileEmpty(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	// TruncateWhile on empty WAL is a no-op.
+	require.NoError(t, iw.TruncateWhile(func(string) bool { return true }))
+	require.Equal(t, uint64(0), iw.Count())
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateWhileNoneMatch(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+
+	// Predicate false for first entry — nothing truncated.
+	require.NoError(t, iw.TruncateWhile(func(string) bool { return false }))
+	require.Equal(t, uint64(3), iw.Count())
+	require.Equal(t, uint64(1), iw.FirstIdx())
+
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 3, len(entries))
+	require.Equal(t, "a", entries[0])
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateWhilePartial(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+	require.NoError(t, iw.Write("d"))
+	require.NoError(t, iw.Write("e"))
+
+	// Remove entries before "d".
+	require.NoError(t, iw.TruncateWhile(func(s string) bool { return s < "d" }))
+	require.Equal(t, uint64(2), iw.Count())
+	require.Equal(t, uint64(4), iw.FirstIdx())
+
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 2, len(entries))
+	require.Equal(t, "d", entries[0])
+	require.Equal(t, "e", entries[1])
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateWhileAll(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+
+	// Predicate true for all — empties the WAL.
+	require.NoError(t, iw.TruncateWhile(func(string) bool { return true }))
+	require.Equal(t, uint64(0), iw.Count())
+	require.Equal(t, uint64(4), iw.FirstIdx()) // advanced to nextIdx
+
+	// Can write after.
+	require.NoError(t, iw.Write("x"))
+	require.Equal(t, uint64(1), iw.Count())
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entries))
+	require.Equal(t, "x", entries[0])
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateWhileReopenAfter(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		require.NoError(t, iw.Write(s))
+	}
+	require.NoError(t, iw.TruncateWhile(func(s string) bool { return s < "c" }))
+	require.NoError(t, iw.Close())
+
+	// Reopen — should see surviving entries.
+	iw2, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), iw2.Count())
+	require.Equal(t, uint64(3), iw2.FirstIdx())
+
+	entries, err := iw2.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 3, len(entries))
+	require.Equal(t, "c", entries[0])
+	require.Equal(t, "d", entries[1])
+	require.Equal(t, "e", entries[2])
+	require.NoError(t, iw2.Close())
+}
+
+func TestIndexedWAL_TruncateAfterMiddle(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+	require.NoError(t, iw.Write("d"))
+	require.NoError(t, iw.Write("e"))
+
+	// Keep "a", "b", "c" (indices 1,2,3); remove "d", "e" (indices 4,5).
+	require.NoError(t, iw.TruncateAfter(4))
+	require.Equal(t, uint64(3), iw.Count())
+	require.Equal(t, uint64(4), iw.nextIdx)
+
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 3, len(entries))
+	require.Equal(t, "a", entries[0])
+	require.Equal(t, "c", entries[2])
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateAfterLast(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+
+	// TruncateAfter past the end is a no-op.
+	require.NoError(t, iw.TruncateAfter(3))
+	require.Equal(t, uint64(2), iw.Count())
+
+	// TruncateAfter well past the end is a no-op.
+	require.NoError(t, iw.TruncateAfter(100))
+	require.Equal(t, uint64(2), iw.Count())
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateAfterBeforeFirst(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	require.NoError(t, iw.Write("a"))
+	require.NoError(t, iw.Write("b"))
+	require.NoError(t, iw.Write("c"))
+
+	// Truncate first two, leaving only "c" at index 3.
+	require.NoError(t, iw.TruncateBefore(3, acceptAny))
+	require.Equal(t, uint64(1), iw.Count())
+	require.Equal(t, uint64(3), iw.FirstIdx())
+
+	// TruncateAfter before firstIdx removes everything.
+	require.NoError(t, iw.TruncateAfter(1))
+	require.Equal(t, uint64(0), iw.Count())
+
+	// Can write after.
+	require.NoError(t, iw.Write("x"))
+	require.Equal(t, uint64(1), iw.Count())
+	entries, err := iw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entries))
+	require.Equal(t, "x", entries[0])
+	require.NoError(t, iw.Close())
+}
+
+func TestIndexedWAL_TruncateAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	iw, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+
+	for _, s := range []string{"a", "b", "c", "d", "e"} {
+		require.NoError(t, iw.Write(s))
+	}
+	require.NoError(t, iw.TruncateAfter(4)) // keep a, b, c (indices 1,2,3)
+	require.NoError(t, iw.Close())
+
+	iw2, err := openIndexedWAL(dir, stringCodec{})
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), iw2.Count())
+	entries, err := iw2.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, 3, len(entries))
+	require.Equal(t, "a", entries[0])
+	require.Equal(t, "b", entries[1])
+	require.Equal(t, "c", entries[2])
+	require.NoError(t, iw2.Close())
+}

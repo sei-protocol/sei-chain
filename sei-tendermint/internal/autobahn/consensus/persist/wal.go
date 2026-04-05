@@ -89,21 +89,58 @@ func (w *indexedWAL[T]) Write(entry T) error {
 // verify returns nil — removes all entries before walIdx. The verify callback
 // lets callers assert that the WAL index maps to the expected domain object
 // before a destructive operation.
+//
+// TruncateBefore assumes contiguous appending and removal. Callers that need
+// to fast-forward past gaps should use TruncateAll directly.
+// walIdx == nextIdx removes all entries (no entry to verify).
+// walIdx > nextIdx is an error (gap in contiguous sequence).
 func (w *indexedWAL[T]) TruncateBefore(walIdx uint64, verify func(T) error) error {
-	if walIdx < w.firstIdx || walIdx >= w.nextIdx {
-		return fmt.Errorf("WAL index %d out of range [%d, %d)", walIdx, w.firstIdx, w.nextIdx)
+	if walIdx < w.firstIdx {
+		return fmt.Errorf("WAL index %d below first index %d", walIdx, w.firstIdx)
 	}
-	entry, err := w.wal.ReadAt(walIdx)
-	if err != nil {
-		return fmt.Errorf("read at WAL index %d: %w", walIdx, err)
+	if walIdx > w.nextIdx {
+		return fmt.Errorf("WAL index %d past next index %d (use TruncateAll for gaps)", walIdx, w.nextIdx)
 	}
-	if err := verify(entry); err != nil {
-		return err
+	// Verify the surviving entry when one exists.
+	if walIdx < w.nextIdx {
+		entry, err := w.wal.ReadAt(walIdx)
+		if err != nil {
+			return fmt.Errorf("read at WAL index %d: %w", walIdx, err)
+		}
+		if err := verify(entry); err != nil {
+			return err
+		}
 	}
 	if err := w.wal.TruncateBefore(walIdx); err != nil {
 		return fmt.Errorf("truncate before WAL index %d: %w", walIdx, err)
 	}
 	w.firstIdx = walIdx
+	return nil
+}
+
+// TruncateWhile scans entries from the front and removes all leading entries
+// for which the predicate returns true. Stops at the first entry where the
+// predicate returns false (that entry and all after it are kept).
+// If the predicate returns true for all entries, the WAL is emptied.
+func (w *indexedWAL[T]) TruncateWhile(pred func(T) bool) error {
+	keepIdx := w.firstIdx
+	for keepIdx < w.nextIdx {
+		entry, err := w.wal.ReadAt(keepIdx)
+		if err != nil {
+			return fmt.Errorf("read at WAL index %d: %w", keepIdx, err)
+		}
+		if !pred(entry) {
+			break
+		}
+		keepIdx++
+	}
+	if keepIdx == w.firstIdx {
+		return nil
+	}
+	if err := w.wal.TruncateBefore(keepIdx); err != nil {
+		return fmt.Errorf("truncate before WAL index %d: %w", keepIdx, err)
+	}
+	w.firstIdx = keepIdx
 	return nil
 }
 
@@ -148,6 +185,23 @@ func (w *indexedWAL[T]) TruncateAll() error {
 		return fmt.Errorf("truncate all WAL entries: %w", err)
 	}
 	w.firstIdx = w.nextIdx
+	return nil
+}
+
+// TruncateAfter removes all entries >= walIdx (keeps entries < walIdx).
+// If walIdx <= firstIdx, all entries are removed.
+// If walIdx >= nextIdx, this is a no-op.
+func (w *indexedWAL[T]) TruncateAfter(walIdx uint64) error {
+	if walIdx <= w.firstIdx {
+		return w.TruncateAll()
+	}
+	if walIdx >= w.nextIdx {
+		return nil
+	}
+	if err := w.wal.TruncateAfter(walIdx - 1); err != nil {
+		return fmt.Errorf("truncate after WAL index %d: %w", walIdx-1, err)
+	}
+	w.nextIdx = walIdx
 	return nil
 }
 

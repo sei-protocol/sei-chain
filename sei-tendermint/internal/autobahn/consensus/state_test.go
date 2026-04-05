@@ -18,10 +18,10 @@ import (
 // keys[0] is used as the node's signing key.
 func newTestState(rng utils.Rng) (*State, []types.SecretKey) {
 	committee, keys := types.GenCommittee(rng, 3)
-	dataState := data.NewState(
+	dataState := utils.OrPanic1(data.NewState(
 		&data.Config{Committee: committee},
-		utils.None[data.BlockStore](),
-	)
+		utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+	))
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
@@ -269,10 +269,10 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		}
 	}
 	makeDataState := func() *data.State {
-		return data.NewState(
+		return utils.OrPanic1(data.NewState(
 			&data.Config{Committee: committee},
-			utils.None[data.BlockStore](),
-		)
+			utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+		))
 	}
 
 	view0 := types.View{Index: 0, Number: 0}

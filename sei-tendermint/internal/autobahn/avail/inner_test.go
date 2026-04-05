@@ -35,7 +35,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	qc1 := makeCommitQC(utils.Some(qc0))
 
 	t.Logf("test State.PushAppQC")
-	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	ds := utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
@@ -44,7 +44,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
 
 	t.Logf("test inner.prune")
-	ds = data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	ds = utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	state, err = NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
