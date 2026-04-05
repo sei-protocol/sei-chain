@@ -222,8 +222,9 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 }
 
 // TestProcessProposalAlwaysResetsState verifies that processProposalState
-// gets a fresh CacheMultiStore on every ProcessProposal call (except block 1
-// where InitChain genesis state must be preserved).
+// gets a fresh CacheMultiStore on every ProcessProposal call, including
+// block 1. Genesis state is visible because the CacheMultiStore branches
+// from deliverState (which has InitChain writes) before the first commit.
 func TestProcessProposalAlwaysResetsState(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
@@ -265,10 +266,16 @@ func TestProcessProposalAlwaysResetsState(t *testing.T) {
 		ChainId:       "test-chain",
 	})
 
-	// Call 0: Block 1 — should see genesis state
+	// Call 0: Block 1, round 0 — should see genesis state
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
 		Hash:   []byte("hash0"),
+	})
+
+	// Call 1: Block 1, round 1 (timeout) — should see genesis, no stale state
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
+		Hash:   []byte("hash1"),
 	})
 
 	// Commit block 1
@@ -295,20 +302,24 @@ func TestProcessProposalAlwaysResetsState(t *testing.T) {
 		Header: &header, Hash: []byte("hashB"),
 	})
 
-	require.Len(t, observations, 4)
+	require.Len(t, observations, 5)
 
-	// Call 0: block 1 — genesis visible, no prior state
+	// Call 0: block 1 round 0 — genesis visible, no prior state
 	require.True(t, observations[0].genesisVisible, "genesis state must be visible for block 1")
 	require.False(t, observations[0].stateVisible)
 
-	// Call 1: fresh after commit
-	require.False(t, observations[1].stateVisible, "state should not survive commit")
+	// Call 1: block 1 round 1 (timeout) — genesis visible, no stale state from round 0
+	require.True(t, observations[1].genesisVisible, "genesis state must be visible after block 1 timeout")
+	require.False(t, observations[1].stateVisible, "state from round 0 should not carry over")
 
-	// Call 2: same hash — still reset, no stale state
-	require.False(t, observations[2].stateVisible, "state should not carry over even for same hash")
+	// Call 2: fresh after commit
+	require.False(t, observations[2].stateVisible, "state should not survive commit")
 
-	// Call 3: different hash — reset
-	require.False(t, observations[3].stateVisible, "state should not carry over for different hash")
+	// Call 3: same hash — still reset, no stale state
+	require.False(t, observations[3].stateVisible, "state should not carry over even for same hash")
+
+	// Call 4: different hash — reset
+	require.False(t, observations[4].stateVisible, "state should not carry over for different hash")
 }
 
 type mockNonQueryableMultiStore struct {
