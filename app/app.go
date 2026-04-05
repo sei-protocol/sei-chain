@@ -1218,70 +1218,62 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 		}, nil
 	}
 
-	// Always start fresh optimistic processing. The baseapp layer resets
-	// processProposalState with a new CacheMultiStore on each call, so any
-	// prior goroutine is writing to a stale store.
-	//
-	// If an old goroutine is still running, it captures its completion
-	// channel at launch and checks the hash before writing results, so it
-	// will silently discard its work and exit. Its buffered channel is
-	// orphaned and GC'd.
-	app.ClearOptimisticProcessingInfo()
-
-	completionSignal := make(chan struct{}, 1)
 	app.optimisticProcessingInfoMutex.Lock()
-	app.optimisticProcessingInfo = OptimisticProcessingInfo{
-		Height:     req.Header.Height,
-		Hash:       req.Hash,
-		Completion: completionSignal,
+	shouldStartOptimisticProcessing := app.optimisticProcessingInfo.Completion == nil
+	if shouldStartOptimisticProcessing {
+		completionSignal := make(chan struct{}, 1)
+		app.optimisticProcessingInfo = OptimisticProcessingInfo{
+			Height:     req.Header.Height,
+			Hash:       req.Hash,
+			Completion: completionSignal,
+		}
 	}
 	app.optimisticProcessingInfoMutex.Unlock()
 
-	plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
-	if found && plan.ShouldExecute(ctx) {
-		logger.Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo.Aborted = true
-		completion := app.optimisticProcessingInfo.Completion
-		app.optimisticProcessingInfoMutex.Unlock()
-		completion <- struct{}{}
-	} else {
-		// Capture hash and completion channel at launch time so that if
-		// optimisticProcessingInfo is replaced (due to a new proposal arriving),
-		// this goroutine writes to the old channel and silently exits rather
-		// than corrupting the new proposal's state.
-		launchHash := req.Hash
-		app.optimisticProcessingInfoMutex.RLock()
-		launchCompletion := app.optimisticProcessingInfo.Completion
-		app.optimisticProcessingInfoMutex.RUnlock()
-
-		go func() {
-			bpreq := &BlockProcessRequest{
-				Hash:                req.Hash,
-				ByzantineValidators: req.ByzantineValidators,
-				Height:              req.Header.Height,
-				Time:                req.Header.Time,
-			}
-			events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false)
-
+	if shouldStartOptimisticProcessing {
+		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
+		if found && plan.ShouldExecute(ctx) {
+			logger.Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfoMutex.Lock()
-			if !bytes.Equal(app.optimisticProcessingInfo.Hash, launchHash) {
-				// A new proposal replaced us — discard results silently
-				app.optimisticProcessingInfoMutex.Unlock()
-				launchCompletion <- struct{}{}
-				return
-			}
-			if processErr != nil {
-				logger.Info("ProcessBlock failed in optimistic processing", "err", processErr)
-				app.optimisticProcessingInfo.Aborted = true
-			} else {
-				app.optimisticProcessingInfo.Events = events
-				app.optimisticProcessingInfo.TxRes = txResults
-				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
-			}
+			app.optimisticProcessingInfo.Aborted = true
+			completion := app.optimisticProcessingInfo.Completion
 			app.optimisticProcessingInfoMutex.Unlock()
-			launchCompletion <- struct{}{}
-		}()
+			completion <- struct{}{}
+		} else {
+			go func() {
+				// ProcessBlock has panic recovery and returns error for any processing failures
+				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
+				bpreq := &BlockProcessRequest{
+					Hash:                req.Hash,
+					ByzantineValidators: req.ByzantineValidators,
+					Height:              req.Header.Height,
+					Time:                req.Header.Time,
+				}
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false)
+
+				app.optimisticProcessingInfoMutex.Lock()
+				if processErr != nil {
+					// ProcessBlock failed (including GetSigners panics), mark as aborted
+					logger.Info("ProcessBlock failed in optimistic processing", "err", processErr)
+					app.optimisticProcessingInfo.Aborted = true
+				} else {
+					// ProcessBlock succeeded, store results
+					app.optimisticProcessingInfo.Events = events
+					app.optimisticProcessingInfo.TxRes = txResults
+					app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				}
+				completion := app.optimisticProcessingInfo.Completion
+				app.optimisticProcessingInfoMutex.Unlock()
+				completion <- struct{}{}
+			}()
+		}
+	} else {
+		// Optimistic processing already running, check if hash matches
+		if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+			app.optimisticProcessingInfoMutex.Lock()
+			app.optimisticProcessingInfo.Aborted = true
+			app.optimisticProcessingInfoMutex.Unlock()
+		}
 	}
 
 	resp = &abci.ResponseProcessProposal{

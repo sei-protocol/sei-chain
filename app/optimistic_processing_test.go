@@ -174,8 +174,8 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_UpgradePl
 	require.True(finalInfo.Aborted)
 }
 
-// Test ProcessProposalHandler with hash mismatch (should restart fresh)
-func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMismatchRestarts() {
+// Test ProcessProposalHandler with hash mismatch (should abort)
+func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMismatchAborts() {
 	require := suite.Require()
 
 	// Set up existing optimistic processing
@@ -198,25 +198,22 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMisma
 	require.NoError(err)
 	require.Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
 
-	// Verify new optimistic processing was started with the new hash
+	// Verify processing was aborted due to hash mismatch
 	info := suite.app.GetOptimisticProcessingInfo()
-	require.Equal([]byte("different-hash"), info.Hash)
-	require.NotNil(info.Completion)
-	require.False(info.Aborted)
+	require.True(info.Aborted)
 }
 
-// Test ProcessProposalHandler with same hash (should still restart fresh)
-func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashRestarts() {
+// Test ProcessProposalHandler with same hash (should not abort)
+func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashContinues() {
 	require := suite.Require()
 
 	hash := []byte("same-hash")
 
 	// Set up existing optimistic processing
-	initialCompletion := make(chan struct{}, 1)
 	initialInfo := OptimisticProcessingInfo{
 		Height:     suite.ctx.BlockHeight(),
 		Hash:       hash,
-		Completion: initialCompletion,
+		Completion: make(chan struct{}, 1),
 	}
 	suite.app.optimisticProcessingInfoMutex.Lock()
 	suite.app.optimisticProcessingInfo = initialInfo
@@ -232,11 +229,9 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashR
 	require.NoError(err)
 	require.Equal(abci.ResponseProcessProposal_ACCEPT, resp.Status)
 
-	// Verify new optimistic processing was started (new completion channel)
+	// Verify processing was not aborted
 	info := suite.app.GetOptimisticProcessingInfo()
-	require.NotNil(info.Completion)
 	require.False(info.Aborted)
-	require.True(info.Completion != initialCompletion, "should have a new completion channel")
 }
 
 // Test concurrent access to optimistic processing methods
