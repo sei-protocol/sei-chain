@@ -183,7 +183,7 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, genDoc, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(

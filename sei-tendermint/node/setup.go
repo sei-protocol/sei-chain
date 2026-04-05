@@ -3,15 +3,22 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
+	"os"
 	"strings"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -27,6 +34,7 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -197,12 +205,157 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
+// autobahnValidator represents a validator entry in the autobahn config file.
+type autobahnValidator struct {
+	PubKey string `json:"pubkey"` // hex-encoded ed25519 public key
+	Host   string `json:"host"`
+	Port   uint16 `json:"port"`
+}
+
+// autobahnFileConfig is the JSON structure of the autobahn config file.
+type autobahnFileConfig struct {
+	Validators         []autobahnValidator `json:"validators"`
+	MaxGasPerBlock     uint64              `json:"max_gas_per_block"`
+	MaxTxsPerBlock     uint64              `json:"max_txs_per_block"`
+	MaxTxsPerSecond    uint64              `json:"max_txs_per_second"` // 0 = unlimited
+	MempoolSize        uint64              `json:"mempool_size"`
+	BlockInterval      time.Duration       `json:"block_interval"`
+	AllowEmptyBlocks   bool                `json:"allow_empty_blocks"`
+	ViewTimeout        time.Duration       `json:"view_timeout"`
+	PersistentStateDir string              `json:"persistent_state_dir"` // "" = disabled
+	DialInterval       time.Duration       `json:"dial_interval"`
+}
+
+func (fc *autobahnFileConfig) validate() error {
+	if len(fc.Validators) == 0 {
+		return errors.New("validators must not be empty")
+	}
+	if fc.MaxGasPerBlock == 0 {
+		return errors.New("max_gas_per_block must be > 0")
+	}
+	if fc.MaxTxsPerBlock == 0 {
+		return errors.New("max_txs_per_block must be > 0")
+	}
+	if fc.MempoolSize == 0 {
+		return errors.New("mempool_size must be > 0")
+	}
+	if fc.BlockInterval <= 0 {
+		return errors.New("block_interval must be > 0")
+	}
+	if fc.ViewTimeout <= 0 {
+		return errors.New("view_timeout must be > 0")
+	}
+	if fc.DialInterval <= 0 {
+		return errors.New("dial_interval must be > 0")
+	}
+	return nil
+}
+
+func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is from operator-controlled config
+	if err != nil {
+		return nil, err
+	}
+	var fc autobahnFileConfig
+	if err := json.Unmarshal(data, &fc); err != nil {
+		return nil, err
+	}
+	if err := fc.validate(); err != nil {
+		return nil, err
+	}
+	return &fc, nil
+}
+
+// buildGigaConfig constructs a GigaRouterConfig from the AutobahnConfig, node key, app, and genesis doc.
+// Returns nil if autobahn is not enabled.
+func buildGigaConfig(
+	autobahnConfigFile string,
+	nodeKey types.NodeKey,
+	appClient abci.Application,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterConfig, error) {
+	if autobahnConfigFile == "" {
+		return nil, nil
+	}
+
+	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+	}
+
+	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
+
+	for _, entry := range fc.Validators {
+		pubBytes, err := hex.DecodeString(entry.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid pubkey hex %q: %w", entry.PubKey, err)
+		}
+		autobahnPubKey, err := atypes.PublicKeyFromBytes(pubBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ed25519 pubkey %q: %w", entry.PubKey, err)
+		}
+		nodePubKey, err := ed25519.PublicKeyFromBytes(pubBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ed25519 pubkey %q: %w", entry.PubKey, err)
+		}
+
+		if _, exists := validatorAddrs[autobahnPubKey]; exists {
+			return nil, fmt.Errorf("duplicate pubkey in autobahn validators: %s", entry.PubKey)
+		}
+		validatorAddrs[autobahnPubKey] = p2p.GigaNodeAddr{
+			Key:      p2p.NodePublicKey(nodePubKey),
+			HostPort: tcp.HostPort{Hostname: entry.Host, Port: entry.Port},
+		}
+	}
+
+	// Convert node key to autobahn secret key and verify self is in the validator set.
+	autobahnSecretKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(nodeKey))
+	if _, ok := validatorAddrs[autobahnSecretKey.Public()]; !ok {
+		return nil, fmt.Errorf("node's own public key not found in autobahn validators; the node must be a committee member")
+	}
+
+	// Build persistent state dir option.
+	persistentStateDir := utils.None[string]()
+	if fc.PersistentStateDir != "" {
+		persistentStateDir = utils.Some(fc.PersistentStateDir)
+	}
+
+	// Build MaxTxsPerSecond option.
+	maxTxsPerSecond := utils.None[uint64]()
+	if fc.MaxTxsPerSecond > 0 {
+		maxTxsPerSecond = utils.Some(fc.MaxTxsPerSecond)
+	}
+
+	return &p2p.GigaRouterConfig{
+		DialInterval:   fc.DialInterval,
+		ValidatorAddrs: validatorAddrs,
+		Consensus: &autobahnConsensus.Config{
+			Key: autobahnSecretKey,
+			ViewTimeout: func(atypes.View) time.Duration {
+				return fc.ViewTimeout
+			},
+			PersistentStateDir: persistentStateDir,
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   fc.MaxGasPerBlock,
+			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:  maxTxsPerSecond,
+			MempoolSize:      fc.MempoolSize,
+			BlockInterval:    fc.BlockInterval,
+			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+		},
+		App:    appClient,
+		GenDoc: genDoc,
+	}, nil
+}
+
 func createRouter(
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
 	appClient abci.Application,
+	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -283,6 +436,15 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
+	// Wire up Autobahn (GigaRouter) if enabled.
+	gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, appClient, genDoc)
+	if err != nil {
+		return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+	}
+	if gigaCfg != nil {
+		options.Giga = utils.Some(gigaCfg)
+	}
+
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
 		return nil, closer, fmt.Errorf("unable to initialize peer store: %w", err)
