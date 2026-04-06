@@ -215,14 +215,14 @@ func lookForMissingFiles(
 					fmt.Errorf("failed to load metadata file: %v", err)
 			}
 
-			if uint32(len(valueFiles[segment])) > metadata.shardingFactor { //nolint:gosec
+			if uint8(len(valueFiles[segment])) > metadata.shardingFactor { //nolint:gosec
 				return nil, nil,
 					fmt.Errorf("too many value files for segment %d, expected at most %d, got %d",
 						segment, metadata.shardingFactor, len(valueFiles[segment]))
 			}
 
 			// Catalogue the shards we do have.
-			shardsPresent := make(map[uint32]struct{})
+			shardsPresent := make(map[uint8]struct{})
 			for _, vFile := range valueFiles[segment] {
 				shard, err := getValueFileShard(vFile)
 				if err != nil {
@@ -234,7 +234,7 @@ func lookForMissingFiles(
 			}
 
 			// Check that we have each shard.
-			for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+			for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 				_, shardPresent := shardsPresent[shard]
 				if !shardPresent {
 					segmentMissingFiles = true

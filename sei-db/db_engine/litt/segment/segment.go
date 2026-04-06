@@ -265,11 +265,9 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
 	for _, scopedKey := range scopedKeys {
-		shard := s.GetShard(scopedKey.Key)
+		shard := scopedKey.Address.Shard()
 
-		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
-			4 /* value size uint32 */ +
-			uint64(scopedKey.ValueSize)
+		requiredValueFileLength := uint64(scopedKey.Address.Offset()) + uint64(scopedKey.ValueSize)
 
 		if s.shards[shard].Size() < requiredValueFileLength {
 			badKeys = append(badKeys, scopedKey)
@@ -406,10 +404,15 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 		return 0, 0,
 			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
 	}
-	s.unflushedKeyCount.Add(1)
+
+	newKeyCount := 1
+	if data.SecondaryKeys != nil {
+		newKeyCount += len(data.SecondaryKeys)
+	}
+	s.unflushedKeyCount.Add(int64(newKeyCount))
 	firstByteIndex := uint32(currentSize)
 
-	s.shardSizes[shard] += uint64(len(data.Value)) + 4 /* uint32 length */
+	s.shardSizes[shard] += uint64(len(data.Value))
 	if s.shardSizes[shard] > s.maxShardSize {
 		s.maxShardSize = s.shardSizes[shard]
 	}
@@ -448,11 +451,11 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 			fmt.Errorf("failed to send key to key file control loop: %v", err)
 	}
 
-	// Fowrard secondary keys to the key file control loop
+	// Forward secondary keys to the key file control loop
 	for _, secondaryKey := range data.SecondaryKeys {
 		keyRequest := &types.ScopedKey{
 			Key:       secondaryKey.Key,
-			Address:   types.NewAddress(s.index, firstByteIndex, shard),
+			Address:   types.NewAddress(s.index, firstByteIndex+secondaryKey.Offset, shard),
 			ValueSize: secondaryKey.Length,
 		}
 		err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)

@@ -156,7 +156,7 @@ func getValueFileIndex(fileName string) (uint32, error) {
 
 // getValueFileShard returns the shard number of the value file from the file name. Value file names have the form
 // "X-Y.values", where X is the segment index and Y is the shard number.
-func getValueFileShard(fileName string) (uint32, error) {
+func getValueFileShard(fileName string) (uint8, error) {
 	baseName := path.Base(fileName)
 	strippedName := baseName[:len(baseName)-len(ValuesFileExtension)]
 
@@ -171,7 +171,7 @@ func getValueFileShard(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse shard from file name %s: %v", fileName, err)
 	}
 
-	return uint32(shard), nil //nolint:gosec
+	return uint8(shard), nil //nolint:gosec
 }
 
 // Size returns the size of the value file in bytes.

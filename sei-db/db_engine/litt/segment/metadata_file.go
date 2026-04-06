@@ -178,14 +178,7 @@ func getMetadataFileIndex(fileName string) (uint32, error) {
 
 // Size returns the size of the metadata file in bytes.
 func (m *metadataFile) Size() uint64 {
-	switch m.segmentVersion {
-	case OldHashFunctionSegmentVersion:
-		return V0MetadataSize
-	case SipHashSegmentVersion:
-		return V1MetadataSize
-	default:
-		return V2MetadataSize
-	}
+	return V3MetadataSize
 }
 
 // Name returns the file name for this metadata file.
@@ -213,7 +206,7 @@ func (m *metadataFile) seal(now time.Time, keyCount uint32) error {
 
 // serialize serializes the metadata file to a byte array.
 func (m *metadataFile) serialize() []byte {
-	data := make([]byte, V2MetadataSize)
+	data := make([]byte, V3MetadataSize)
 
 	// Write the version
 	binary.BigEndian.PutUint32(data[0:4], uint32(m.segmentVersion))
