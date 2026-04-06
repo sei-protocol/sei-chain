@@ -69,6 +69,7 @@ require (
 	github.com/rakyll/statik v0.1.7
 	github.com/rs/cors v1.11.1
 	github.com/sasha-s/go-deadlock v0.3.5
+	github.com/segmentio/kafka-go v0.4.50
 	github.com/sei-protocol/goutils v0.0.2
 	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
 	github.com/sei-protocol/sei-tm-db v0.0.5
@@ -113,6 +114,9 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

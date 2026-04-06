@@ -131,11 +131,17 @@ func NewCryptoSim(
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
+	if err := configureHistoricalOffloadFactory(config); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to configure historical offload: %w", err)
+	}
+	defer wrappers.SetHistoricalOffloadStreamFactory(nil)
+
 	var dbConfig any
 	switch config.Backend {
 	case wrappers.FlatKV:
 		dbConfig = config.FlatKVConfig
-	case wrappers.SSComposite:
+	case wrappers.SSComposite, wrappers.CompositeDual_SSComposite:
 		dbConfig = config.StateStoreConfig
 	}
 

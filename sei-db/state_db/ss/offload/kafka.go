@@ -1,0 +1,223 @@
+package offload
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/compress"
+	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/plain"
+	"github.com/segmentio/kafka-go/sasl/scram"
+
+	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
+)
+
+type KafkaConfig struct {
+	Brokers       []string
+	Topic         string
+	ClientID      string
+	RequiredAcks  string
+	Compression   string
+	BatchTimeout  time.Duration
+	BatchBytes    int
+	TLSEnabled    bool
+	SASLMechanism string
+	Username      string
+	Password      string
+}
+
+func (c *KafkaConfig) ApplyDefaults() {
+	if c.ClientID == "" {
+		c.ClientID = "cryptosim-historical-offload"
+	}
+	if c.RequiredAcks == "" {
+		c.RequiredAcks = "all"
+	}
+	if c.Compression == "" {
+		c.Compression = "snappy"
+	}
+	if c.BatchTimeout == 0 {
+		c.BatchTimeout = 5 * time.Millisecond
+	}
+	if c.BatchBytes == 0 {
+		c.BatchBytes = 1 << 20
+	}
+}
+
+func (c *KafkaConfig) Validate() error {
+	if len(c.Brokers) == 0 {
+		return fmt.Errorf("kafka brokers are required")
+	}
+	if c.Topic == "" {
+		return fmt.Errorf("kafka topic is required")
+	}
+	if c.BatchTimeout < 0 {
+		return fmt.Errorf("kafka batch timeout must be non-negative")
+	}
+	if c.BatchBytes < 0 {
+		return fmt.Errorf("kafka batch bytes must be non-negative")
+	}
+
+	switch strings.ToLower(c.RequiredAcks) {
+	case "none", "leader", "all":
+	default:
+		return fmt.Errorf("unsupported kafka required acks %q", c.RequiredAcks)
+	}
+
+	switch strings.ToLower(c.Compression) {
+	case "none", "gzip", "snappy", "lz4", "zstd":
+	default:
+		return fmt.Errorf("unsupported kafka compression %q", c.Compression)
+	}
+
+	switch strings.ToLower(c.SASLMechanism) {
+	case "", "none":
+		return nil
+	case "plain", "scram-sha-256", "scram-sha-512":
+		if c.Username == "" || c.Password == "" {
+			return fmt.Errorf("kafka sasl username and password are required for mechanism %q", c.SASLMechanism)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported kafka sasl mechanism %q", c.SASLMechanism)
+	}
+}
+
+type kafkaStream struct {
+	writer  *kafka.Writer
+	durable bool
+}
+
+var _ Stream = (*kafkaStream)(nil)
+
+func NewKafkaStream(cfg KafkaConfig) (Stream, error) {
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	dialer := &kafka.Dialer{
+		ClientID: cfg.ClientID,
+		Timeout:  10 * time.Second,
+	}
+	if cfg.TLSEnabled {
+		dialer.TLS = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+
+	mechanism, err := kafkaSASLMechanism(cfg)
+	if err != nil {
+		return nil, err
+	}
+	dialer.SASLMechanism = mechanism
+
+	requiredAcks := kafkaRequiredAcks(cfg.RequiredAcks)
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP(cfg.Brokers...),
+		Topic:        cfg.Topic,
+		Balancer:     &kafka.Hash{},
+		RequiredAcks: requiredAcks,
+		BatchTimeout: cfg.BatchTimeout,
+		BatchBytes:   int64(cfg.BatchBytes),
+		Async:        false,
+		Compression:  kafkaCompression(cfg.Compression),
+		Transport: &kafka.Transport{
+			ClientID:    cfg.ClientID,
+			TLS:         dialer.TLS,
+			SASL:        mechanism,
+			IdleTimeout: 30 * time.Second,
+			MetadataTTL: 30 * time.Second,
+			DialTimeout: dialer.Timeout,
+		},
+	}
+
+	return &kafkaStream{
+		writer:  writer,
+		durable: requiredAcks == kafka.RequireAll,
+	}, nil
+}
+
+func (k *kafkaStream) Publish(ctx context.Context, entry *dbproto.ChangelogEntry) (Ack, error) {
+	if entry == nil {
+		return Ack{Accepted: true}, nil
+	}
+
+	payload, err := gogoproto.Marshal(entry)
+	if err != nil {
+		return Ack{}, fmt.Errorf("marshal changelog entry: %w", err)
+	}
+
+	key := []byte(strconv.FormatInt(entry.Version, 10))
+	if err := k.writer.WriteMessages(ctx, kafka.Message{
+		Key:   key,
+		Value: payload,
+		Time:  time.Now(),
+	}); err != nil {
+		return Ack{}, fmt.Errorf("publish changelog entry to kafka: %w", err)
+	}
+
+	return Ack{
+		Accepted: true,
+		Durable:  k.durable,
+		Cursor:   string(key),
+	}, nil
+}
+
+func (k *kafkaStream) Replay(_ context.Context, _ ReplayRequest, _ func(*dbproto.ChangelogEntry) error) error {
+	return fmt.Errorf("kafka historical offload replay is not implemented")
+}
+
+func (k *kafkaStream) Close() error {
+	return k.writer.Close()
+}
+
+func kafkaRequiredAcks(requiredAcks string) kafka.RequiredAcks {
+	switch strings.ToLower(requiredAcks) {
+	case "none":
+		return kafka.RequireNone
+	case "leader":
+		return kafka.RequireOne
+	default:
+		return kafka.RequireAll
+	}
+}
+
+func kafkaCompression(name string) compress.Compression {
+	switch strings.ToLower(name) {
+	case "gzip":
+		return compress.Gzip
+	case "lz4":
+		return compress.Lz4
+	case "zstd":
+		return compress.Zstd
+	case "none":
+		return compress.None
+	default:
+		return compress.Snappy
+	}
+}
+
+func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
+	switch strings.ToLower(cfg.SASLMechanism) {
+	case "", "none":
+		return nil, nil
+	case "plain":
+		return plain.Mechanism{
+			Username: cfg.Username,
+			Password: cfg.Password,
+		}, nil
+	case "scram-sha-256":
+		return scram.Mechanism(scram.SHA256, cfg.Username, cfg.Password)
+	case "scram-sha-512":
+		return scram.Mechanism(scram.SHA512, cfg.Username, cfg.Password)
+	default:
+		return nil, fmt.Errorf("unsupported kafka sasl mechanism %q", cfg.SASLMechanism)
+	}
+}
