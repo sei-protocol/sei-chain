@@ -8,6 +8,7 @@ import (
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 )
 
 // littBlockDB implements blockdb.BlockDB backed by LittDB.
@@ -42,6 +43,7 @@ func NewLittBlockDB(path string, blocksToKeep uint64) (*littBlockDB, error) {
 		return nil, fmt.Errorf("litt default config: %w", err)
 	}
 	config.Fsync = true
+	config.KeymapType = keymap.MemKeymapType
 
 	db, err := litt.NewDB(config)
 	if err != nil {
