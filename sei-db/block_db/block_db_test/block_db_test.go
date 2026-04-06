@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
+	littblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/litt_block_db"
 	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
 	pebbleblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/pebble_block_db"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
@@ -25,6 +26,7 @@ func buildBuilders() []blockDBBuilder {
 	return []blockDBBuilder{
 		newMemBlockDBBuilder(),
 		newPebbleBlockDBBuilder(),
+		newLittBlockDBBuilder(),
 	}
 }
 
@@ -43,6 +45,15 @@ func newPebbleBlockDBBuilder() blockDBBuilder {
 		name: "pebble",
 		builder: func(path string) (blockdb.BlockDB, error) {
 			return pebbleblockdb.Open(context.Background(), filepath.Join(path, "pebble-blockdb"))
+		},
+	}
+}
+
+func newLittBlockDBBuilder() blockDBBuilder {
+	return blockDBBuilder{
+		name: "litt",
+		builder: func(path string) (blockdb.BlockDB, error) {
+			return littblockdb.NewLittBlockDB(filepath.Join(path, "litt-blockdb"), 0)
 		},
 	}
 }

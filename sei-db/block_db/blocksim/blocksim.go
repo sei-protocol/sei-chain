@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
+	littblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/litt_block_db"
 	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
 	pebbleblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/pebble_block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
@@ -80,7 +81,7 @@ func NewBlockSim(
 	fmt.Printf("Running blocksim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := openBlockDB(config.Backend, config.DataDir)
+	db, err := openBlockDB(config.Backend, config.DataDir, config.UnprunedBlocks)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -311,12 +312,14 @@ func (b *BlockSim) Resume() {
 }
 
 // openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, dataDir string) (blockdb.BlockDB, error) {
+func openBlockDB(backend string, dataDir string, unprunedBlocks uint64) (blockdb.BlockDB, error) {
 	switch backend {
 	case "mem":
 		return memblockdb.NewMemBlockDB(), nil
 	case "pebble":
 		return pebbleblockdb.Open(context.Background(), filepath.Join(dataDir, "pebble-blockdb"))
+	case "litt":
+		return littblockdb.NewLittBlockDB(filepath.Join(dataDir, "litt-blockdb"), unprunedBlocks)
 	default:
 		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
 	}

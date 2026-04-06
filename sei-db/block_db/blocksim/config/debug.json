@@ -2,7 +2,7 @@
   "Comment": "Configuration for local smoke testing and debugging.",
   "Seed": 1337,
   "DataDir": "data",
-  "Backend": "pebble",
+  "Backend": "litt",
   "LogDir": "logs",
   "CleanDataOnStart": true,
   "CleanLogsOnStart": true,
