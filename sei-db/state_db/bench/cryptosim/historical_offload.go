@@ -20,8 +20,10 @@ type KafkaHistoricalOffloadConfig struct {
 	Brokers        []string
 	Topic          string
 	ClientID       string
+	Async          *bool
 	RequiredAcks   string
 	Compression    string
+	BatchSize      int
 	BatchTimeoutMS int
 	BatchBytes     int
 	TLSEnabled     bool
@@ -54,16 +56,21 @@ func (c *KafkaHistoricalOffloadConfig) applyDefaults() {
 		c.ClientID = "cryptosim-historical-offload"
 	}
 	if c.RequiredAcks == "" {
-		c.RequiredAcks = "all"
+		c.RequiredAcks = "none"
 	}
 	if c.Compression == "" {
 		c.Compression = "snappy"
 	}
+	// Throughput-oriented defaults for cryptosim: let the producer buffer and
+	// flush larger batches instead of blocking on per-message broker acks.
+	if c.BatchSize == 0 {
+		c.BatchSize = 1000
+	}
 	if c.BatchTimeoutMS == 0 {
-		c.BatchTimeoutMS = 5
+		c.BatchTimeoutMS = 50
 	}
 	if c.BatchBytes == 0 {
-		c.BatchBytes = 1 << 20
+		c.BatchBytes = 4 << 20
 	}
 }
 
@@ -72,8 +79,10 @@ func (c *KafkaHistoricalOffloadConfig) validate() error {
 		Brokers:       c.Brokers,
 		Topic:         c.Topic,
 		ClientID:      c.ClientID,
+		Async:         c.asyncValue(),
 		RequiredAcks:  c.RequiredAcks,
 		Compression:   c.Compression,
+		BatchSize:     c.BatchSize,
 		BatchTimeout:  time.Duration(c.BatchTimeoutMS) * time.Millisecond,
 		BatchBytes:    c.BatchBytes,
 		TLSEnabled:    c.TLSEnabled,
@@ -82,6 +91,10 @@ func (c *KafkaHistoricalOffloadConfig) validate() error {
 		Password:      c.Password,
 	}
 	return cfg.Validate()
+}
+
+func (c *KafkaHistoricalOffloadConfig) asyncValue() bool {
+	return c.Async == nil || *c.Async
 }
 
 func configureHistoricalOffloadFactory(config *CryptoSimConfig) error {
@@ -106,8 +119,10 @@ func configureHistoricalOffloadFactory(config *CryptoSimConfig) error {
 				Brokers:       append([]string(nil), kafkaCfg.Brokers...),
 				Topic:         kafkaCfg.Topic,
 				ClientID:      kafkaCfg.ClientID,
+				Async:         kafkaCfg.asyncValue(),
 				RequiredAcks:  kafkaCfg.RequiredAcks,
 				Compression:   kafkaCfg.Compression,
+				BatchSize:     kafkaCfg.BatchSize,
 				BatchTimeout:  time.Duration(kafkaCfg.BatchTimeoutMS) * time.Millisecond,
 				BatchBytes:    kafkaCfg.BatchBytes,
 				TLSEnabled:    kafkaCfg.TLSEnabled,

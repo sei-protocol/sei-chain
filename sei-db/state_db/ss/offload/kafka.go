@@ -22,8 +22,10 @@ type KafkaConfig struct {
 	Brokers       []string
 	Topic         string
 	ClientID      string
+	Async         bool
 	RequiredAcks  string
 	Compression   string
+	BatchSize     int
 	BatchTimeout  time.Duration
 	BatchBytes    int
 	TLSEnabled    bool
@@ -37,16 +39,19 @@ func (c *KafkaConfig) ApplyDefaults() {
 		c.ClientID = "cryptosim-historical-offload"
 	}
 	if c.RequiredAcks == "" {
-		c.RequiredAcks = "all"
+		c.RequiredAcks = "none"
 	}
 	if c.Compression == "" {
 		c.Compression = "snappy"
 	}
+	if c.BatchSize == 0 {
+		c.BatchSize = 1000
+	}
 	if c.BatchTimeout == 0 {
-		c.BatchTimeout = 5 * time.Millisecond
+		c.BatchTimeout = 50 * time.Millisecond
 	}
 	if c.BatchBytes == 0 {
-		c.BatchBytes = 1 << 20
+		c.BatchBytes = 4 << 20
 	}
 }
 
@@ -59,6 +64,9 @@ func (c *KafkaConfig) Validate() error {
 	}
 	if c.BatchTimeout < 0 {
 		return fmt.Errorf("kafka batch timeout must be non-negative")
+	}
+	if c.BatchSize < 0 {
+		return fmt.Errorf("kafka batch size must be non-negative")
 	}
 	if c.BatchBytes < 0 {
 		return fmt.Errorf("kafka batch bytes must be non-negative")
@@ -124,9 +132,10 @@ func NewKafkaStream(cfg KafkaConfig) (Stream, error) {
 		Topic:        cfg.Topic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: requiredAcks,
+		BatchSize:    cfg.BatchSize,
 		BatchTimeout: cfg.BatchTimeout,
 		BatchBytes:   int64(cfg.BatchBytes),
-		Async:        false,
+		Async:        cfg.Async,
 		Compression:  kafkaCompression(cfg.Compression),
 		Transport: &kafka.Transport{
 			ClientID:    cfg.ClientID,
@@ -140,7 +149,7 @@ func NewKafkaStream(cfg KafkaConfig) (Stream, error) {
 
 	return &kafkaStream{
 		writer:  writer,
-		durable: requiredAcks == kafka.RequireAll,
+		durable: !cfg.Async && requiredAcks == kafka.RequireAll,
 	}, nil
 }
 

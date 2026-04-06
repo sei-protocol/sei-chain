@@ -17,8 +17,10 @@ func TestKafkaConfigApplyDefaultsAndValidate(t *testing.T) {
 
 	cfg.ApplyDefaults()
 	require.Equal(t, "cryptosim-historical-offload", cfg.ClientID)
-	require.Equal(t, "all", cfg.RequiredAcks)
+	require.Equal(t, "none", cfg.RequiredAcks)
 	require.Equal(t, "snappy", cfg.Compression)
+	require.Equal(t, 1000, cfg.BatchSize)
+	require.Equal(t, 4<<20, cfg.BatchBytes)
 	require.NoError(t, cfg.Validate())
 }
 

@@ -46,5 +46,8 @@ func TestValidateHistoricalOffloadKafkaAcceptsMinimalValidConfig(t *testing.T) {
 
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, "cryptosim-historical-offload", cfg.HistoricalOffload.Kafka.ClientID)
-	require.Equal(t, "all", cfg.HistoricalOffload.Kafka.RequiredAcks)
+	require.Equal(t, "none", cfg.HistoricalOffload.Kafka.RequiredAcks)
+	require.True(t, cfg.HistoricalOffload.Kafka.asyncValue())
+	require.Equal(t, 1000, cfg.HistoricalOffload.Kafka.BatchSize)
+	require.Equal(t, 4<<20, cfg.HistoricalOffload.Kafka.BatchBytes)
 }
