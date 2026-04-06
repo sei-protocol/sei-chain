@@ -16,6 +16,10 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -312,6 +316,47 @@ func TestRouter_GigaNotSetByDefault(t *testing.T) {
 	rng := utils.TestRng()
 	router := makeRouter(rng)
 	require.False(t, router.giga.IsPresent(), "GigaRouter should not be set with default options")
+}
+
+func TestRouter_GigaSetWhenConfigured(t *testing.T) {
+	rng := utils.TestRng()
+	key := makeKey(rng)
+
+	autobahnKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(key))
+	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
+		autobahnKey.Public(): {
+			Key:      key.Public(),
+			HostPort: tcp.HostPort{Hostname: "localhost", Port: 26660},
+		},
+	}
+
+	opts := makeRouterOptions()
+	opts.Giga = utils.Some(&GigaRouterConfig{
+		DialInterval:   10 * time.Second,
+		ValidatorAddrs: validatorAddrs,
+		Consensus: &consensus.Config{
+			Key:                autobahnKey,
+			ViewTimeout:        func(atypes.View) time.Duration { return time.Hour },
+			PersistentStateDir: utils.None[string](),
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   50_000_000,
+			MaxTxsPerBlock:   5_000,
+			MaxTxsPerSecond:  utils.None[uint64](),
+			MempoolSize:      5_000,
+			BlockInterval:    400 * time.Millisecond,
+			AllowEmptyBlocks: false,
+		},
+		App: nil,
+		GenDoc: &types.GenesisDoc{
+			ChainID:       "test-chain",
+			InitialHeight: 1,
+			GenesisTime:   time.Now(),
+		},
+	})
+
+	router := makeRouterWithOptionsAndKey(opts, key)
+	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
 }
 
 func TestRouter_FilterByIP(t *testing.T) {
