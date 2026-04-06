@@ -49,12 +49,14 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
+	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
 	// done after the deliver state and context have been set as it's persisted
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
+		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.checkState.ctx, req.ConsensusParams)
 	}
 
@@ -65,6 +67,7 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
+	app.initChainer(app.processProposalState.ctx, *req)
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.
@@ -929,11 +932,15 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
-	// Always create a fresh CacheMultiStore so speculative state from a
-	// previous round's optimistic processing does not carry over. For
-	// block 1 (before the first commit), genesis state is obtained by
-	// branching from deliverState rather than the committed root store.
-	app.setProcessProposalState(*req.Header)
+	if app.LastBlockHeight() == 0 && app.processProposalState != nil {
+		// Block 1: InitChain already set up processProposalState with genesis
+		// state (consensus params, module init). Preserve it; only update header.
+		app.setProcessProposalHeader(*req.Header)
+	} else {
+		// Fresh CacheMultiStore on every call so speculative state from a
+		// previous round's optimistic processing does not carry over.
+		app.setProcessProposalState(*req.Header)
+	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
 

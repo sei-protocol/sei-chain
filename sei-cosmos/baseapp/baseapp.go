@@ -569,15 +569,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 }
 
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
-	var ms sdk.CacheMultiStore
-	if app.LastBlockHeight() == 0 && app.deliverState != nil {
-		// Before the first commit, genesis state only exists in deliverState
-		// (written by InitChain). Branch from it so ProcessProposal can read
-		// consensus params and module state.
-		ms = app.deliverState.ms.CacheMultiStore()
-	} else {
-		ms = app.cms.CacheMultiStore()
-	}
+	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, false)
 	if app.processProposalState == nil {
 		app.processProposalState = &state{
