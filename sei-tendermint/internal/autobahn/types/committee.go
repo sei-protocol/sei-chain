@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"time"
 )
 
 // SortedSet is an immutable set of elements.
@@ -41,8 +42,8 @@ func NewSortedSet[T Compare[T]](vs []T) SortedSet[T] {
 }
 
 // All returns an iterator over all elements in order.
-func (s SortedSet[T]) All() iter.Seq2[int, T] {
-	return slices.All(s.sorted)
+func (s SortedSet[T]) All() iter.Seq[T] {
+	return slices.Values(s.sorted)
 }
 
 // Len returns the number of elements in the set.
@@ -70,6 +71,8 @@ type Committee struct {
 	// which should be passed around to verify autobahn messages.
 	// Once we introduce the chain spec it should wrap Committee and firstBlock.
 	firstBlock GlobalBlockNumber
+	// timestamp at genesis. All blocks need to have a timestamp later than genesis.
+	genesisTimestamp time.Time
 }
 
 // Lanes is the list of nodes which are eligible to produce blocks.
@@ -80,6 +83,9 @@ func (c *Committee) Replicas() SortedSet[PublicKey] { return c.replicas }
 
 // FirstBlock is the index of the first global block finalized by this committee.
 func (c *Committee) FirstBlock() GlobalBlockNumber { return c.firstBlock }
+
+// GenesisTimestamp is the timestamp at genesis.
+func (c *Committee) GenesisTimestamp() time.Time { return c.genesisTimestamp }
 
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {
@@ -124,12 +130,13 @@ func (c *Committee) LaneQuorum() int {
 }
 
 // NewRoundRobinElection creates a Committee with round robin election starting at firstBlock.
-func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber) (*Committee, error) {
+func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) (*Committee, error) {
 	if len(replicas) == 0 {
 		return nil, errors.New("replicas cannot be empty")
 	}
 	return &Committee{
-		replicas:   NewSortedSet(replicas),
-		firstBlock: firstBlock,
+		replicas:         NewSortedSet(replicas),
+		firstBlock:       firstBlock,
+		genesisTimestamp: genesisTimestamp,
 	}, nil
 }

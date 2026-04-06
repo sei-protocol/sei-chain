@@ -732,7 +732,7 @@ func TestUnbondingFromUnbondingValidator(t *testing.T) {
 	ctx = ctx.WithBlockTime(resData.CompletionTime.Add(time.Second * -1))
 
 	// unbond the delegator from the validator
-	res = tstaking.Undelegate(delegatorAddr, validatorAddr, unbondAmt, true)
+	_ = tstaking.Undelegate(delegatorAddr, validatorAddr, unbondAmt, true)
 
 	ctx = tstaking.TurnBlockTimeDiff(app.StakingKeeper.UnbondingTime(ctx))
 	tstaking.Ctx = ctx

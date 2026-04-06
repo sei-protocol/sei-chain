@@ -72,7 +72,6 @@ type BaseKeeper struct {
 	storeKey               sdk.StoreKey
 	paramSpace             paramtypes.Subspace
 	mintCoinsRestrictionFn MintingRestrictionFn
-	cacheSize              int
 }
 
 type MintingRestrictionFn func(ctx sdk.Context, coins sdk.Coins) error

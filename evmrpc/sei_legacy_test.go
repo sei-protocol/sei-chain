@@ -437,6 +437,7 @@ func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
 	body := `[
+		{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":[]},
 		{"jsonrpc":"2.0","id":10,"method":"eth_chainId","params":[]},
 		{"jsonrpc":"2.0","id":99,"method":"eth_gasPrice","params":[]}
 	]`
@@ -448,18 +449,21 @@ func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
 		t.Fatal(err)
 	}
-	if len(batch) != 2 {
-		t.Fatalf("want 2 results, got %d", len(batch))
+	if len(batch) != 3 {
+		t.Fatalf("want 3 results, got %d", len(batch))
 	}
-	if batch[0]["result"] != "onlyOne" {
-		t.Fatalf("slot 0: %+v", batch[0])
+	if batch[0]["error"] == nil {
+		t.Fatal("slot 0 should be legacy gate error")
 	}
-	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil {
-		t.Fatal("slot 1 should be JSON-RPC error")
+	if batch[1]["result"] != "onlyOne" {
+		t.Fatalf("slot 1: %+v", batch[1])
 	}
-	if int(err1["code"].(float64)) != -32603 {
-		t.Fatalf("want -32603, got %+v", err1)
+	err2, _ := batch[2]["error"].(map[string]any)
+	if err2 == nil {
+		t.Fatal("slot 2 should be JSON-RPC error")
+	}
+	if int(err2["code"].(float64)) != -32603 {
+		t.Fatalf("want -32603, got %+v", err2)
 	}
 }
 
@@ -469,6 +473,7 @@ func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
 	body := `[
+		{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":[]},
 		{"jsonrpc":"2.0","id":10,"method":"eth_chainId","params":[]},
 		{"jsonrpc":"2.0","id":20,"method":"eth_gasPrice","params":[]}
 	]`
@@ -480,10 +485,13 @@ func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
 		t.Fatal(err)
 	}
-	if len(batch) != 2 {
-		t.Fatalf("want 2 results, got %d", len(batch))
+	if len(batch) != 3 {
+		t.Fatalf("want 3 results, got %d", len(batch))
 	}
-	for i := range batch {
+	if batch[0]["error"] == nil {
+		t.Fatal("slot 0 should be legacy gate error")
+	}
+	for i := 1; i < len(batch); i++ {
 		errObj, _ := batch[i]["error"].(map[string]any)
 		if errObj == nil {
 			t.Fatalf("slot %d expected error, got %+v", i, batch[i])
