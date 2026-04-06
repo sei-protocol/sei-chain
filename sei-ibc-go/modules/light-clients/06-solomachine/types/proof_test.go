@@ -4,7 +4,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
 	solomachinetypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
 	ibctesting "github.com/sei-protocol/sei-chain/sei-ibc-go/testing"
 )
@@ -74,12 +73,12 @@ func (suite *SoloMachineTestSuite) TestClientStateSignBytes() {
 	for _, solomachine := range []*ibctesting.Solomachine{suite.solomachine, suite.solomachineMulti} {
 		// success
 		path := solomachine.GetClientStatePath(counterpartyClientIdentifier)
-		bz, err := types.ClientStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, solomachine.ClientState())
+		bz, err := solomachinetypes.ClientStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, solomachine.ClientState())
 		suite.Require().NoError(err)
 		suite.Require().NotNil(bz)
 
 		// nil client state
-		bz, err = types.ClientStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, nil)
+		bz, err = solomachinetypes.ClientStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, nil)
 		suite.Require().Error(err)
 		suite.Require().Nil(bz)
 	}
@@ -91,12 +90,12 @@ func (suite *SoloMachineTestSuite) TestConsensusStateSignBytes() {
 	for _, solomachine := range []*ibctesting.Solomachine{suite.solomachine, suite.solomachineMulti} {
 		// success
 		path := solomachine.GetConsensusStatePath(counterpartyClientIdentifier, consensusHeight)
-		bz, err := types.ConsensusStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, solomachine.ConsensusState())
+		bz, err := solomachinetypes.ConsensusStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, solomachine.ConsensusState())
 		suite.Require().NoError(err)
 		suite.Require().NotNil(bz)
 
 		// nil consensus state
-		bz, err = types.ConsensusStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, nil)
+		bz, err = solomachinetypes.ConsensusStateSignBytes(cdc, solomachine.Sequence, solomachine.Time, solomachine.Diversifier, path, nil)
 		suite.Require().Error(err)
 		suite.Require().Nil(bz)
 	}
