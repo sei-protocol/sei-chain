@@ -228,7 +228,13 @@ func (app *BaseApp) GetWorkingHash() []byte {
 }
 
 func (app *BaseApp) SetProcessProposalStateToCommit() {
-	app.stateToCommit = app.processProposalState
+	if app.processProposalState != nil {
+		app.stateToCommit = app.processProposalState
+	} else {
+		// processProposalState may be nil if ProcessProposal was not called
+		// (e.g. in test helpers that go directly from InitChain to Commit).
+		app.stateToCommit = app.deliverState
+	}
 }
 
 func (app *BaseApp) SetDeliverStateToCommit() {
@@ -926,12 +932,14 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
-	if app.processProposalState == nil {
-		app.setProcessProposalState(*req.Header)
-	} else {
-		// In the first block, app.processProposalState.ctx will already be initialized
-		// by InitChain. Context is now updated with Header information.
+	if app.LastBlockHeight() == 0 && app.processProposalState != nil {
+		// Block 1: InitChain already set up processProposalState with genesis
+		// state (consensus params, module init). Preserve it; only update header.
 		app.setProcessProposalHeader(*req.Header)
+	} else {
+		// Fresh CacheMultiStore on every call so speculative state from a
+		// previous round's optimistic processing does not carry over.
+		app.setProcessProposalState(*req.Header)
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
