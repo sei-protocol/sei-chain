@@ -320,12 +320,13 @@ func TestRouter_GigaNotSetByDefault(t *testing.T) {
 
 func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	rng := utils.TestRng()
-	key := makeKey(rng)
+	nodeKey := makeKey(rng)
+	// Use a separate key for the validator to verify both propagate independently.
+	valKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(makeKey(rng)))
 
-	autobahnKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(key))
 	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
-		autobahnKey.Public(): {
-			Key:      key.Public(),
+		valKey.Public(): {
+			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
 		},
 	}
@@ -336,7 +337,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
 		Consensus: &consensus.Config{
-			Key:                autobahnKey,
+			Key:                valKey,
 			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
 			PersistentStateDir: utils.None[string](),
 		},
@@ -356,7 +357,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 		},
 	})
 
-	router := makeRouterWithOptionsAndKey(opts, key)
+	router := makeRouterWithOptionsAndKey(opts, nodeKey)
 	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
 
 	giga, _ := router.giga.Get()
@@ -364,14 +365,14 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	// Verify non-default config values were propagated.
 	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)
 	require.Len(t, giga.cfg.ValidatorAddrs, 1)
-	addr, ok := giga.cfg.ValidatorAddrs[autobahnKey.Public()]
+	addr, ok := giga.cfg.ValidatorAddrs[valKey.Public()]
 	require.True(t, ok, "validator key should be in ValidatorAddrs")
-	require.Equal(t, key.Public(), addr.Key, "node key should match")
+	require.Equal(t, nodeKey.Public(), addr.Key, "node key should match")
 	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
 	require.Equal(t, uint16(9999), addr.HostPort.Port)
 
-	// Verify consensus key and view timeout.
-	require.Equal(t, autobahnKey.Public(), giga.cfg.Consensus.Key.Public())
+	// Verify consensus key is the validator key (distinct from node key).
+	require.Equal(t, valKey.Public(), giga.cfg.Consensus.Key.Public())
 	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
 
 	// Verify producer config with non-default values.

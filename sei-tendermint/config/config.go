@@ -63,16 +63,19 @@ type Config struct {
 	BaseConfig `mapstructure:",squash"`
 
 	// Options for services
-	RPC                *RPCConfig             `mapstructure:"rpc"`
-	P2P                *P2PConfig             `mapstructure:"p2p"`
-	Mempool            *MempoolConfig         `mapstructure:"mempool"`
-	StateSync          *StateSyncConfig       `mapstructure:"statesync"`
-	Consensus          *ConsensusConfig       `mapstructure:"consensus"`
-	TxIndex            *TxIndexConfig         `mapstructure:"tx-index"`
-	Instrumentation    *InstrumentationConfig `mapstructure:"instrumentation"`
-	PrivValidator      *PrivValidatorConfig   `mapstructure:"priv-validator"`
-	SelfRemediation    *SelfRemediationConfig `mapstructure:"self-remediation"`
-	AutobahnConfigFile string                 `mapstructure:"autobahn-config-file"`
+	RPC             *RPCConfig             `mapstructure:"rpc"`
+	P2P             *P2PConfig             `mapstructure:"p2p"`
+	Mempool         *MempoolConfig         `mapstructure:"mempool"`
+	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
+	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
+	TxIndex         *TxIndexConfig         `mapstructure:"tx-index"`
+	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
+	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
+	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
+
+	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+	// configuration. Leave empty to disable Autobahn.
+	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
