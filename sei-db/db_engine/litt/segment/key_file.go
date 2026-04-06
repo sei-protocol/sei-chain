@@ -289,8 +289,8 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		index += types.AddressLength
 
 		keys = append(keys, &types.ScopedKey{
-			Key:       key,
-			Address:   address,
+			Key:     key,
+			Address: address,
 		})
 	}
 

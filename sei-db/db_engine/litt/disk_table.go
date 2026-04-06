@@ -812,23 +812,22 @@ func (d *diskTable) sanityCheckBatch(batch []*types.PutRequest) error {
 		if req.Value == nil {
 			return fmt.Errorf("nil values are not supported")
 		}
-		if req.SecondaryKeys != nil {
-			for _, secondaryKey := range req.SecondaryKeys {
-				if secondaryKey.Key == nil {
-					return fmt.Errorf("nil secondary key is not supported")
-				}
-				if len(secondaryKey.Key) > math.MaxUint32 {
-					return fmt.Errorf("secondary key is too large, length must not exceed 2^32 bytes: %d bytes",
-						len(secondaryKey.Key))
-				}
-				if secondaryKey.Offset > uint32(len(req.Value)) {
-					return fmt.Errorf("secondary key offset is greater than the value length: %d > %d",
-						secondaryKey.Offset, len(req.Value))
-				}
-				if secondaryKey.Offset+secondaryKey.Length > uint32(len(req.Value)) {
-					return fmt.Errorf("secondary key offset+length is greater than the value length: %d + %d > %d",
-						secondaryKey.Offset, secondaryKey.Length, len(req.Value))
-				}
+		valueLen := uint32(len(req.Value)) //nolint:gosec // overflow checked above
+		for _, secondaryKey := range req.SecondaryKeys {
+			if secondaryKey.Key == nil {
+				return fmt.Errorf("nil secondary key is not supported")
+			}
+			if len(secondaryKey.Key) > math.MaxUint32 {
+				return fmt.Errorf("secondary key is too large, length must not exceed 2^32 bytes: %d bytes",
+					len(secondaryKey.Key))
+			}
+			if secondaryKey.Offset > valueLen {
+				return fmt.Errorf("secondary key offset is greater than the value length: %d > %d",
+					secondaryKey.Offset, valueLen)
+			}
+			if secondaryKey.Offset+secondaryKey.Length > valueLen {
+				return fmt.Errorf("secondary key offset+length is greater than the value length: %d + %d > %d",
+					secondaryKey.Offset, secondaryKey.Length, valueLen)
 			}
 		}
 	}

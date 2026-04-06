@@ -57,12 +57,9 @@ func (c *cachedTable) Put(key []byte, value []byte, secondaryKeys ...*types.Seco
 	}
 	c.writeCache.Put(string(key), value)
 
-	// Store the aliased byte slices directly. Golang won't copy the data, so this isn't expensive.
-	if secondaryKeys != nil {
-		for _, secondaryKey := range secondaryKeys {
-			subrange := value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
-			c.writeCache.Put(util.UnsafeBytesToString(secondaryKey.Key), subrange)
-		}
+	for _, secondaryKey := range secondaryKeys {
+		subrange := value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
+		c.writeCache.Put(util.UnsafeBytesToString(secondaryKey.Key), subrange)
 	}
 	return nil
 }

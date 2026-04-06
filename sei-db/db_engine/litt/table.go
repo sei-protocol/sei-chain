@@ -20,7 +20,7 @@ type Table interface {
 
 	// Put stores a value in the database. May not be used to overwrite an existing value.
 	// Note that when this method returns, data written may not be crash durable on disk
-	// (although the write does have atomicity). In order to ensure crash durability, call Flush().
+	// (although the write does have per-key atomicity). In order to ensure crash durability, call Flush().
 	//
 	// The maximum size of the key is 2^32 bytes. The maximum size of the value is 2^32 bytes.
 	// This database has been optimized under the assumption that values are generally much larger than keys.

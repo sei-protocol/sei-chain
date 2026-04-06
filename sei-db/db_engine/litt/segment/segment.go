@@ -417,9 +417,7 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 		s.maxShardSize = s.shardSizes[shard]
 	}
 	s.keyCount++
-	if data.SecondaryKeys != nil {
-		s.keyCount += uint32(len(data.SecondaryKeys))
-	} // TODO future Cody continue here
+	s.keyCount += uint32(len(data.SecondaryKeys)) //nolint:gosec // bounded by batch validation
 	s.keyFileSize += uint64(len(data.Key)) + 4 /* key length */ + types.AddressLength
 	if data.SecondaryKeys != nil {
 		for _, secondaryKey := range data.SecondaryKeys {

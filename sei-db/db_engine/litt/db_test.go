@@ -317,3 +317,107 @@ func TestDBRestart(t *testing.T) {
 		})
 	}
 }
+
+// dbSecondaryKeyRestartTest verifies that secondary keys survive a DB close+reopen cycle.
+func dbSecondaryKeyRestartTest(t *testing.T, builder *dbBuilder) {
+	rand := test.NewTestRandom()
+	directory := t.TempDir()
+
+	db, err := builder.builder(t, directory)
+	require.NoError(t, err)
+
+	table, err := db.GetTable("test-sk")
+	require.NoError(t, err)
+
+	type secondaryExpectation struct {
+		key   string
+		value []byte
+	}
+
+	primaryExpected := make(map[string][]byte)
+	secondaryExpected := make(map[string][]byte)
+
+	// Write a mix of entries with and without secondary keys.
+	for i := 0; i < 200; i++ {
+		value := rand.PrintableVariableBytes(20, 200)
+		primaryKey := fmt.Sprintf("pk-%d-%s", i, rand.PrintableBytes(8))
+
+		if rand.BoolWithProbability(0.6) {
+			// Write with secondary keys.
+			valueLen := uint32(len(value))
+			skCount := rand.Int32Range(1, 4)
+			var sks []*types.SecondaryKey
+			for j := int32(0); j < skCount; j++ {
+				offset := uint32(rand.Int32Range(0, int32(valueLen)))
+				maxLen := valueLen - offset
+				if maxLen == 0 {
+					continue
+				}
+				length := uint32(rand.Int32Range(1, int32(maxLen)+1))
+				skKey := fmt.Sprintf("sk-%d-%d-%s", i, j, rand.PrintableBytes(4))
+				sks = append(sks, &types.SecondaryKey{
+					Key:    []byte(skKey),
+					Offset: offset,
+					Length: length,
+				})
+				secondaryExpected[skKey] = value[offset : offset+length]
+			}
+
+			if rand.BoolWithProbability(0.5) {
+				err = table.Put([]byte(primaryKey), value, sks...)
+			} else {
+				err = table.PutBatch([]*types.PutRequest{{
+					Key:           []byte(primaryKey),
+					Value:         value,
+					SecondaryKeys: sks,
+				}})
+			}
+		} else {
+			err = table.Put([]byte(primaryKey), value)
+		}
+		require.NoError(t, err)
+		primaryExpected[primaryKey] = value
+	}
+
+	// Flush before closing.
+	err = table.Flush()
+	require.NoError(t, err)
+
+	// Close and reopen the DB.
+	err = db.Close()
+	require.NoError(t, err)
+
+	db, err = builder.builder(t, directory)
+	require.NoError(t, err)
+
+	table, err = db.GetTable("test-sk")
+	require.NoError(t, err)
+
+	// Verify all primary keys.
+	for key, expectedValue := range primaryExpected {
+		got, ok, err := table.Get([]byte(key))
+		require.NoError(t, err)
+		require.True(t, ok, "primary key %q not found after restart", key)
+		require.Equal(t, expectedValue, got)
+	}
+
+	// Verify all secondary keys.
+	for key, expectedValue := range secondaryExpected {
+		got, ok, err := table.Get([]byte(key))
+		require.NoError(t, err)
+		require.True(t, ok, "secondary key %q not found after restart", key)
+		require.Equal(t, expectedValue, got, "secondary key %q value mismatch after restart", key)
+	}
+
+	err = db.Destroy()
+	require.NoError(t, err)
+}
+
+func TestDBSecondaryKeyRestart(t *testing.T) {
+	t.Parallel()
+	for _, builder := range restartableBuilders {
+		t.Run(builder.name, func(t *testing.T) {
+			dbSecondaryKeyRestartTest(t, builder)
+		})
+	}
+}

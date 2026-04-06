@@ -447,6 +447,313 @@ func TestGarbageCollection(t *testing.T) {
 	}
 }
 
+// secondaryKeyBasicTest verifies that Put() with secondary keys correctly stores subranges
+// and that those subranges can be retrieved via Get() using the secondary key.
+func secondaryKeyBasicTest(t *testing.T, builder *integrationTableBuilder) {
+	rand := test.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+
+	table, err := builder.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	value := []byte("AAAAABBBBBCCCCCDDDDDEEEEE")
+	primaryKey := rand.PrintableBytes(16)
+
+	secondaryKeys := []*types.SecondaryKey{
+		{Key: []byte("alias-B"), Offset: 5, Length: 5},
+		{Key: []byte("alias-CD"), Offset: 10, Length: 10},
+		{Key: []byte("alias-full"), Offset: 0, Length: uint32(len(value))},
+		{Key: []byte("alias-single"), Offset: 24, Length: 1},
+	}
+
+	err = table.Put(primaryKey, value, secondaryKeys...)
+	require.NoError(t, err)
+
+	// Verify primary key returns full value.
+	got, ok, err := table.Get(primaryKey)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value, got)
+
+	// Verify each secondary key returns the correct subrange.
+	got, ok, err = table.Get([]byte("alias-B"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("BBBBB"), got)
+
+	got, ok, err = table.Get([]byte("alias-CD"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("CCCCCDDDDD"), got)
+
+	got, ok, err = table.Get([]byte("alias-full"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value, got)
+
+	got, ok, err = table.Get([]byte("alias-single"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("E"), got)
+
+	// Exists should work for secondary keys.
+	exists, err := table.Exists([]byte("alias-B"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	// Non-existent key should not be found.
+	_, ok, err = table.Get([]byte("nonexistent"))
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	err = table.Destroy()
+	require.NoError(t, err)
+}
+
+func TestSecondaryKeyBasic(t *testing.T) {
+	t.Parallel()
+	for _, tb := range integrationTableBuilders {
+		t.Run(tb.name, func(t *testing.T) {
+			secondaryKeyBasicTest(t, tb)
+		})
+	}
+}
+
+// secondaryKeyFlushAndReadTest verifies that secondary keys survive flushing to disk
+// and can be read back from the on-disk segments.
+func secondaryKeyFlushAndReadTest(t *testing.T, builder *integrationTableBuilder) {
+	rand := test.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+
+	table, err := builder.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	value := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+
+	err = table.Put(
+		[]byte("primary"),
+		value,
+		&types.SecondaryKey{Key: []byte("digits"), Offset: 0, Length: 10},
+		&types.SecondaryKey{Key: []byte("letters"), Offset: 10, Length: 26},
+	)
+	require.NoError(t, err)
+
+	// Flush to disk to ensure data leaves the unflushed cache.
+	err = table.Flush()
+	require.NoError(t, err)
+
+	// Read back after flush.
+	got, ok, err := table.Get([]byte("primary"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value, got)
+
+	got, ok, err = table.Get([]byte("digits"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("0123456789"), got)
+
+	got, ok, err = table.Get([]byte("letters"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("abcdefghijklmnopqrstuvwxyz"), got)
+
+	err = table.Destroy()
+	require.NoError(t, err)
+}
+
+func TestSecondaryKeyFlushAndRead(t *testing.T) {
+	t.Parallel()
+	for _, tb := range integrationTableBuilders {
+		t.Run(tb.name, func(t *testing.T) {
+			secondaryKeyFlushAndReadTest(t, tb)
+		})
+	}
+}
+
+// secondaryKeyPutBatchTest verifies that PutBatch correctly handles entries with secondary keys.
+func secondaryKeyPutBatchTest(t *testing.T, builder *integrationTableBuilder) {
+	rand := test.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+
+	table, err := builder.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	value1 := []byte("HEADBODY1TAIL")
+	value2 := []byte("XXYYZZWW")
+
+	batch := []*types.PutRequest{
+		{
+			Key:   []byte("pk1"),
+			Value: value1,
+			SecondaryKeys: []*types.SecondaryKey{
+				{Key: []byte("pk1-head"), Offset: 0, Length: 4},
+				{Key: []byte("pk1-body"), Offset: 4, Length: 5},
+				{Key: []byte("pk1-tail"), Offset: 9, Length: 4},
+			},
+		},
+		{
+			Key:   []byte("pk2"),
+			Value: value2,
+			SecondaryKeys: []*types.SecondaryKey{
+				{Key: []byte("pk2-first-half"), Offset: 0, Length: 4},
+				{Key: []byte("pk2-second-half"), Offset: 4, Length: 4},
+			},
+		},
+		{
+			Key:   []byte("pk3-no-secondary"),
+			Value: []byte("plain-value"),
+		},
+	}
+
+	err = table.PutBatch(batch)
+	require.NoError(t, err)
+
+	err = table.Flush()
+	require.NoError(t, err)
+
+	// Verify primary keys.
+	got, ok, err := table.Get([]byte("pk1"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value1, got)
+
+	got, ok, err = table.Get([]byte("pk2"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value2, got)
+
+	got, ok, err = table.Get([]byte("pk3-no-secondary"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("plain-value"), got)
+
+	// Verify secondary keys for pk1.
+	got, ok, err = table.Get([]byte("pk1-head"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("HEAD"), got)
+
+	got, ok, err = table.Get([]byte("pk1-body"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("BODY1"), got)
+
+	got, ok, err = table.Get([]byte("pk1-tail"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("TAIL"), got)
+
+	// Verify secondary keys for pk2.
+	got, ok, err = table.Get([]byte("pk2-first-half"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("XXYY"), got)
+
+	got, ok, err = table.Get([]byte("pk2-second-half"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("ZZWW"), got)
+
+	err = table.Destroy()
+	require.NoError(t, err)
+}
+
+func TestSecondaryKeyPutBatch(t *testing.T) {
+	t.Parallel()
+	for _, tb := range integrationTableBuilders {
+		t.Run(tb.name, func(t *testing.T) {
+			secondaryKeyPutBatchTest(t, tb)
+		})
+	}
+}
+
+// secondaryKeyRandomTest is a randomized integration test that mixes Put/PutBatch
+// calls with and without secondary keys, periodically flushing and verifying all data.
+func secondaryKeyRandomTest(t *testing.T, builder *integrationTableBuilder) {
+	rand := test.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+
+	table, err := builder.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	type expectedEntry struct {
+		value []byte
+	}
+
+	expected := make(map[string]*expectedEntry)
+
+	iterations := 500
+	for i := 0; i < iterations; i++ {
+		value := rand.PrintableVariableBytes(20, 200)
+		primaryKey := rand.PrintableVariableBytes(16, 32)
+
+		secondaryKeyCount := rand.Int32Range(0, 5)
+		var secondaryKeys []*types.SecondaryKey
+		for j := int32(0); j < secondaryKeyCount; j++ {
+			valueLen := uint32(len(value))
+			offset := uint32(rand.Int32Range(0, int32(valueLen)))
+			maxLength := valueLen - offset
+			if maxLength == 0 {
+				continue
+			}
+			length := uint32(rand.Int32Range(1, int32(maxLength)+1))
+
+			sk := &types.SecondaryKey{
+				Key:    rand.PrintableVariableBytes(16, 32),
+				Offset: offset,
+				Length: length,
+			}
+			secondaryKeys = append(secondaryKeys, sk)
+			expected[string(sk.Key)] = &expectedEntry{value: value[offset : offset+length]}
+		}
+
+		useBatch := rand.BoolWithProbability(0.5)
+		if useBatch {
+			req := &types.PutRequest{
+				Key:           primaryKey,
+				Value:         value,
+				SecondaryKeys: secondaryKeys,
+			}
+			err = table.PutBatch([]*types.PutRequest{req})
+		} else {
+			err = table.Put(primaryKey, value, secondaryKeys...)
+		}
+		require.NoError(t, err)
+		expected[string(primaryKey)] = &expectedEntry{value: value}
+
+		if rand.BoolWithProbability(0.1) {
+			err = table.Flush()
+			require.NoError(t, err)
+		}
+
+		if rand.BoolWithProbability(0.02) || i == iterations-1 {
+			for key, entry := range expected {
+				got, ok, err := table.Get([]byte(key))
+				require.NoError(t, err)
+				require.True(t, ok, "key %q not found", key)
+				require.Equal(t, entry.value, got, "mismatch for key %q", key)
+			}
+		}
+	}
+
+	err = table.Destroy()
+	require.NoError(t, err)
+}
+
+func TestSecondaryKeyRandom(t *testing.T) {
+	t.Parallel()
+	for _, tb := range integrationTableBuilders {
+		t.Run(tb.name, func(t *testing.T) {
+			secondaryKeyRandomTest(t, tb)
+		})
+	}
+}
+
 func TestInvalidTableName(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
