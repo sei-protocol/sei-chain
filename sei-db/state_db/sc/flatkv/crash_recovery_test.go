@@ -398,6 +398,7 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 	// Reopen should fail with an LtHash unmarshal error.
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
+	defer s2.Close()
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid LtHash size")
@@ -432,6 +433,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	// Reopen should fail with an LtHash unmarshal error from per-DB meta.
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
+	defer s2.Close()
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid LtHash size")
@@ -468,6 +470,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	// Reopen should fail with an overflow error.
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
+	defer s2.Close()
 	_, err = s2.LoadVersion(0, false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "global version overflow")
