@@ -22,6 +22,7 @@ type KafkaConfig struct {
 	Brokers       []string
 	Topic         string
 	ClientID      string
+	Region        string
 	Async         bool
 	RequiredAcks  string
 	Compression   string
@@ -90,6 +91,14 @@ func (c *KafkaConfig) Validate() error {
 	case "plain", "scram-sha-256", "scram-sha-512":
 		if c.Username == "" || c.Password == "" {
 			return fmt.Errorf("kafka sasl username and password are required for mechanism %q", c.SASLMechanism)
+		}
+		return nil
+	case "aws-msk-iam":
+		if !c.TLSEnabled {
+			return fmt.Errorf("kafka tls must be enabled for aws-msk-iam")
+		}
+		if c.Region == "" {
+			return fmt.Errorf("kafka region is required for aws-msk-iam")
 		}
 		return nil
 	default:
@@ -226,6 +235,8 @@ func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 		return scram.Mechanism(scram.SHA256, cfg.Username, cfg.Password)
 	case "scram-sha-512":
 		return scram.Mechanism(scram.SHA512, cfg.Username, cfg.Password)
+	case "aws-msk-iam":
+		return newAWSMSKIAMMechanism(cfg)
 	default:
 		return nil, fmt.Errorf("unsupported kafka sasl mechanism %q", cfg.SASLMechanism)
 	}

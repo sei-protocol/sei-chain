@@ -20,6 +20,7 @@ type KafkaHistoricalOffloadConfig struct {
 	Brokers        []string
 	Topic          string
 	ClientID       string
+	Region         string
 	Async          *bool
 	RequiredAcks   string
 	Compression    string
@@ -79,6 +80,7 @@ func (c *KafkaHistoricalOffloadConfig) validate() error {
 		Brokers:       c.Brokers,
 		Topic:         c.Topic,
 		ClientID:      c.ClientID,
+		Region:        c.Region,
 		Async:         c.asyncValue(),
 		RequiredAcks:  c.RequiredAcks,
 		Compression:   c.Compression,
@@ -119,6 +121,7 @@ func configureHistoricalOffloadFactory(config *CryptoSimConfig) error {
 				Brokers:       append([]string(nil), kafkaCfg.Brokers...),
 				Topic:         kafkaCfg.Topic,
 				ClientID:      kafkaCfg.ClientID,
+				Region:        kafkaCfg.Region,
 				Async:         kafkaCfg.asyncValue(),
 				RequiredAcks:  kafkaCfg.RequiredAcks,
 				Compression:   kafkaCfg.Compression,

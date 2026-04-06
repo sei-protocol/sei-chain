@@ -51,3 +51,25 @@ func TestValidateHistoricalOffloadKafkaAcceptsMinimalValidConfig(t *testing.T) {
 	require.Equal(t, 1000, cfg.HistoricalOffload.Kafka.BatchSize)
 	require.Equal(t, 4<<20, cfg.HistoricalOffload.Kafka.BatchBytes)
 }
+
+func TestValidateHistoricalOffloadKafkaIAMRequiresRegion(t *testing.T) {
+	cfg := DefaultCryptoSimConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.LogDir = t.TempDir()
+	cfg.Backend = wrappers.SSHistoricalOffload
+	cfg.HistoricalOffload = &HistoricalOffloadConfig{
+		Provider: "kafka",
+		Kafka: &KafkaHistoricalOffloadConfig{
+			Brokers:       []string{"localhost:9098"},
+			Topic:         "historical-offload",
+			TLSEnabled:    true,
+			SASLMechanism: "aws-msk-iam",
+		},
+	}
+
+	err := cfg.Validate()
+	require.ErrorContains(t, err, "region is required")
+
+	cfg.HistoricalOffload.Kafka.Region = "eu-central-1"
+	require.NoError(t, cfg.Validate())
+}

@@ -29,6 +29,23 @@ func TestKafkaConfigValidateRequiresBrokerAndTopic(t *testing.T) {
 	require.Error(t, cfg.Validate())
 }
 
+func TestKafkaConfigValidateRequiresRegionAndTLSForAWSMSKIAM(t *testing.T) {
+	cfg := KafkaConfig{
+		Brokers:       []string{"localhost:9098"},
+		Topic:         "historical-offload",
+		SASLMechanism: "aws-msk-iam",
+	}
+	cfg.ApplyDefaults()
+
+	require.ErrorContains(t, cfg.Validate(), "tls must be enabled")
+
+	cfg.TLSEnabled = true
+	require.ErrorContains(t, cfg.Validate(), "region is required")
+
+	cfg.Region = "eu-central-1"
+	require.NoError(t, cfg.Validate())
+}
+
 func TestNewKafkaStreamSupportsNilPublishAndClose(t *testing.T) {
 	stream, err := NewKafkaStream(KafkaConfig{
 		Brokers: []string{"localhost:9092"},
@@ -47,4 +64,10 @@ func TestNewKafkaStreamSupportsNilPublishAndClose(t *testing.T) {
 	closer, ok := stream.(interface{ Close() error })
 	require.True(t, ok)
 	require.NoError(t, closer.Close())
+}
+
+func TestAWSMSKIAMMechanismRequiresMetadata(t *testing.T) {
+	mech := &awsMSKIAMMechanism{region: "eu-central-1"}
+	_, _, err := mech.Start(context.Background())
+	require.ErrorContains(t, err, "missing sasl metadata")
 }
