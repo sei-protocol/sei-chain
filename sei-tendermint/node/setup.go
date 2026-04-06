@@ -261,8 +261,7 @@ func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// buildGigaConfig constructs a GigaRouterConfig from the AutobahnConfig, node key, app, and genesis doc.
-// Returns nil if autobahn is not enabled.
+// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, app, and genesis doc.
 func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
@@ -271,9 +270,8 @@ func buildGigaConfig(
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
 	if autobahnConfigFile == "" {
-		return nil, nil
+		return nil, errors.New("autobahn config file path must not be empty")
 	}
-
 	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
@@ -423,11 +421,11 @@ func createRouter(
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
-	gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, validatorKey, appClient, genDoc)
-	if err != nil {
-		return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
-	}
-	if gigaCfg != nil {
+	if cfg.AutobahnConfigFile != "" {
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, validatorKey, appClient, genDoc)
+		if err != nil {
+			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+		}
 		options.Giga = utils.Some(gigaCfg)
 	}
 

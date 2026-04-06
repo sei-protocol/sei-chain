@@ -61,11 +61,10 @@ func defaultFileConfig(validators []autobahnValidator) *autobahnFileConfig {
 	}
 }
 
-func TestBuildGigaConfig_Disabled(t *testing.T) {
+func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("test-node-key"))
-	result, err := buildGigaConfig("", nodeKey, utils.None[crypto.PrivKey](), nil, nil)
-	require.NoError(t, err)
-	assert.Nil(t, result, "should return nil when config file is empty")
+	_, err := buildGigaConfig("", nodeKey, utils.None[crypto.PrivKey](), nil, nil)
+	assert.Error(t, err, "empty path should error")
 }
 
 func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
