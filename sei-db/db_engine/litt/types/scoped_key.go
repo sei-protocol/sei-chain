@@ -6,6 +6,4 @@ type ScopedKey struct {
 	Key []byte
 	// The location where the value associated with the key is stored.
 	Address Address
-	// The length of the value associated with the key.
-	ValueSize uint32
 }

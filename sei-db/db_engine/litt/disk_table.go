@@ -658,7 +658,7 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	}
 
 	// Look up the address of the data.
-	address, length, ok, err := d.keymap.Get(key)
+	address, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get address: %w", err)
 	}
@@ -674,7 +674,7 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	defer seg.Release()
 
 	// Read the data from disk.
-	data, err := seg.Read(key, address, length)
+	data, err := seg.Read(key, address)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read data: %w", err)
 	}
@@ -703,8 +703,7 @@ func (d *diskTable) CacheAwareGet(
 
 	// Look up the address of the data.
 	var address types.Address
-	var length uint32
-	address, length, exists, err = d.keymap.Get(key)
+	address, exists, err = d.keymap.Get(key)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("failed to get address: %w", err)
 	}
@@ -727,7 +726,7 @@ func (d *diskTable) CacheAwareGet(
 	defer seg.Release()
 
 	// Read the data from disk.
-	value, err = seg.Read(key, address, length)
+	value, err = seg.Read(key, address)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("failed to read data: %w", err)
 	}
@@ -842,7 +841,7 @@ func (d *diskTable) Exists(key []byte) (bool, error) {
 		return true, nil
 	}
 
-	_, _, ok, err := d.keymap.Get(key)
+	_, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return false, fmt.Errorf("failed to get address: %w", err)
 	}

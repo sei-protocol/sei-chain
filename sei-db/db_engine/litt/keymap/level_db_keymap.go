@@ -93,7 +93,7 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 
 	if l.doubleWriteProtection {
 		for _, k := range keys {
-			_, _, ok, err := l.Get(k.Key)
+			_, ok, err := l.Get(k.Key)
 			if err != nil {
 				return fmt.Errorf("failed to get key: %w", err)
 			}
@@ -105,12 +105,7 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 
 	batch := new(leveldb.Batch)
 	for _, k := range keys {
-		data := make([]byte, types.AddressLength+4 /* value size */)
-		serializedAddress := k.Address.Serialize()
-		copy(data[:types.AddressLength], serializedAddress)
-		binary.BigEndian.PutUint32(data[types.AddressLength:], k.ValueSize)
-
-		batch.Put(k.Key, data)
+		batch.Put(k.Key, k.Address.Serialize())
 	}
 
 	writeOptions := &opt.WriteOptions{
@@ -124,27 +119,25 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 	return nil
 }
 
-func (l *LevelDBKeymap) Get(key []byte) (address types.Address, length uint32, exists bool, err error) {
+func (l *LevelDBKeymap) Get(key []byte) (address types.Address, exists bool, err error) {
 	rawData, err := l.db.Get(key, nil)
 	if err != nil {
 		if errors.Is(err, leveldb.ErrNotFound) {
-			return types.Address{}, 0, false, nil
+			return types.Address{}, false, nil
 		}
-		return types.Address{}, 0, false, fmt.Errorf("failed to get key from LevelDB: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to get key from LevelDB: %w", err)
 	}
 
-	if len(rawData) != types.AddressLength+4 {
-		return types.Address{}, 0, false, fmt.Errorf("invalid data length: %d", len(rawData))
+	if len(rawData) != types.AddressLength {
+		return types.Address{}, false, fmt.Errorf("invalid data length: %d", len(rawData))
 	}
 
 	address, err = types.DeserializeAddress(rawData[:types.AddressLength])
 	if err != nil {
-		return types.Address{}, 0, false, fmt.Errorf("failed to deserialize address: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to deserialize address: %w", err)
 	}
 
-	valueSize := binary.BigEndian.Uint32(rawData[types.AddressLength:])
-
-	return address, valueSize, true, nil
+	return address, true, nil
 }
 
 func (l *LevelDBKeymap) Delete(keys []*types.ScopedKey) error {

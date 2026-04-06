@@ -33,7 +33,7 @@ type Keymap interface {
 	// return an error if the key does not exist).
 	//
 	// It is not safe to modify key byte slice after it is passed to this method.
-	Get(key []byte) (address types.Address, length uint32, exists bool, err error)
+	Get(key []byte) (address types.Address, exists bool, err error)
 
 	// Delete removes keys from the keymap. Deleting non-existent keys is a no-op.
 	//

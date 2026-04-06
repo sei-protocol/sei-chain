@@ -267,7 +267,7 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	for _, scopedKey := range scopedKeys {
 		shard := scopedKey.Address.Shard()
 
-		requiredValueFileLength := uint64(scopedKey.Address.Offset()) + uint64(scopedKey.ValueSize)
+		requiredValueFileLength := uint64(scopedKey.Address.Offset()) + uint64(scopedKey.Address.ValueSize())
 
 		if s.shards[shard].Size() < requiredValueFileLength {
 			badKeys = append(badKeys, scopedKey)
@@ -420,10 +420,10 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	if data.SecondaryKeys != nil {
 		s.keyCount += uint32(len(data.SecondaryKeys))
 	} // TODO future Cody continue here
-	s.keyFileSize += uint64(len(data.Key)) + 4 /* key length */ + types.AddressLength + 4 /* val size */
+	s.keyFileSize += uint64(len(data.Key)) + 4 /* key length */ + types.AddressLength
 	if data.SecondaryKeys != nil {
 		for _, secondaryKey := range data.SecondaryKeys {
-			s.keyFileSize += uint64(len(secondaryKey.Key)) + 4 /* key length */ + types.AddressLength + 4 /* val size */
+			s.keyFileSize += uint64(len(secondaryKey.Key)) + 4 /* key length */ + types.AddressLength
 		}
 	}
 
@@ -440,9 +440,8 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 
 	// Forward the primary key to the key file control loop
 	keyRequest := &types.ScopedKey{
-		Key:       data.Key,
-		Address:   types.NewAddress(s.index, firstByteIndex, shard),
-		ValueSize: uint32(len(data.Value)), //nolint:gosec
+		Key:     data.Key,
+		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(len(data.Value))), //nolint:gosec
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -454,9 +453,8 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	// Forward secondary keys to the key file control loop
 	for _, secondaryKey := range data.SecondaryKeys {
 		keyRequest := &types.ScopedKey{
-			Key:       secondaryKey.Key,
-			Address:   types.NewAddress(s.index, firstByteIndex+secondaryKey.Offset, shard),
-			ValueSize: secondaryKey.Length,
+			Key:     secondaryKey.Key,
+			Address: types.NewAddress(s.index, firstByteIndex+secondaryKey.Offset, shard, secondaryKey.Length),
 		}
 		err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
 		if err != nil {
@@ -476,10 +474,10 @@ func (s *Segment) GetMaxShardSize() uint64 {
 // Read fetches the data for a key from the data segment.
 //
 // It is only thread safe to read from a segment if the key being read has previously been flushed to disk.
-func (s *Segment) Read(key []byte, dataAddress types.Address, length uint32) ([]byte, error) {
+func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 	values := s.shards[dataAddress.Shard()]
 
-	value, err := values.read(dataAddress.Offset(), length)
+	value, err := values.read(dataAddress.Offset(), dataAddress.ValueSize())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value: %w", err)
 	}

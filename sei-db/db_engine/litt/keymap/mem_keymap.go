@@ -61,16 +61,16 @@ func (m *memKeymap) Put(keys []*types.ScopedKey) error {
 	return nil
 }
 
-func (m *memKeymap) Get(key []byte) (address types.Address, length uint32, exists bool, err error) {
+func (m *memKeymap) Get(key []byte) (address types.Address, exists bool, err error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	scopedKey, ok := m.data[util.UnsafeBytesToString(key)]
 	if !ok {
-		return types.Address{}, 0, false, nil
+		return types.Address{}, false, nil
 	}
 
-	return scopedKey.Address, scopedKey.ValueSize, true, nil
+	return scopedKey.Address, true, nil
 }
 
 func (m *memKeymap) Delete(keys []*types.ScopedKey) error {

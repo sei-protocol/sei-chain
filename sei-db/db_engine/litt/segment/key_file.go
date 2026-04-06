@@ -194,17 +194,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 		return fmt.Errorf("failed to write address to key file: %w", err)
 	}
 
-	// Write the size of the value.
-	err = binary.Write(k.writer, binary.BigEndian, scopedKey.ValueSize)
-	if err != nil {
-		return fmt.Errorf("failed to write value size to key file: %w", err)
-	}
-
-	k.size += uint64( //nolint:gosec
-		4 /* uint32 size of key */ +
-			len(scopedKey.Key) +
-			types.AddressLength +
-			4 /* uint32 size of value */)
+	k.size += uint64(4 /* uint32 size of key */ + len(scopedKey.Key) + types.AddressLength) //nolint:gosec
 
 	return nil
 }
@@ -283,8 +273,8 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		keyLength := int(binary.BigEndian.Uint32(keyBytes[index : index+4]))
 		index += 4
 
-		// We need to read the key, as well as the 8 byte address and 4 byte value size.
-		if index+keyLength+types.AddressLength+4 > len(keyBytes) {
+		// We need to read the key as well as the address
+		if index+keyLength+types.AddressLength > len(keyBytes) {
 			// There are insufficient bytes left in the file to read the key, address, and value size.
 			break
 		}
@@ -298,13 +288,9 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		}
 		index += types.AddressLength
 
-		valueSize := binary.BigEndian.Uint32(keyBytes[index : index+4])
-		index += 4
-
 		keys = append(keys, &types.ScopedKey{
 			Key:       key,
 			Address:   address,
-			ValueSize: valueSize,
 		})
 	}
 
