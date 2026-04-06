@@ -214,11 +214,11 @@ type autobahnFileConfig struct {
 	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
 	MempoolSize        uint64               `json:"mempool_size"`
-	BlockInterval      time.Duration        `json:"block_interval"`
+	BlockInterval      utils.Duration       `json:"block_interval"`
 	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
-	ViewTimeout        time.Duration        `json:"view_timeout"`
+	ViewTimeout        utils.Duration       `json:"view_timeout"`
 	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
-	DialInterval       time.Duration        `json:"dial_interval"`
+	DialInterval       utils.Duration       `json:"dial_interval"`
 }
 
 func (fc *autobahnFileConfig) validate() error {
@@ -312,12 +312,12 @@ func buildGigaConfig(
 	}
 
 	return &p2p.GigaRouterConfig{
-		DialInterval:   fc.DialInterval,
+		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
 		Consensus: &autobahnConsensus.Config{
 			Key: autobahnSecretKey,
 			ViewTimeout: func(atypes.View) time.Duration {
-				return fc.ViewTimeout
+				return time.Duration(fc.ViewTimeout)
 			},
 			PersistentStateDir: fc.PersistentStateDir,
 		},
@@ -326,7 +326,7 @@ func buildGigaConfig(
 			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
 			MempoolSize:      fc.MempoolSize,
-			BlockInterval:    fc.BlockInterval,
+			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		},
 		App:    appClient,

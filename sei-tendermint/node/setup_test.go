@@ -53,11 +53,11 @@ func defaultFileConfig(validators []autobahnValidator) *autobahnFileConfig {
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
 		MempoolSize:        5_000,
-		BlockInterval:      400 * time.Millisecond,
+		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		AllowEmptyBlocks:   false,
-		ViewTimeout:        1500 * time.Millisecond,
+		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
 		PersistentStateDir: utils.None[string](),
-		DialInterval:       10 * time.Second,
+		DialInterval:       utils.Duration(10 * time.Second),
 	}
 }
 
@@ -80,11 +80,11 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
 		MempoolSize:        20_000,
-		BlockInterval:      200 * time.Millisecond,
+		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		AllowEmptyBlocks:   true,
-		ViewTimeout:        3 * time.Second,
+		ViewTimeout:        utils.Duration(3 * time.Second),
 		PersistentStateDir: utils.Some("/tmp/autobahn-state"),
-		DialInterval:       5 * time.Second,
+		DialInterval:       utils.Duration(5 * time.Second),
 	}
 	cfgFile := writeAutobahnConfig(t, fc)
 
