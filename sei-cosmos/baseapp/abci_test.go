@@ -221,11 +221,11 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }
 
-// TestGetDeliverStateContextNotAffectedByProcessProposal verifies that
-// GetDeliverStateContext returns a context whose store is independent of
-// processProposalState. Writes to processProposalState must not be visible
-// through the deliverState context.
-func TestGetDeliverStateContextNotAffectedByProcessProposal(t *testing.T) {
+// TestProcessProposalCleanContextNotAffectedByHandler verifies that
+// GetProcessProposalCleanContext returns a context whose store is independent
+// of writes made by the ProcessProposal handler (which simulates optimistic
+// processing writing to processProposalState).
+func TestProcessProposalCleanContextNotAffectedByHandler(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
@@ -237,9 +237,19 @@ func TestGetDeliverStateContextNotAffectedByProcessProposal(t *testing.T) {
 	dirtyVal := []byte("dirty_val")
 
 	app.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+		// Verify clean context does NOT see the write we're about to make
+		cleanStore := app.GetProcessProposalCleanContext().KVStore(capKey)
+		require.Nil(t, cleanStore.Get(dirtyKey), "clean context must not see handler writes")
+
 		// Write to processProposalState's store (simulates optimistic processing)
 		store := ctx.KVStore(capKey)
 		store.Set(dirtyKey, dirtyVal)
+
+		// Verify the write is in processProposalState but NOT in clean context
+		require.Equal(t, dirtyVal, store.Get(dirtyKey), "write should be in processProposalState")
+		cleanStore = app.GetProcessProposalCleanContext().KVStore(capKey)
+		require.Nil(t, cleanStore.Get(dirtyKey), "clean context must not see handler writes after write")
+
 		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 	})
 
@@ -251,19 +261,10 @@ func TestGetDeliverStateContextNotAffectedByProcessProposal(t *testing.T) {
 		ChainId:       "test-chain",
 	})
 
-	// ProcessProposal writes to processProposalState
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
 		Hash:   []byte("hash0"),
 	})
-
-	// Verify the write is in processProposalState
-	ppStore := app.processProposalState.Context().KVStore(capKey)
-	require.Equal(t, dirtyVal, ppStore.Get(dirtyKey), "write should be in processProposalState")
-
-	// Verify the write is NOT in deliverState
-	deliverStore := app.GetDeliverStateContext().KVStore(capKey)
-	require.Nil(t, deliverStore.Get(dirtyKey), "processProposalState writes must not be visible in deliverState")
 }
 
 type mockNonQueryableMultiStore struct {

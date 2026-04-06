@@ -1211,13 +1211,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
-	// Use a clean context for gas validation that is immune to dirty reads
-	// from optimistic processing. The store comes from deliverState (block 1)
-	// or the committed root store (blocks 2+), while consensus params are
-	// copied from the processProposalState context (always correctly set by
-	// prepareProcessProposalState).
-	checkCtx := app.GetDeliverStateContext().
-		WithConsensusParams(ctx.ConsensusParams())
+	// Use the clean context snapshotted at the start of ProcessProposal,
+	// before optimistic processing can dirty the store.
+	checkCtx := app.GetProcessProposalCleanContext()
 	if !app.checkTotalBlockGas(checkCtx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
