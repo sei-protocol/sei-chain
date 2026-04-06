@@ -15,6 +15,8 @@ var keymapBuilders = map[KeymapType]BuildKeymap{
 	MemKeymapType:           NewMemKeymap,
 	LevelDBKeymapType:       NewLevelDBKeymap,
 	UnsafeLevelDBKeymapType: NewUnsafeLevelDBKeymap,
+	PebbleKeymapType:        NewPebbleKeymap,
+	UnsafePebbleKeymapType:  NewUnsafePebbleKeymap,
 }
 
 // FindKeymapLocation looks for a table's keymap directory in the provided root paths.

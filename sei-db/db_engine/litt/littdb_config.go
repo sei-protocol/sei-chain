@@ -38,8 +38,8 @@ type Config struct {
 	// The logger configuration for the database. Ignored if Logger is not nil.
 	LoggerConfig *util.LoggerConfig
 
-	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.LevelDBKeymapType.
-	// Default is keymap.LevelDBKeymapType.
+	// The type of the keymap. Choices are keymap.PebbleKeymapType, keymap.LevelDBKeymapType,
+	// and keymap.MemKeymapType. Default is keymap.PebbleKeymapType.
 	KeymapType keymap.KeymapType
 
 	// The default TTL for newly created tables (either ones with data on disk or new tables).
@@ -195,7 +195,7 @@ func DefaultConfigNoPaths() *Config {
 		GCBatchSize:              10_000,
 		ShardingFactor:           8,
 		SaltShaker:               saltShaker,
-		KeymapType:               keymap.LevelDBKeymapType,
+		KeymapType:               keymap.PebbleKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
 		MaxSegmentKeyCount:       50_000,

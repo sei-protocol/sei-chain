@@ -16,6 +16,7 @@ import (
 var builders = []keymapBuilder{
 	buildMemKeymap,
 	buildLevelDBKeymap,
+	buildPebbleKeymap,
 }
 
 type keymapBuilder func(logger *slog.Logger, path string) (Keymap, error)
@@ -31,6 +32,15 @@ func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
 
 func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return kmap, nil
+}
+
+func buildPebbleKeymap(logger *slog.Logger, path string) (Keymap, error) {
+	kmap, _, err := NewUnsafePebbleKeymap(logger, path, true)
 	if err != nil {
 		return nil, err
 	}
