@@ -182,7 +182,13 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, app, genDoc, dbProvider)
+	// Autobahn requires a local validator key; remote signers are not supported.
+	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
+		return nil, combineCloseError(
+			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
+			makeCloser(closers))
+	}
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, utils.Some(filePrivval.Key.PrivKey), cfg, app, genDoc, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(

@@ -326,37 +326,67 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
 		autobahnKey.Public(): {
 			Key:      key.Public(),
-			HostPort: tcp.HostPort{Hostname: "localhost", Port: 26660},
+			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
 		},
 	}
 
+	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
 	opts.Giga = utils.Some(&GigaRouterConfig{
-		DialInterval:   10 * time.Second,
+		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
 		Consensus: &consensus.Config{
 			Key:                autobahnKey,
-			ViewTimeout:        func(atypes.View) time.Duration { return time.Hour },
+			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   50_000_000,
-			MaxTxsPerBlock:   5_000,
-			MaxTxsPerSecond:  utils.None[uint64](),
-			MempoolSize:      5_000,
-			BlockInterval:    400 * time.Millisecond,
-			AllowEmptyBlocks: false,
+			MaxGasPerBlock:   77_000_000,
+			MaxTxsPerBlock:   7_777,
+			MaxTxsPerSecond:  utils.Some(uint64(999)),
+			MempoolSize:      3_333,
+			BlockInterval:    777 * time.Millisecond,
+			AllowEmptyBlocks: true,
 		},
 		App: nil,
 		GenDoc: &types.GenesisDoc{
-			ChainID:       "test-chain",
-			InitialHeight: 1,
+			ChainID:       "giga-e2e-test",
+			InitialHeight: 42,
 			GenesisTime:   time.Now(),
 		},
 	})
 
 	router := makeRouterWithOptionsAndKey(opts, key)
 	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
+
+	giga, _ := router.giga.Get()
+
+	// Verify non-default config values were propagated.
+	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)
+	require.Len(t, giga.cfg.ValidatorAddrs, 1)
+	addr, ok := giga.cfg.ValidatorAddrs[autobahnKey.Public()]
+	require.True(t, ok, "validator key should be in ValidatorAddrs")
+	require.Equal(t, key.Public(), addr.Key, "node key should match")
+	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
+	require.Equal(t, uint16(9999), addr.HostPort.Port)
+
+	// Verify consensus key and view timeout.
+	require.Equal(t, autobahnKey.Public(), giga.cfg.Consensus.Key.Public())
+	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
+
+	// Verify producer config with non-default values.
+	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
+	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
+	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
+	require.True(t, tpsOk)
+	require.Equal(t, uint64(999), maxTps)
+	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
+	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
+	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
+
+	// Verify genesis doc.
+	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)
+	require.Equal(t, int64(42), giga.cfg.GenDoc.InitialHeight)
 }
 
 func TestRouter_FilterByIP(t *testing.T) {
