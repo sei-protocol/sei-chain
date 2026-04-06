@@ -597,6 +597,14 @@ func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 
+// GetDeliverStateContext returns the deliverState context for read-only use.
+// deliverState always reflects the last committed state (or genesis state for
+// block 1), making it suitable for validation checks that must not see
+// speculative writes from optimistic processing.
+func (app *BaseApp) GetDeliverStateContext() sdk.Context {
+	return app.deliverState.Context()
+}
+
 func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {
 	app.processProposalState.SetContext(app.processProposalState.Context().
 		WithHeaderHash(headerHash).

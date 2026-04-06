@@ -1211,7 +1211,12 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
-	if !app.checkTotalBlockGas(ctx, req.Txs) {
+	// Use deliverState context for gas validation. deliverState always reflects
+	// the last committed state (or genesis for block 1) and is never written to
+	// between ProcessProposal calls, so it is immune to dirty reads from a
+	// previous round's optimistic processing.
+	checkCtx := app.GetDeliverStateContext()
+	if !app.checkTotalBlockGas(checkCtx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,

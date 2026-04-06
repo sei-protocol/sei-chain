@@ -221,10 +221,11 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }
 
-// TestProcessProposalAlwaysResetsState verifies that processProposalState
-// gets a fresh CacheMultiStore on every ProcessProposal call after block 1.
-// Block 1 preserves the InitChain-set processProposalState (genesis state).
-func TestProcessProposalAlwaysResetsState(t *testing.T) {
+// TestGetDeliverStateContextNotAffectedByProcessProposal verifies that
+// GetDeliverStateContext returns a context whose store is independent of
+// processProposalState. Writes to processProposalState must not be visible
+// through the deliverState context.
+func TestGetDeliverStateContextNotAffectedByProcessProposal(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
@@ -232,28 +233,13 @@ func TestProcessProposalAlwaysResetsState(t *testing.T) {
 	app.MountStores(capKey)
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 
-	genesisKey, genesisVal := []byte("genesis_key"), []byte("genesis_val")
-	stateKey, stateVal := []byte("round_key"), []byte("round_val")
-
-	type observation struct {
-		genesisVisible bool
-		stateVisible   bool
-	}
-	var observations []observation
-
-	app.SetInitChainer(func(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
-		store := ctx.KVStore(capKey)
-		store.Set(genesisKey, genesisVal)
-		return abci.ResponseInitChain{}
-	})
+	dirtyKey := []byte("dirty_key")
+	dirtyVal := []byte("dirty_val")
 
 	app.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+		// Write to processProposalState's store (simulates optimistic processing)
 		store := ctx.KVStore(capKey)
-		observations = append(observations, observation{
-			genesisVisible: store.Get(genesisKey) != nil,
-			stateVisible:   store.Get(stateKey) != nil,
-		})
-		store.Set(stateKey, stateVal)
+		store.Set(dirtyKey, dirtyVal)
 		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
 	})
 
@@ -265,50 +251,19 @@ func TestProcessProposalAlwaysResetsState(t *testing.T) {
 		ChainId:       "test-chain",
 	})
 
-	// Call 0: Block 1 — should see genesis state
+	// ProcessProposal writes to processProposalState
 	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
 		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
 		Hash:   []byte("hash0"),
 	})
 
-	// Commit block 1
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
-	})
-	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
+	// Verify the write is in processProposalState
+	ppStore := app.processProposalState.Context().KVStore(capKey)
+	require.Equal(t, dirtyVal, ppStore.Get(dirtyKey), "write should be in processProposalState")
 
-	header := tmproto.Header{ChainID: "test-chain", Height: 2}
-
-	// Call 1: Height 2, hash=A — fresh after commit
-	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header, Hash: []byte("hashA"),
-	})
-
-	// Call 2: Height 2, hash=A again (same hash) — still fresh
-	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header, Hash: []byte("hashA"),
-	})
-
-	// Call 3: Height 2, hash=B (different hash) — fresh
-	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
-		Header: &header, Hash: []byte("hashB"),
-	})
-
-	require.Len(t, observations, 4)
-
-	// Call 0: block 1 — genesis visible, no prior state
-	require.True(t, observations[0].genesisVisible, "genesis state must be visible for block 1")
-	require.False(t, observations[0].stateVisible)
-
-	// Call 1: fresh after commit
-	require.False(t, observations[1].stateVisible, "state should not survive commit")
-
-	// Call 2: same hash — still reset, no stale state
-	require.False(t, observations[2].stateVisible, "state should not carry over even for same hash")
-
-	// Call 3: different hash — reset
-	require.False(t, observations[3].stateVisible, "state should not carry over for different hash")
+	// Verify the write is NOT in deliverState
+	deliverStore := app.GetDeliverStateContext().KVStore(capKey)
+	require.Nil(t, deliverStore.Get(dirtyKey), "processProposalState writes must not be visible in deliverState")
 }
 
 type mockNonQueryableMultiStore struct {
