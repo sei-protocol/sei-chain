@@ -841,11 +841,20 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	ms := ctx.MultiStore()
 
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			// No per-transaction gas meter was installed. This means ante
+			// handling never reached the point of setting up a tx-scoped
+			// meter (nil tx, decode failure, EvmStatelessChecks failure,
+			// etc). Don't report block-level accumulated gas as this tx's
+			// gas.
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
