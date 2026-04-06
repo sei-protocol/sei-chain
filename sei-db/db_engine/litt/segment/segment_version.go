@@ -14,7 +14,11 @@ const (
 	// ValueSizeSegmentVersion adds the length of values to the key file. Previously, only the key and the address were
 	// stored in the key file. It also adds the key count to the segment metadata file.
 	ValueSizeSegmentVersion SegmentVersion = 2
+
+	// The byte format on disk changed when LittDB was migrated into the Sei repo. Since this change isn't being
+	// shipped upstream, it is not backwards compatible with earlier versions.
+	SeiRefactor SegmentVersion = 3
 )
 
 // LatestSegmentVersion always refers to the latest version of the segment serialization format.
-const LatestSegmentVersion = ValueSizeSegmentVersion
+const LatestSegmentVersion = SeiRefactor

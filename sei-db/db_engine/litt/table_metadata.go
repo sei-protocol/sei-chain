@@ -27,6 +27,7 @@ type tableMetadata struct {
 	ttl atomic.Pointer[time.Duration]
 
 	// the table's sharding factor, accessed/modified by concurrent goroutines
+	// Stored as a uint32 since go doesn't have an atomic.Uint8
 	shardingFactor atomic.Uint32
 
 	// If true, metadata writes will be atomic. Should be set to true in production, but can be set to false
@@ -39,7 +40,7 @@ func newTableMetadata(
 	logger *slog.Logger,
 	tableDirectory string,
 	ttl time.Duration,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	fsync bool) (*tableMetadata, error) {
 
 	metadata := &tableMetadata{
@@ -48,7 +49,7 @@ func newTableMetadata(
 		fsync:          fsync,
 	}
 	metadata.ttl.Store(&ttl)
-	metadata.shardingFactor.Store(shardingFactor)
+	metadata.shardingFactor.Store(uint32(shardingFactor))
 
 	err := metadata.write()
 	if err != nil {
@@ -102,13 +103,13 @@ func (t *tableMetadata) SetTTL(ttl time.Duration) error {
 }
 
 // GetShardingFactor returns the sharding factor for the table.
-func (t *tableMetadata) GetShardingFactor() uint32 {
-	return t.shardingFactor.Load()
+func (t *tableMetadata) GetShardingFactor() uint8 {
+	return uint8(t.shardingFactor.Load()) //nolint:gosec
 }
 
 // SetShardingFactor sets the sharding factor for the table.
-func (t *tableMetadata) SetShardingFactor(shardingFactor uint32) error {
-	t.shardingFactor.Store(shardingFactor)
+func (t *tableMetadata) SetShardingFactor(shardingFactor uint8) error {
+	t.shardingFactor.Store(uint32(shardingFactor))
 	err := t.write()
 	if err != nil {
 		return fmt.Errorf("failed to update table metadata: %v", err)
@@ -130,7 +131,7 @@ func (t *tableMetadata) write() error {
 func (t *tableMetadata) serialize() []byte {
 	// 4 bytes for version
 	// 8 bytes for TTL
-	// 4 bytes for sharding factor
+	// 1 bytes for sharding factor
 	data := make([]byte, tableMetadataSize)
 
 	// Write the version
@@ -141,7 +142,7 @@ func (t *tableMetadata) serialize() []byte {
 	binary.BigEndian.PutUint64(data[4:12], uint64(ttlNanoseconds)) //nolint:gosec
 
 	// Write the sharding factor
-	binary.BigEndian.PutUint32(data[12:16], t.GetShardingFactor())
+	data[12] = t.GetShardingFactor()
 
 	return data
 }
@@ -150,7 +151,7 @@ func (t *tableMetadata) serialize() []byte {
 func deserialize(data []byte) (*tableMetadata, error) {
 	// 4 bytes for version
 	// 8 bytes for TTL
-	// 4 bytes for sharding factor
+	// 1 bytes for sharding factor
 	if len(data) != tableMetadataSize {
 		return nil, fmt.Errorf("metadata file is not the correct size, expected 16 bytes, got %d", len(data))
 	}
@@ -161,11 +162,11 @@ func deserialize(data []byte) (*tableMetadata, error) {
 	}
 
 	ttl := time.Duration(binary.BigEndian.Uint64(data[4:12])) //nolint:gosec
-	shardingFactor := binary.BigEndian.Uint32(data[12:16])
+	shardingFactor := data[12]
 
 	metadata := &tableMetadata{}
 	metadata.ttl.Store(&ttl)
-	metadata.shardingFactor.Store(shardingFactor)
+	metadata.shardingFactor.Store(uint32(shardingFactor))
 
 	return metadata, nil
 }

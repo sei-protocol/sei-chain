@@ -623,7 +623,7 @@ func (d *diskTable) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-func (d *diskTable) SetShardingFactor(shardingFactor uint32) error {
+func (d *diskTable) SetShardingFactor(shardingFactor uint8) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetShardingFactor() request, DB is in panicked state due to error: %w", err)
@@ -658,7 +658,7 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	}
 
 	// Look up the address of the data.
-	address, ok, err := d.keymap.Get(key)
+	address, length, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get address: %w", err)
 	}
@@ -674,7 +674,7 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	defer seg.Release()
 
 	// Read the data from disk.
-	data, err := seg.Read(key, address)
+	data, err := seg.Read(key, address, length)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read data: %w", err)
 	}
@@ -703,7 +703,8 @@ func (d *diskTable) CacheAwareGet(
 
 	// Look up the address of the data.
 	var address types.Address
-	address, exists, err = d.keymap.Get(key)
+	var length uint32
+	address, length, exists, err = d.keymap.Get(key)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("failed to get address: %w", err)
 	}
@@ -726,7 +727,7 @@ func (d *diskTable) CacheAwareGet(
 	defer seg.Release()
 
 	// Read the data from disk.
-	value, err = seg.Read(key, address)
+	value, err = seg.Read(key, address, length)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("failed to read data: %w", err)
 	}
@@ -734,15 +735,25 @@ func (d *diskTable) CacheAwareGet(
 	return value, true, false, nil
 }
 
-func (d *diskTable) Put(key []byte, value []byte) error {
-	return d.PutBatch([]*types.KVPair{{Key: key, Value: value}})
+func (d *diskTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	return d.PutBatch([]*types.PutRequest{{
+		Key:           key,
+		Value:         value,
+		SecondaryKeys: secondaryKeys,
+	}})
 }
 
-func (d *diskTable) PutBatch(batch []*types.KVPair) error {
+func (d *diskTable) PutBatch(batch []*types.PutRequest) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process PutBatch() request, DB is in panicked state due to error: %w", err)
 	}
 
+	err := d.sanityCheckBatch(batch)
+	if err != nil {
+		return fmt.Errorf("failed to sanity check batch: %w", err)
+	}
+
+	// TODO before merge: update metrics with secondary key info
 	if d.metrics != nil {
 		start := d.clock()
 		totalSize := uint64(0)
@@ -756,33 +767,72 @@ func (d *diskTable) PutBatch(batch []*types.KVPair) error {
 		}()
 	}
 
-	for _, kv := range batch {
-		if len(kv.Key) > math.MaxUint32 {
-			return fmt.Errorf("key is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Key))
-		}
-		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
-		}
-		if kv.Key == nil {
-			return fmt.Errorf("nil keys are not supported")
-		}
-		if kv.Value == nil {
-			return fmt.Errorf("nil values are not supported")
-		}
+	// Load keys into the unflushed data cache (needed for read-your-writes consistency).
+	newKeys := 0
+	for _, req := range batch {
+		d.unflushedDataCache.Store(util.UnsafeBytesToString(req.Key), req.Value)
+		newKeys++
 
-		d.unflushedDataCache.Store(util.UnsafeBytesToString(kv.Key), kv.Value)
+		if req.SecondaryKeys != nil {
+			newKeys += len(req.SecondaryKeys)
+
+			// Store the aliased byte slices directly. Golang won't copy the data, so this isn't expensive.
+			for _, secondaryKey := range req.SecondaryKeys {
+				subrange := req.Value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
+				d.unflushedDataCache.Store(util.UnsafeBytesToString(secondaryKey.Key), subrange)
+			}
+		}
 	}
 
+	// Schedule the actual write on a background thread.
 	request := &controlLoopWriteRequest{
 		values: batch,
 	}
-	err := d.controlLoop.enqueue(request)
+	err = d.controlLoop.enqueue(request)
 	if err != nil {
 		return fmt.Errorf("failed to send write request: %w", err)
 	}
 
-	d.keyCount.Add(int64(len(batch)))
+	d.keyCount.Add(int64(newKeys)) // TODO should we track secondary keys separately?
 
+	return nil
+}
+
+// Perform basic validation on batch parameters.
+func (d *diskTable) sanityCheckBatch(batch []*types.PutRequest) error {
+	for _, req := range batch {
+		if len(req.Key) > math.MaxUint32 {
+			return fmt.Errorf("key is too large, length must not exceed 2^32 bytes: %d bytes", len(req.Key))
+		}
+		if len(req.Value) > math.MaxUint32 {
+			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(req.Value))
+		}
+		if req.Key == nil {
+			return fmt.Errorf("nil keys are not supported")
+		}
+		if req.Value == nil {
+			return fmt.Errorf("nil values are not supported")
+		}
+		if req.SecondaryKeys != nil {
+			for _, secondaryKey := range req.SecondaryKeys {
+				if secondaryKey.Key == nil {
+					return fmt.Errorf("nil secondary key is not supported")
+				}
+				if len(secondaryKey.Key) > math.MaxUint32 {
+					return fmt.Errorf("secondary key is too large, length must not exceed 2^32 bytes: %d bytes",
+						len(secondaryKey.Key))
+				}
+				if secondaryKey.Offset > uint32(len(req.Value)) {
+					return fmt.Errorf("secondary key offset is greater than the value length: %d > %d",
+						secondaryKey.Offset, len(req.Value))
+				}
+				if secondaryKey.Offset+secondaryKey.Length > uint32(len(req.Value)) {
+					return fmt.Errorf("secondary key offset+length is greater than the value length: %d + %d > %d",
+						secondaryKey.Offset, secondaryKey.Length, len(req.Value))
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -792,7 +842,7 @@ func (d *diskTable) Exists(key []byte) (bool, error) {
 		return true, nil
 	}
 
-	_, ok, err := d.keymap.Get(key)
+	_, _, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return false, fmt.Errorf("failed to get address: %w", err)
 	}

@@ -2,7 +2,6 @@ package segment
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -30,7 +29,7 @@ type valueFile struct {
 	index uint32
 
 	// The shard number of this value file.
-	shard uint32
+	shard uint8
 
 	// Path data for the segment file.
 	segmentPath *SegmentPath
@@ -59,7 +58,7 @@ type valueFile struct {
 func createValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPath *SegmentPath,
 	fsync bool,
 ) (*valueFile, error) {
@@ -99,7 +98,7 @@ func createValueFile(
 func loadValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPaths []*SegmentPath) (*valueFile, error) {
 
 	valuesFileName := fmt.Sprintf("%d-%d%s", index, shard, ValuesFileExtension)
@@ -191,7 +190,7 @@ func (v *valueFile) path() string {
 }
 
 // read reads a value from the value file.
-func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
+func (v *valueFile) read(firstByteIndex uint32, length uint32) ([]byte, error) {
 	flushedSize := v.flushedSize.Load()
 	if uint64(firstByteIndex) >= flushedSize {
 		return nil, fmt.Errorf("index %d is out of bounds (current flushed size is %d)",
@@ -211,13 +210,6 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 
 	_, err = file.Seek(int64(firstByteIndex), 0)
 	reader := bufio.NewReader(file)
-
-	// Read the length of the value.
-	var length uint32
-	err = binary.Read(reader, binary.BigEndian, &length)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read value length from value file: %v", err)
-	}
 
 	// Read the value itself.
 	value := make([]byte, length)
@@ -247,19 +239,12 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 
 	firstByteIndex := uint32(v.size)
 
-	// First, write the length of the value.
-	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value))) //nolint:gosec
-	if err != nil {
-		return 0, fmt.Errorf("failed to write value length to value file: %v", err)
-	}
-
-	// Then, write the value itself.
-	_, err = v.writer.Write(value)
+	_, err := v.writer.Write(value)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	v.size += uint64(len(value) + 4) //nolint:gosec
+	v.size += uint64(len(value)) //nolint:gosec
 
 	return firstByteIndex, nil
 }

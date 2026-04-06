@@ -28,7 +28,7 @@ type Table interface {
 	//
 	// It is not safe to modify the byte slices passed to this function after the call
 	// (both the key and the value).
-	Put(key []byte, value []byte) error
+	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
 
 	// PutBatch stores multiple values in the database. Similar to Put, but allows for multiple values to be written
 	// at once. This may improve performance, but it otherwise has identical properties to a sequence of Put calls
@@ -40,7 +40,7 @@ type Table interface {
 	//
 	// It is not safe to modify the byte slices passed to this function after the call
 	// (including the key byte slices and the value byte slices).
-	PutBatch(batch []*types.KVPair) error
+	PutBatch(batch []*types.PutRequest) error
 
 	// Get retrieves a value from the database. The returned boolean indicates whether the key exists in the database
 	// (returns false if the key does not exist). If an error is returned, the value of the other returned values are
@@ -97,7 +97,7 @@ type Table interface {
 
 	// SetShardingFactor sets the number of write shards used. Increasing this value increases the number of parallel
 	// writes that can be performed.
-	SetShardingFactor(shardingFactor uint32) error
+	SetShardingFactor(shardingFactor uint8) error
 
 	// SetWriteCacheSize sets the write cache size, in bytes, for the table. For table implementations without a cache,
 	// this method does nothing. The cache is used to store recently written data. When reading from the table,

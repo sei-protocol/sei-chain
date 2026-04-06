@@ -20,7 +20,7 @@ var _ Keymap = &memKeymap{}
 // - very fast after startup
 type memKeymap struct {
 	logger *slog.Logger
-	data   map[string]types.Address
+	data   map[string]*types.ScopedKey
 	// if true, then return an error if an update would overwrite an existing key
 	doubleWriteProtection bool
 	lock                  sync.RWMutex
@@ -29,13 +29,15 @@ type memKeymap struct {
 var _ BuildKeymap = NewMemKeymap
 
 // NewMemKeymap creates a new in-memory keymap.
-func NewMemKeymap(logger *slog.Logger,
+func NewMemKeymap(
+	logger *slog.Logger,
 	_ string,
-	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
+	doubleWriteProtection bool,
+) (kmap Keymap, requiresReload bool, err error) {
 
 	return &memKeymap{
 		logger:                logger,
-		data:                  make(map[string]types.Address),
+		data:                  make(map[string]*types.ScopedKey),
 		doubleWriteProtection: doubleWriteProtection,
 	}, true, nil
 }
@@ -54,17 +56,21 @@ func (m *memKeymap) Put(keys []*types.ScopedKey) error {
 			}
 		}
 
-		m.data[stringKey] = k.Address
+		m.data[stringKey] = k
 	}
 	return nil
 }
 
-func (m *memKeymap) Get(key []byte) (types.Address, bool, error) {
+func (m *memKeymap) Get(key []byte) (address types.Address, length uint32, exists bool, err error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	address, ok := m.data[util.UnsafeBytesToString(key)]
-	return address, ok, nil
+	scopedKey, ok := m.data[util.UnsafeBytesToString(key)]
+	if !ok {
+		return types.Address{}, 0, false, nil
+	}
+
+	return scopedKey.Address, scopedKey.ValueSize, true, nil
 }
 
 func (m *memKeymap) Delete(keys []*types.ScopedKey) error {

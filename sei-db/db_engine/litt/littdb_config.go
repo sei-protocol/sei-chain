@@ -79,8 +79,8 @@ type Config struct {
 	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
 	// always have an actively written shard file.
 	//
-	// The default is 8. Must be at least 1.
-	ShardingFactor uint32
+	// The default is 8. Must be between 1 and 255 (inclusive).
+	ShardingFactor uint8
 
 	// The random number generator used for generating sharding salts. The default is a standard rand.New()
 	// seeded by the current time.

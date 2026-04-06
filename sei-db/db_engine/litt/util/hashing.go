@@ -57,16 +57,10 @@ func Perm64Bytes(b []byte) uint64 {
 	return x
 }
 
-// LegacyHashKey hash a key using the original littDB hash function. Once all data stored using the original
-// hash function is deleted, this function can be removed.
-func LegacyHashKey(key []byte, salt uint32) uint32 {
-	return uint32(Perm64(Perm64Bytes(key) ^ uint64(salt))) //nolint:gosec
-}
-
 // HashKey hashes a key using perm64 and a salt.
-func HashKey(key []byte, salt [16]byte) uint32 {
+func HashKey(key []byte, salt [16]byte) uint8 {
 	leftSalt := binary.BigEndian.Uint64(salt[:8])
 	rightSalt := binary.BigEndian.Uint64(salt[8:])
 	hash := siphash.Hash(leftSalt, rightSalt, key)
-	return uint32(hash) //nolint:gosec
+	return uint8(hash) //nolint:gosec
 }

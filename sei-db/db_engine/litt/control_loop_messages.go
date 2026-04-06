@@ -23,8 +23,8 @@ type controlLoopFlushRequest struct {
 type controlLoopWriteRequest struct {
 	controlLoopMessage
 
-	// values is a slice of key-value pairs to write.
-	values []*types.KVPair
+	// values is a slice of key-value pairs (and possibly secondary keys) to write.
+	values []*types.PutRequest
 }
 
 // controlLoopSetShardingFactorRequest is a request to set the sharding factor that is sent to the control loop.
@@ -32,7 +32,7 @@ type controlLoopSetShardingFactorRequest struct {
 	controlLoopMessage
 
 	// shardingFactor is the new sharding factor to set.
-	shardingFactor uint32
+	shardingFactor uint8
 }
 
 // controlLoopShutdownRequest is a request to shut down the table that is sent to the control loop.
