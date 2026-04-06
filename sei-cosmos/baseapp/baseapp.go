@@ -597,12 +597,18 @@ func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 
-// GetDeliverStateContext returns the deliverState context for read-only use.
-// deliverState always reflects the last committed state (or genesis state for
-// block 1), making it suitable for validation checks that must not see
-// speculative writes from optimistic processing.
+// GetDeliverStateContext returns a context suitable for read-only validation
+// checks that must not see speculative writes from optimistic processing.
+// Uses deliverState when available (block 1, before first commit). After
+// commit, deliverState is nil until FinalizeBlock recreates it, so we fall
+// back to a fresh context from the committed root store.
 func (app *BaseApp) GetDeliverStateContext() sdk.Context {
-	return app.deliverState.Context()
+	if app.deliverState != nil {
+		return app.deliverState.Context()
+	}
+	// After commit, deliverState is nil. Create a read-only context from
+	// the committed root store, which has the same data.
+	return sdk.NewContext(app.cms.CacheMultiStore(), tmproto.Header{}, false)
 }
 
 func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {
