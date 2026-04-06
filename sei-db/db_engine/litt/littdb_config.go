@@ -240,6 +240,10 @@ func (c *Config) SanityCheck() error {
 	if len(c.Paths) == 0 {
 		return fmt.Errorf("at least one path must be provided")
 	}
+	if len(c.Paths) > math.MaxUint8 {
+		return fmt.Errorf("number of paths %d is greater than the maximum allowed sharding factor %d",
+			len(c.Paths), math.MaxUint8)
+	}
 	if c.Logger == nil && c.LoggerConfig == nil {
 		return fmt.Errorf("logger or logger config must be provided")
 	}

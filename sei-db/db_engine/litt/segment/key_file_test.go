@@ -22,9 +22,8 @@ func TestReadWriteKeys(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
@@ -96,9 +95,8 @@ func TestReadingTruncatedKeyFile(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
@@ -178,9 +176,8 @@ func TestSwappingKeyFile(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")

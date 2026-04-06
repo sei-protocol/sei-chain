@@ -30,7 +30,7 @@ func TestDBLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = rootCount * rand.Uint32Range(1, 4)
+	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true
@@ -148,7 +148,7 @@ func TestDeadProcessSimulation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = rootCount * rand.Uint32Range(1, 4)
+	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true

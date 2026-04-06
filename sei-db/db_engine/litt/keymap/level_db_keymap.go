@@ -1,7 +1,6 @@
 package keymap
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"

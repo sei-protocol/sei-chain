@@ -15,13 +15,13 @@ func TestWriteThenReadValues(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shard := rand.Uint32()
+	shard := uint8(rand.Uint32())
 	valueCount := rand.Int32Range(100, 200)
 	values := make([][]byte, valueCount)
 	expectedFileSize := uint64(0)
 	for i := 0; i < int(valueCount); i++ {
 		values[i] = rand.VariableBytes(1, 100)
-		expectedFileSize += uint64(len(values[i])) + 4 /* length uint32 */
+		expectedFileSize += uint64(len(values[i]))
 	}
 
 	// A map from the first byte index of the value to the value itself.
@@ -50,7 +50,7 @@ func TestWriteThenReadValues(t *testing.T) {
 			err = file.flush()
 			require.NoError(t, err)
 			for key, val := range addressMap {
-				readValue, err := file.read(key)
+				readValue, err := file.read(key, uint32(len(val)))
 				require.NoError(t, err)
 				require.Equal(t, val, readValue)
 			}
@@ -61,7 +61,7 @@ func TestWriteThenReadValues(t *testing.T) {
 	err = file.seal()
 	require.NoError(t, err)
 	for key, val := range addressMap {
-		readValue, err := file.read(key)
+		readValue, err := file.read(key, uint32(len(val)))
 		require.NoError(t, err)
 		require.Equal(t, val, readValue)
 	}
@@ -77,7 +77,7 @@ func TestWriteThenReadValues(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, file.size, file2.size)
 	for key, val := range addressMap {
-		readValue, err := file2.read(key)
+		readValue, err := file2.read(key, uint32(len(val)))
 		require.NoError(t, err)
 		require.Equal(t, val, readValue)
 	}
@@ -101,7 +101,7 @@ func TestReadingTruncatedValueFile(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shard := rand.Uint32()
+	shard := uint8(rand.Uint32())
 	valueCount := rand.Int32Range(100, 200)
 	values := make([][]byte, valueCount)
 	for i := 0; i < int(valueCount); i++ {
@@ -129,7 +129,7 @@ func TestReadingTruncatedValueFile(t *testing.T) {
 	err = file.seal()
 	require.NoError(t, err)
 
-	// Truncate the file. Chop off some bytes from the last value, but do not corrupt the length prefix.
+	// Truncate the file. Chop off some bytes from the last value.
 	lastValueLength := len(values[valueCount-1])
 
 	filePath := file.path()
@@ -149,16 +149,16 @@ func TestReadingTruncatedValueFile(t *testing.T) {
 	// We should be able to read all values except for the last one.
 	for key, val := range addressMap {
 		if key == lastAddress {
-			_, err := file.read(key)
+			_, err := file.read(key, uint32(len(val)))
 			require.Error(t, err)
 		} else {
-			readValue, err := file.read(key)
+			readValue, err := file.read(key, uint32(len(val)))
 			require.NoError(t, err)
 			require.Equal(t, val, readValue)
 		}
 	}
 
-	// Truncate the file. Corrupt the length prefix of the last value.
+	// Truncate the file further.
 	prefixBytesToRemove := rand.Int32Range(1, 4)
 	bytes = originalBytes[:len(originalBytes)-int(prefixBytesToRemove)]
 
@@ -171,10 +171,10 @@ func TestReadingTruncatedValueFile(t *testing.T) {
 	// We should be able to read all values except for the last one.
 	for key, val := range addressMap {
 		if key == lastAddress {
-			_, err := file.read(key)
+			_, err := file.read(key, uint32(len(val)))
 			require.Error(t, err)
 		} else {
-			readValue, err := file.read(key)
+			readValue, err := file.read(key, uint32(len(val)))
 			require.NoError(t, err)
 			require.Equal(t, val, readValue)
 		}

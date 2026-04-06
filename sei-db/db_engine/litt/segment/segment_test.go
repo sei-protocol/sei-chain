@@ -69,9 +69,9 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		value := values[i]
 		expectedValues[string(key)] = value
 
-		expectedLargestShardSize += uint64(len(value)) + 4 /* uint32 length */
+		expectedLargestShardSize += uint64(len(value))
 
-		_, _, err := seg.Write(&types.KVPair{Key: key, Value: value})
+		_, _, err := seg.Write(&types.PutRequest{Key: key, Value: value})
 		largestShardSize := seg.GetMaxShardSize()
 		require.NoError(t, err)
 		require.Equal(t, expectedLargestShardSize, largestShardSize)
@@ -182,7 +182,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 
 	index := rand.Uint32()
 	valueCount := rand.Int32Range(1000, 2000)
-	shardCount := rand.Uint32Range(2, 32)
+	shardCount := uint8(rand.Uint32Range(2, 32))
 	keys := make([][]byte, valueCount)
 	values := make([][]byte, valueCount)
 	for i := 0; i < int(valueCount); i++ {
@@ -220,10 +220,10 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		value := values[i]
 		expectedValues[string(key)] = value
 
-		_, _, err := seg.Write(&types.KVPair{Key: key, Value: value})
+		_, _, err := seg.Write(&types.PutRequest{Key: key, Value: value})
 		require.NoError(t, err)
 		largestShardSize := seg.GetMaxShardSize()
-		require.True(t, largestShardSize >= uint64(len(value)+4))
+		require.True(t, largestShardSize >= uint64(len(value)))
 
 		// Occasionally flush the segment to disk.
 		if rand.BoolWithProbability(0.25) {
@@ -341,8 +341,8 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shardCount := rand.Uint32Range(2, 32)
-	valueCount := shardCount * 2
+	shardCount := uint8(rand.Uint32Range(2, 32))
+	valueCount := uint32(shardCount) * 2
 	keys := make([][]byte, valueCount)
 	values := make([][]byte, valueCount)
 	for i := 0; i < int(valueCount); i++ {
@@ -380,10 +380,10 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		value := values[i]
 		expectedValues[string(key)] = value
 
-		_, _, err := seg.Write(&types.KVPair{Key: key, Value: value})
+		_, _, err := seg.Write(&types.PutRequest{Key: key, Value: value})
 		require.NoError(t, err)
 		largestShardSize := seg.GetMaxShardSize()
-		require.True(t, largestShardSize >= uint64(len(value)+4))
+		require.True(t, largestShardSize >= uint64(len(value)))
 	}
 
 	// Seal the segment and read all keys and values.
@@ -464,7 +464,7 @@ func TestGetFilePaths(t *testing.T) {
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
 	index := rand.Uint32()
-	shardingFactor := rand.Uint32Range(1, 10)
+	shardingFactor := uint8(rand.Uint32Range(1, 10))
 	salt := make([]byte, 16)
 
 	segmentPath, err := NewSegmentPath(t.TempDir(), "", "table")
@@ -503,7 +503,7 @@ func TestGetFilePaths(t *testing.T) {
 	expectedCount++
 
 	// value files
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		_, found = filesSet[segment.shards[i].path()]
 		require.True(t, found)
 		expectedCount++
@@ -516,7 +516,7 @@ func TestGetFilePaths(t *testing.T) {
 	require.Equal(t, segment.metadata.path(), segment.GetMetadataFilePath())
 	require.Equal(t, segment.keys.path(), segment.GetKeyFilePath())
 	valueFiles := segment.GetValueFilePaths()
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		require.Equal(t, segment.shards[i].path(), valueFiles[i])
 	}
 }

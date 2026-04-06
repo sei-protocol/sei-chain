@@ -35,7 +35,7 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := litt.NewDB(config)
@@ -111,10 +111,10 @@ func TestPrune(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [21:29] in nanoseconds since the epoch.
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[21:29], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)
@@ -191,7 +191,7 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := litt.NewDB(config)
@@ -275,10 +275,10 @@ func TestPruneSubset(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [21:29] in nanoseconds since the epoch.
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[21:29], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)

@@ -14,8 +14,17 @@ func TestAddress(t *testing.T) {
 
 	index := rand.Uint32()
 	offset := rand.Uint32()
-	address := types.NewAddress(index, offset)
+	shard := uint8(rand.Uint32())
+	valueSize := rand.Uint32()
+	address := types.NewAddress(index, offset, shard, valueSize)
 
 	require.Equal(t, index, address.Index())
 	require.Equal(t, offset, address.Offset())
+	require.Equal(t, shard, address.Shard())
+	require.Equal(t, valueSize, address.ValueSize())
+
+	serialized := address.Serialize()
+	deserialized, err := types.DeserializeAddress(serialized)
+	require.NoError(t, err)
+	require.Equal(t, address, deserialized)
 }

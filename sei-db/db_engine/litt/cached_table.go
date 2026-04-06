@@ -50,22 +50,36 @@ func (c *cachedTable) Name() string {
 	return c.base.Name()
 }
 
-func (c *cachedTable) Put(key []byte, value []byte) error {
-	err := c.base.Put(key, value)
+func (c *cachedTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	err := c.base.Put(key, value, secondaryKeys...)
 	if err != nil {
 		return fmt.Errorf("failed to put entry into base table: %w", err)
 	}
 	c.writeCache.Put(string(key), value)
+
+	// Store the aliased byte slices directly. Golang won't copy the data, so this isn't expensive.
+	if secondaryKeys != nil {
+		for _, secondaryKey := range secondaryKeys {
+			subrange := value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
+			c.writeCache.Put(util.UnsafeBytesToString(secondaryKey.Key), subrange)
+		}
+	}
 	return nil
 }
 
-func (c *cachedTable) PutBatch(batch []*types.KVPair) error {
+func (c *cachedTable) PutBatch(batch []*types.PutRequest) error {
 	err := c.base.PutBatch(batch)
 	if err != nil {
 		return err
 	}
 	for _, kv := range batch {
 		c.writeCache.Put(util.UnsafeBytesToString(kv.Key), kv.Value)
+		if kv.SecondaryKeys != nil {
+			for _, secondaryKey := range kv.SecondaryKeys {
+				subrange := kv.Value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
+				c.writeCache.Put(util.UnsafeBytesToString(secondaryKey.Key), subrange)
+			}
+		}
 	}
 	return nil
 }
@@ -202,7 +216,7 @@ func (c *cachedTable) Destroy() error {
 	return c.base.Destroy()
 }
 
-func (c *cachedTable) SetShardingFactor(shardingFactor uint32) error {
+func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 	return c.base.SetShardingFactor(shardingFactor)
 }
 

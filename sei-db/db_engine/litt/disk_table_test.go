@@ -318,11 +318,11 @@ func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -410,11 +410,11 @@ func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelet
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -451,7 +451,7 @@ func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelet
 			directory, tableName, middleIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
 		shardingFactor := table.(*diskTable).metadata.GetShardingFactor()
-		shard := rand.Uint32Range(0, shardingFactor)
+		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf("%s/%s/segments/%d-%d%s",
 			directory, tableName, middleIndex, shard, segment.ValuesFileExtension)
 	} else {
@@ -532,11 +532,11 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -577,7 +577,7 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 			directory, tableName, lowestSegmentIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
 		shardingFactor := table.(*diskTable).metadata.GetShardingFactor()
-		shard := rand.Uint32Range(0, shardingFactor)
+		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf(
 			"%s/%s/segments/%d-%d%s",
 			directory, tableName, lowestSegmentIndex, shard, segment.ValuesFileExtension)
@@ -628,11 +628,11 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -724,11 +724,11 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -769,7 +769,7 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 			directory, tableName, highestSegmentIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
 		shardingFactor := table.(*diskTable).metadata.GetShardingFactor()
-		shard := rand.Uint32Range(0, shardingFactor)
+		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf("%s/%s/segments/%d-%d%s",
 			directory, tableName, highestSegmentIndex, shard, segment.ValuesFileExtension)
 	} else {
@@ -827,11 +827,11 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -922,11 +922,11 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1063,11 +1063,11 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1152,11 +1152,11 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1212,12 +1212,12 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	keysInLastFile, err := segments[highestSegmentIndex].GetKeys()
 	require.NoError(t, err)
 	dt := table.(*diskTable)
-	nonEmptyShards := make(map[uint32]struct{})
+	nonEmptyShards := make(map[uint8]struct{})
 	for key := range keysInLastFile {
 		keyShard := dt.controlLoop.segments[highestSegmentIndex].GetShard(keysInLastFile[key].Key)
 		nonEmptyShards[keyShard] = struct{}{}
 	}
-	var shard uint32
+	var shard uint8
 	for shard = range nonEmptyShards {
 		// iteration order is random, shard will be randomly selected from nonEmptyShards
 		break
@@ -1249,7 +1249,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 		offset := key.Address.Offset()
 		valueSize := len(expectedValues[string(key.Key)])
 		// If there are not at least this many bytes remaining in the value file, the value is missing.
-		requiredLength := offset + uint32(valueSize) + 4
+		requiredLength := offset + uint32(valueSize)
 		if requiredLength > uint32(len(valueFileBytes)) {
 			missingKeys[string(key.Key)] = struct{}{}
 		}
@@ -1309,11 +1309,11 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1399,11 +1399,11 @@ func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1519,11 +1519,11 @@ func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1604,7 +1604,7 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
-	shardingFactor := rand.Uint32Range(1, 100)
+	shardingFactor := uint8(rand.Uint32Range(1, 100))
 	err = table.SetShardingFactor(shardingFactor)
 	require.NoError(t, err)
 
@@ -1653,7 +1653,7 @@ func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
 	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
-	shardingFactor := rand.Uint32Range(1, 100)
+	shardingFactor := uint8(rand.Uint32Range(1, 100))
 	err = table.SetShardingFactor(shardingFactor)
 	require.NoError(t, err)
 
@@ -1766,7 +1766,7 @@ func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *table
 			require.NoError(t, err)
 
 			// Change the sharding factor. This should not cause problems.
-			shardingFactor := rand.Uint32Range(1, 10)
+			shardingFactor := uint8(rand.Uint32Range(1, 10))
 			err = table.SetShardingFactor(shardingFactor)
 			require.NoError(t, err)
 
@@ -1794,11 +1794,11 @@ func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *table
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1927,13 +1927,13 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 	expectedShardCounts := make(map[uint32]uint32)
 
 	// Before data is written, change the sharding factor to a random value.
-	expectedShardCounts[getLatestSegmentIndex(table)] = table.(*diskTable).metadata.GetShardingFactor()
-	shardingFactor := rand.Uint32Range(2, 10)
+	expectedShardCounts[getLatestSegmentIndex(table)] = uint32(table.(*diskTable).metadata.GetShardingFactor())
+	shardingFactor := uint8(rand.Uint32Range(2, 10))
 	err = table.SetShardingFactor(shardingFactor)
 	require.NoError(t, err)
 	err = table.Flush()
 	require.NoError(t, err)
-	expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
+	expectedShardCounts[getLatestSegmentIndex(table)] = uint32(shardingFactor)
 
 	expectedValues := make(map[string][]byte)
 
@@ -1944,7 +1944,7 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 
 		// Somewhere in the middle of the test, restart the table.
 		if i == restartIteration {
-			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
+			expectedShardCounts[getLatestSegmentIndex(table)] = uint32(shardingFactor)
 
 			ok, _ := table.(*diskTable).errorMonitor.IsOk()
 			require.True(t, ok)
@@ -1954,7 +1954,7 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 			table, err = tableBuilder.builder(time.Now, tableName, roots)
 			require.NoError(t, err)
 
-			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
+			expectedShardCounts[getLatestSegmentIndex(table)] = uint32(shardingFactor)
 
 			// Do a full scan of the table to verify that all expected values are still present.
 			for expectedKey, expectedValue := range expectedValues {
@@ -1980,11 +1980,11 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -1993,13 +1993,13 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 
 		// Once in a while, change the sharding factor to a random value.
 		if rand.BoolWithProbability(0.01) {
-			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
-			shardingFactor = rand.Uint32Range(1, 10)
+			expectedShardCounts[getLatestSegmentIndex(table)] = uint32(shardingFactor)
+			shardingFactor = uint8(rand.Uint32Range(1, 10))
 			err = table.SetShardingFactor(shardingFactor)
 			require.NoError(t, err)
 			err = table.Flush()
 			require.NoError(t, err)
-			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
+			expectedShardCounts[getLatestSegmentIndex(table)] = uint32(shardingFactor)
 		}
 
 		// Once in a while, flush the table.
@@ -2103,11 +2103,11 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 			expectedValues[string(key)] = value
 			creationTimes[string(key)] = newTime
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 				creationTimes[string(key)] = newTime
 			}

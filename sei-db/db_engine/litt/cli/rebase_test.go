@@ -70,7 +70,7 @@ func rebaseTest(
 	config, err := litt.DefaultConfig(sourceDirList...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(shardingFactor)
+	config.ShardingFactor = uint8(shardingFactor)
 	config.Fsync = false
 	config.TargetSegmentFileSize = 100
 
@@ -315,7 +315,7 @@ func TestRebaseSnapshot(t *testing.T) {
 	config, err := litt.DefaultConfig(roots...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = shardingFactor
+	config.ShardingFactor = uint8(shardingFactor)
 	config.Fsync = false
 	config.SnapshotDirectory = snapshotDir
 	config.TargetSegmentFileSize = 100

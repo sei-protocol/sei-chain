@@ -20,7 +20,7 @@ func TestUnlock(t *testing.T) {
 	config, err := DefaultConfig(volumes...)
 	config.Fsync = false // Disable fsync for faster tests
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = uint32(len(volumes))
+	config.ShardingFactor = uint8(len(volumes))
 	require.NoError(t, err)
 
 	db, err := NewDB(config)

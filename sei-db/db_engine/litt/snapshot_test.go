@@ -36,7 +36,7 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 
@@ -231,7 +231,7 @@ func TestSnapshotRebuilding(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 
@@ -449,7 +449,7 @@ func TestSnapshotLowerBound(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
 

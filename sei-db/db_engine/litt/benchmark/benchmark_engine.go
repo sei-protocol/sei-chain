@@ -66,7 +66,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
-	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths)) //nolint:gosec
+	cfg.LittConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec
 
 	db, err := litt.NewDB(cfg.LittConfig)
 	if err != nil {
