@@ -225,7 +225,13 @@ func (app *BaseApp) GetWorkingHash() []byte {
 }
 
 func (app *BaseApp) SetProcessProposalStateToCommit() {
-	app.stateToCommit = app.processProposalState
+	if app.processProposalState != nil {
+		app.stateToCommit = app.processProposalState
+	} else {
+		// processProposalState may be nil if ProcessProposal was not called
+		// (e.g. in test helpers that go directly from InitChain to Commit).
+		app.stateToCommit = app.deliverState
+	}
 }
 
 func (app *BaseApp) SetDeliverStateToCommit() {
