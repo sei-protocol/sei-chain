@@ -19,8 +19,6 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func noopRead(key []byte) ([]byte, bool, error) { return nil, false, nil }
-
 func newTestCache(t *testing.T, store map[string][]byte, shardCount, maxSize uint64) (Cache, Reader) {
 	t.Helper()
 	read := func(key []byte) ([]byte, bool, error) {
