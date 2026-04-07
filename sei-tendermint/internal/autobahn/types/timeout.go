@@ -241,7 +241,7 @@ var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]
 		}
 	},
 	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
-		vote, err := SignedMsgConv[*TimeoutVote]().Decode(m.Vote)
+		vote, err := SignedMsgConv[*TimeoutVote]().DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("timeoutVote: %w", err)
 		}
