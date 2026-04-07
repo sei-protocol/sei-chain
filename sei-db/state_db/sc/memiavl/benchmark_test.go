@@ -8,7 +8,6 @@ import (
 	"sort"
 	"testing"
 
-	iavlcache "github.com/sei-protocol/sei-chain/sei-iavl/cache"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/btree"
 )
@@ -88,19 +87,6 @@ func BenchmarkRandomGet(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, _ = bt32.Get(targetItem)
-		}
-	})
-	b.Run("iavl-lru", func(b *testing.B) {
-		cache := iavlcache.New(amount)
-		for _, item := range items {
-			cache.Add(NewIavlCacheNode(item.key, item.value))
-		}
-		v := cache.Get(targetItem.key).(iavlCacheNode).value
-		require.Equal(b, targetValue, v)
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = cache.Get(targetKey).(iavlCacheNode).value
 		}
 	})
 	b.Run("go-map", func(b *testing.B) {
@@ -202,21 +188,4 @@ func genRandItems(n int) []itemT {
 		}
 	}
 	return items
-}
-
-type iavlCacheNode struct {
-	key   []byte
-	value []byte
-}
-
-func NewIavlCacheNode(key, value []byte) iavlCacheNode {
-	return iavlCacheNode{key, value}
-}
-
-func (n iavlCacheNode) GetKey() []byte {
-	return n.key
-}
-
-func (n iavlCacheNode) GetCacheKey() []byte {
-	return n.key
 }

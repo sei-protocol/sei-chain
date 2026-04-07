@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -267,15 +266,15 @@ func TestStoreIteratorMultipleKeys(t *testing.T) {
 		{Slot{0x03}, 0xCC},
 	}
 
-	pairs := make([]*iavl.KVPair, len(entries))
+	pairs := make([]*proto.KVPair, len(entries))
 	for i, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		pairs[i] = &iavl.KVPair{Key: key, Value: []byte{e.value}}
+		pairs[i] = &proto.KVPair{Key: key, Value: []byte{e.value}}
 	}
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
+		Changeset: proto.ChangeSet{
 			Pairs: pairs,
 		},
 	}

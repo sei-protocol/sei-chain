@@ -91,6 +91,7 @@ func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 2)
+	firstBlock := committee.FirstBlock()
 	env := newTestEnv(committee)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
@@ -108,7 +109,7 @@ func TestDataClientServer(t *testing.T) {
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := range server.data.NextBlock() {
+		for n := firstBlock; n < server.data.NextBlock(); n++ {
 			want, err := server.data.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)

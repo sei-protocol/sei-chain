@@ -1,6 +1,20 @@
 {
   "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
   "Backend": "FlatKV",
+  "StateStoreConfig": {
+    "Enable": true,
+    "DBDirectory": "",
+    "Backend": "pebbledb",
+    "AsyncWriteBuffer": 100,
+    "KeepRecent": 100000,
+    "PruneIntervalSeconds": 600,
+    "ImportNumWorkers": 1,
+    "KeepLastVersion": true,
+    "UseDefaultComparer": false,
+    "WriteMode": "split_write",
+    "ReadMode": "evm_first",
+    "EVMDBDirectory": ""
+  },
   "BlocksPerCommit": 32,
   "CannedRandomSize": 1073741824,
   "ConstantThreadCount": 0,
@@ -11,6 +25,10 @@
   "Erc20ContractSize": 2048,
   "Erc20InteractionsPerAccount": 10,
   "Erc20StorageSlotSize": 32,
+  "DeleteDataDirOnStartup": false,
+  "DeleteLogDirOnStartup": false,
+  "DeleteDataDirOnShutdown": false,
+  "DeleteLogDirOnShutdown": false,
   "ExecutorQueueSize": 1024,
   "HotAccountProbability": 0.1,
   "HotErc20ContractProbability": 0.5,
@@ -31,6 +49,7 @@
   "TransactionMetricsSampleRate": 0.001,
   "BackgroundMetricsScrapeInterval": 60,
   "BlockChannelCapacity": 8,
+  "DisableTransactionReads": false,
   "LogDir": "logs",
   "LogLevel": "info"
 }

@@ -21,11 +21,15 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -62,6 +66,26 @@ func TestFinalizeBlockRequiresChainID(t *testing.T) {
 		Header: &types.Header{Height: 1},
 	})
 	require.Error(t, err)
+}
+
+func TestGetValidators(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	app := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	ctx := app.NewUncachedContext(false, types.Header{Height: max(1, app.LastBlockHeight()), Time: tm})
+	expectedUpdates := app.StakingKeeper.GetBondedValidators(ctx)
+
+	require.Equal(t, expectedUpdates, abci.Application(app).GetValidators())
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {

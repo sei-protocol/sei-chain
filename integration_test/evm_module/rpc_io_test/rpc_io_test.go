@@ -167,7 +167,17 @@ func TestEVMRPCSpec(t *testing.T) {
 				}
 				var m map[string]json.RawMessage
 				if err := json.Unmarshal(body, &m); err != nil {
-					t.Fatalf("pair %d: invalid JSON response", i+1)
+					// JSON-RPC batch responses are a top-level JSON array; require @ directives to assert them.
+					var batch []json.RawMessage
+					if err2 := json.Unmarshal(body, &batch); err2 == nil && len(batch) > 0 {
+						if len(pair.ExpectBodyContains) == 0 && len(pair.ExpectResponseHeaders) == 0 {
+							t.Fatalf("pair %d: batch response needs @ expect_body_contains or @ expect_response_header (got %d elements)", i+1, len(batch))
+						}
+						assertPairBodyDirectives(t, pair, body)
+						assertPairHeaderDirectives(t, pair, respHdr)
+						continue
+					}
+					t.Fatalf("pair %d: invalid JSON response: %v", i+1, err)
 				}
 				if _, hasResult := m["result"]; !hasResult {
 					if _, hasErr := m["error"]; !hasErr {

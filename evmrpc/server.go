@@ -46,7 +46,6 @@ func NewEVMHTTPServer(
 	stateStore types.StateStore,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
-	logger = logger.With("module", "evmrpc")
 
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)

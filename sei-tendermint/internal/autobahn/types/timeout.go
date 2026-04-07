@@ -196,7 +196,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	}
 	return newProposal(
 		m.View().Next(),
-		p.CreatedAt(),
+		p.Timestamp(),
 		laneRanges,
 		p.App(),
 	), true

@@ -2,14 +2,13 @@ package app
 
 import (
 	"embed"
-	"log"
 	"os"
-	"sort"
 	"strings"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	"golang.org/x/mod/semver"
 )
 
 //go:embed tags
@@ -27,8 +26,18 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	upgradesList = strings.Split(strings.TrimSpace(string(content)), "\n")
+	upgradesList = parseUpgradesList(string(content))
 	LatestUpgrade = upgradesList[len(upgradesList)-1]
+}
+
+func parseUpgradesList(list string) []string {
+	upgrades := strings.FieldsFunc(list, func(r rune) bool {
+		return r == '\n' || r == ','
+	})
+	// Upgrades names must be in alphabetical order
+	// https://github.com/cosmos/cosmos-sdk/issues/11707
+	semver.Sort(upgrades)
+	return upgrades
 }
 
 // if there is an override list, use that instead, for integration tests
@@ -36,17 +45,11 @@ func overrideList() {
 	// if there is an override list, use that instead, for integration tests
 	envList := os.Getenv("UPGRADE_VERSION_LIST")
 	if envList != "" {
-		upgradesList = strings.Split(envList, ",")
+		upgradesList = parseUpgradesList(envList)
 	}
 }
 
 func (app *App) RegisterUpgradeHandlers() {
-	// Upgrades names must be in alphabetical order
-	// https://github.com/cosmos/cosmos-sdk/issues/11707
-	if !sort.StringsAreSorted(upgradesList) {
-		log.Fatal("New upgrades must be appended to 'upgradesList' in alphabetical order")
-	}
-
 	// if there is an override list, use that instead, for integration tests
 	overrideList()
 	for _, upgradeName := range upgradesList {

@@ -38,6 +38,21 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	if cfg.LogDir == "" {
+		return fmt.Errorf("LogDir is empty, refusing to proceed")
+	}
+
+	if cfg.DeleteLogDirOnStartup {
+		resolved, err := filepath.Abs(cfg.LogDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve log directory: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Deleting log directory: %s\n", resolved)
+		if err := os.RemoveAll(resolved); err != nil {
+			return fmt.Errorf("failed to delete log directory %s: %w", resolved, err)
+		}
+	}
+
 	logDir, err := cryptosim.ResolveAndCreateDir(cfg.LogDir)
 	if err != nil {
 		return fmt.Errorf("resolve log dir: %w", err)

@@ -253,11 +253,11 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	if txData.GetGasFeeCap().Cmp(GetMinimumFee(ctx, ek)) < 0 {
 		return nil, sdkerrors.ErrInsufficientFee
 	}
+	ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 	if version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
-		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
-		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
+		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(ethCfg, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
 			return nil, sdkerrors.ErrInsufficientFee
 		}
 	}
@@ -268,9 +268,8 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	if err != nil {
 		return nil, err
 	}
-	cfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, ek.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
 	if statelessChecks {

@@ -161,7 +161,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for _, lane := range data.Committee().Lanes().All() {
+			for lane := range data.Committee().Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
@@ -291,7 +291,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(qc); err != nil {
+		if err := v.Msg().Proposal().Verify(s.data.Committee(), qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
@@ -304,7 +304,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(appQC, qc)
+		updated, err := inner.prune(s.data.Committee(), appQC, qc)
 		if err != nil {
 			return err
 		}
@@ -324,17 +324,23 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	if err := appQC.Verify(s.data.Committee()); err != nil {
+	c := s.data.Committee()
+	if err := appQC.Verify(c); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(s.data.Committee()); err != nil {
+	if err := commitQC.Verify(c); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
+	// Defense-in-depth check, it should never happen that >f validators sign
+	// a proposal which does not match the commitQC's global range.
+	if !commitQC.GlobalRange(c).Has(appQC.Proposal().GlobalNumber()) {
+		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
+	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(appQC, commitQC)
+		updated, err := inner.prune(s.data.Committee(), appQC, commitQC)
 		if err != nil {
 			return err
 		}
@@ -504,7 +510,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	for _, lane := range s.data.Committee().Lanes().All() {
+	for lane := range s.data.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
@@ -535,7 +541,7 @@ func (s *State) WaitForLaneQCs(
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			for _, lane := range c.Lanes().All() {
+			for lane := range c.Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
 					if qc, ok := inner.laneQC(c, lane, first+i); ok {
@@ -614,7 +620,7 @@ func (s *State) Run(ctx context.Context) error {
 				// Collect the blocks we have locally.
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
-					for _, lane := range c.Lanes().All() {
+					for lane := range c.Lanes().All() {
 						lr := qc.QC().LaneRange(lane)
 						for n := lr.First(); n < lr.Next(); n++ {
 							// We are not expected to have all the blocks locally - only the available ones.
@@ -688,7 +694,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			for _, lane := range s.data.Committee().Lanes().All() {
+			for lane := range s.data.Committee().Lanes().All() {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
 					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))

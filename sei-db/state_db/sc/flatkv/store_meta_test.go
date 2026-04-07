@@ -156,8 +156,11 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
@@ -174,7 +177,10 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
 
-	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
+	cfg2 := DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()

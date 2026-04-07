@@ -15,7 +15,7 @@ import (
 )
 
 func TestLastCommitID(t *testing.T) {
-	store := NewStore(t.TempDir(), config.StateCommitConfig{}, config.StateStoreConfig{}, []string{})
+	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
 	require.Equal(t, types.CommitID{}, store.LastCommitID())
 }
 
@@ -338,6 +338,7 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 					return
 				default:
 				}
+				//lint:ignore SA2001 intentional empty critical section to test lock contention
 				store.mtx.Lock()
 				store.mtx.Unlock()
 			}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -89,6 +90,21 @@ func run() error {
 	}
 	fmt.Printf("%s\n", configString)
 
+	if config.DeleteDataDirOnStartup {
+		if config.DataDir == "" {
+			return fmt.Errorf("DataDir is empty, refusing to delete")
+		}
+		resolved, err := filepath.Abs(config.DataDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve data directory: %w", err)
+		}
+		fmt.Printf("Deleting data directory: %s\n", resolved)
+		err = os.RemoveAll(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to delete data directory: %w", err)
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -133,6 +149,34 @@ func run() error {
 	}
 
 	cs.BlockUntilHalted()
+
+	if config.DeleteDataDirOnShutdown {
+		if config.DataDir == "" {
+			return fmt.Errorf("DataDir is empty, refusing to delete")
+		}
+		resolved, err := filepath.Abs(config.DataDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve data directory: %w", err)
+		}
+		fmt.Printf("Deleting data directory: %s\n", resolved)
+		if err := os.RemoveAll(resolved); err != nil {
+			return fmt.Errorf("failed to delete data directory %s: %w", resolved, err)
+		}
+	}
+
+	if config.DeleteLogDirOnShutdown {
+		if config.LogDir == "" {
+			return fmt.Errorf("LogDir is empty, refusing to delete")
+		}
+		resolved, err := filepath.Abs(config.LogDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve log directory: %w", err)
+		}
+		fmt.Printf("Deleting log directory: %s\n", resolved)
+		if err := os.RemoveAll(resolved); err != nil {
+			return fmt.Errorf("failed to delete log directory %s: %w", resolved, err)
+		}
+	}
 
 	return nil
 }

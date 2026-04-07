@@ -1,0 +1,13 @@
+{
+    "Comment": "The standardized parameters for performance and longevity testing.",
+    "DataDir": "data",
+    "LogDir": "logs",
+    "MinimumNumberOfColdAccounts": 1000000,
+    "MinimumNumberOfDormantAccounts": 100000000,
+    "FlatKVConfig": {
+        "AccountCacheConfig": { "MaxSize": 1073741824 },
+        "CodeCacheConfig": { "MaxSize": 1073741824 },
+        "StorageCacheConfig": { "MaxSize": 4294967296 }
+    }
+}
+

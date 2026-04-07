@@ -843,33 +843,6 @@ func TestConcurrentBatchSetAndBatchGet(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Pool submission failure
-// ---------------------------------------------------------------------------
-
-type failPool struct{}
-
-func (fp *failPool) Submit(_ context.Context, _ func()) error {
-	return errors.New("pool exhausted")
-}
-
-func TestGetPoolSubmitFailure(t *testing.T) {
-	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
-	s, _ := NewShard(context.Background(), &failPool{}, 4096, 0)
-
-	_, _, err := s.Get(readFunc, []byte("k"), true)
-	require.Error(t, err)
-}
-
-func TestBatchGetPoolSubmitFailure(t *testing.T) {
-	readFunc := Reader(func(key []byte) ([]byte, bool, error) { return []byte("v"), true, nil })
-	s, _ := NewShard(context.Background(), &failPool{}, 4096, 0)
-
-	keys := map[string]types.BatchGetResult{"k": {}}
-	err := s.BatchGet(readFunc, keys)
-	require.Error(t, err)
-}
-
-// ---------------------------------------------------------------------------
 // Large values
 // ---------------------------------------------------------------------------
 

@@ -7,12 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_openDB(t *testing.T) {
-	t.Parallel()
-	_, err := openDB(t.TempDir())
-	require.NoError(t, err)
-}
-
 func Test_openTraceWriter(t *testing.T) {
 	t.Parallel()
 

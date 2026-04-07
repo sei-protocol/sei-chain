@@ -1,7 +1,6 @@
 package threading
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,36 +23,33 @@ func waitOrFail(t *testing.T, wg *sync.WaitGroup) {
 	}
 }
 
-func createPools(ctx context.Context) []struct {
+type testPool struct {
 	name string
 	pool Pool
-} {
-	return []struct {
-		name string
-		pool Pool
-	}{
-		{"FixedPool", NewFixedPool(ctx, "test-fixed", 4, 16)},
-		{"ElasticPool", NewElasticPool(ctx, "test-elastic", 4)},
+}
+
+func createPools() []testPool {
+	return []testPool{
+		{"FixedPool", NewFixedPool("test-fixed", 4, 16)},
+		{"ElasticPool", NewElasticPool("test-elastic", 4)},
 		{"AdHocPool", NewAdHocPool()},
 	}
 }
 
 func TestPool_AllTasksComplete(t *testing.T) {
-	for _, tc := range createPools(t.Context()) {
+	for _, tc := range createPools() {
 		t.Run(tc.name, func(t *testing.T) {
+			defer tc.pool.Close()
 			const n = 100
 			var counter atomic.Int64
 			var wg sync.WaitGroup
 			wg.Add(n)
 
 			for i := 0; i < n; i++ {
-				err := tc.pool.Submit(t.Context(), func() {
+				tc.pool.Submit(func() {
 					counter.Add(1)
 					wg.Done()
 				})
-				if err != nil {
-					t.Fatalf("Submit failed: %v", err)
-				}
 			}
 
 			waitOrFail(t, &wg)
@@ -65,22 +61,20 @@ func TestPool_AllTasksComplete(t *testing.T) {
 }
 
 func TestPool_BlockedTasksDontCompleteUntilUnblocked(t *testing.T) {
-	for _, tc := range createPools(t.Context()) {
+	for _, tc := range createPools() {
 		t.Run(tc.name, func(t *testing.T) {
+			defer tc.pool.Close()
 			blocker := make(chan struct{})
 			var counter atomic.Int64
 			var wg sync.WaitGroup
 			wg.Add(2)
 
 			for i := 0; i < 2; i++ {
-				err := tc.pool.Submit(t.Context(), func() {
+				tc.pool.Submit(func() {
 					defer wg.Done()
 					<-blocker
 					counter.Add(1)
 				})
-				if err != nil {
-					t.Fatalf("Submit failed: %v", err)
-				}
 			}
 
 			time.Sleep(10 * time.Millisecond)
@@ -101,45 +95,37 @@ func TestPool_BlockedTasksDontCompleteUntilUnblocked(t *testing.T) {
 func TestFixedPool_SubmitBlocksWhenFull(t *testing.T) {
 	const workers = 2
 	const queueSize = 2
-	pool := NewFixedPool(t.Context(), "test-fixed-block", workers, queueSize)
+	pool := NewFixedPool("test-fixed-block", workers, queueSize)
+	defer pool.Close()
 
 	blocker := make(chan struct{})
 	var completed atomic.Int64
 	var wg sync.WaitGroup
 
-	// Phase 1: occupy all workers with blocking tasks.
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
-		err := pool.Submit(t.Context(), func() {
+		pool.Submit(func() {
 			defer wg.Done()
 			<-blocker
 			completed.Add(1)
 		})
-		if err != nil {
-			t.Fatalf("Submit failed: %v", err)
-		}
 	}
 	time.Sleep(10 * time.Millisecond)
 
-	// Phase 2: fill the queue buffer.
 	wg.Add(queueSize)
 	for i := 0; i < queueSize; i++ {
-		err := pool.Submit(t.Context(), func() {
+		pool.Submit(func() {
 			defer wg.Done()
 			<-blocker
 			completed.Add(1)
 		})
-		if err != nil {
-			t.Fatalf("Submit failed: %v", err)
-		}
 	}
 
-	// Phase 3: the next Submit must block — queue full, all workers busy.
 	wg.Add(1)
 	submitDone := make(chan struct{})
 	start := time.Now()
 	go func() {
-		_ = pool.Submit(t.Context(), func() {
+		pool.Submit(func() {
 			defer wg.Done()
 			<-blocker
 			completed.Add(1)
@@ -171,7 +157,8 @@ func TestFixedPool_SubmitBlocksWhenFull(t *testing.T) {
 func TestElasticPool_ScalesBeyondWarmWorkers(t *testing.T) {
 	const warmWorkers = 2
 	const totalTasks = 10
-	pool := NewElasticPool(t.Context(), "test-elastic-scale", warmWorkers)
+	pool := NewElasticPool("test-elastic-scale", warmWorkers)
+	defer pool.Close()
 
 	blocker := make(chan struct{})
 	var started atomic.Int64
@@ -179,17 +166,13 @@ func TestElasticPool_ScalesBeyondWarmWorkers(t *testing.T) {
 	wg.Add(totalTasks)
 
 	for i := 0; i < totalTasks; i++ {
-		err := pool.Submit(t.Context(), func() {
+		pool.Submit(func() {
 			defer wg.Done()
 			started.Add(1)
 			<-blocker
 		})
-		if err != nil {
-			t.Fatalf("Submit failed: %v", err)
-		}
 	}
 
-	// All tasks should start promptly — elastic pool spawns extra goroutines.
 	time.Sleep(50 * time.Millisecond)
 	if got := started.Load(); got <= int64(warmWorkers) {
 		t.Errorf("expected started > %d (warm workers), got %d", warmWorkers, got)
@@ -202,50 +185,124 @@ func TestElasticPool_ScalesBeyondWarmWorkers(t *testing.T) {
 	waitOrFail(t, &wg)
 }
 
-func TestFixedPool_SubmitReturnsErrorOnCancelledContext(t *testing.T) {
-	poolCtx, poolCancel := context.WithCancel(t.Context())
-	defer poolCancel()
-
-	// Use a zero-buffer queue so submit blocks once the worker is busy.
-	pool := NewFixedPool(poolCtx, "test-ctx", 1, 0)
-
-	blocker := make(chan struct{})
-	defer close(blocker)
-
-	_ = pool.Submit(poolCtx, func() { <-blocker })
-	time.Sleep(10 * time.Millisecond)
-
-	submitCtx, submitCancel := context.WithCancel(t.Context())
-	submitCancel()
-
-	err := pool.Submit(submitCtx, func() {})
-	if err == nil {
-		t.Error("expected error from Submit with cancelled context")
+func TestPool_NilTaskIsIgnored(t *testing.T) {
+	for _, tc := range createPools() {
+		t.Run(tc.name, func(t *testing.T) {
+			defer tc.pool.Close()
+			tc.pool.Submit(nil)
+		})
 	}
 }
 
-func TestPool_SubmitAfterShutdown(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		pool Pool
-	}{
-		{"FixedPool", func() Pool {
-			ctx, cancel := context.WithCancel(t.Context())
-			p := NewFixedPool(ctx, "test-shutdown", 2, 4)
-			cancel()
-			return p
-		}()},
-		{"ElasticPool", func() Pool {
-			ctx, cancel := context.WithCancel(t.Context())
-			p := NewElasticPool(ctx, "test-shutdown", 2)
-			cancel()
-			return p
-		}()},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			time.Sleep(10 * time.Millisecond)
-			// Must not panic. May or may not return an error.
-			_ = tc.pool.Submit(t.Context(), func() {})
+func TestElasticPool_CloseWaitsForAdHocGoroutines(t *testing.T) {
+	const warmWorkers = 1
+	const totalTasks = 20
+	pool := NewElasticPool("test-elastic-close", warmWorkers)
+
+	blocker := make(chan struct{})
+	var completed atomic.Int64
+
+	// Fill the warm worker, then submit more tasks to force ad-hoc goroutines.
+	for i := 0; i < totalTasks; i++ {
+		pool.Submit(func() {
+			<-blocker
+			completed.Add(1)
 		})
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	close(blocker)
+
+	closeDone := make(chan struct{})
+	go func() {
+		pool.Close()
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for Close to return")
+	}
+
+	if got := completed.Load(); got != totalTasks {
+		t.Errorf("expected %d tasks completed before Close returned, got %d", totalTasks, got)
+	}
+}
+
+func TestFixedPool_CloseDrainsPendingTasks(t *testing.T) {
+	pool := NewFixedPool("test-drain", 1, 100)
+
+	blocker := make(chan struct{})
+	var completed atomic.Int64
+
+	const pendingTasks = 50
+	var wg sync.WaitGroup
+	wg.Add(1 + pendingTasks)
+
+	pool.Submit(func() {
+		defer wg.Done()
+		<-blocker
+		completed.Add(1)
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	for i := 0; i < pendingTasks; i++ {
+		pool.Submit(func() {
+			defer wg.Done()
+			completed.Add(1)
+		})
+	}
+
+	// Unblock the worker, then Close should drain all buffered tasks.
+	close(blocker)
+	pool.Close()
+
+	expected := int64(1 + pendingTasks)
+	if got := completed.Load(); got != expected {
+		t.Errorf("expected %d tasks drained on Close, got %d", expected, got)
+	}
+}
+
+func TestFixedPool_CloseBlocksUntilDrained(t *testing.T) {
+	pool := NewFixedPool("test-close-blocks", 2, 0)
+
+	var completed atomic.Int64
+	blocker := make(chan struct{})
+
+	pool.Submit(func() {
+		<-blocker
+		completed.Add(1)
+	})
+	pool.Submit(func() {
+		<-blocker
+		completed.Add(1)
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	closeDone := make(chan struct{})
+	go func() {
+		pool.Close()
+		close(closeDone)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned while tasks are still running")
+	default:
+	}
+
+	close(blocker)
+
+	select {
+	case <-closeDone:
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for Close to return")
+	}
+
+	if got := completed.Load(); got != 2 {
+		t.Errorf("expected 2 tasks completed, got %d", got)
 	}
 }

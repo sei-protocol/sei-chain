@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -282,32 +281,23 @@ func (cfg BaseConfig) LoadNodeKeyID() (types.NodeID, error) {
 		return "", err
 	}
 	nodeKey := types.NodeKey{}
-	err = tmjson.Unmarshal(jsonBytes, &nodeKey)
-	if err != nil {
+	if err := nodeKey.UnmarshalJSON(jsonBytes); err != nil {
 		return "", err
 	}
-	nodeKey.ID = types.NodeIDFromPubKey(nodeKey.PubKey())
-	return nodeKey.ID, nil
+	return nodeKey.ID(), nil
 }
 
 // LoadOrGenNodeKey attempts to load the NodeKey from the given filePath. If
 // the file does not exist, it generates and saves a new NodeKey.
 func (cfg BaseConfig) LoadOrGenNodeKeyID() (types.NodeID, error) {
 	if tmos.FileExists(cfg.NodeKeyFile()) {
-		nodeKey, err := cfg.LoadNodeKeyID()
-		if err != nil {
-			return "", err
-		}
-		return nodeKey, nil
+		return cfg.LoadNodeKeyID()
 	}
-
 	nodeKey := types.GenNodeKey()
-
 	if err := nodeKey.SaveAs(cfg.NodeKeyFile()); err != nil {
 		return "", err
 	}
-
-	return nodeKey.ID, nil
+	return nodeKey.ID(), nil
 }
 
 // DBDir returns the full path to the database directory

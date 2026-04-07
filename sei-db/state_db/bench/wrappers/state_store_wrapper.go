@@ -14,7 +14,7 @@ var _ DBWrapper = (*stateStoreWrapper)(nil)
 
 // stateStoreWrapper adapts a versioned StateStore (SS layer) to the DBWrapper
 // interface used by the cryptosim benchmark. Each ApplyChangeSets call maps to
-// a single ApplyChangesetSync at the benchmark-provided version. The SS layer
+// a single ApplyChangesetAsync at the benchmark-provided version. The SS layer
 // persists on every apply, so Commit is a no-op.
 type stateStoreWrapper struct {
 	base    dbTypes.StateStore
@@ -31,7 +31,7 @@ func NewStateStoreWrapper(store dbTypes.StateStore) DBWrapper {
 
 func (s *stateStoreWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
 	s.version.Store(entry.Version)
-	return s.base.ApplyChangesetSync(entry.Version, entry.Changesets)
+	return s.base.ApplyChangesetAsync(entry.Version, entry.Changesets)
 }
 
 func (s *stateStoreWrapper) Read(key []byte) (data []byte, found bool, err error) {

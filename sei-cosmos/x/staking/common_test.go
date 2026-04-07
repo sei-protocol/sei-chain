@@ -26,8 +26,7 @@ var (
 	priv2 = secp256k1.GenPrivKey()
 	addr2 = sdk.AccAddress(priv2.PubKey().Address())
 
-	valKey  = ed25519.GenPrivKey()
-	valAddr = sdk.AccAddress(valKey.PubKey().Address())
+	valKey = ed25519.GenPrivKey()
 
 	commissionRates = types.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.ZeroDec())
 

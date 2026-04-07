@@ -73,9 +73,7 @@ func TestTxPoolContent(t *testing.T) {
 }
 
 func requireNotZeroHex(t *testing.T, hexStr string) {
-	if strings.HasPrefix(hexStr, "0x") {
-		hexStr = hexStr[2:]
-	}
+	hexStr = strings.TrimPrefix(hexStr, "0x")
 	for i := 0; i < len(hexStr); i++ {
 		if hexStr[i] != '0' {
 			return // not all zeros

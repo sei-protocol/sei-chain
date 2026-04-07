@@ -7,9 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -73,6 +77,7 @@ type pendingAccountWrite struct {
 // NOT thread-safe; callers must serialize all operations.
 type CommitStore struct {
 	ctx    context.Context
+	cancel context.CancelFunc
 	config Config
 	dbDir  string
 
@@ -114,8 +119,21 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
-	readOnly        bool   // Set by readonly LoadVersion; guards all write methods.
+	// readOnly marks stores opened via LoadVersion(..., true).
+	readOnly bool
+
+	// Temp working dir for readonly store; removed by Close.
 	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
+
+	// A work pool for reading from the DBs.
+	//
+	// Uses a fixed-size pool.
+	readPool threading.Pool
+
+	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	//
+	// Uses an elasticly-sized pool, so it is safe to submit tasks that have dependencies on other tasks in the pool.
+	miscPool threading.Pool
 }
 
 var _ Store = (*CommitStore)(nil)
@@ -124,15 +142,31 @@ var _ Store = (*CommitStore)(nil)
 // Call LoadVersion to open and initialize.
 func NewCommitStore(
 	ctx context.Context,
-	dbDir string,
-	cfg Config,
-) *CommitStore {
+	cfg *Config,
+) (*CommitStore, error) {
+
+	cfg.InitializeDataDirectories()
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %w", err)
+	}
+
 	meter := otel.Meter(flatkvMeterName)
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	coreCount := runtime.NumCPU()
+
+	readPoolSize := int(cfg.ReaderThreadsPerCore*float64(coreCount) + float64(cfg.ReaderConstantThreadCount))
+	readPool := threading.NewFixedPool("flatkv-read", readPoolSize, cfg.ReaderPoolQueueSize)
+
+	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
+	miscPool := threading.NewElasticPool("flatkv-misc", miscPoolSize)
 
 	return &CommitStore{
 		ctx:                ctx,
-		config:             cfg,
-		dbDir:              dbDir,
+		cancel:             cancel,
+		config:             *cfg,
 		localMeta:          make(map[string]*LocalMeta),
 		accountWrites:      make(map[string]*pendingAccountWrite),
 		codeWrites:         make(map[string]*pendingKVWrite),
@@ -141,13 +175,28 @@ func NewCommitStore(
 		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),
-		perDBWorkingLtHash: newPerDBLtHashMap(),
+		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
 		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
-	}
+		readPool:           readPool,
+		miscPool:           miscPool,
+	}, nil
+}
+
+// resetPools recreates the context and thread pools after a full Close().
+func (s *CommitStore) resetPools() {
+	coreCount := runtime.NumCPU()
+
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	readPoolSize := int(s.config.ReaderThreadsPerCore*float64(coreCount) + float64(s.config.ReaderConstantThreadCount))
+	s.readPool = threading.NewFixedPool("flatkv-read", readPoolSize, s.config.ReaderPoolQueueSize)
+
+	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
+	s.miscPool = threading.NewElasticPool("flatkv-misc", miscPoolSize)
 }
 
 func (s *CommitStore) flatkvDir() string {
-	return s.dbDir
+	return s.config.DataDir
 }
 
 var errReadOnly = errors.New("flatkv: store is read-only")
@@ -156,7 +205,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
-	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion)
+	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
 
 	if readOnly {
 		if s.readOnly {
@@ -216,15 +265,42 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, 
 }
 
 // loadVersionReadOnly creates an isolated, read-only CommitStore at the
-// requested version.
+// requested version. If the writer lock has not yet been acquired (e.g. the
+// store was freshly constructed), CleanupOrphanedReadOnlyDirs is called
+// lazily to acquire it and clean up any leftover directories. When the lock
+// is acquired lazily, ownership is transferred to the returned clone so that
+// closing the clone releases it; this prevents leaking the lock when the
+// caller never explicitly closes the parent store.
 func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
-	ro := NewCommitStore(s.ctx, s.dbDir, s.config)
+	lazyLock := s.fileLock == nil
+	if lazyLock {
+		if err := s.CleanupOrphanedReadOnlyDirs(); err != nil {
+			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
+		}
+	}
+	ro, err := NewCommitStore(s.ctx, &s.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create readonly store: %w", err)
+	}
 
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create readonly temp dir: %w", err)
 	}
 	ro.readOnlyWorkDir = workDir
+
+	ro.config.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	ro.config.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	ro.config.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+
+	// Transfer the lazily-acquired lock to the clone so that ro.Close()
+	// releases it, preventing a leak when the parent is never closed.
+	if lazyLock && s.fileLock != nil {
+		ro.fileLock = s.fileLock
+		s.fileLock = nil
+	}
 
 	defer func() {
 		if retErr != nil {
@@ -385,35 +461,33 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	}
 	locked, err := fl.TryLock()
 	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return fmt.Errorf("%w: %v", commonerrors.ErrFileLockUnavailable, err)
+		}
 		return fmt.Errorf("acquire file lock: %w", err)
 	}
 	if !locked {
-		return fmt.Errorf("acquire file lock: already held by another process (%s)", lockPath)
+		return fmt.Errorf("%w: held by another process (%s)", commonerrors.ErrFileLockUnavailable, lockPath)
 	}
 	s.fileLock = fl
 	return nil
 }
 
+// openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcache.CacheConfig) (seidbtypes.KeyValueDB, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
+	}
+	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, s.readPool, s.miscPool)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
+	}
+	return db, nil
+}
+
 // openDBs opens all PebbleDBs from dbDir and optionally the changelog WAL
 // from changelogRoot. On failure all already-opened handles are closed.
 func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
-	type namedPath struct {
-		name string
-		path string
-	}
-	dbPaths := []namedPath{
-		{accountDBDir, filepath.Join(dbDir, accountDBDir)},
-		{codeDBDir, filepath.Join(dbDir, codeDBDir)},
-		{storageDBDir, filepath.Join(dbDir, storageDBDir)},
-		{legacyDBDir, filepath.Join(dbDir, legacyDBDir)},
-		{metadataDir, filepath.Join(dbDir, metadataDir)},
-	}
-
-	for _, np := range dbPaths {
-		if err := os.MkdirAll(np.path, 0750); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", np.path, err)
-		}
-	}
 
 	var toClose []io.Closer
 	defer func() {
@@ -431,31 +505,36 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 		}
 	}()
 
-	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
-		}
-		toClose = append(toClose, db)
-		return db, nil
-	}
-
 	var err error
-	if s.accountDB, err = openDB(dbPaths[0]); err != nil {
-		return err
+	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, &s.config.AccountCacheConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open account DB: %w", err)
 	}
-	if s.codeDB, err = openDB(dbPaths[1]); err != nil {
-		return err
+	toClose = append(toClose, s.accountDB)
+
+	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, &s.config.CodeCacheConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open code DB: %w", err)
 	}
-	if s.storageDB, err = openDB(dbPaths[2]); err != nil {
-		return err
+	toClose = append(toClose, s.codeDB)
+
+	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, &s.config.StorageCacheConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open storage DB: %w", err)
 	}
-	if s.legacyDB, err = openDB(dbPaths[3]); err != nil {
-		return err
+	toClose = append(toClose, s.storageDB)
+
+	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig, &s.config.LegacyCacheConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open legacy DB: %w", err)
 	}
-	if s.metadataDB, err = openDB(dbPaths[4]); err != nil {
-		return err
+	toClose = append(toClose, s.legacyDB)
+
+	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}
+	toClose = append(toClose, s.metadataDB)
 
 	if changelogRoot != "" {
 		changelogPath := filepath.Join(changelogRoot, changelogDir)
@@ -570,6 +649,17 @@ func (s *CommitStore) CommittedRootHash() []byte {
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
+	}
+	// rootmulti.Restore closes the store before creating an importer.
+	// Close() cancels the context (killing pools), so recreate them
+	// before reopening the DBs.
+	if s.isClosed() {
+		if s.ctx.Err() != nil {
+			s.resetPools()
+		}
+		if err := s.open(); err != nil {
+			return nil, fmt.Errorf("reopen store for import: %w", err)
+		}
 	}
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)

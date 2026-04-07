@@ -1501,11 +1501,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
-type ChannelResult struct {
-	txIndex int
-	result  *abci.ExecTxResult
-}
-
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
@@ -1830,6 +1825,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// For successful txs, the nonce is bumped by the EVM during execution.
 		if validation.bumpNonce {
 			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
+			app.EvmKeeper.SetNonceBumped(ctx)
 		}
 		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
 		// but no actual balance is deducted
@@ -2186,6 +2182,11 @@ func (app *App) ModuleAccountAddrs() map[string]bool {
 // for modules to register their own custom testing types.
 func (app *App) LegacyAmino() *codec.LegacyAmino {
 	return app.cdc
+}
+
+func (app *App) GetValidators() []abci.ValidatorUpdate {
+	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
+	return app.StakingKeeper.GetBondedValidators(ctx)
 }
 
 // AppCodec returns an app codec.

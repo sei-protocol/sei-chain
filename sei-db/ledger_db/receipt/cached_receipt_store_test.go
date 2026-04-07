@@ -44,6 +44,14 @@ func (f *fakeReceiptReadObserver) ReportLogFilterCacheMiss() {
 	f.logFilterCacheMisses++
 }
 
+func (f *fakeReceiptReadObserver) RecordCacheFilterScanDuration(float64) {}
+
+func (f *fakeReceiptReadObserver) RecordCacheGetDuration(float64) {}
+
+func (f *fakeReceiptReadObserver) RecordCacheLogCount(int64) {}
+
+func (f *fakeReceiptReadObserver) RecordCacheReceiptCount(int64) {}
+
 func newFakeReceiptBackend() *fakeReceiptBackend {
 	return &fakeReceiptBackend{
 		receipts: make(map[common.Hash]*types.Receipt),
@@ -142,6 +150,29 @@ func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCovers(t *testing.T) {
 	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache covers the range")
 }
 
+func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCoversGenesis(t *testing.T) {
+	ctx, _ := newTestContext()
+	ctx = ctx.WithBlockHeight(0)
+	backend := newFakeReceiptBackend()
+	store := newCachedReceiptStore(backend, nil)
+
+	txHash := common.HexToHash("0x21")
+	addr := common.HexToAddress("0x201")
+	topic := common.HexToHash("0xaaa")
+	receipt := makeTestReceipt(txHash, 0, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
+
+	backend.filterLogCalls = 0
+	logs, err := store.FilterLogs(ctx, 0, 0, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache fully covers genesis")
+}
+
 func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
@@ -178,7 +209,7 @@ func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
 		{BlockNumber: 5, TxIndex: 0, Index: 0},
 		{BlockNumber: 8, TxIndex: 0, Index: 0},
 	}
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	receipt10 := makeTestReceipt(common.HexToHash("0xa"), 10, 0, common.HexToAddress("0x1"), nil)
 	receipt11 := makeTestReceipt(common.HexToHash("0xb"), 11, 0, common.HexToAddress("0x2"), nil)
@@ -201,14 +232,51 @@ func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
 	require.Equal(t, uint64(11), logs[3].BlockNumber)
 }
 
+func TestFilterLogsPartialCacheNarrowsBackendRangeAcrossRotatedChunks(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	backend.logs = []*ethtypes.Log{
+		{BlockNumber: 5, TxIndex: 0, Index: 0},
+		{BlockNumber: 9, TxIndex: 0, Index: 0},
+	}
+	store := newCachedReceiptStore(backend, nil).(*cachedReceiptStore)
+
+	receipt10 := makeTestReceipt(common.HexToHash("0xc"), 10, 0, common.HexToAddress("0x1"), nil)
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: common.HexToHash("0xc"), Receipt: receipt10},
+	}))
+
+	// Put newer logs in a later cache chunk so the backend range decision must
+	// use the oldest block across the whole cache window.
+	store.cache.Rotate()
+
+	receipt20 := makeTestReceipt(common.HexToHash("0xd"), 20, 0, common.HexToAddress("0x2"), nil)
+	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
+		{TxHash: common.HexToHash("0xd"), Receipt: receipt20},
+	}))
+
+	backend.filterLogCalls = 0
+	logs, err := store.FilterLogs(ctx, 5, 20, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Equal(t, 1, backend.filterLogCalls)
+	require.Equal(t, uint64(5), backend.lastFilterFromBlock)
+	require.Equal(t, uint64(9), backend.lastFilterToBlock, "backend toBlock should still be based on the oldest cached block")
+
+	require.Len(t, logs, 4)
+	require.Equal(t, uint64(5), logs[0].BlockNumber)
+	require.Equal(t, uint64(9), logs[1].BlockNumber)
+	require.Equal(t, uint64(10), logs[2].BlockNumber)
+	require.Equal(t, uint64(20), logs[3].BlockNumber)
+}
+
 func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
 	backend.logs = []*ethtypes.Log{
-		{BlockNumber: 1, TxIndex: 0, Index: 0},
 		{BlockNumber: 2, TxIndex: 0, Index: 0},
+		{BlockNumber: 1, TxIndex: 0, Index: 0},
 	}
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	backend.filterLogCalls = 0
 	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{})
@@ -217,12 +285,14 @@ func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
 	require.Equal(t, uint64(1), backend.lastFilterFromBlock)
 	require.Equal(t, uint64(5), backend.lastFilterToBlock, "full range passed when cache is empty")
 	require.Len(t, logs, 2)
+	require.Equal(t, uint64(1), logs[0].BlockNumber)
+	require.Equal(t, uint64(2), logs[1].BlockNumber)
 }
 
 func TestFilterLogsMultipleBlocksCacheOnly(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
-	store := newCachedReceiptStore(backend)
+	store := newCachedReceiptStore(backend, nil)
 
 	for block := uint64(100); block <= 105; block++ {
 		txHash := common.BigToHash(new(big.Int).SetUint64(block))

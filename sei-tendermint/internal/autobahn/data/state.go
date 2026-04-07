@@ -61,15 +61,16 @@ type inner struct {
 	nextQC          types.GlobalBlockNumber
 }
 
-func newInner() *inner {
+func newInner(committee *types.Committee) *inner {
+	first := committee.FirstBlock()
 	return &inner{
 		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
 		appProposals:    map[types.GlobalBlockNumber]appProposalWithTimestamp{},
-		first:           0,
-		nextAppProposal: 0,
-		nextBlock:       0,
-		nextQC:          0,
+		first:           first,
+		nextAppProposal: first,
+		nextBlock:       first,
+		nextQC:          first,
 	}
 }
 
@@ -87,6 +88,17 @@ func (i *inner) updateNextBlock(m *dataMetrics) {
 	}
 }
 
+func (i *inner) pruneFirst(now time.Time, m *dataMetrics) {
+	b := i.blocks[i.first]
+	latency := now.Sub(b.Payload().CreatedAt()).Seconds()
+	m.Blocks.Prune.ObserveWithWeight(latency, 1)
+	m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	delete(i.appProposals, i.first)
+	delete(i.blocks, i.first)
+	delete(i.qcs, i.first)
+	i.first += 1
+}
+
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
 type State struct {
@@ -101,7 +113,7 @@ func NewState(cfg *Config, blockStore utils.Option[BlockStore]) *State {
 	return &State{
 		cfg:        cfg,
 		metrics:    newDataMetrics(),
-		inner:      utils.NewWatch(newInner()),
+		inner:      utils.NewWatch(newInner(cfg.Committee)),
 		blockStore: blockStore,
 	}
 }
@@ -114,7 +126,7 @@ func (s *State) Committee() *types.Committee { return s.cfg.Committee }
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
-	gr := qc.QC().GlobalRange()
+	gr := qc.QC().GlobalRange(s.cfg.Committee)
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
@@ -161,7 +173,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				continue
 			}
 			storedQC := inner.qcs[n]
-			storedGR := storedQC.QC().GlobalRange()
+			storedGR := storedQC.QC().GlobalRange(s.cfg.Committee)
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				inner.blocks[n] = b
 			}
@@ -206,7 +218,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return nil
 		}
 		qc := inner.qcs[n]
-		want := qc.Headers()[n-qc.QC().GlobalRange().First].Hash()
+		want := qc.Headers()[n-qc.QC().GlobalRange(s.cfg.Committee).First].Hash()
 		if got := block.Header().Hash(); want != got {
 			return fmt.Errorf("block header hash mismatch: want %v, got %v", want, got)
 		}
@@ -272,11 +284,14 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, ErrPruned
 		}
+		b := inner.blocks[n]
+		qc := inner.qcs[n].QC()
 		return &types.GlobalBlock{
 			GlobalNumber:  n,
-			Header:        inner.blocks[n].Header(),
-			Payload:       inner.blocks[n].Payload(),
-			FinalAppState: inner.qcs[n].QC().Proposal().App(),
+			Timestamp:     qc.Proposal().BlockTimestamp(s.Committee(), n).OrPanic("global block not in QC"),
+			Header:        b.Header(),
+			Payload:       b.Payload(),
+			FinalAppState: qc.Proposal().App(),
 		}, nil
 	}
 	panic("unreachable")
@@ -330,20 +345,23 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 	panic("unreachable")
 }
 
+func (s *State) PruneBefore(n types.GlobalBlockNumber) {
+	pruningTime := time.Now()
+	for inner, ctrl := range s.inner.Lock() {
+		for inner.first < min(n, inner.nextAppProposal) {
+			inner.pruneFirst(pruningTime, s.metrics)
+		}
+		ctrl.Updated()
+	}
+}
+
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune entries at pruningTime.
 			for inner.first < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[inner.first].timestamp) >= after {
-				b := inner.blocks[inner.first]
-				latency := pruningTime.Sub(b.Payload().CreatedAt()).Seconds()
-				s.metrics.Blocks.Prune.ObserveWithWeight(latency, 1)
-				s.metrics.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-				delete(inner.appProposals, inner.first)
-				delete(inner.blocks, inner.first)
-				delete(inner.qcs, inner.first)
-				inner.first += 1
+				inner.pruneFirst(pruningTime, s.metrics)
 				ctrl.Updated()
 			}
 			// Compute the next pruning time.
@@ -372,7 +390,7 @@ func (s *State) Run(ctx context.Context) error {
 			// TODO(gprusak): writing to blockStore is best effort now,
 			// since the blocks may get pruned before they are written.
 			scope.SpawnNamed("blockStore", func() error {
-				for idx := types.GlobalBlockNumber(0); ; idx += 1 {
+				for idx := s.cfg.Committee.FirstBlock(); ; idx += 1 {
 					b, err := s.GlobalBlock(ctx, idx)
 					if err != nil {
 						return fmt.Errorf("s.Blocks(): %w", err)

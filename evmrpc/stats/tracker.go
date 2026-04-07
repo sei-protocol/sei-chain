@@ -2,7 +2,6 @@ package stats
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
@@ -230,13 +229,6 @@ func (t *tracker) reportPeriodLocked(period *periodStats) {
 	}
 }
 
-// reportPeriod logs the stats for a completed period (public interface)
-func (t *tracker) reportPeriod(period *periodStats) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.reportPeriodLocked(period)
-}
-
 // TrackMessage tracks a JSON-RPC method call with timing information
 func (t *tracker) TrackMessage(method string, connectionType string, startTime time.Time, success bool) {
 	if t == nil {
@@ -284,18 +276,4 @@ func RecordAPIInvocation(method string, connectionType string, startTime time.Ti
 		}
 		wsTracker.TrackMessage(method, connectionType, startTime, success)
 	}
-}
-
-// extractMethod extracts method from JSON payload.
-func extractMethod(body []byte) string {
-	var tmp struct {
-		Method string `json:"method"`
-	}
-	if err := json.Unmarshal(body, &tmp); err == nil {
-		if tmp.Method == "" {
-			return "unknown"
-		}
-		return tmp.Method
-	}
-	return "unknown"
 }

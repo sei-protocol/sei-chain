@@ -11,7 +11,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
@@ -37,7 +36,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 			commitHeight: 499000,
 			expected:     136120,
 		},
-		"pruning iavl snapshot only": {
+		"pruning snapshot only": {
 			bapp: NewBaseApp(
 				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
@@ -223,5 +222,5 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 }
 
 type mockNonQueryableMultiStore struct {
-	types.CommitMultiStore
+	sdk.CommitMultiStore
 }

@@ -110,6 +110,10 @@ func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.
 	}, nil
 }
 
+func (app *Application) GetValidators() []types.ValidatorUpdate {
+	return app.Validators()
+}
+
 // tx is either "val:pubkey!power" or "key=value" or just arbitrary bytes
 func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	// if it starts with "val:", update the validator set

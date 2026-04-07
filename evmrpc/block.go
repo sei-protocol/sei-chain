@@ -408,11 +408,9 @@ func EncodeTmBlock(
 				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
-			or := make([]byte, ethtypes.BloomByteLength)
-			bloom := ethtypes.Bloom{}
+			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(or, blockBloom, bloom[:])
-			blockBloom = or
+			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 			// derive gas used from receipt as TxResult.GasUsed may not be accurate
 			// for ante-failing EVM txs.
 			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
@@ -440,11 +438,9 @@ func EncodeTmBlock(
 					TransactionIndex: (*hexutil.Uint64)(&ti),
 				})
 			}
-			or := make([]byte, ethtypes.BloomByteLength)
-			bloom := ethtypes.Bloom{}
+			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(or, blockBloom, bloom[:])
-			blockBloom = or
+			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])

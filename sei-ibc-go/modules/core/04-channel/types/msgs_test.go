@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/suite"
-	dbm "github.com/tendermint/tm-db"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -20,7 +19,6 @@ import (
 )
 
 const (
-	// valid constatns used for testing
 	portid   = "testportid"
 	chanid   = "channel-0"
 	cpportid = "testcpport"
@@ -28,11 +26,9 @@ const (
 
 	version = "1.0"
 
-	// invalid constants used for testing
 	invalidPort      = "(invalidport1)"
 	invalidShortPort = "p"
-	// 195 characters
-	invalidLongPort = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis eros neque, ultricies vel ligula ac, convallis porttitor elit. Maecenas tincidunt turpis elit, vel faucibus nisl pellentesque sodales"
+	invalidLongPort  = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis eros neque, ultricies vel ligula ac, convallis porttitor elit. Maecenas tincidunt turpis elit, vel faucibus nisl pellentesque sodales"
 
 	invalidChannel      = "(invalidchannel1)"
 	invalidShortChannel = "invalid"
@@ -43,7 +39,6 @@ const (
 	invalidLongConnection  = "invalidlongconnectioninvalidlongconnectioninvalidlongconnectioninvalid"
 )
 
-// define variables used for testing
 var (
 	height            = clienttypes.NewHeight(0, 1)
 	timeoutHeight     = clienttypes.NewHeight(0, 100)
@@ -76,19 +71,23 @@ type TypesTestSuite struct {
 
 func (suite *TypesTestSuite) SetupTest() {
 	app := simapp.Setup(false)
-	db := dbm.NewMemDB()
-	store := rootmulti.NewStore(db)
+
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	ssConfig := seidbconfig.StateStoreConfig{}
+	store := storev2rootmulti.NewStore(suite.T().TempDir(), scConfig, ssConfig, nil)
 	storeKey := storetypes.NewKVStoreKey("iavlStoreKey")
 
 	store.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, nil)
-	store.LoadVersion(0)
-	iavlStore := store.GetCommitStore(storeKey).(*iavl.Store)
+	store.LoadLatestVersion()
+	kvStore := store.GetCommitKVStore(storeKey)
 
-	iavlStore.Set([]byte("KEY"), []byte("VALUE"))
+	kvStore.Set([]byte("KEY"), []byte("VALUE"))
 	_ = store.Commit(true)
 
 	res := store.Query(abci.RequestQuery{
-		Path:  fmt.Sprintf("/%s/key", storeKey.Name()), // required path to get key/value+proof
+		Path:  fmt.Sprintf("/%s/key", storeKey.Name()),
 		Data:  []byte("KEY"),
 		Prove: true,
 	})

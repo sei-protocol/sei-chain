@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -29,45 +28,33 @@ type cache struct {
 	miscPool threading.Pool
 }
 
-// Creates a new Cache. If cacheName is non-empty, OTel metrics are enabled and the
-// background size scrape runs every metricsScrapeInterval.
+// Creates a new Cache. If cfg.MetricsName is non-empty, OTel metrics are enabled and the
+// background size scrape runs every cfg.MetricsScrapeInterval.
 func NewStandardCache(
 	ctx context.Context,
-	// The number of shards in the cache. Must be a power of two and greater than 0.
-	shardCount uint64,
-	// The maximum size of the cache, in bytes.
-	maxSize uint64,
-	// A work pool for reading from the DB.
+	cfg *CacheConfig,
 	readPool threading.Pool,
-	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool,
-	// The estimated overhead per entry, in bytes. This is used to calculate the maximum size of the cache.
-	// This value should be derived experimentally, and may differ between different builds and architectures.
-	estimatedOverheadPerEntry uint64,
-	// Name used as the "cache" attribute on metrics. Empty string disables metrics.
-	cacheName string,
-	// How often to scrape cache size for metrics. Ignored if cacheName is empty.
-	metricsScrapeInterval time.Duration,
 ) (Cache, error) {
-	if shardCount == 0 || (shardCount&(shardCount-1)) != 0 {
+	if cfg.ShardCount == 0 || (cfg.ShardCount&(cfg.ShardCount-1)) != 0 {
 		return nil, ErrNumShardsNotPowerOfTwo
 	}
-	if maxSize == 0 {
+	if cfg.MaxSize == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
-	shardManager, err := newShardManager(shardCount)
+	shardManager, err := newShardManager(cfg.ShardCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create shard manager: %w", err)
 	}
-	sizePerShard := maxSize / shardCount
+	sizePerShard := cfg.MaxSize / cfg.ShardCount
 	if sizePerShard == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than shardCount")
 	}
 
-	shards := make([]*shard, shardCount)
-	for i := uint64(0); i < shardCount; i++ {
-		shards[i], err = NewShard(ctx, readPool, sizePerShard, estimatedOverheadPerEntry)
+	shards := make([]*shard, cfg.ShardCount)
+	for i := uint64(0); i < cfg.ShardCount; i++ {
+		shards[i], err = NewShard(ctx, readPool, sizePerShard, cfg.EstimatedOverheadPerEntry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -81,8 +68,8 @@ func NewStandardCache(
 		miscPool:     miscPool,
 	}
 
-	if cacheName != "" {
-		metrics := newCacheMetrics(ctx, cacheName, metricsScrapeInterval, c.getCacheSizeInfo)
+	if cfg.MetricsName != "" {
+		metrics := newCacheMetrics(ctx, cfg.MetricsName, cfg.MetricsScrapeInterval, c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
 		}
@@ -111,13 +98,10 @@ func (c *cache) BatchSet(updates []CacheUpdate) error {
 	var wg sync.WaitGroup
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
-		err := c.miscPool.Submit(c.ctx, func() {
+		c.miscPool.Submit(func() {
 			defer wg.Done()
 			c.shards[shardIndex].BatchSet(shardEntries)
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit batch set: %w", err)
-		}
 	}
 	wg.Wait()
 
@@ -137,8 +121,7 @@ func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 	var wg sync.WaitGroup
 	for shardIndex, subMap := range work {
 		wg.Add(1)
-
-		err := c.miscPool.Submit(c.ctx, func() {
+		c.miscPool.Submit(func() {
 			defer wg.Done()
 			err := c.shards[shardIndex].BatchGet(read, subMap)
 			if err != nil {
@@ -147,9 +130,6 @@ func (c *cache) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 				}
 			}
 		})
-		if err != nil {
-			return fmt.Errorf("failed to submit batch get: %w", err)
-		}
 	}
 	wg.Wait()
 

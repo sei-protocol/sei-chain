@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 )
 
 // drainExporter collects all SnapshotNode items from an exporter.
@@ -58,7 +57,7 @@ func TestExporterStorageKeys(t *testing.T) {
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: key1, Value: val1},
 			{Key: key2, Value: val2},
 		}}},
@@ -92,7 +91,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	codeHashVal[0] = 0xDE
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeHashKey, Value: codeHashVal},
 		}}},
@@ -129,7 +128,7 @@ func TestExporterCodeKeys(t *testing.T) {
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: codeKey, Value: codeVal},
 		}}},
 	}))
@@ -169,7 +168,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeHashVal[31] = 0xAB
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeKey, Value: codeVal},
@@ -247,7 +246,7 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 
 	// EOA: only nonce, no codehash
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 		}}},
 	}))
@@ -278,7 +277,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
 		}}},
@@ -295,7 +294,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s1 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -309,7 +312,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen from the same directory — data must survive.
-	s2 := NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	cfg2 := DefaultTestConfig(t)
+	cfg2.DataDir = dbPath
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(1, false)
 	require.NoError(t, err)
 	defer s2.Close()
@@ -336,8 +343,12 @@ func TestImportPurgesStaleData(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbPath, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	addrA := Address{0xAA}
@@ -364,7 +375,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeVal := []byte{0x60, 0x80}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: []byte{0x0A}},
 			{Key: storageStale, Value: []byte{0x0C}},
 			{Key: nonceA, Value: nonceVal},
@@ -395,7 +406,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: newStorageVal},
 			{Key: nonceA, Value: newNonceVal},
 			{Key: codeHashB, Value: newCodeHashVal},
@@ -413,7 +424,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 	// --- Phase 3: import snapshot into the existing store ---
 	require.NoError(t, s.Close())
 
-	s = NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -451,7 +463,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	// Verify the store survives a reopen.
 	require.NoError(t, s.Close())
-	s = NewCommitStore(t.Context(), dbPath, DefaultConfig())
+	s, err = NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
 	_, err = s.LoadVersion(1, false)
 	require.NoError(t, err)
 	defer s.Close()
@@ -468,8 +481,12 @@ func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbPath, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s.Close()
 

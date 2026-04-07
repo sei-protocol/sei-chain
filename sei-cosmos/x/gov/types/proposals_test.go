@@ -34,5 +34,6 @@ func TestProposalSetIsExpedited(t *testing.T) {
 	require.Equal(t, expedited, proposal.IsExpedited)
 
 	proposal, err = NewProposal(testProposal, 1, time.Now(), time.Now(), !expedited)
+	require.NoError(t, err)
 	require.Equal(t, !expedited, proposal.IsExpedited)
 }

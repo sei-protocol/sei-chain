@@ -22,7 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/debug"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/keys"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/pruning"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -58,12 +58,6 @@ type Option func(*rootOptions)
 //
 //nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct{}
-
-func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
-	for _, o := range options {
-		o(s)
-	}
-}
 
 // NewRootCmd creates a new root command for a Cosmos SDK application
 func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
@@ -126,7 +120,6 @@ func initRootCmd(
 
 	// extend debug command
 	debugCmd := debug.Cmd()
-	debugCmd.AddCommand(DumpIavlCmd())
 
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
@@ -144,8 +137,6 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
-		pruning.PruningCmd(newApp),
-		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),

@@ -27,7 +27,7 @@ func NewUintFromBigInt(i *big.Int) Uint {
 	return u
 }
 
-// NewUint constructs Uint from int64
+// NewUint constructs Uint from uint64.
 func NewUint(n uint64) Uint {
 	i := new(big.Int)
 	i.SetUint64(n)
@@ -84,10 +84,10 @@ func (u Uint) Add(u2 Uint) Uint { return NewUintFromBigInt(new(big.Int).Add(u.i,
 // Add convert uint64 and add it to Uint
 func (u Uint) AddUint64(u2 uint64) Uint { return u.Add(NewUint(u2)) }
 
-// Sub adds Uint from another
+// Sub subtracts another Uint.
 func (u Uint) Sub(u2 Uint) Uint { return NewUintFromBigInt(new(big.Int).Sub(u.i, u2.i)) }
 
-// SubUint64 adds Uint from another
+// SubUint64 subtracts a uint64 from Uint.
 func (u Uint) SubUint64(u2 uint64) Uint { return u.Sub(NewUint(u2)) }
 
 // Mul multiplies two Uints
@@ -99,7 +99,7 @@ func (u Uint) Mul(u2 Uint) (res Uint) {
 func (u Uint) MulUint64(u2 uint64) (res Uint) { return u.Mul(NewUint(u2)) }
 
 // Quo divides Uint with Uint
-func (u Uint) Quo(u2 Uint) (res Uint) { return NewUintFromBigInt(div(u.i, u2.i)) }
+func (u Uint) Quo(u2 Uint) Uint { return NewUintFromBigInt(div(u.i, u2.i)) }
 
 // Mod returns remainder after dividing with Uint
 func (u Uint) Mod(u2 Uint) Uint {
@@ -120,16 +120,16 @@ func (u Uint) Decr() Uint {
 	return u.Sub(OneUint())
 }
 
-// Quo divides Uint with uint64
+// QuoUint64 divides Uint by a uint64.
 func (u Uint) QuoUint64(u2 uint64) Uint { return u.Quo(NewUint(u2)) }
 
-// Return the minimum of the Uints
+// MinUint returns the minimum of the Uints.
 func MinUint(u1, u2 Uint) Uint { return NewUintFromBigInt(min(u1.i, u2.i)) }
 
 // Return the maximum of the Uints
 func MaxUint(u1, u2 Uint) Uint { return NewUintFromBigInt(max(u1.i, u2.i)) }
 
-// Human readable string
+// String returns the string representation of Uint.
 func (u Uint) String() string { return u.i.String() }
 
 // MarshalJSON defines custom encoding scheme
@@ -177,6 +177,11 @@ func (u *Uint) MarshalTo(data []byte) (n int, err error) {
 
 // Unmarshal implements the gogo proto custom type interface.
 func (u *Uint) Unmarshal(data []byte) error {
+	// maxBitLen is 256, which requires ~78 decimal digits, so 100 is a safe upper
+	// bound.
+	if len(data) > 100 {
+		return fmt.Errorf("unsigned integer string too long: got %d, max 100", len(data))
+	}
 	if len(data) == 0 {
 		u = nil
 		return nil
