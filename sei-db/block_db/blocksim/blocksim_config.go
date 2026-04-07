@@ -126,7 +126,7 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		MaxRuntimeSeconds:               0,
 		MetricsAddr:                     ":9090",
 		EnableSuspension:                true,
-		FlushIntervalBlocks:             1000,
+		FlushIntervalBlocks:             10,
 		BackgroundMetricsScrapeInterval: 60,
 		LogDir:                          "logs",
 		LogLevel:                        "info",
