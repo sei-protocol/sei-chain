@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"log/slog"
@@ -28,6 +29,10 @@ type LevelDBKeymap struct {
 	// is critical. Unit tests write lots of little values, and syncing each one is slow, so it may be desirable
 	// to set this to false in some tests.
 	syncWrites bool
+
+	// writeLock serializes Put calls to maintain linked-list consistency across batches.
+	writeLock sync.Mutex
+	lastKey   []byte
 }
 
 var _ BuildKeymap = NewLevelDBKeymap
@@ -85,10 +90,25 @@ func newLevelDBKeymap(
 	}
 	kmap.alive.Store(true)
 
+	rawData, getErr := db.Get(latestKeyMetaKey, nil)
+	if getErr == nil {
+		kmap.lastKey = make([]byte, len(rawData))
+		copy(kmap.lastKey, rawData)
+	} else if !errors.Is(getErr, leveldb.ErrNotFound) {
+		_ = db.Close()
+		return nil, false, fmt.Errorf("failed to read latest key metadata: %w", getErr)
+	}
+
 	return kmap, requiresReload, nil
 }
 
 func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	l.writeLock.Lock()
+	defer l.writeLock.Unlock()
 
 	if l.doubleWriteProtection {
 		for _, k := range keys {
@@ -103,11 +123,15 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 	}
 
 	batch := new(leveldb.Batch)
-	var addrBuf [types.AddressLength]byte
+	prevKey := l.lastKey
 	for _, k := range keys {
-		k.Address.SerializeInto(addrBuf[:])
-		batch.Put(k.Key, addrBuf[:])
+		val := encodeLinkedValue(k.Address, prevKey)
+		batch.Put(k.Key, val)
+		prevKey = k.Key
 	}
+
+	lastKeyInBatch := keys[len(keys)-1].Key
+	batch.Put(latestKeyMetaKey, lastKeyInBatch)
 
 	writeOptions := &opt.WriteOptions{
 		Sync: l.syncWrites,
@@ -117,6 +141,10 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 	if err != nil {
 		return fmt.Errorf("failed to put batch to LevelDB: %w", err)
 	}
+
+	l.lastKey = make([]byte, len(lastKeyInBatch))
+	copy(l.lastKey, lastKeyInBatch)
+
 	return nil
 }
 
@@ -129,13 +157,9 @@ func (l *LevelDBKeymap) Get(key []byte) (address types.Address, exists bool, err
 		return types.Address{}, false, fmt.Errorf("failed to get key from LevelDB: %w", err)
 	}
 
-	if len(rawData) != types.AddressLength {
-		return types.Address{}, false, fmt.Errorf("invalid data length: %d", len(rawData))
-	}
-
-	address, err = types.DeserializeAddress(rawData[:types.AddressLength])
+	address, _, err = decodeLinkedValue(rawData)
 	if err != nil {
-		return types.Address{}, false, fmt.Errorf("failed to deserialize address: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to decode value from LevelDB: %w", err)
 	}
 
 	return address, true, nil
@@ -180,5 +204,64 @@ func (l *LevelDBKeymap) Destroy() error {
 		return fmt.Errorf("failed to remove LevelDB data directory: %w", err)
 	}
 
+	return nil
+}
+
+func (l *LevelDBKeymap) ReverseIterator() (KeymapReverseIterator, error) {
+	rawData, err := l.db.Get(latestKeyMetaKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return &emptyReverseIterator{}, nil
+		}
+		return nil, fmt.Errorf("failed to read latest key metadata: %w", err)
+	}
+	headKey := make([]byte, len(rawData))
+	copy(headKey, rawData)
+
+	return &leveldbReverseIterator{
+		db:      l.db,
+		nextKey: headKey,
+	}, nil
+}
+
+type leveldbReverseIterator struct {
+	db         *leveldb.DB
+	nextKey    []byte
+	currentKey []byte
+}
+
+func (it *leveldbReverseIterator) Next() (key []byte, address types.Address, exists bool, err error) {
+	if it.nextKey == nil {
+		return nil, types.Address{}, false, nil
+	}
+
+	rawData, err := it.db.Get(it.nextKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldb.ErrNotFound) {
+			it.nextKey = nil
+			return nil, types.Address{}, false, nil
+		}
+		return nil, types.Address{}, false, fmt.Errorf("failed to get key from LevelDB: %w", err)
+	}
+
+	address, prevKey, err := decodeLinkedValue(rawData)
+	if err != nil {
+		return nil, types.Address{}, false, fmt.Errorf("failed to decode linked value: %w", err)
+	}
+
+	it.currentKey = it.nextKey
+	it.nextKey = prevKey
+
+	return it.currentKey, address, true, nil
+}
+
+func (it *leveldbReverseIterator) Delete() error {
+	if it.currentKey == nil {
+		return fmt.Errorf("no current entry to delete")
+	}
+	return it.db.Delete(it.currentKey, nil)
+}
+
+func (it *leveldbReverseIterator) Close() error {
 	return nil
 }

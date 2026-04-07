@@ -3,6 +3,7 @@ package keymap
 import (
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"log/slog"
@@ -23,6 +24,10 @@ type PebbleKeymap struct {
 	keymapPath            string
 	alive                 atomic.Bool
 	syncWrites            bool
+
+	// writeLock serializes Put calls to maintain linked-list consistency across batches.
+	writeLock sync.Mutex
+	lastKey   []byte
 }
 
 var _ BuildKeymap = NewPebbleKeymap
@@ -87,10 +92,27 @@ func newPebbleKeymap(
 	}
 	kmap.alive.Store(true)
 
+	rawData, closer, getErr := db.Get(latestKeyMetaKey)
+	if getErr == nil {
+		kmap.lastKey = make([]byte, len(rawData))
+		copy(kmap.lastKey, rawData)
+		_ = closer.Close()
+	} else if getErr != pebble.ErrNotFound {
+		_ = db.Close()
+		return nil, false, fmt.Errorf("failed to read latest key metadata: %w", getErr)
+	}
+
 	return kmap, requiresReload, nil
 }
 
 func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	p.writeLock.Lock()
+	defer p.writeLock.Unlock()
+
 	if p.doubleWriteProtection {
 		for _, k := range keys {
 			_, ok, err := p.Get(k.Key)
@@ -106,12 +128,18 @@ func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
 	batch := p.db.NewBatch()
 	defer func() { _ = batch.Close() }()
 
-	var addrBuf [types.AddressLength]byte
+	prevKey := p.lastKey
 	for _, k := range keys {
-		k.Address.SerializeInto(addrBuf[:])
-		if err := batch.Set(k.Key, addrBuf[:], nil); err != nil {
+		val := encodeLinkedValue(k.Address, prevKey)
+		if err := batch.Set(k.Key, val, nil); err != nil {
 			return fmt.Errorf("failed to set key in PebbleDB batch: %w", err)
 		}
+		prevKey = k.Key
+	}
+
+	lastKeyInBatch := keys[len(keys)-1].Key
+	if err := batch.Set(latestKeyMetaKey, lastKeyInBatch, nil); err != nil {
+		return fmt.Errorf("failed to set latest key metadata: %w", err)
 	}
 
 	writeOpts := pebble.NoSync
@@ -122,6 +150,10 @@ func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
 	if err := batch.Commit(writeOpts); err != nil {
 		return fmt.Errorf("failed to commit batch to PebbleDB: %w", err)
 	}
+
+	p.lastKey = make([]byte, len(lastKeyInBatch))
+	copy(p.lastKey, lastKeyInBatch)
+
 	return nil
 }
 
@@ -135,13 +167,9 @@ func (p *PebbleKeymap) Get(key []byte) (address types.Address, exists bool, err 
 	}
 	defer func() { _ = closer.Close() }()
 
-	if len(rawData) != types.AddressLength {
-		return types.Address{}, false, fmt.Errorf("invalid data length: %d", len(rawData))
-	}
-
-	address, err = types.DeserializeAddress(rawData[:types.AddressLength])
+	address, _, err = decodeLinkedValue(rawData)
 	if err != nil {
-		return types.Address{}, false, fmt.Errorf("failed to deserialize address: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to decode value from PebbleDB: %w", err)
 	}
 
 	return address, true, nil
@@ -186,5 +214,66 @@ func (p *PebbleKeymap) Destroy() error {
 		return fmt.Errorf("failed to remove PebbleDB data directory: %w", err)
 	}
 
+	return nil
+}
+
+func (p *PebbleKeymap) ReverseIterator() (KeymapReverseIterator, error) {
+	rawData, closer, err := p.db.Get(latestKeyMetaKey)
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return &emptyReverseIterator{}, nil
+		}
+		return nil, fmt.Errorf("failed to read latest key metadata: %w", err)
+	}
+	headKey := make([]byte, len(rawData))
+	copy(headKey, rawData)
+	_ = closer.Close()
+
+	return &pebbleReverseIterator{
+		db:      p.db,
+		nextKey: headKey,
+	}, nil
+}
+
+type pebbleReverseIterator struct {
+	db         *pebble.DB
+	nextKey    []byte
+	currentKey []byte
+}
+
+func (it *pebbleReverseIterator) Next() (key []byte, address types.Address, exists bool, err error) {
+	if it.nextKey == nil {
+		return nil, types.Address{}, false, nil
+	}
+
+	rawData, closer, err := it.db.Get(it.nextKey)
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			it.nextKey = nil
+			return nil, types.Address{}, false, nil
+		}
+		return nil, types.Address{}, false, fmt.Errorf("failed to get key from PebbleDB: %w", err)
+	}
+
+	address, prevKey, err := decodeLinkedValue(rawData)
+	_ = closer.Close()
+	if err != nil {
+		return nil, types.Address{}, false, fmt.Errorf("failed to decode linked value: %w", err)
+	}
+
+	it.currentKey = it.nextKey
+	it.nextKey = prevKey
+
+	return it.currentKey, address, true, nil
+}
+
+func (it *pebbleReverseIterator) Delete() error {
+	if it.currentKey == nil {
+		return fmt.Errorf("no current entry to delete")
+	}
+	return it.db.Delete(it.currentKey, pebble.NoSync)
+}
+
+func (it *pebbleReverseIterator) Close() error {
 	return nil
 }

@@ -12,6 +12,11 @@ import (
 
 var _ Keymap = &memKeymap{}
 
+type memKeymapEntry struct {
+	scopedKey *types.ScopedKey
+	prevKey   []byte // nil means this is the chain head (first key ever written)
+}
+
 // An in-memory keymap implementation. When a table using a memKeymap is restarted, it loads all keys from
 // the segment files.  Methods on this struct are goroutine safe.
 //
@@ -20,10 +25,11 @@ var _ Keymap = &memKeymap{}
 // - very fast after startup
 type memKeymap struct {
 	logger *slog.Logger
-	data   map[string]*types.ScopedKey
+	data   map[string]*memKeymapEntry
 	// if true, then return an error if an update would overwrite an existing key
 	doubleWriteProtection bool
 	lock                  sync.RWMutex
+	lastKey               []byte
 }
 
 var _ BuildKeymap = NewMemKeymap
@@ -37,15 +43,20 @@ func NewMemKeymap(
 
 	return &memKeymap{
 		logger:                logger,
-		data:                  make(map[string]*types.ScopedKey),
+		data:                  make(map[string]*memKeymapEntry),
 		doubleWriteProtection: doubleWriteProtection,
 	}, true, nil
 }
 
 func (m *memKeymap) Put(keys []*types.ScopedKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	prevKey := m.lastKey
 	for _, k := range keys {
 		stringKey := util.UnsafeBytesToString(k.Key)
 
@@ -56,8 +67,17 @@ func (m *memKeymap) Put(keys []*types.ScopedKey) error {
 			}
 		}
 
-		m.data[stringKey] = k
+		m.data[stringKey] = &memKeymapEntry{
+			scopedKey: k,
+			prevKey:   prevKey,
+		}
+		prevKey = k.Key
 	}
+
+	lastKeyInBatch := keys[len(keys)-1].Key
+	m.lastKey = make([]byte, len(lastKeyInBatch))
+	copy(m.lastKey, lastKeyInBatch)
+
 	return nil
 }
 
@@ -65,12 +85,12 @@ func (m *memKeymap) Get(key []byte) (address types.Address, exists bool, err err
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	scopedKey, ok := m.data[util.UnsafeBytesToString(key)]
+	entry, ok := m.data[util.UnsafeBytesToString(key)]
 	if !ok {
 		return types.Address{}, false, nil
 	}
 
-	return scopedKey.Address, true, nil
+	return entry.scopedKey.Address, true, nil
 }
 
 func (m *memKeymap) Delete(keys []*types.ScopedKey) error {
@@ -85,7 +105,6 @@ func (m *memKeymap) Delete(keys []*types.ScopedKey) error {
 }
 
 func (m *memKeymap) Stop() error {
-	// nothing to do here
 	return nil
 }
 
@@ -93,5 +112,54 @@ func (m *memKeymap) Destroy() error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.data = nil
+	m.lastKey = nil
+	return nil
+}
+
+func (m *memKeymap) ReverseIterator() (KeymapReverseIterator, error) {
+	if m.lastKey == nil {
+		return &emptyReverseIterator{}, nil
+	}
+	return &memReverseIterator{
+		data:    m.data,
+		nextKey: m.lastKey,
+	}, nil
+}
+
+type memReverseIterator struct {
+	data       map[string]*memKeymapEntry
+	nextKey    []byte
+	currentKey string
+	hasCurrent bool
+}
+
+func (it *memReverseIterator) Next() (key []byte, address types.Address, exists bool, err error) {
+	if it.nextKey == nil {
+		return nil, types.Address{}, false, nil
+	}
+
+	entry, ok := it.data[string(it.nextKey)]
+	if !ok {
+		it.nextKey = nil
+		return nil, types.Address{}, false, nil
+	}
+
+	it.currentKey = string(it.nextKey)
+	it.hasCurrent = true
+	it.nextKey = entry.prevKey
+
+	return entry.scopedKey.Key, entry.scopedKey.Address, true, nil
+}
+
+func (it *memReverseIterator) Delete() error {
+	if !it.hasCurrent {
+		return fmt.Errorf("no current entry to delete")
+	}
+	delete(it.data, it.currentKey)
+	it.hasCurrent = false
+	return nil
+}
+
+func (it *memReverseIterator) Close() error {
 	return nil
 }
