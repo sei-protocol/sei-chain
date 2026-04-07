@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -43,18 +42,7 @@ func TestApplyBlock(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 	blockExec := sm.NewBlockExecutor(stateStore, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
@@ -98,18 +86,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
 			evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
 			evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-			mp := &mpmocks.Mempool{}
-			mp.On("Lock").Return()
-			mp.On("Unlock").Return()
-			mp.On("Update",
-				mock.Anything,
-				mock.Anything,
-				mock.Anything,
-				mock.Anything,
-				mock.Anything,
-				mock.Anything,
-				mock.Anything).Return(nil)
-			mp.On("TxStore").Return(nil)
+			mp := makeTxMempool(t, app)
 
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
@@ -219,18 +196,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return(ev, int64(100))
 	evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 	evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
@@ -268,8 +234,7 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	mp := &mpmocks.Mempool{}
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		app,
@@ -461,19 +426,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
@@ -540,8 +493,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := &mpmocks.Mempool{}
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		app,
