@@ -1,6 +1,7 @@
 package types
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -81,6 +82,115 @@ func TestProposalVerifyFreshWithBlocks(t *testing.T) {
 	fp := utils.OrPanic1(NewProposal(proposerKey, committee, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC}, utils.None[*AppQC]()))
 	require.NoError(t, fp.Verify(committee, vs))
+}
+
+func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs0 := ViewSpec{}
+	proposer0 := leaderKey(committee, keys, vs0.View())
+	lane := proposer0.Public()
+
+	firstProposal := utils.OrPanic1(NewProposal(
+		proposer0,
+		committee,
+		vs0,
+		time.Now(),
+		map[LaneID]*LaneQC{
+			lane: makeLaneQC(rng, committee, keys, lane, 2, GenBlockHeaderHash(rng)),
+		},
+		utils.None[*AppQC](),
+	))
+	p0 := firstProposal.Proposal().Msg()
+	gr0 := p0.GlobalRange(committee)
+	require.Equal(t, committee.FirstBlock(), gr0.First)
+	require.Equal(t, committee.FirstBlock()+3, gr0.Next)
+	first0 := p0.BlockTimestamp(committee, gr0.First).OrPanic("missing first block timestamp")
+	second0 := p0.BlockTimestamp(committee, gr0.First+1).OrPanic("missing second block timestamp")
+	third0 := p0.BlockTimestamp(committee, gr0.First+2).OrPanic("missing third block timestamp")
+	require.True(t, first0.Before(second0), "block timestamps within one proposal must be strictly increasing")
+	require.True(t, second0.Before(third0), "block timestamps within one proposal must be strictly increasing")
+
+	commitQC0 := makeCommitQCFromProposal(keys, firstProposal)
+	vs1 := ViewSpec{CommitQC: utils.Some(commitQC0)}
+	proposer1 := leaderKey(committee, keys, vs1.View())
+
+	secondProposal := utils.OrPanic1(NewProposal(
+		proposer1,
+		committee,
+		vs1,
+		time.Now(),
+		map[LaneID]*LaneQC{
+			lane: makeLaneQC(rng, committee, keys, lane, 3, GenBlockHeaderHash(rng)),
+		},
+		utils.None[*AppQC](),
+	))
+	p1 := secondProposal.Proposal().Msg()
+	gr1 := p1.GlobalRange(committee)
+	require.Equal(t, gr0.Next, gr1.First)
+	last0 := p0.BlockTimestamp(committee, gr0.Next-1).OrPanic("missing last block timestamp")
+	first1 := p1.BlockTimestamp(committee, gr1.First).OrPanic("missing first timestamp of next proposal")
+	require.True(t, last0.Before(first1), "block timestamps across consecutive proposals must be strictly increasing")
+}
+
+func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
+	t.Run("wrt genesis timestamp", func(t *testing.T) {
+		rng := utils.TestRng()
+		committee, keys := GenCommittee(rng, 4)
+		vs := ViewSpec{}
+		k := leaderKey(committee, keys, vs.View())
+		fp := utils.OrPanic1(NewProposal(k, committee, vs, committee.GenesisTimestamp(), nil, utils.None[*AppQC]()))
+		require.NoError(t, fp.Verify(committee, vs))
+
+		committee = utils.OrPanic1(NewRoundRobinElection(
+			slices.Collect(committee.Replicas().All()),
+			committee.FirstBlock(),
+			fp.Proposal().Msg().Timestamp().Add(time.Nanosecond)),
+		)
+		require.Error(t, fp.Verify(committee, vs))
+	})
+
+	t.Run("wrt previous proposal", func(t *testing.T) {
+		rng := utils.TestRng()
+		committee, keys := GenCommittee(rng, 4)
+		vs0 := ViewSpec{}
+		proposer0 := leaderKey(committee, keys, vs0.View())
+		lane := proposer0.Public()
+		lQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
+
+		fp0a := utils.OrPanic1(NewProposal(
+			proposer0,
+			committee,
+			vs0,
+			time.Now(),
+			map[LaneID]*LaneQC{lane: lQC},
+			utils.None[*AppQC](),
+		))
+		fp0b := utils.OrPanic1(NewProposal(
+			proposer0,
+			committee,
+			vs0,
+			fp0a.Proposal().Msg().NextTimestamp().Add(time.Hour),
+			map[LaneID]*LaneQC{lane: lQC},
+			utils.None[*AppQC](),
+		))
+
+		vs1a := ViewSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0a))}
+		vs1b := ViewSpec{CommitQC: utils.Some(makeCommitQCFromProposal(keys, fp0b))}
+		proposer1 := leaderKey(committee, keys, vs1a.View())
+
+		fp1a := utils.OrPanic1(NewProposal(
+			proposer1,
+			committee,
+			vs1a,
+			fp0a.Proposal().Msg().NextTimestamp(),
+			nil,
+			utils.None[*AppQC](),
+		))
+
+		require.NoError(t, fp1a.Verify(committee, vs1a))
+		require.Error(t, fp1a.Verify(committee, vs1b))
+	})
 }
 
 func TestProposalVerifyRejectsViewMismatch(t *testing.T) {
@@ -180,7 +290,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	extraLane := GenSecretKey(rng).Public()
 	require.False(t, committee.Lanes().Has(extraLane))
 	var victim LaneID
-	for _, l := range committee.Lanes().All() {
+	for l := range committee.Lanes().All() {
 		victim = l
 		break
 	}
@@ -195,7 +305,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 		}
 	}
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.createdAt, tamperedRanges, origProposal.app)
+	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app)
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -227,7 +337,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -253,7 +363,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		i++
 	}
 
-	shortProposal := newProposal(origP.view, origP.createdAt, keptRanges, origP.app)
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -279,7 +389,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.createdAt, tamperedRanges, origP.app)
+	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 	}

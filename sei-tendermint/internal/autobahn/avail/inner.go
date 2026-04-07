@@ -58,7 +58,7 @@ type loadedAvailState struct {
 func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inner, error) {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for _, lane := range c.Lanes().All() {
+	for lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}

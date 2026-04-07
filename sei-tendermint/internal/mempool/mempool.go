@@ -66,6 +66,11 @@ type TxMempool struct {
 	// reduces pressure on the proxyApp.
 	cache TxCache
 
+	// blockFailedTxs tracks tx hashes that have previously failed during
+	// block execution. Used to prevent infinite re-entry of txs that
+	// consistently fail before fee charging in DeliverTx.
+	blockFailedTxs TxCache
+
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
 	duplicateTxsCache utils.Option[*DuplicateTxCache]
@@ -131,6 +136,7 @@ func NewTxMempool(
 		proxyAppConn:        proxyAppConn,
 		height:              -1,
 		cache:               NopTxCache{},
+		blockFailedTxs:      NopTxCache{},
 		metrics:             NopMetrics(),
 		txStore:             NewTxStore(),
 		gossipIndex:         clist.New(),
@@ -144,6 +150,7 @@ func NewTxMempool(
 
 	if cfg.CacheSize > 0 {
 		txmp.cache = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
+		txmp.blockFailedTxs = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
 	}
 
 	for _, opt := range options {
@@ -646,9 +653,13 @@ func (txmp *TxMempool) Update(
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
 			_ = txmp.cache.Push(txKey)
+			txmp.blockFailedTxs.Remove(txKey)
 		} else if !txmp.config.KeepInvalidTxsInCache {
-			// allow invalid transactions to be re-submitted
-			txmp.cache.Remove(txKey)
+			if txmp.blockFailedTxs.Push(txKey) {
+				// First block failure: allow one retry
+				txmp.cache.Remove(txKey)
+			}
+			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 
 		// remove the committed transaction from the transaction store and indexes

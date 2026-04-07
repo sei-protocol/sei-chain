@@ -86,7 +86,7 @@ func (m *FullCommitQC) Verify(c *Committee) error {
 	if want, got := int(m.qc.GlobalRange(c).Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
-	for _, lane := range c.Lanes().All() {
+	for lane := range c.Lanes().All() {
 		lr := m.qc.LaneRange(lane)
 		if lr.Len() == 0 {
 			continue

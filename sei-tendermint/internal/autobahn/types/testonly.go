@@ -32,7 +32,7 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	for i, sk := range sks {
 		pks[i] = sk.Public()
 	}
-	c, err := NewRoundRobinElection(pks, GenGlobalBlockNumber(rng)%1000000)
+	c, err := NewRoundRobinElection(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())
 	if err != nil {
 		panic(err)
 	}

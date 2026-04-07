@@ -19,7 +19,9 @@ type receiptCacheEntry struct {
 }
 
 type logChunk struct {
-	logs map[uint64][]*ethtypes.Log // blockNum -> logs
+	logs     map[uint64][]*ethtypes.Log // blockNum -> logs
+	minBlock uint64
+	hasMin   bool
 }
 
 type receiptChunk struct {
@@ -198,12 +200,26 @@ func (c *ledgerCache) AddLogsForBlock(blockNumber uint64, logs []*ethtypes.Log) 
 		c.logChunks[slot].Store(chunk)
 	}
 	chunk.logs[blockNumber] = logsCopy
+	if !chunk.hasMin || blockNumber < chunk.minBlock {
+		chunk.minBlock = blockNumber
+		chunk.hasMin = true
+	}
 }
 
 // FilterLogs returns cached logs matching the filter criteria.
 func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterCriteria) []*ethtypes.Log {
+	logs, _, _ := c.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
+	return logs
+}
+
+// FilterLogsWithMinBlock returns cached logs matching the filter criteria together
+// with the lowest block number present in the same cache snapshot. Callers that
+// need both values should use this helper so rotation cannot prune between reads.
+func (c *ledgerCache) FilterLogsWithMinBlock(fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, uint64, bool) {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
+
+	minBlock, hasMin := c.logMinBlockLocked()
 
 	var result []*ethtypes.Log
 	for i := 0; i < numCacheChunks; i++ {
@@ -223,7 +239,32 @@ func (c *ledgerCache) FilterLogs(fromBlock, toBlock uint64, crit filters.FilterC
 			}
 		}
 	}
-	return result
+	return result, minBlock, hasMin
+}
+
+// LogMinBlock returns the lowest block number present across all non-nil log
+// chunks. The bool return value reports whether the cache contains any log data.
+func (c *ledgerCache) LogMinBlock() (uint64, bool) {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+
+	return c.logMinBlockLocked()
+}
+
+func (c *ledgerCache) logMinBlockLocked() (uint64, bool) {
+	var min uint64
+	var found bool
+	for i := 0; i < numCacheChunks; i++ {
+		chunk := c.logChunks[i].Load()
+		if chunk == nil || !chunk.hasMin {
+			continue
+		}
+		if !found || chunk.minBlock < min {
+			min = chunk.minBlock
+			found = true
+		}
+	}
+	return min, found
 }
 
 // matchLog checks if a log matches the filter criteria.
