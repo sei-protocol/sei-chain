@@ -45,6 +45,7 @@ var errFrameAfterClose = errors.New("received frame after CLOSE frame")
 var errTooManyMsgs = errors.New("too many messages")
 var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
+var errStreamKindMismatch = errors.New("stream kind mismatch")
 
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
@@ -130,8 +131,8 @@ func (r *runner) getOrAccept(h *pb.Header) (*streamState, error) {
 	for inner := range r.inner.RLock() {
 		s, ok := inner.streams[id]
 		if ok {
-			if h.Kind!=nil && s.kind != kind {
-				return nil, fmt.Errorf("stream kind mismatch")
+			if h.Kind != nil && s.kind != kind {
+				return nil, errStreamKindMismatch
 			}
 			return s, nil
 		}
