@@ -68,11 +68,15 @@ func (p *PendingAccountWrite) IsCodeHashSet() bool {
 	return p.codeHash != nil
 }
 
-// SetBalance marks the balance as changed. The pointer is stored directly; the caller
-// must not modify the underlying array after calling SetBalance. Returns self.
+// SetBalance marks the balance as changed. A nil balance is treated as all zeros.
+// The pointer is stored directly; the caller must not modify the underlying array
+// after calling SetBalance. Returns self.
 func (p *PendingAccountWrite) SetBalance(balance *Balance) *PendingAccountWrite {
 	if p == nil {
 		p = NewPendingAccountWrite()
+	}
+	if balance == nil {
+		balance = &Balance{}
 	}
 	p.balance = balance
 	return p
@@ -88,11 +92,15 @@ func (p *PendingAccountWrite) SetNonce(nonce uint64) *PendingAccountWrite {
 	return p
 }
 
-// SetCodeHash marks the code hash as changed. The pointer is stored directly; the caller
-// must not modify the underlying array after calling SetCodeHash. Returns self.
+// SetCodeHash marks the code hash as changed. A nil code hash is treated as all zeros.
+// The pointer is stored directly; the caller must not modify the underlying array
+// after calling SetCodeHash. Returns self.
 func (p *PendingAccountWrite) SetCodeHash(codeHash *CodeHash) *PendingAccountWrite {
 	if p == nil {
 		p = NewPendingAccountWrite()
+	}
+	if codeHash == nil {
+		codeHash = &CodeHash{}
 	}
 	p.codeHash = codeHash
 	return p

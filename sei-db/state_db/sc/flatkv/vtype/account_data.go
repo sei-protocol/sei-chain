@@ -36,12 +36,13 @@ since ~97% of accounts have no code hash.
 
 const (
 	accountVersionStart     = 0
-	accountBlockHeightStart = 1
-	accountBalanceStart     = 9
-	accountNonceStart       = 41
-	accountCodeHashStart    = 49
-	accountCompactLength    = accountCodeHashStart // 49
-	accountDataLength       = 81
+	accountBlockHeightStart = accountVersionStart + VersionLength
+	accountBalanceStart     = accountBlockHeightStart + BlockHeightLength
+	accountNonceStart       = accountBalanceStart + BalanceLength
+	accountCodeHashStart    = accountNonceStart + NonceLength
+
+	accountCompactLength = VersionLength + BlockHeightLength + BalanceLength + NonceLength
+	accountDataLength    = VersionLength + BlockHeightLength + BalanceLength + NonceLength + CodeHashLength
 )
 
 var _ VType = (*AccountData)(nil)
