@@ -116,7 +116,10 @@ func NewTimeoutQC(fullVotes []*FullTimeoutVote) *TimeoutQC {
 
 // View .
 func (m *TimeoutQC) View() View {
-	return m.Votes()[0].Msg().View()
+	if votes := m.Votes(); len(votes) > 0 {
+		return votes[0].Msg().View()
+	}
+	return View{}
 }
 
 // Votes .

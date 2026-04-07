@@ -144,6 +144,13 @@ func TestNewTimeoutQC(t *testing.T) {
 	}
 }
 
+func TestTimeoutQCView_EmptyVotes(t *testing.T) {
+	tqc := NewTimeoutQC(nil)
+	if got := tqc.View(); got != (View{}) {
+		t.Fatalf("View() = %v, want %v", got, View{})
+	}
+}
+
 // TestNewTimeoutQC_MixedPrepareQCs verifies quorum-intersection behavior:
 // even if only one vote carries a PrepareQC, NewTimeoutQC picks it up
 // and Verify accepts the result.
