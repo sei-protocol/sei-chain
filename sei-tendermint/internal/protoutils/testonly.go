@@ -42,29 +42,36 @@ func iterMalformed[M Message](msg M) iter.Seq[M] {
 		walk = func(current protoreflect.Message) bool {
 			fields := current.Descriptor().Fields()
 			for i := range fields.Len() {
-				// Only process message fields.
 				field := fields.Get(i)
-				if !current.Has(field) || field.Kind() != protoreflect.MessageKind { continue }
-				
+				if !current.Has(field) {
+					continue
+				}
+
 				// Clear the field, then yield a clone of the top level message, then set the field back.
 				value := current.Get(field)
 				current.Clear(field)
-				ok := yield(Clone(msg))
-				current.Set(field,value)
-				if !ok { return false }
-				
-				// Iterate recursively.
-				if field.IsList() {
-					list := current.Get(field).List()
+				msgClone := Clone(msg)
+				current.Set(field, value)
+				if !yield(msgClone) {
+					return false
+				}
+
+				// Iterate recursively in case the field was a message/contained messages.
+				if field.IsList() && field.Kind() == protoreflect.MessageKind {
+					list := current.Mutable(field).List()
 					for i := range list.Len() {
-						if !walk(list.Get(i).Message()) { return false }
+						if !walk(list.Get(i).Message()) {
+							return false
+						}
 					}
-				} else if field.IsMap() {
-					for _,value := range current.Get(field).Map().Range {
-						if !walk(value.Message()) { return false }
+				} else if field.IsMap() && field.MapValue().Kind() == protoreflect.MessageKind {
+					for _, value := range current.Mutable(field).Map().Range {
+						if !walk(value.Message()) {
+							return false
+						}
 					}
-				} else {
-					if !walk(current.Get(field).Message()) {
+				} else if field.Kind() == protoreflect.MessageKind {
+					if !walk(current.Mutable(field).Message()) {
 						return false
 					}
 				}
