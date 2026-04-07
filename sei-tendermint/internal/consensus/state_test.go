@@ -2440,6 +2440,7 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 
 	proposalMsg := ProposalMessage{&proposal}
 	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	require.NoError(t, err)
 	startTestRound(ctx, cs1, height, round)
 	cs1.handleMsg(ctx, msgInfo{&proposalMsg, peerID, time.Now()}, false)
 	rs := cs1.GetRoundState()

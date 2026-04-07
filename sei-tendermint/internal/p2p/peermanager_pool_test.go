@@ -46,7 +46,6 @@ func minBy[T any, I cmp.Ordered](vals iter.Seq[T], by func(T) I) utils.Option[T]
 // - no parallel upgrades allowed even if permit is provided.
 func TestPoolManager_TryStartDial_MaxOut(t *testing.T) {
 	rng := utils.TestRng()
-	const maxIn = 0
 	const maxOut = 5
 	fixedAddrs := make([]NodeAddress, maxOut)
 	want := map[types.NodeID][]NodeAddress{}
