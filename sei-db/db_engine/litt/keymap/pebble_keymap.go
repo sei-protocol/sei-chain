@@ -104,7 +104,7 @@ func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
 	}
 
 	batch := p.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	var addrBuf [types.AddressLength]byte
 	for _, k := range keys {
@@ -133,7 +133,7 @@ func (p *PebbleKeymap) Get(key []byte) (address types.Address, exists bool, err 
 		}
 		return types.Address{}, false, fmt.Errorf("failed to get key from PebbleDB: %w", err)
 	}
-	defer closer.Close()
+	defer func() { _ = closer.Close() }()
 
 	if len(rawData) != types.AddressLength {
 		return types.Address{}, false, fmt.Errorf("invalid data length: %d", len(rawData))
@@ -149,7 +149,7 @@ func (p *PebbleKeymap) Get(key []byte) (address types.Address, exists bool, err 
 
 func (p *PebbleKeymap) Delete(keys []*types.ScopedKey) error {
 	batch := p.db.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	for _, key := range keys {
 		if err := batch.Delete(key.Key, nil); err != nil {

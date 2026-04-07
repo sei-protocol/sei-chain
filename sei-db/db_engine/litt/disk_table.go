@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os"
 	"path"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -60,7 +59,7 @@ type diskTable struct {
 
 	// unflushedDataCache is a map of keys to their values that may not have been flushed to disk yet. This is used as a
 	// lookup table when data is requested from the table before it has been flushed to disk.
-	unflushedDataCache sync.Map
+	unflushedDataCache *util.SyncMap[string, []byte]
 
 	// clock is the time source used by the disk table.
 	clock func() time.Time
@@ -175,18 +174,19 @@ func newDiskTable(
 	errorMonitor := util.NewErrorMonitor(config.CTX, config.Logger, config.FatalErrorCallback)
 
 	table := &diskTable{
-		logger:         config.Logger,
-		errorMonitor:   errorMonitor,
-		clock:          config.Clock,
-		roots:          qualifiedRoots,
-		segmentPaths:   segmentPaths,
-		name:           name,
-		metadata:       metadata,
-		keymap:         keymap,
-		keymapPath:     keymapPath,
-		keymapTypeFile: keymapTypeFile,
-		metrics:        metrics,
-		fsync:          config.Fsync,
+		logger:             config.Logger,
+		errorMonitor:       errorMonitor,
+		clock:              config.Clock,
+		roots:              qualifiedRoots,
+		segmentPaths:       segmentPaths,
+		name:               name,
+		metadata:           metadata,
+		keymap:             keymap,
+		keymapPath:         keymapPath,
+		keymapTypeFile:     keymapTypeFile,
+		unflushedDataCache: util.NewSyncMap[string, []byte](),
+		metrics:            metrics,
+		fsync:              config.Fsync,
 	}
 	table.flushCoordinator = newFlushCoordinator(errorMonitor, table.flushInternal, config.MinimumFlushInterval)
 
@@ -652,8 +652,7 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 
 	// First, check if the key is in the unflushed data map.
 	// If so, return it from there.
-	if value, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); ok {
-		bytes := value.([]byte)
+	if bytes, ok := d.unflushedDataCache.Get(util.UnsafeBytesToString(key)); ok {
 		return bytes, true, nil
 	}
 
@@ -695,9 +694,7 @@ func (d *diskTable) CacheAwareGet(
 	// First, check if the key is in the unflushed data map. If so, return it from there.
 	// Performance wise, this has equivalent semantics to reading the value from
 	// a cache, so we'd might as well count it as a cache hit.
-	var rawValue any
-	if rawValue, exists = d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); exists {
-		value = rawValue.([]byte)
+	if value, exists = d.unflushedDataCache.Get(util.UnsafeBytesToString(key)); exists {
 		return value, true, true, nil
 	}
 
@@ -767,21 +764,23 @@ func (d *diskTable) PutBatch(batch []*types.PutRequest) error {
 	}
 
 	// Load keys into the unflushed data cache (needed for read-your-writes consistency).
+	// Build a single map and insert it in one lock acquisition.
 	newKeys := 0
+	cacheEntries := make(map[string][]byte)
 	for _, req := range batch {
-		d.unflushedDataCache.Store(util.UnsafeBytesToString(req.Key), req.Value)
+		cacheEntries[util.UnsafeBytesToString(req.Key)] = req.Value
 		newKeys++
 
 		if req.SecondaryKeys != nil {
 			newKeys += len(req.SecondaryKeys)
 
-			// Store the aliased byte slices directly. Golang won't copy the data, so this isn't expensive.
 			for _, secondaryKey := range req.SecondaryKeys {
 				subrange := req.Value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
-				d.unflushedDataCache.Store(util.UnsafeBytesToString(secondaryKey.Key), subrange)
+				cacheEntries[util.UnsafeBytesToString(secondaryKey.Key)] = subrange
 			}
 		}
 	}
+	d.unflushedDataCache.PutBatch(cacheEntries)
 
 	// Schedule the actual write on a background thread.
 	request := &controlLoopWriteRequest{
@@ -835,7 +834,7 @@ func (d *diskTable) sanityCheckBatch(batch []*types.PutRequest) error {
 }
 
 func (d *diskTable) Exists(key []byte) (bool, error) {
-	_, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
+	_, ok := d.unflushedDataCache.Get(util.UnsafeBytesToString(key))
 	if ok {
 		return true, nil
 	}
@@ -957,9 +956,11 @@ func (d *diskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
 
 	// Keys are now durably written to both the segment and the keymap. It is therefore safe to remove them from the
 	// unflushed data cache.
-	for _, ka := range keys {
-		d.unflushedDataCache.Delete(util.UnsafeBytesToString(ka.Key))
+	deleteKeys := make([]string, len(keys))
+	for i, ka := range keys {
+		deleteKeys[i] = util.UnsafeBytesToString(ka.Key)
 	}
+	d.unflushedDataCache.DeleteBatch(deleteKeys)
 
 	return nil
 }
