@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
@@ -71,51 +70,10 @@ func TestHistoricalOffloadWrapperGetPhaseTimerIsNil(t *testing.T) {
 	require.Nil(t, wrapper.GetPhaseTimer())
 }
 
-func TestSetHistoricalOffloadStreamFactoryAllowsOverrideAndReset(t *testing.T) {
-	original := currentHistoricalOffloadStreamFactory()
-	t.Cleanup(func() {
-		SetHistoricalOffloadStreamFactory(original)
-	})
-
-	custom := func(_ context.Context, _ string, _ config.StateStoreConfig) (offload.Stream, error) {
-		return &mockOffloadStream{}, nil
-	}
-
-	SetHistoricalOffloadStreamFactory(custom)
-	require.NotNil(t, currentHistoricalOffloadStreamFactory())
-
-	stream, err := currentHistoricalOffloadStreamFactory()(context.Background(), "", config.DefaultStateStoreConfig())
-	require.NoError(t, err)
-	require.IsType(t, &mockOffloadStream{}, stream)
-
-	SetHistoricalOffloadStreamFactory(nil)
-	require.Nil(t, currentHistoricalOffloadStreamFactory())
-}
-
-func TestHistoricalOffloadBackendUsesProvidedStateStoreConfig(t *testing.T) {
-	original := currentHistoricalOffloadStreamFactory()
-	t.Cleanup(func() {
-		SetHistoricalOffloadStreamFactory(original)
-	})
-
-	var captured config.StateStoreConfig
-	SetHistoricalOffloadStreamFactory(func(_ context.Context, _ string, cfg config.StateStoreConfig) (offload.Stream, error) {
-		captured = cfg
-		return &mockOffloadStream{}, nil
-	})
-
-	cfg := DefaultBenchStateStoreConfig()
-	cfg.AsyncWriteBuffer = 321
-	cfg.Backend = config.RocksDBBackend
-
-	wrapper, err := NewDBImpl(context.Background(), SSHistoricalOffload, t.TempDir(), cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, wrapper.Close())
-	})
-
-	require.Equal(t, 321, captured.AsyncWriteBuffer)
-	require.Equal(t, config.RocksDBBackend, captured.Backend)
+func TestHistoricalOffloadConfigValidateRequiresKafkaConfig(t *testing.T) {
+	cfg := &HistoricalOffloadConfig{Provider: "kafka"}
+	err := cfg.Validate()
+	require.ErrorContains(t, err, "historical offload kafka config is required")
 }
 
 var _ DBWrapper = NewHistoricalOffloadWrapper(&mockOffloadStream{})

@@ -106,7 +106,7 @@ type CryptoSimConfig struct {
 
 	// HistoricalOffload configures the transport used by the
 	// SSHistoricalOffload backend.
-	HistoricalOffload *HistoricalOffloadConfig
+	HistoricalOffload *wrappers.HistoricalOffloadConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
@@ -354,8 +354,10 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.StateStoreConfig.ReadMode != "" && !c.StateStoreConfig.ReadMode.IsValid() {
 		return fmt.Errorf("StateStoreConfig.ReadMode must be valid (got %q)", c.StateStoreConfig.ReadMode)
 	}
-	if err := c.validateHistoricalOffload(); err != nil {
-		return err
+	if c.Backend == wrappers.SSHistoricalOffload {
+		if err := c.HistoricalOffload.Validate(); err != nil {
+			return err
+		}
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

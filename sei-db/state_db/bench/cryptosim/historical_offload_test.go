@@ -23,7 +23,7 @@ func TestValidateHistoricalOffloadRequiresKafkaConfig(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.LogDir = t.TempDir()
 	cfg.Backend = wrappers.SSHistoricalOffload
-	cfg.HistoricalOffload = &HistoricalOffloadConfig{
+	cfg.HistoricalOffload = &wrappers.HistoricalOffloadConfig{
 		Provider: "kafka",
 	}
 
@@ -37,9 +37,9 @@ func TestValidateHistoricalOffloadKafkaAcceptsMinimalValidConfig(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.LogDir = t.TempDir()
 	cfg.Backend = wrappers.SSHistoricalOffload
-	cfg.HistoricalOffload = &HistoricalOffloadConfig{
+	cfg.HistoricalOffload = &wrappers.HistoricalOffloadConfig{
 		Provider: "kafka",
-		Kafka: &KafkaHistoricalOffloadConfig{
+		Kafka: &wrappers.KafkaHistoricalOffloadConfig{
 			Brokers: []string{"localhost:9092"},
 			Topic:   "historical-offload",
 		},
@@ -48,7 +48,7 @@ func TestValidateHistoricalOffloadKafkaAcceptsMinimalValidConfig(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, "cryptosim-historical-offload", cfg.HistoricalOffload.Kafka.ClientID)
 	require.Equal(t, "none", cfg.HistoricalOffload.Kafka.RequiredAcks)
-	require.True(t, cfg.HistoricalOffload.Kafka.asyncValue())
+	require.Nil(t, cfg.HistoricalOffload.Kafka.Async)
 	require.Equal(t, 1000, cfg.HistoricalOffload.Kafka.BatchSize)
 	require.Equal(t, 4<<20, cfg.HistoricalOffload.Kafka.BatchBytes)
 }
@@ -58,9 +58,9 @@ func TestValidateHistoricalOffloadKafkaIAMRequiresRegion(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.LogDir = t.TempDir()
 	cfg.Backend = wrappers.SSHistoricalOffload
-	cfg.HistoricalOffload = &HistoricalOffloadConfig{
+	cfg.HistoricalOffload = &wrappers.HistoricalOffloadConfig{
 		Provider: "kafka",
-		Kafka: &KafkaHistoricalOffloadConfig{
+		Kafka: &wrappers.KafkaHistoricalOffloadConfig{
 			Brokers:       []string{"localhost:9098"},
 			Topic:         "historical-offload",
 			TLSEnabled:    true,
