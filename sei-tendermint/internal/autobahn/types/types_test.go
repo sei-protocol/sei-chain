@@ -33,6 +33,8 @@ func TestConv(t *testing.T) {
 	for range 10 {
 		if err := firstErr(
 			TimeConv.Test(utils.GenTimestamp(rng)),
+			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
+			PublicKeyConv.Test(GenPublicKey(rng)),
 			SignatureConv.Test(GenSignature(rng)),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
@@ -47,6 +49,8 @@ func TestConv(t *testing.T) {
 			AppProposalConv.Test(GenAppProposal(rng)),
 			AppQCConv.Test(GenAppQC(rng)),
 			AppVoteConv.Test(GenAppVote(rng)),
+			LaneRangeConv.Test(GenLaneRange(rng)),
+			ViewConv.Test(GenView(rng)),
 			ConsensusReqConv.Test(GenFullProposal(rng)),
 			ConsensusReqConv.Test(&ConsensusReqPrepareVote{GenSigned(rng, GenPrepareVote(rng))}),
 			ConsensusReqConv.Test(&ConsensusReqCommitVote{GenSigned(rng, GenCommitVote(rng))}),
