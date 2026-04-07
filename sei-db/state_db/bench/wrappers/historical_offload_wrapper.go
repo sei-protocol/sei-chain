@@ -85,17 +85,14 @@ func NewHistoricalOffloadWrapper(store dbTypes.StateStore, stream offload.Stream
 	return w
 }
 
-func (h *historicalOffloadWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	nextVersion := h.version.Add(1)
-	ack, err := h.stream.Publish(context.Background(), &proto.ChangelogEntry{
-		Version:    nextVersion,
-		Changesets: cs,
-	})
+func (h *historicalOffloadWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	h.version.Store(entry.Version)
+	ack, err := h.stream.Publish(context.Background(), entry)
 	if err != nil {
 		return err
 	}
 	if !ack.Accepted {
-		return fmt.Errorf("historical offload publish was not acknowledged at version %d", nextVersion)
+		return fmt.Errorf("historical offload publish was not acknowledged at version %d", entry.Version)
 	}
 	return nil
 }

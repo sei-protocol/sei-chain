@@ -14,11 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
-<<<<<<< HEAD
-=======
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
->>>>>>> 3fe4e2d2e (add historical state offload stream hook)
 	"github.com/stretchr/testify/require"
 )
 
@@ -168,16 +164,16 @@ func TestHistoricalOffloadPublishesFullChangelog(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("balance"), Value: []byte("100")},
 				},
 			},
 		},
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("remote_history")},
 				},
 			},
@@ -220,16 +216,16 @@ func TestHistoricalOffloadReplayHydratesState(t *testing.T) {
 				Changesets: []*proto.NamedChangeSet{
 					{
 						Name: "bank",
-						Changeset: iavl.ChangeSet{
-							Pairs: []*iavl.KVPair{
+						Changeset: proto.ChangeSet{
+							Pairs: []*proto.KVPair{
 								{Key: []byte("balance"), Value: []byte("250")},
 							},
 						},
 					},
 					{
 						Name: "evm",
-						Changeset: iavl.ChangeSet{
-							Pairs: []*iavl.KVPair{
+						Changeset: proto.ChangeSet{
+							Pairs: []*proto.KVPair{
 								{Key: storageKey, Value: []byte("replayed")},
 							},
 						},

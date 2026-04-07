@@ -110,16 +110,19 @@ func TestHistoricalOffloadWrapperPublishesWithoutLocalWrites(t *testing.T) {
 	stream := &mockOffloadStream{}
 	wrapper := NewHistoricalOffloadWrapper(store, stream)
 
-	changesets := []*proto.NamedChangeSet{{Name: EVMStoreName}}
+	entry := &proto.ChangelogEntry{
+		Version:    5,
+		Changesets: []*proto.NamedChangeSet{{Name: EVMStoreName}},
+	}
 
-	err := wrapper.ApplyChangeSets(changesets)
+	err := wrapper.ApplyChangeSets(entry)
 	require.NoError(t, err)
 	require.Zero(t, store.asyncCalls)
 	require.Zero(t, store.syncCalls)
 	require.Equal(t, 1, stream.calls)
 	require.Len(t, stream.entries, 1)
-	require.Equal(t, int64(5), stream.entries[0].Version)
-	require.Equal(t, changesets, stream.entries[0].Changesets)
+	require.Equal(t, entry.Version, stream.entries[0].Version)
+	require.Equal(t, entry.Changesets, stream.entries[0].Changesets)
 	require.Equal(t, int64(5), wrapper.Version())
 
 	data, found, err := wrapper.Read([]byte("ignored"))
