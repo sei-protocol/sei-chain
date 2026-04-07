@@ -174,6 +174,32 @@ func TestSetHistoricalOffloadStreamFactoryAllowsOverrideAndReset(t *testing.T) {
 	require.Implements(t, (*offload.Stream)(nil), stream)
 }
 
+func TestHistoricalOffloadBackendUsesProvidedStateStoreConfig(t *testing.T) {
+	original := currentHistoricalOffloadStreamFactory()
+	t.Cleanup(func() {
+		SetHistoricalOffloadStreamFactory(original)
+	})
+
+	var captured config.StateStoreConfig
+	SetHistoricalOffloadStreamFactory(func(_ context.Context, _ string, cfg config.StateStoreConfig) (offload.Stream, error) {
+		captured = cfg
+		return &mockOffloadStream{}, nil
+	})
+
+	cfg := DefaultBenchStateStoreConfig()
+	cfg.AsyncWriteBuffer = 321
+	cfg.Backend = config.RocksDBBackend
+
+	wrapper, err := NewDBImpl(context.Background(), SSHistoricalOffload, t.TempDir(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, wrapper.Close())
+	})
+
+	require.Equal(t, 321, captured.AsyncWriteBuffer)
+	require.Equal(t, config.RocksDBBackend, captured.Backend)
+}
+
 func TestNewBufferedHistoricalOffloadStreamAcceptsPublish(t *testing.T) {
 	stream := NewBufferedHistoricalOffloadStream(1)
 	closer, ok := stream.(interface{ Close() error })

@@ -141,7 +141,7 @@ func NewCryptoSim(
 	switch config.Backend {
 	case wrappers.FlatKV:
 		dbConfig = config.FlatKVConfig
-	case wrappers.SSComposite, wrappers.CompositeDual_SSComposite:
+	case wrappers.SSComposite, wrappers.SSHistoricalOffload, wrappers.CompositeDual_SSComposite:
 		dbConfig = config.StateStoreConfig
 	}
 

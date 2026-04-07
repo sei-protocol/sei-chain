@@ -30,18 +30,12 @@ var (
 	historicalOffloadStreamFactory   HistoricalOffloadStreamFactory = bufferedHistoricalOffloadStreamFactory
 )
 
-// historicalOffloadWrapper publishes changelog entries to the historical
-// offload stream without writing them to a local state store. Reads are
-// intentionally omitted because this benchmark mode only cares about how fast
-// entries can be accepted by the offload transport.
 type historicalOffloadWrapper struct {
 	stream  offload.Stream
 	version atomic.Int64
 }
 
-// SetHistoricalOffloadStreamFactory overrides how the historical offload
-// benchmark backend constructs its transport. This keeps the benchmark wrapper
-// generic while making Kafka/SQS/etc. a one-time registration concern.
+// SetHistoricalOffloadStreamFactory overrides the transport used by the benchmark offload backend.
 func SetHistoricalOffloadStreamFactory(factory HistoricalOffloadStreamFactory) {
 	historicalOffloadStreamFactoryMu.Lock()
 	defer historicalOffloadStreamFactoryMu.Unlock()
@@ -59,16 +53,18 @@ func currentHistoricalOffloadStreamFactory() HistoricalOffloadStreamFactory {
 	return historicalOffloadStreamFactory
 }
 
-func newSSHistoricalOffloadStateStore(ctx context.Context, dbDir string) (DBWrapper, error) {
+func newSSHistoricalOffloadStateStore(ctx context.Context, dbDir string, ssConfig *config.StateStoreConfig) (DBWrapper, error) {
 	fmt.Printf("Opening historical offload stream from directory %s\n", dbDir)
 
-	cfg := config.DefaultStateStoreConfig()
-	cfg.Backend = config.PebbleDBBackend
-	cfg.AsyncWriteBuffer = config.DefaultSSAsyncBuffer
-	cfg.WriteMode = config.SplitWrite
-	cfg.ReadMode = config.EVMFirstRead
+	cfg := DefaultBenchStateStoreConfig()
+	if ssConfig != nil {
+		cfg = ssConfig
+	}
+	if cfg.Backend == "" {
+		cfg.Backend = config.PebbleDBBackend
+	}
 
-	stream, err := currentHistoricalOffloadStreamFactory()(ctx, dbDir, cfg)
+	stream, err := currentHistoricalOffloadStreamFactory()(ctx, dbDir, *cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create historical offload stream: %w", err)
 	}
@@ -86,7 +82,6 @@ func NewHistoricalOffloadWrapper(store dbTypes.StateStore, stream offload.Stream
 }
 
 func (h *historicalOffloadWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
-	h.version.Store(entry.Version)
 	ack, err := h.stream.Publish(context.Background(), entry)
 	if err != nil {
 		return err
@@ -94,6 +89,7 @@ func (h *historicalOffloadWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) 
 	if !ack.Accepted {
 		return fmt.Errorf("historical offload publish was not acknowledged at version %d", entry.Version)
 	}
+	h.version.Store(entry.Version)
 	return nil
 }
 
@@ -146,9 +142,7 @@ func bufferedHistoricalOffloadStreamFactory(
 	return NewBufferedHistoricalOffloadStream(ssConfig.AsyncWriteBuffer), nil
 }
 
-// NewBufferedHistoricalOffloadStream provides a zero-dependency transport that
-// still applies queue backpressure. It is useful as a local baseline and as a
-// simple example for custom factories.
+// NewBufferedHistoricalOffloadStream provides a zero-dependency transport with queue backpressure.
 func NewBufferedHistoricalOffloadStream(queueSize int) offload.Stream {
 	if queueSize < 1 {
 		queueSize = 1
