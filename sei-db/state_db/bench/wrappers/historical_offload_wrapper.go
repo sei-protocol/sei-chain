@@ -9,7 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
@@ -68,17 +67,11 @@ func newSSHistoricalOffloadStateStore(ctx context.Context, dbDir string, ssConfi
 	if err != nil {
 		return nil, fmt.Errorf("failed to create historical offload stream: %w", err)
 	}
-	return NewHistoricalOffloadWrapper(nil, stream), nil
+	return NewHistoricalOffloadWrapper(stream), nil
 }
 
-func NewHistoricalOffloadWrapper(store dbTypes.StateStore, stream offload.Stream) DBWrapper {
-	w := &historicalOffloadWrapper{
-		stream: stream,
-	}
-	if store != nil {
-		w.version.Store(store.GetLatestVersion())
-	}
-	return w
+func NewHistoricalOffloadWrapper(stream offload.Stream) DBWrapper {
+	return &historicalOffloadWrapper{stream: stream}
 }
 
 func (h *historicalOffloadWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
@@ -172,10 +165,6 @@ func (b *bufferedOffloadStream) Publish(ctx context.Context, entry *proto.Change
 	case <-ctx.Done():
 		return offload.Ack{}, ctx.Err()
 	}
-}
-
-func (b *bufferedOffloadStream) Replay(_ context.Context, _ offload.ReplayRequest, _ func(*proto.ChangelogEntry) error) error {
-	return nil
 }
 
 func (b *bufferedOffloadStream) Close() error {

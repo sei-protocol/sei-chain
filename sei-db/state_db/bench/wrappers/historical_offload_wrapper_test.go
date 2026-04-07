@@ -7,82 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
-
-type mockHistoricalOffloadStateStore struct {
-	latestVersion int64
-	asyncVersion  int64
-	asyncChanges  []*proto.NamedChangeSet
-	asyncCalls    int
-	syncCalls     int
-	closeCalls    int
-}
-
-func (m *mockHistoricalOffloadStateStore) Get(_ string, _ int64, _ []byte) ([]byte, error) {
-	return nil, nil
-}
-
-func (m *mockHistoricalOffloadStateStore) Has(_ string, _ int64, _ []byte) (bool, error) {
-	return false, nil
-}
-
-func (m *mockHistoricalOffloadStateStore) Iterator(_ string, _ int64, _, _ []byte) (dbTypes.DBIterator, error) {
-	return nil, nil
-}
-
-func (m *mockHistoricalOffloadStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (dbTypes.DBIterator, error) {
-	return nil, nil
-}
-
-func (m *mockHistoricalOffloadStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {
-	return false, nil
-}
-
-func (m *mockHistoricalOffloadStateStore) GetLatestVersion() int64 {
-	return m.latestVersion
-}
-
-func (m *mockHistoricalOffloadStateStore) SetLatestVersion(version int64) error {
-	m.latestVersion = version
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) GetEarliestVersion() int64 {
-	return 0
-}
-
-func (m *mockHistoricalOffloadStateStore) SetEarliestVersion(_ int64, _ bool) error {
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) ApplyChangesetSync(_ int64, _ []*proto.NamedChangeSet) error {
-	m.syncCalls++
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	m.asyncCalls++
-	m.asyncVersion = version
-	m.asyncChanges = changesets
-	m.latestVersion = version
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) Prune(_ int64) error {
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) Import(_ int64, _ <-chan dbTypes.SnapshotNode) error {
-	return nil
-}
-
-func (m *mockHistoricalOffloadStateStore) Close() error {
-	m.closeCalls++
-	return nil
-}
 
 type mockOffloadStream struct {
 	closeCalls int
@@ -96,19 +23,14 @@ func (m *mockOffloadStream) Publish(_ context.Context, entry *proto.ChangelogEnt
 	return offload.Ack{Accepted: true}, nil
 }
 
-func (m *mockOffloadStream) Replay(_ context.Context, _ offload.ReplayRequest, _ func(*proto.ChangelogEntry) error) error {
-	return nil
-}
-
 func (m *mockOffloadStream) Close() error {
 	m.closeCalls++
 	return nil
 }
 
 func TestHistoricalOffloadWrapperPublishesWithoutLocalWrites(t *testing.T) {
-	store := &mockHistoricalOffloadStateStore{latestVersion: 4}
 	stream := &mockOffloadStream{}
-	wrapper := NewHistoricalOffloadWrapper(store, stream)
+	wrapper := NewHistoricalOffloadWrapper(stream)
 
 	entry := &proto.ChangelogEntry{
 		Version:    5,
@@ -117,8 +39,6 @@ func TestHistoricalOffloadWrapperPublishesWithoutLocalWrites(t *testing.T) {
 
 	err := wrapper.ApplyChangeSets(entry)
 	require.NoError(t, err)
-	require.Zero(t, store.asyncCalls)
-	require.Zero(t, store.syncCalls)
 	require.Equal(t, 1, stream.calls)
 	require.Len(t, stream.entries, 1)
 	require.Equal(t, entry.Version, stream.entries[0].Version)
@@ -139,7 +59,7 @@ func TestHistoricalOffloadWrapperPublishesWithoutLocalWrites(t *testing.T) {
 }
 
 func TestHistoricalOffloadWrapperImporterUnsupported(t *testing.T) {
-	wrapper := NewHistoricalOffloadWrapper(&mockHistoricalOffloadStateStore{}, &mockOffloadStream{})
+	wrapper := NewHistoricalOffloadWrapper(&mockOffloadStream{})
 
 	importer, err := wrapper.Importer(1)
 	require.Nil(t, importer)
@@ -147,7 +67,7 @@ func TestHistoricalOffloadWrapperImporterUnsupported(t *testing.T) {
 }
 
 func TestHistoricalOffloadWrapperGetPhaseTimerIsNil(t *testing.T) {
-	wrapper := NewHistoricalOffloadWrapper(&mockHistoricalOffloadStateStore{}, &mockOffloadStream{})
+	wrapper := NewHistoricalOffloadWrapper(&mockOffloadStream{})
 	require.Nil(t, wrapper.GetPhaseTimer())
 }
 
@@ -213,6 +133,5 @@ func TestNewBufferedHistoricalOffloadStreamAcceptsPublish(t *testing.T) {
 	require.True(t, ack.Accepted)
 }
 
-var _ DBWrapper = NewHistoricalOffloadWrapper(&mockHistoricalOffloadStateStore{}, &mockOffloadStream{})
-var _ dbTypes.StateStore = (*mockHistoricalOffloadStateStore)(nil)
+var _ DBWrapper = NewHistoricalOffloadWrapper(&mockOffloadStream{})
 var _ offload.Stream = (*mockOffloadStream)(nil)

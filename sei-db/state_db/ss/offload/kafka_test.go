@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func TestKafkaConfigApplyDefaultsAndValidate(t *testing.T) {
@@ -56,10 +54,6 @@ func TestNewKafkaStreamSupportsNilPublishAndClose(t *testing.T) {
 	ack, err := stream.Publish(context.Background(), nil)
 	require.NoError(t, err)
 	require.True(t, ack.Accepted)
-
-	require.Error(t, stream.Replay(context.Background(), ReplayRequest{}, func(*dbproto.ChangelogEntry) error {
-		return nil
-	}))
 
 	closer, ok := stream.(interface{ Close() error })
 	require.True(t, ok)

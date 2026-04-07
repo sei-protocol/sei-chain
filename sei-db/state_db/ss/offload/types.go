@@ -16,24 +16,12 @@ type Ack struct {
 	Cursor    string
 }
 
-// ReplayRequest scopes a history replay/backfill request.
-type ReplayRequest struct {
-	FromVersion int64
-	ToVersion   int64
-}
-
 // Publisher publishes committed changelog entries to an external transport.
 type Publisher interface {
 	Publish(ctx context.Context, entry *proto.ChangelogEntry) (Ack, error)
 }
 
-// Replayer streams changelog entries back for recovery or backfill.
-type Replayer interface {
-	Replay(ctx context.Context, req ReplayRequest, handler func(*proto.ChangelogEntry) error) error
-}
-
-// Stream is the full transport contract used by the state store offload hook.
+// Stream is the transport contract used by the benchmark offload path.
 type Stream interface {
 	Publisher
-	Replayer
 }

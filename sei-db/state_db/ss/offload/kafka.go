@@ -188,10 +188,6 @@ func (k *kafkaStream) Publish(ctx context.Context, entry *dbproto.ChangelogEntry
 	}, nil
 }
 
-func (k *kafkaStream) Replay(_ context.Context, _ ReplayRequest, _ func(*dbproto.ChangelogEntry) error) error {
-	return fmt.Errorf("kafka historical offload replay is not implemented")
-}
-
 func (k *kafkaStream) Close() error {
 	return k.writer.Close()
 }
