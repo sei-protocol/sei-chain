@@ -203,8 +203,7 @@ func createEvidenceReactor(
 type autobahnValidator struct {
 	ValidatorKey atypes.PublicKey  `json:"validator_key"` // autobahn validator public key
 	NodeKey      p2p.NodePublicKey `json:"node_key"`      // p2p node public key
-	Host         string            `json:"host"`
-	Port         uint16            `json:"port"`
+	Address      tcp.HostPort      `json:"address"`       // network address (host:port)
 }
 
 // autobahnFileConfig is the JSON structure of the autobahn config file.
@@ -265,7 +264,7 @@ func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
 func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
-	validatorKey utils.Option[crypto.PrivKey],
+	validatorKey atypes.SecretKey,
 	appClient abci.Application,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
@@ -290,17 +289,12 @@ func buildGigaConfig(
 		seenNodeKeys[entry.NodeKey] = true
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
-			HostPort: tcp.HostPort{Hostname: entry.Host, Port: entry.Port},
+			HostPort: entry.Address,
 		}
 	}
 
-	// Use the validator key (from priv_validator_key.json) as the autobahn consensus key.
-	valKey, ok := validatorKey.Get()
-	if !ok {
-		return nil, fmt.Errorf("autobahn requires a local validator key but none was provided")
-	}
-	autobahnSecretKey := atypes.SecretKeyFromED25519(valKey)
-	selfAddr, ok := validatorAddrs[autobahnSecretKey.Public()]
+	// Verify self is in the validator set.
+	selfAddr, ok := validatorAddrs[validatorKey.Public()]
 	if !ok {
 		return nil, fmt.Errorf("node's own validator key not found in autobahn validators; the node must be a committee member")
 	}
@@ -313,7 +307,7 @@ func buildGigaConfig(
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
 		Consensus: &autobahnConsensus.Config{
-			Key: autobahnSecretKey,
+			Key: validatorKey,
 			ViewTimeout: func(atypes.View) time.Duration {
 				return time.Duration(fc.ViewTimeout)
 			},
@@ -336,7 +330,7 @@ func createRouter(
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
-	validatorKey utils.Option[crypto.PrivKey],
+	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
 	appClient abci.Application,
 	genDoc *types.GenesisDoc,
@@ -422,7 +416,12 @@ func createRouter(
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
 	if cfg.AutobahnConfigFile != "" {
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, validatorKey, appClient, genDoc)
+		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
+		valKey, ok := validatorKey.Get()
+		if !ok {
+			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
+		}
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, appClient, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}

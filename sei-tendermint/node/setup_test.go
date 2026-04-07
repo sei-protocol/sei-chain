@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -22,18 +22,21 @@ func makeTestNodeKey(seed []byte) types.NodeKey {
 	return types.NodeKey(ed25519.TestSecretKey(seed))
 }
 
-func makeTestValidatorKey(seed []byte) crypto.PrivKey {
-	return ed25519.TestSecretKey(seed)
+func makeTestValidatorKey(seed []byte) atypes.SecretKey {
+	return atypes.SecretKeyFromED25519(ed25519.TestSecretKey(seed))
 }
 
-func makeValidator(valSeed, nodeSeed []byte, host string, port uint16) autobahnValidator {
+func makeValidator(valSeed, nodeSeed []byte, address string) autobahnValidator {
 	valKey := atypes.SecretKeyFromED25519(ed25519.TestSecretKey(valSeed))
 	nodeKey := p2p.NodeSecretKey(ed25519.TestSecretKey(nodeSeed))
+	hp, err := tcp.ParseHostPort(address)
+	if err != nil {
+		panic(err)
+	}
 	return autobahnValidator{
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
-		Host:         host,
-		Port:         port,
+		Address:      hp,
 	}
 }
 
@@ -63,15 +66,16 @@ func defaultFileConfig(validators []autobahnValidator) *autobahnFileConfig {
 
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("test-node-key"))
-	_, err := buildGigaConfig("", nodeKey, utils.None[crypto.PrivKey](), nil, nil)
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	_, err := buildGigaConfig("", nodeKey, valKey, nil, nil)
 	assert.Error(t, err, "empty path should error")
 }
 
 func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	// val1 uses same seed as node1 for simplicity; val2/val3 have separate seeds.
-	v1 := makeValidator([]byte("val1-seed"), []byte("node1-seed"), "localhost", 26660)
-	v2 := makeValidator([]byte("val2-seed"), []byte("node2-seed"), "peer1.example.com", 26661)
-	v3 := makeValidator([]byte("val3-seed"), []byte("node3-seed"), "peer2.example.com", 26662)
+	v1 := makeValidator([]byte("val1-seed"), []byte("node1-seed"), "localhost:26660")
+	v2 := makeValidator([]byte("val2-seed"), []byte("node2-seed"), "peer1.example.com:26661")
+	v3 := makeValidator([]byte("val3-seed"), []byte("node3-seed"), "peer2.example.com:26662")
 
 	fc := &autobahnFileConfig{
 		Validators:         []autobahnValidator{v1, v2, v3},
@@ -88,7 +92,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	cfgFile := writeAutobahnConfig(t, fc)
 
 	nodeKey := makeTestNodeKey([]byte("node1-seed"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val1-seed")))
+	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	genDoc := &types.GenesisDoc{ChainID: "test-chain", InitialHeight: 1}
 
 	result, err := buildGigaConfig(cfgFile, nodeKey, valKey, nil, genDoc)
@@ -106,7 +110,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, "/tmp/autobahn-state", persistDir)
 
 	// Verify the consensus key is derived from the validator key, not the node key.
-	expectedValPub := atypes.SecretKeyFromED25519(makeTestValidatorKey([]byte("val1-seed"))).Public()
+	expectedValPub := makeTestValidatorKey([]byte("val1-seed")).Public()
 	assert.Equal(t, expectedValPub, result.Consensus.Key.Public())
 
 	// Producer config.
@@ -124,11 +128,11 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 }
 
 func TestBuildGigaConfig_NoneMaxTxsPerSecond(t *testing.T) {
-	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost", 26660)
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig([]autobahnValidator{v1})
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val-seed")))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
 
 	result, err := buildGigaConfig(cfgFile, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	require.NoError(t, err)
@@ -136,11 +140,11 @@ func TestBuildGigaConfig_NoneMaxTxsPerSecond(t *testing.T) {
 }
 
 func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
-	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost", 26660)
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig([]autobahnValidator{v1})
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val-seed")))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
 
 	result, err := buildGigaConfig(cfgFile, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	require.NoError(t, err)
@@ -149,7 +153,7 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 
 func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val-seed")))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
 
 	t.Run("missing file", func(t *testing.T) {
 		_, err := buildGigaConfig("/nonexistent/autobahn.json", nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
@@ -172,7 +176,7 @@ func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 	})
 
 	t.Run("zero max_gas_per_block", func(t *testing.T) {
-		v := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost", 26660)
+		v := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 		fc := defaultFileConfig([]autobahnValidator{v})
 		fc.MaxGasPerBlock = 0
 		cfgFile := writeAutobahnConfig(t, fc)
@@ -182,25 +186,15 @@ func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 	})
 }
 
-func TestBuildGigaConfig_NoValidatorKey(t *testing.T) {
-	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost", 26660)
-	cfgFile := writeAutobahnConfig(t, defaultFileConfig([]autobahnValidator{v1}))
-	nodeKey := makeTestNodeKey([]byte("node-seed"))
-
-	_, err := buildGigaConfig(cfgFile, nodeKey, utils.None[crypto.PrivKey](), nil, &types.GenesisDoc{InitialHeight: 1})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "requires a local validator key")
-}
-
 func TestBuildGigaConfig_DuplicateValidatorKey(t *testing.T) {
-	v1 := makeValidator([]byte("val-seed"), []byte("node1"), "localhost", 26660)
-	v1dup := makeValidator([]byte("val-seed"), []byte("node2"), "localhost", 26661)
+	v1 := makeValidator([]byte("val-seed"), []byte("node1"), "localhost:26660")
+	v1dup := makeValidator([]byte("val-seed"), []byte("node2"), "localhost:26661")
 	fc := defaultFileConfig([]autobahnValidator{v1, v1dup})
 	data, _ := json.Marshal(fc)
 	path := filepath.Join(t.TempDir(), "autobahn.json")
 	os.WriteFile(path, data, 0644)
 	nodeKey := makeTestNodeKey([]byte("node1"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val-seed")))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
 
 	_, err := buildGigaConfig(path, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	assert.Error(t, err)
@@ -208,14 +202,14 @@ func TestBuildGigaConfig_DuplicateValidatorKey(t *testing.T) {
 }
 
 func TestBuildGigaConfig_DuplicateNodeKey(t *testing.T) {
-	v1 := makeValidator([]byte("val1"), []byte("same-node"), "localhost", 26660)
-	v2 := makeValidator([]byte("val2"), []byte("same-node"), "localhost", 26661)
+	v1 := makeValidator([]byte("val1"), []byte("same-node"), "localhost:26660")
+	v2 := makeValidator([]byte("val2"), []byte("same-node"), "localhost:26661")
 	fc := defaultFileConfig([]autobahnValidator{v1, v2})
 	data, _ := json.Marshal(fc)
 	path := filepath.Join(t.TempDir(), "autobahn.json")
 	os.WriteFile(path, data, 0644)
 	nodeKey := makeTestNodeKey([]byte("same-node"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("val1")))
+	valKey := makeTestValidatorKey([]byte("val1"))
 
 	_, err := buildGigaConfig(path, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	assert.Error(t, err)
@@ -223,10 +217,10 @@ func TestBuildGigaConfig_DuplicateNodeKey(t *testing.T) {
 }
 
 func TestBuildGigaConfig_SelfNotInValidators(t *testing.T) {
-	v1 := makeValidator([]byte("other-val"), []byte("other-node"), "localhost", 26660)
+	v1 := makeValidator([]byte("other-val"), []byte("other-node"), "localhost:26660")
 	cfgFile := writeAutobahnConfig(t, defaultFileConfig([]autobahnValidator{v1}))
 	nodeKey := makeTestNodeKey([]byte("my-node"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("my-val")))
+	valKey := makeTestValidatorKey([]byte("my-val"))
 
 	_, err := buildGigaConfig(cfgFile, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	assert.Error(t, err)
@@ -235,10 +229,10 @@ func TestBuildGigaConfig_SelfNotInValidators(t *testing.T) {
 
 func TestBuildGigaConfig_NodeKeyMismatch(t *testing.T) {
 	// Validator entry has the right val key but wrong node key.
-	v1 := makeValidator([]byte("my-val"), []byte("wrong-node"), "localhost", 26660)
+	v1 := makeValidator([]byte("my-val"), []byte("wrong-node"), "localhost:26660")
 	cfgFile := writeAutobahnConfig(t, defaultFileConfig([]autobahnValidator{v1}))
 	nodeKey := makeTestNodeKey([]byte("my-node"))
-	valKey := utils.Some(makeTestValidatorKey([]byte("my-val")))
+	valKey := makeTestValidatorKey([]byte("my-val"))
 
 	_, err := buildGigaConfig(cfgFile, nodeKey, valKey, nil, &types.GenesisDoc{InitialHeight: 1})
 	assert.Error(t, err)
