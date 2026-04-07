@@ -18,6 +18,8 @@ import (
 	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
+const kafkaOptionNone = "none"
+
 type KafkaConfig struct {
 	Brokers       []string
 	Topic         string
@@ -40,7 +42,7 @@ func (c *KafkaConfig) ApplyDefaults() {
 		c.ClientID = "cryptosim-historical-offload"
 	}
 	if c.RequiredAcks == "" {
-		c.RequiredAcks = "none"
+		c.RequiredAcks = kafkaOptionNone
 	}
 	if c.Compression == "" {
 		c.Compression = "snappy"
@@ -74,19 +76,19 @@ func (c *KafkaConfig) Validate() error {
 	}
 
 	switch strings.ToLower(c.RequiredAcks) {
-	case "none", "leader", "all":
+	case kafkaOptionNone, "leader", "all":
 	default:
 		return fmt.Errorf("unsupported kafka required acks %q", c.RequiredAcks)
 	}
 
 	switch strings.ToLower(c.Compression) {
-	case "none", "gzip", "snappy", "lz4", "zstd":
+	case kafkaOptionNone, "gzip", "snappy", "lz4", "zstd":
 	default:
 		return fmt.Errorf("unsupported kafka compression %q", c.Compression)
 	}
 
 	switch strings.ToLower(c.SASLMechanism) {
-	case "", "none":
+	case "", kafkaOptionNone:
 		return nil
 	case "plain", "scram-sha-256", "scram-sha-512":
 		if c.Username == "" || c.Password == "" {
@@ -194,7 +196,7 @@ func (k *kafkaStream) Close() error {
 
 func kafkaRequiredAcks(requiredAcks string) kafka.RequiredAcks {
 	switch strings.ToLower(requiredAcks) {
-	case "none":
+	case kafkaOptionNone:
 		return kafka.RequireNone
 	case "leader":
 		return kafka.RequireOne
@@ -211,7 +213,7 @@ func kafkaCompression(name string) compress.Compression {
 		return compress.Lz4
 	case "zstd":
 		return compress.Zstd
-	case "none":
+	case kafkaOptionNone:
 		return compress.None
 	default:
 		return compress.Snappy
@@ -220,7 +222,7 @@ func kafkaCompression(name string) compress.Compression {
 
 func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
-	case "", "none":
+	case "", kafkaOptionNone:
 		return nil, nil
 	case "plain":
 		return plain.Mechanism{
