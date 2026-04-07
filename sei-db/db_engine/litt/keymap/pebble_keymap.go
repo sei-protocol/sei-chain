@@ -106,8 +106,10 @@ func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
 	batch := p.db.NewBatch()
 	defer batch.Close()
 
+	var addrBuf [types.AddressLength]byte
 	for _, k := range keys {
-		if err := batch.Set(k.Key, k.Address.Serialize(), nil); err != nil {
+		k.Address.SerializeInto(addrBuf[:])
+		if err := batch.Set(k.Key, addrBuf[:], nil); err != nil {
 			return fmt.Errorf("failed to set key in PebbleDB batch: %w", err)
 		}
 	}

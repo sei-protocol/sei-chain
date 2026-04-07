@@ -199,6 +199,41 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	return nil
 }
 
+// writeBatch serializes all keys into a single contiguous buffer and writes it to the key file in one call.
+// This is much more efficient than calling write() per key when the batch is large.
+func (k *keyFile) writeBatch(keys []*types.ScopedKey) error {
+	if k.writer == nil {
+		return fmt.Errorf("key file is sealed")
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	totalSize := uint64(0)
+	for _, sk := range keys {
+		totalSize += 4 + uint64(len(sk.Key)) + types.AddressLength //nolint:gosec
+	}
+
+	buf := make([]byte, totalSize)
+	offset := 0
+	for _, sk := range keys {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(len(sk.Key))) //nolint:gosec
+		offset += 4
+		copy(buf[offset:], sk.Key)
+		offset += len(sk.Key)
+		sk.Address.SerializeInto(buf[offset : offset+types.AddressLength])
+		offset += types.AddressLength
+	}
+
+	_, err := k.writer.Write(buf)
+	if err != nil {
+		return fmt.Errorf("failed to write key batch to key file: %w", err)
+	}
+
+	k.size += totalSize
+	return nil
+}
+
 // getKeyFileIndex returns the index of the key file from the file name. Key file names have the form "X.keys",
 // where X is the segment index.
 func getKeyFileIndex(fileName string) (uint32, error) {

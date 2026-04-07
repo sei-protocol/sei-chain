@@ -103,8 +103,10 @@ func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
 	}
 
 	batch := new(leveldb.Batch)
+	var addrBuf [types.AddressLength]byte
 	for _, k := range keys {
-		batch.Put(k.Key, k.Address.Serialize())
+		k.Address.SerializeInto(addrBuf[:])
+		batch.Put(k.Key, addrBuf[:])
 	}
 
 	writeOptions := &opt.WriteOptions{

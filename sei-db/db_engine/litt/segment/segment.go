@@ -436,29 +436,25 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
 	}
 
-	// Forward the primary key to the key file control loop
-	keyRequest := &types.ScopedKey{
+	// Build a contiguous slice of all keys (primary + secondary) and send as a single batch.
+	totalKeys := 1 + len(data.SecondaryKeys)
+	keyBatch := make([]types.ScopedKey, totalKeys)
+
+	keyBatch[0] = types.ScopedKey{
 		Key:     data.Key,
 		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(len(data.Value))), //nolint:gosec
 	}
-
-	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
-	if err != nil {
-		return 0, 0,
-			fmt.Errorf("failed to send key to key file control loop: %v", err)
-	}
-
-	// Forward secondary keys to the key file control loop
-	for _, secondaryKey := range data.SecondaryKeys {
-		keyRequest := &types.ScopedKey{
+	for i, secondaryKey := range data.SecondaryKeys {
+		keyBatch[i+1] = types.ScopedKey{
 			Key:     secondaryKey.Key,
 			Address: types.NewAddress(s.index, firstByteIndex+secondaryKey.Offset, shard, secondaryKey.Length),
 		}
-		err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
-		if err != nil {
-			return 0, 0,
-				fmt.Errorf("failed to send secondary key to key file control loop: %v", err)
-		}
+	}
+
+	err = util.Send(s.errorMonitor, s.keyFileChannel, keyBatch)
+	if err != nil {
+		return 0, 0,
+			fmt.Errorf("failed to send key batch to key file control loop: %v", err)
 	}
 
 	return s.keyCount, s.keyFileSize, nil
@@ -759,6 +755,14 @@ func (s *Segment) handleKeyFileWrite(data *types.ScopedKey) {
 	}
 }
 
+// handleKeyFileBatchWrite writes a batch of keys to the key file in a single I/O operation.
+func (s *Segment) handleKeyFileBatchWrite(batch []*types.ScopedKey) {
+	err := s.keys.writeBatch(batch)
+	if err != nil {
+		s.errorMonitor.Panic(fmt.Errorf("failed to write key batch to key file: %w", err))
+	}
+}
+
 // handleKeyFileFlushRequest handles a request to flush the key file to disk.
 func (s *Segment) handleKeyFileFlushRequest(request *keyFileFlushRequest, unflushedKeys []*types.ScopedKey) {
 	if request.seal {
@@ -849,12 +853,28 @@ func (s *Segment) keyFileControlLoop() {
 
 			if flushRequest, ok := operation.(*keyFileFlushRequest); ok {
 				s.handleKeyFileFlushRequest(flushRequest, unflushedKeys)
-				unflushedKeys = make([]*types.ScopedKey, 0, unflushedKeysInitialCapacity)
+
+				// Right-size the next slice to avoid repeated growth reallocations in steady state.
+				nextCap := unflushedKeysInitialCapacity
+				if len(unflushedKeys) > nextCap {
+					nextCap = len(unflushedKeys)
+				}
+				unflushedKeys = make([]*types.ScopedKey, 0, nextCap)
 
 				if flushRequest.seal {
-					// After sealing, we can exit the control loop.
 					return
 				}
+
+			} else if batch, ok := operation.([]types.ScopedKey); ok {
+				// Convert the contiguous value slice to a pointer slice for downstream consumers
+				// that expect []*types.ScopedKey. We take addresses into the backing array, so
+				// no extra heap allocations per element.
+				ptrs := make([]*types.ScopedKey, len(batch))
+				for i := range batch {
+					ptrs[i] = &batch[i]
+				}
+				s.handleKeyFileBatchWrite(ptrs)
+				unflushedKeys = append(unflushedKeys, ptrs...)
 
 			} else if data, ok := operation.(*types.ScopedKey); ok {
 				s.handleKeyFileWrite(data)

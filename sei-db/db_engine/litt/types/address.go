@@ -74,12 +74,18 @@ func (a Address) String() string {
 	return fmt.Sprintf("(%d:%d:%d:%d)", a.index, a.offset, a.shard, a.valueSize)
 }
 
-// Serialize converts the address to a byte slice.
+// Serialize converts the address to a newly allocated byte slice.
 func (a Address) Serialize() []byte {
-	bytes := make([]byte, AddressLength)
-	binary.BigEndian.PutUint32(bytes[0:4], a.index)
-	binary.BigEndian.PutUint32(bytes[4:8], a.offset)
-	bytes[8] = a.shard
-	binary.BigEndian.PutUint32(bytes[9:13], a.valueSize)
-	return bytes
+	buf := make([]byte, AddressLength)
+	a.SerializeInto(buf)
+	return buf
+}
+
+// SerializeInto writes the serialized address into the provided buffer.
+// The buffer must be at least AddressLength bytes long.
+func (a Address) SerializeInto(buf []byte) {
+	binary.BigEndian.PutUint32(buf[0:4], a.index)
+	binary.BigEndian.PutUint32(buf[4:8], a.offset)
+	buf[8] = a.shard
+	binary.BigEndian.PutUint32(buf[9:13], a.valueSize)
 }
