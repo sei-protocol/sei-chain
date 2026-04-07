@@ -5,10 +5,11 @@ package proto
 
 import (
 	fmt "fmt"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -278,9 +279,7 @@ func (m *ChangeSet) Size() (n int) {
 func sovChangeset(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
-func sozChangeset(x uint64) (n int) {
-	return sovChangeset(uint64((x << 1) ^ uint64((int64(x) >> 63))))
-}
+
 func (m *KVPair) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0

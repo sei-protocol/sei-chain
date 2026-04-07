@@ -218,6 +218,7 @@ func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
 	return &t.lastCommitInfo
 }
 
+//lint:ignore U1000 lifecycle method retained for completeness
 func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 	if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 		return err
