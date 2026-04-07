@@ -118,7 +118,7 @@ type TxMempool struct {
 	postCheck PostCheckFunc
 
 	// NodeID to count of transactions failing CheckTx
-	failedCheckTxCounts    utils.Mutex[map[types.NodeID]uint64]
+	failedCheckTxCounts utils.Mutex[map[types.NodeID]uint64]
 
 	router            router
 	priorityReservoir *reservoir.Sampler[int64]
