@@ -35,12 +35,13 @@ type KafkaHistoricalOffloadConfig struct {
 
 func (c *CryptoSimConfig) validateHistoricalOffload() error {
 	if c.HistoricalOffload == nil {
+		if c.Backend == wrappers.SSHistoricalOffload {
+			return fmt.Errorf("historical offload config is required for %q backend", wrappers.SSHistoricalOffload)
+		}
 		return nil
 	}
 
 	switch strings.ToLower(c.HistoricalOffload.Provider) {
-	case "", "local":
-		return nil
 	case "kafka":
 		if c.HistoricalOffload.Kafka == nil {
 			return fmt.Errorf("historical offload kafka config is required when provider is kafka")
@@ -102,13 +103,14 @@ func (c *KafkaHistoricalOffloadConfig) asyncValue() bool {
 func configureHistoricalOffloadFactory(config *CryptoSimConfig) error {
 	wrappers.SetHistoricalOffloadStreamFactory(nil)
 
-	if config.Backend != wrappers.SSHistoricalOffload || config.HistoricalOffload == nil {
+	if config.Backend != wrappers.SSHistoricalOffload {
 		return nil
+	}
+	if config.HistoricalOffload == nil {
+		return fmt.Errorf("historical offload config is required for %q backend", wrappers.SSHistoricalOffload)
 	}
 
 	switch strings.ToLower(config.HistoricalOffload.Provider) {
-	case "", "local":
-		return nil
 	case "kafka":
 		kafkaCfg := *config.HistoricalOffload.Kafka
 		kafkaCfg.applyDefaults()

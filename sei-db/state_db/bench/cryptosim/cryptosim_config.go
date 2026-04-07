@@ -105,8 +105,7 @@ type CryptoSimConfig struct {
 	StateStoreConfig *config.StateStoreConfig
 
 	// HistoricalOffload configures the transport used by the
-	// SSHistoricalOffload backend. If nil, the backend uses the default local
-	// buffered stream.
+	// SSHistoricalOffload backend.
 	HistoricalOffload *HistoricalOffloadConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.

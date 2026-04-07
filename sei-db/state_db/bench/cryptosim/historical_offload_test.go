@@ -8,13 +8,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
-func TestValidateHistoricalOffloadAllowsLocalDefault(t *testing.T) {
+func TestValidateHistoricalOffloadRequiresConfigForHistoricalOffloadBackend(t *testing.T) {
 	cfg := DefaultCryptoSimConfig()
 	cfg.DataDir = t.TempDir()
 	cfg.LogDir = t.TempDir()
 	cfg.Backend = wrappers.SSHistoricalOffload
 
-	require.NoError(t, cfg.Validate())
+	err := cfg.Validate()
+	require.ErrorContains(t, err, "historical offload config is required")
 }
 
 func TestValidateHistoricalOffloadRequiresKafkaConfig(t *testing.T) {
