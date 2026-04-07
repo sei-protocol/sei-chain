@@ -73,3 +73,8 @@ func TestValidateHistoricalOffloadKafkaIAMRequiresRegion(t *testing.T) {
 	cfg.HistoricalOffload.Kafka.Region = "eu-central-1"
 	require.NoError(t, cfg.Validate())
 }
+
+func TestDefaultCryptoSimConfigDisablesTransactionReadsByDefaultFalse(t *testing.T) {
+	cfg := DefaultCryptoSimConfig()
+	require.False(t, cfg.DisableTransactionReads)
+}
