@@ -28,16 +28,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// brFailClient fails BlockResults; bcFailClient fails Block
+// brFailClient fails BlockResults
 type brFailClient struct{ *MockClient }
 
 func (br brFailClient) BlockResults(ctx context.Context, h *int64) (*coretypes.ResultBlockResults, error) {
 	return nil, fmt.Errorf("fail br")
-}
-
-type bcFailClient struct {
-	*MockClient
-	first bool
 }
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
@@ -52,11 +47,10 @@ func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	require.NoError(t, store.SetEarliestVersion(1))
 }
 
-func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	if !bc.first {
-		bc.first = true
-		return bc.MockClient.Block(ctx, h)
-	}
+// bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).
+type bcAlwaysFailClient struct{ *MockClient }
+
+func (bc bcAlwaysFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
 	return nil, fmt.Errorf("fail bc")
 }
 
@@ -451,13 +445,12 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
-	// Case 2: Block fails
-	bcClient := &bcFailClient{MockClient: &MockClient{}}
+	// Case 2: Block fails — with one RPC path for the block, resolution errors out entirely.
+	bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
 	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
-	h2, err := backend2.HeaderByNumber(context.Background(), 1)
-	require.NoError(t, err)
-	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
+	_, err = backend2.HeaderByNumber(context.Background(), 1)
+	require.Error(t, err)
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
