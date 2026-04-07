@@ -510,12 +510,341 @@
       "type": "timeseries"
     },
     {
-      "collapsed": true,
+      "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 17
+      },
+      "id": 34,
+      "panels": [],
+      "title": "Main Thread",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "id": 35,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sort": "desc",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(blocksim_main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "id": 36,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sort": "desc",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(blocksim_main_thread_phase_duration_seconds_total[$__rate_interval])\n/ on() group_left()\nrate(blocksim_blocks_written_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent Per Block (amortized)",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "id": 37,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(blocksim_main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "id": 38,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(blocksim_main_thread_phase_duration_seconds_total[$__rate_interval])\n/ on() group_left()\nrate(blocksim_blocks_written_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent Per Block (amortized)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
       },
       "id": 7,
       "panels": [
@@ -585,7 +914,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 18
+            "y": 42
           },
           "id": 8,
           "options": {
@@ -680,7 +1009,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 18
+            "y": 42
           },
           "id": 9,
           "options": {
@@ -775,7 +1104,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 18
+            "y": 42
           },
           "id": 33,
           "options": {
@@ -870,7 +1199,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 26
+            "y": 50
           },
           "id": 10,
           "options": {
@@ -909,7 +1238,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 43
       },
       "id": 11,
       "panels": [
@@ -979,7 +1308,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 27
+            "y": 51
           },
           "id": 12,
           "options": {
@@ -1074,7 +1403,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 27
+            "y": 51
           },
           "id": 13,
           "options": {
@@ -1169,7 +1498,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 27
+            "y": 51
           },
           "id": 14,
           "options": {
@@ -1208,7 +1537,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 44
       },
       "id": 15,
       "panels": [
@@ -1277,7 +1606,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 36
+            "y": 60
           },
           "id": 16,
           "options": {
@@ -1372,7 +1701,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 36
+            "y": 60
           },
           "id": 17,
           "options": {
@@ -1467,7 +1796,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 36
+            "y": 60
           },
           "id": 18,
           "options": {
@@ -1506,7 +1835,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 45
       },
       "id": 19,
       "panels": [
@@ -1576,7 +1905,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 37
+            "y": 61
           },
           "id": 20,
           "options": {
@@ -1671,7 +2000,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 37
+            "y": 61
           },
           "id": 21,
           "options": {
@@ -1766,7 +2095,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 37
+            "y": 61
           },
           "id": 22,
           "options": {
@@ -1861,7 +2190,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 45
+            "y": 69
           },
           "id": 23,
           "options": {
@@ -1956,7 +2285,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 45
+            "y": 69
           },
           "id": 24,
           "options": {
@@ -2051,7 +2380,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 45
+            "y": 69
           },
           "id": 25,
           "options": {
@@ -2090,7 +2419,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 46
       },
       "id": 26,
       "panels": [
@@ -2160,7 +2489,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 62
+            "y": 86
           },
           "id": 27,
           "options": {
@@ -2255,7 +2584,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 62
+            "y": 86
           },
           "id": 28,
           "options": {
@@ -2350,7 +2679,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 70
+            "y": 94
           },
           "id": 29,
           "options": {
@@ -2445,7 +2774,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 70
+            "y": 94
           },
           "id": 30,
           "options": {
@@ -2484,7 +2813,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 47
       },
       "id": 31,
       "panels": [
@@ -2554,7 +2883,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 63
+            "y": 87
           },
           "id": 32,
           "options": {
@@ -2603,6 +2932,6 @@
   "timezone": "browser",
   "title": "BlockSim",
   "uid": "blocksim-001",
-  "version": 4,
+  "version": 8,
   "weekStart": ""
 }

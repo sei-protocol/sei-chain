@@ -5,6 +5,7 @@ import (
 	"time"
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -24,6 +25,8 @@ type BlocksimMetrics struct {
 	lowestBlockHeight  metric.Int64Gauge
 	highestBlockHeight metric.Int64Gauge
 	blockSizeBytes     metric.Int64Gauge
+
+	mainThreadPhase *metrics.PhaseTimer
 }
 
 // NewBlocksimMetrics creates metrics for the blocksim benchmark using the
@@ -73,6 +76,8 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 		metric.WithUnit("By"),
 	)
 
+	mainThreadPhase := metrics.NewPhaseTimer(meter, "blocksim_main_thread")
+
 	m := &BlocksimMetrics{
 		ctx:                      ctx,
 		blocksWrittenTotal:       blocksWrittenTotal,
@@ -83,6 +88,7 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 		lowestBlockHeight:        lowestBlockHeight,
 		highestBlockHeight:       highestBlockHeight,
 		blockSizeBytes:           blockSizeBytes,
+		mainThreadPhase:          mainThreadPhase,
 	}
 
 	m.recordBlockSize(config)
@@ -159,4 +165,11 @@ func (m *BlocksimMetrics) ReportFlush() {
 		return
 	}
 	m.flushCallsTotal.Add(context.Background(), 1)
+}
+
+func (m *BlocksimMetrics) SetMainThreadPhase(phase string) {
+	if m == nil || m.mainThreadPhase == nil {
+		return
+	}
+	m.mainThreadPhase.SetPhase(phase)
 }

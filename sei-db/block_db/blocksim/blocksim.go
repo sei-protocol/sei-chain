@@ -133,6 +133,8 @@ func (b *BlockSim) run() {
 	}
 
 	for {
+		b.metrics.SetMainThreadPhase("get_block")
+
 		select {
 		case <-b.ctx.Done():
 			b.generateConsoleReport(true)
@@ -160,12 +162,14 @@ func (b *BlockSim) maybeThrottle() {
 	if b.rateLimiter == nil {
 		return
 	}
+	b.metrics.SetMainThreadPhase("throttling")
 	if err := b.rateLimiter.Wait(b.ctx); err != nil {
 		return
 	}
 }
 
 func (b *BlockSim) handleNextBlock(blk *blockdb.BinaryBlock) {
+	b.metrics.SetMainThreadPhase("write_block")
 	if err := b.db.WriteBlock(b.ctx, blk); err != nil {
 		fmt.Printf("failed to write block %d: %v\n", blk.Height, err)
 		b.cancel()
@@ -185,6 +189,7 @@ func (b *BlockSim) handleNextBlock(blk *blockdb.BinaryBlock) {
 
 	// Periodic flush.
 	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 { //nolint:gosec
+		b.metrics.SetMainThreadPhase("flush")
 		if err := b.db.Flush(b.ctx); err != nil {
 			fmt.Printf("failed to flush: %v\n", err)
 			b.cancel()
@@ -195,6 +200,7 @@ func (b *BlockSim) handleNextBlock(blk *blockdb.BinaryBlock) {
 
 	// Periodic prune.
 	if blk.Height > b.config.UnprunedBlocks {
+		b.metrics.SetMainThreadPhase("prune")
 		lowestToKeep := blk.Height - b.config.UnprunedBlocks
 		if err := b.db.Prune(b.ctx, lowestToKeep); err != nil {
 			fmt.Printf("failed to prune: %v\n", err)
@@ -212,6 +218,7 @@ func (b *BlockSim) suspend() {
 	}
 
 	fmt.Printf("Benchmark suspended.\n")
+	b.metrics.SetMainThreadPhase("suspended")
 
 	for {
 		select {
