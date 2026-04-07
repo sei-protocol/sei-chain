@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -55,7 +54,6 @@ type Store struct {
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
-	pruningManager *pruning.Manager
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
@@ -215,6 +213,9 @@ func (rs *Store) Close() error {
 
 // LastCommitID Implements interface Committer
 func (rs *Store) LastCommitID() types.CommitID {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+
 	if rs.lastCommitInfo == nil {
 		v, err := rs.scStore.GetLatestVersion()
 		if err != nil {
@@ -528,14 +529,6 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetIAVLCacheSize(_ int) {
-}
-
-// Implements interface CommitMultiStore
-func (rs *Store) SetIAVLDisableFastNode(_ bool) {
-}
-
-// Implements interface CommitMultiStore
 func (rs *Store) SetLazyLoading(_ bool) {
 }
 
@@ -637,7 +630,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-
 	}
 
 	res := store.Query(req)

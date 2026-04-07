@@ -161,7 +161,7 @@ func setupTestServer(
 		ctxProvider,
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
-		a.GetStateStore(),
+		nil,
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil
 		},

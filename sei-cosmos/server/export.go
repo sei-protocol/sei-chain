@@ -65,11 +65,6 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 				return fmt.Errorf("file to export stream to not provided, please specify --streaming-file")
 			}
 
-			db, err := openDB(config.RootDir)
-			if err != nil {
-				return err
-			}
-
 			if appExporter == nil {
 				if _, err := fmt.Fprintln(os.Stderr, "WARNING: App exporter not defined. Returning genesis file."); err != nil {
 					return err
@@ -101,7 +96,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					return err
 				}
 				defer func() { _ = file.Close() }()
-				exported, err := appExporter(db, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, file)
+				exported, err := appExporter(nil, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, file)
 				if err != nil {
 					return fmt.Errorf("error exporting state: %v", err)
 				}
@@ -147,7 +142,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 				return fmt.Errorf("error writing genesis state to file: %v", err)
 			}
 
-			exported, err := appExporter(db, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, nil)
+			exported, err := appExporter(nil, traceWriter, height, forZeroHeight, jailAllowedAddrs, serverCtx.Viper, nil)
 			if err != nil {
 				return fmt.Errorf("error exporting state: %v", err)
 			}

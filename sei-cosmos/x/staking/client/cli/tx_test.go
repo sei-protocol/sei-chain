@@ -39,10 +39,8 @@ func TestPrepareConfigForTxCreateValidator(t *testing.T) {
 		expectedCfg TxCreateValidatorConfig
 	}{
 		{
-			name: "all defaults",
-			fsModify: func(fs *pflag.FlagSet) {
-				return
-			},
+			name:        "all defaults",
+			fsModify:    func(fs *pflag.FlagSet) {},
 			expectedCfg: mkTxValCfg(defaultAmount, "0.1", "0.2", "0.01", "1"),
 		}, {
 			name: "Custom amount",

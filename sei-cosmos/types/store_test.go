@@ -62,8 +62,6 @@ func (s *storeTestSuite) TestNewTransientStoreKeys() {
 func (s *storeTestSuite) TestNewInfiniteGasMeter() {
 	gm := sdk.NewInfiniteGasMeter(1, 1)
 	s.Require().NotNil(gm)
-	_, ok := gm.(types.GasMeter)
-	s.Require().True(ok)
 }
 
 func (s *storeTestSuite) TestNewGasMeterWithMultiplier() {

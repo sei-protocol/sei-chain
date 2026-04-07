@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -75,6 +76,16 @@ type GenesisDoc struct {
 	Validators      []GenesisValidator `json:"validators,omitempty"`
 	AppHash         tmbytes.HexBytes   `json:"app_hash"`
 	AppState        json.RawMessage    `json:"app_state,omitempty"`
+}
+
+func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
+	return &abci.RequestInitChain{
+		Time:            genDoc.GenesisTime,
+		ChainId:         genDoc.ChainID,
+		InitialHeight:   genDoc.InitialHeight,
+		ConsensusParams: utils.Alloc(genDoc.ConsensusParams.ToProto()),
+		AppStateBytes:   genDoc.AppState,
+	}
 }
 
 // SaveAs is a utility method for saving GenensisDoc as a JSON file.

@@ -15,8 +15,7 @@ const (
 
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
-	// Enable defines if the state-commit(SeiDB) should be enabled.
-	// If true, it will replace the existing IAVL db backend with memIAVL.
+	// Enable defines if the state-commit (SeiDB) should be enabled.
 	// defaults to true.
 	Enable bool `mapstructure:"enable"`
 

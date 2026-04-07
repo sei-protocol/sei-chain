@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,24 +79,24 @@ func TestMultiTreeWriteSnapshotSequential(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "store1",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i), 1}, Value: []byte{byte(i * 2)}},
 					},
 				},
 			},
 			{
 				Name: "store2",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i), 2}, Value: []byte{byte(i * 3)}},
 					},
 				},
 			},
 			{
 				Name: "store3",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte{byte(i), 3}, Value: []byte{byte(i * 4)}},
 					},
 				},

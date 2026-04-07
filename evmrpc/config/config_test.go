@@ -35,6 +35,7 @@ type opts struct {
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
+	enableParallelizedBlockTrace interface{}
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
@@ -119,6 +120,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trace_timeout" {
 		return o.traceTimeout
 	}
+	if k == "evm.enable_parallelized_block_trace" {
+		return o.enableParallelizedBlockTrace
+	}
 	if k == "evm.rpc_stats_interval" {
 		return o.rpcStatsInterval
 	}
@@ -163,6 +167,7 @@ func getDefaultOpts() opts {
 		uint64(10),
 		int64(100),
 		30 * time.Second,
+		false,
 		10 * time.Second,
 		32,
 		1000,
@@ -171,8 +176,9 @@ func getDefaultOpts() opts {
 
 func TestReadConfig(t *testing.T) {
 	goodOpts := getDefaultOpts()
-	_, err := config.ReadConfig(&goodOpts)
+	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
+	require.False(t, cfg.EnableParallelizedBlockTrace)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -264,6 +270,11 @@ func TestReadConfig(t *testing.T) {
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
+	badOpts = goodOpts
+	badOpts.enableParallelizedBlockTrace = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
 	// Test bad types for worker pool config
 	badOpts = goodOpts
 	badOpts.workerPoolSize = "bad"
@@ -331,4 +342,13 @@ func TestReadConfigWorkerPool(t *testing.T) {
 				"WorkerQueueSize mismatch")
 		})
 	}
+}
+
+func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
+	opts := getDefaultOpts()
+	opts.enableParallelizedBlockTrace = true
+
+	cfg, err := config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.True(t, cfg.EnableParallelizedBlockTrace)
 }

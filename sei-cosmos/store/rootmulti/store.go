@@ -4,17 +4,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/armon/go-metrics"
 	protoio "github.com/gogo/protobuf/io"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	iavltree "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/seilog"
@@ -23,7 +19,6 @@ import (
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachemulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
@@ -41,28 +36,23 @@ const (
 	proofsPath = "proofs"
 )
 
-const iavlDisablefastNodeDefault = true
-
 // Store is composed of many CommitStores. Name contrasts with
 // cacheMultiStore which is used for branching other MultiStores. It implements
 // the CommitMultiStore interface.
 type Store struct {
-	db                  dbm.DB
-	archivalDb          dbm.DB
-	lastCommitInfo      *types.CommitInfo
-	lastCommitInfoMtx   sync.RWMutex
-	pruningOpts         types.PruningOptions
-	iavlCacheSize       int
-	iavlDisableFastNode bool
-	storesParams        map[types.StoreKey]storeParams
-	stores              map[types.StoreKey]types.CommitKVStore
-	keysByName          map[string]types.StoreKey
-	lazyLoading         bool
-	pruneHeights        []int64
-	initialVersion      int64
-	archivalVersion     int64
-	earliestVersion     int64
-	orphanOpts          *iavltree.Options
+	db                dbm.DB
+	archivalDb        dbm.DB
+	lastCommitInfo    *types.CommitInfo
+	lastCommitInfoMtx sync.RWMutex
+	pruningOpts       types.PruningOptions
+	storesParams      map[types.StoreKey]storeParams
+	stores            map[types.StoreKey]types.CommitKVStore
+	keysByName        map[string]types.StoreKey
+	lazyLoading       bool
+	pruneHeights      []int64
+	initialVersion    int64
+	archivalVersion   int64
+	earliestVersion   int64
 
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
@@ -76,33 +66,18 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
-// keysForStoreKeyMap returns a slice of keys for the provided map lexically sorted by StoreKey.Name()
-func keysForStoreKeyMap[V any](m map[types.StoreKey]V) []types.StoreKey {
-	keys := make([]types.StoreKey, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		ki, kj := keys[i], keys[j]
-		return ki.Name() < kj.Name()
-	})
-	return keys
-}
-
 // NewStore returns a reference to a new Store object with the provided DB. The
 // store will be created with a PruneNothing pruning strategy by default. After
 // a store is created, KVStores must be mounted and finally LoadLatestVersion or
 // LoadVersion must be called.
 func NewStore(db dbm.DB) *Store {
 	return &Store{
-		db:                  db,
-		pruningOpts:         types.PruneNothing,
-		iavlCacheSize:       iavl.DefaultIAVLCacheSize,
-		iavlDisableFastNode: iavlDisablefastNodeDefault,
-		storesParams:        make(map[types.StoreKey]storeParams),
-		stores:              make(map[types.StoreKey]types.CommitKVStore),
-		keysByName:          make(map[string]types.StoreKey),
-		pruneHeights:        make([]int64, 0),
+		db:           db,
+		pruningOpts:  types.PruneNothing,
+		storesParams: make(map[types.StoreKey]storeParams),
+		stores:       make(map[types.StoreKey]types.CommitKVStore),
+		keysByName:   make(map[string]types.StoreKey),
+		pruneHeights: make([]int64, 0),
 	}
 }
 
@@ -127,14 +102,6 @@ func (rs *Store) GetPruning() types.PruningOptions {
 // LoadLatestVersion performs a no-op as the stores aren't mounted yet.
 func (rs *Store) SetPruning(pruningOpts types.PruningOptions) {
 	rs.pruningOpts = pruningOpts
-}
-
-func (rs *Store) SetIAVLCacheSize(cacheSize int) {
-	rs.iavlCacheSize = cacheSize
-}
-
-func (rs *Store) SetIAVLDisableFastNode(disableFastNode bool) {
-	rs.iavlDisableFastNode = disableFastNode
 }
 
 // SetLazyLoading sets if the iavl store should be loaded lazily or not
@@ -503,23 +470,6 @@ func (rs *Store) PruneStores(clearStorePruningHeights bool, pruningHeights []int
 		pruningHeights = append(pruningHeights, rs.pruneHeights...)
 	}
 
-	if len(rs.pruneHeights) == 0 {
-		return
-	}
-
-	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeIAVL {
-			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying IAVL store.
-			store = rs.GetCommitKVStore(key)
-
-			if err := store.(*iavl.Store).DeleteVersions(pruningHeights...); err != nil {
-				if errCause := errors.Cause(err); errCause != nil && errCause != iavltree.ErrVersionDoesNotExist {
-					panic(err)
-				}
-			}
-		}
-	}
 	if len(pruningHeights) > 0 {
 		rs.earliestVersion = pruningHeights[len(pruningHeights)-1]
 	}
@@ -556,24 +506,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	for key, store := range rs.stores {
-		switch store.GetStoreType() {
-		case types.StoreTypeIAVL:
-			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying IAVL store.
-			store = rs.GetCommitKVStore(key)
-
-			// Attempt to lazy-load an already saved IAVL store version. If the
-			// version does not exist or is pruned, an error should be returned.
-			iavlStore, err := store.(*iavl.Store).GetImmutable(version)
-			if err != nil {
-				return nil, err
-			}
-
-			cachedStores[key] = iavlStore
-
-		default:
-			cachedStores[key] = store
-		}
+		cachedStores[key] = store
 	}
 
 	return cachemulti.NewStore(rs.db, cachedStores, rs.keysByName, nil, rs.traceWriter, rs.getTracingContext()), nil
@@ -696,18 +629,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 // NOTE: this never errors. Can we fix the function signature ?
 func (rs *Store) SetInitialVersion(version int64) error {
 	rs.initialVersion = version
-
-	// Loop through all the stores, if it's an IAVL store, then set initial
-	// version on it.
-	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeIAVL {
-			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying IAVL store.
-			store = rs.GetCommitKVStore(key)
-			store.(*iavl.Store).SetInitialVersion(version)
-		}
-	}
-
 	return nil
 }
 
@@ -736,107 +657,7 @@ func parsePath(path string) (storeName string, subpath string, err error) {
 // given format changes (at the byte level), the snapshot format must be bumped - see
 // TestMultistoreSnapshot_Checksum test.
 func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
-	if height == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrLogic, "cannot snapshot height 0")
-	}
-	if height > uint64(math.MaxInt64) {
-		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "snapshot height %d exceeds max int64", height)
-	}
-	if rs.LastCommitID().Version < 0 || height > uint64(rs.LastCommitID().Version) { //nolint:gosec // Version validated non-negative
-		return sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot snapshot future height %v", height)
-	}
-
-	// Collect stores to snapshot (only IAVL stores are supported)
-	type namedStore struct {
-		*iavl.Store
-		name string
-	}
-	var stores []namedStore
-	for key := range rs.stores {
-		switch store := rs.GetCommitKVStore(key).(type) {
-		case *iavl.Store:
-			stores = append(stores, namedStore{name: key.Name(), Store: store})
-		case *transient.Store, *mem.Store:
-			// Non-persisted stores shouldn't be snapshotted
-			continue
-		default:
-			return sdkerrors.Wrapf(sdkerrors.ErrLogic,
-				"don't know how to snapshot store %q of type %T", key.Name(), store)
-		}
-	}
-	sort.Slice(stores, func(i, j int) bool {
-		return strings.Compare(stores[i].name, stores[j].name) == -1
-	})
-
-	// Export each IAVL store. Stores are serialized as a stream of SnapshotItem Protobuf
-	// messages. The first item contains a SnapshotStore with store metadata (i.e. name),
-	// and the following messages contain a SnapshotNode (i.e. an ExportNode). Store changes
-	// are demarcated by new SnapshotStore items.
-	for _, store := range stores {
-		totalKeyBytes := int64(0)
-		totalValueBytes := int64(0)
-		totalNumKeys := int64(0)
-		exporter, err := store.Export(int64(height)) //nolint:gosec // bounds checked at function entry
-		if err != nil {
-			return err
-		}
-		defer exporter.Close()
-		err = protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
-			Item: &snapshottypes.SnapshotItem_Store{
-				Store: &snapshottypes.SnapshotStoreItem{
-					Name: store.name,
-				},
-			},
-		})
-		if err != nil {
-			return err
-		}
-		logger.Info("Exporting snapshot for store", "store", store.name)
-		for {
-			node, err := exporter.Next()
-			if errors.Is(err, iavltree.ExportDone) {
-				break
-			} else if err != nil {
-				return err
-			}
-			err = protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
-				Item: &snapshottypes.SnapshotItem_IAVL{
-					IAVL: &snapshottypes.SnapshotIAVLItem{
-						Key:     node.Key,
-						Value:   node.Value,
-						Height:  int32(node.Height), //nolint:gosec // IAVL tree heights are small, well within int32 range
-						Version: node.Version,
-					},
-				},
-			})
-			if err != nil {
-				return err
-			}
-			totalKeyBytes += int64(len(node.Key))
-			totalValueBytes += int64(len(node.Value))
-			totalNumKeys += 1
-		}
-		telemetry.SetGaugeWithLabels(
-			[]string{"iavl", "store", "total_num_keys"},
-			float32(totalNumKeys),
-			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
-		)
-		telemetry.SetGaugeWithLabels(
-			[]string{"iavl", "store", "total_key_bytes"},
-			float32(totalKeyBytes),
-			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
-		)
-		telemetry.SetGaugeWithLabels(
-			[]string{"iavl", "store", "total_value_bytes"},
-			float32(totalValueBytes),
-			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
-		)
-		logger.Info("Exported snapshot for store", "store",
-			store.name, "key-count", totalNumKeys, "key-bytes", totalKeyBytes, "value-bytes", totalValueBytes)
-		exporter.Close()
-	}
-
-	return nil
+	return sdkerrors.Wrap(sdkerrors.ErrLogic, "legacy IAVL snapshots are no longer supported")
 }
 
 // Restore implements snapshottypes.Snapshotter.
@@ -844,84 +665,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
-	if height > uint64(math.MaxInt64) {
-		return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "snapshot height %d exceeds max int64", height)
-	}
-
-	// Import nodes into stores. The first item is expected to be a SnapshotItem containing
-	// a SnapshotStoreItem, telling us which store to import into. The following items will contain
-	// SnapshotNodeItem (i.e. ExportNode) until we reach the next SnapshotStoreItem or EOF.
-	var importer *iavltree.Importer
-	var snapshotItem snapshottypes.SnapshotItem
-loop:
-	for {
-		snapshotItem = snapshottypes.SnapshotItem{}
-		err := protoReader.ReadMsg(&snapshotItem)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "invalid protobuf message")
-		}
-
-		switch item := snapshotItem.Item.(type) {
-		case *snapshottypes.SnapshotItem_Store:
-			if importer != nil {
-				err = importer.Commit()
-				if err != nil {
-					return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "IAVL commit failed")
-				}
-				importer.Close()
-			}
-			store, ok := rs.GetStoreByName(item.Store.Name).(*iavl.Store)
-			if !ok || store == nil {
-				return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "cannot import into non-IAVL store %q", item.Store.Name)
-			}
-			importer, err = store.Import(int64(height)) //nolint:gosec // bounds checked at function entry
-			if err != nil {
-				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "import failed")
-			}
-			defer importer.Close()
-
-		case *snapshottypes.SnapshotItem_IAVL:
-			if importer == nil {
-				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(sdkerrors.ErrLogic, "received IAVL node item before store item")
-			}
-			if item.IAVL.Height > math.MaxInt8 {
-				return snapshottypes.SnapshotItem{}, sdkerrors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",
-					item.IAVL.Height, math.MaxInt8)
-			}
-			node := &iavltree.ExportNode{
-				Key:     item.IAVL.Key,
-				Value:   item.IAVL.Value,
-				Height:  int8(item.IAVL.Height), //nolint:gosec // bounds checked above against MaxInt8
-				Version: item.IAVL.Version,
-			}
-			if node.Key == nil {
-				node.Key = []byte{}
-			}
-			if node.Height == 0 && node.Value == nil {
-				node.Value = []byte{}
-			}
-			err := importer.Add(node)
-			if err != nil {
-				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "IAVL node import failed")
-			}
-
-		default:
-			break loop
-		}
-	}
-
-	if importer != nil {
-		err := importer.Commit()
-		if err != nil {
-			return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "IAVL commit failed")
-		}
-		importer.Close()
-	}
-
-	rs.flushMetadata(rs.db, int64(height), rs.buildCommitInfo(int64(height))) //nolint:gosec // bounds checked at function entry
-	return snapshotItem, rs.LoadLatestVersion()
+	return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(sdkerrors.ErrLogic, "legacy IAVL restore is no longer supported")
 }
 
 func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID, params storeParams) (_ types.CommitKVStore, _err error) {
@@ -934,7 +678,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 	}()
 
 	if params.db != nil {
-		db = dbm.NewPrefixDB(params.db, []byte("s/_/"))
+		db = dbm.NewPrefixDB(params.db, []byte("s/k:"+params.key.Name()+"/"))
 	} else if rs.shouldUseArchivalDb(id.Version) {
 		tag := []byte("s/k:" + params.key.Name() + "/")
 		prefix := make([]byte, 8, 8+len(tag))
@@ -954,27 +698,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 	case types.StoreTypeMulti:
 		panic("recursive MultiStores not yet supported")
 
-	case types.StoreTypeIAVL:
-		var store types.CommitKVStore
-		var err error
-
-		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
-		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		if rs.interBlockCache != nil {
-			store = rs.interBlockCache.GetStoreCache(key, store)
-		}
-
-		return store, err
-
-	case types.StoreTypeDB:
+	case types.StoreTypeIAVL, types.StoreTypeDB:
 		return commitDBStoreAdapter{Store: dbadapter.Store{DB: db}}, nil
 
 	case types.StoreTypeTransient:
@@ -997,44 +721,12 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 	}
 }
 
-func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
-	keys := keysForStoreKeyMap(rs.stores)
-	storeInfos := make([]types.StoreInfo, 0, len(keys))
-	for _, key := range keys {
-		store := rs.stores[key]
-		if store.GetStoreType() == types.StoreTypeTransient {
-			continue
-		}
-		storeInfos = append(storeInfos, types.StoreInfo{
-			Name:     key.Name(),
-			CommitId: store.LastCommitID(),
-		})
-	}
-	return &types.CommitInfo{
-		Version:    version,
-		StoreInfos: storeInfos,
-	}
-}
-
 // RollbackToVersion delete the versions after `target` and update the latest version.
 func (rs *Store) RollbackToVersion(target int64) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
 	}
 
-	fmt.Printf("Target Version=%d\n", target)
-	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeIAVL {
-			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying IAVL store.
-			store = rs.GetCommitKVStore(key)
-			latestVersion, err := store.(*iavl.Store).LoadVersionForOverwriting(target)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Reset key=%s to height=%d\n", key.Name(), latestVersion)
-		}
-	}
 	rs.SetLastCommitInfo(commitStores(target, rs.stores, false))
 	rs.flushMetadata(rs.db, target, rs.LastCommitInfo())
 	return rs.LoadLatestVersion()
@@ -1054,10 +746,6 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	if cInfo != nil {
 		logger.Info("App State Saved", "height", cInfo.CommitID().Version, "hash", cInfo.CommitID().Hash)
 	}
-}
-
-func (rs *Store) SetOrphanConfig(opts *iavltree.Options) {
-	rs.orphanOpts = opts
 }
 
 func (rs *Store) LastCommitInfo() *types.CommitInfo {

@@ -63,7 +63,7 @@ func TestCommitQC(
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var blockList []*types.Block
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
 			laneQCs[lane] = TestLaneQC(keys, bs[len(bs)-1].Header())
 			for _, b := range bs {

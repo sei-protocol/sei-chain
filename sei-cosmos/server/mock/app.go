@@ -8,18 +8,14 @@ import (
 	"fmt"
 	"path/filepath"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/seilog"
-
 	bam "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-var logger = seilog.NewLogger("cosmos", "server", "mock")
 
 // NewApp creates a simple mock kvstore app for testing. It should work
 // similar to a real app. Make sure rootDir is empty before running the test,

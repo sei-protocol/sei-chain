@@ -7,15 +7,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 )
 
-func NewTestInterfaceRegistry() types.InterfaceRegistry {
-	registry := types.NewInterfaceRegistry()
+func NewTestInterfaceRegistry() codectypes.InterfaceRegistry {
+	registry := codectypes.NewInterfaceRegistry()
 	registry.RegisterInterface("Animal", (*testdata.Animal)(nil))
 	registry.RegisterImplementations(
 		(*testdata.Animal)(nil),
@@ -26,7 +25,7 @@ func NewTestInterfaceRegistry() types.InterfaceRegistry {
 }
 
 func TestMarshalAny(t *testing.T) {
-	registry := types.NewInterfaceRegistry()
+	registry := codectypes.NewInterfaceRegistry()
 
 	cdc := codec.NewProtoCodec(registry)
 
@@ -53,7 +52,6 @@ func TestMarshalAny(t *testing.T) {
 	require.Equal(t, kitty, animal)
 
 	// nil should fail
-	registry = NewTestInterfaceRegistry()
 	err = cdc.UnmarshalInterface(bz, nil)
 	require.Error(t, err)
 }

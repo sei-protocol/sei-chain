@@ -33,10 +33,9 @@ type ViewKeeper interface {
 
 // BaseViewKeeper implements a read only keeper implementation of ViewKeeper.
 type BaseViewKeeper struct {
-	cdc       codec.BinaryCodec
-	storeKey  sdk.StoreKey
-	ak        types.AccountKeeper
-	cacheSize int
+	cdc      codec.BinaryCodec
+	storeKey sdk.StoreKey
+	ak       types.AccountKeeper
 }
 
 // NewBaseViewKeeper returns a new BaseViewKeeper.

@@ -45,6 +45,10 @@ func (m *mockApplication) CommitMultiStore() sdk.CommitMultiStore {
 	return m.cms
 }
 
+func (m *mockApplication) GetValidators() []abci.ValidatorUpdate {
+	return nil
+}
+
 func (m *mockApplication) Close() error {
 	return m.cms.Close()
 }

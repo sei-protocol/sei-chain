@@ -36,7 +36,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 			commitHeight: 499000,
 			expected:     136120,
 		},
-		"pruning iavl snapshot only": {
+		"pruning snapshot only": {
 			bapp: NewBaseApp(
 				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),

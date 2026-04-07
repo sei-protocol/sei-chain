@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
@@ -38,18 +37,7 @@ func TestValidateBlockHeader(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 3, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
@@ -141,18 +129,7 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
@@ -288,18 +265,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	mp := makeTxMempool(t, app)
 
 	state.ConsensusParams.Evidence.MaxBytes = 1000
 	blockExec := sm.NewBlockExecutor(

@@ -595,7 +595,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -607,7 +607,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -631,7 +631,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -656,7 +656,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -667,7 +667,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}

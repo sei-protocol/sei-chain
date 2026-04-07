@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,14 +22,14 @@ func TestNewStateStore(t *testing.T) {
 	require.NoError(t, err)
 	for i := 1; i < 50; i++ {
 		var changesets []*proto.NamedChangeSet
-		kvPair := &iavl.KVPair{
+		kvPair := &proto.KVPair{
 			Delete: false,
 			Key:    []byte(fmt.Sprintf("key%d", i)),
 			Value:  []byte(fmt.Sprintf("value%d", i)),
 		}
-		var pairs []*iavl.KVPair
+		var pairs []*proto.KVPair
 		pairs = append(pairs, kvPair)
-		cs := iavl.ChangeSet{Pairs: pairs}
+		cs := proto.ChangeSet{Pairs: pairs}
 		ncs := &proto.NamedChangeSet{
 			Name:      "storeA",
 			Changeset: cs,

@@ -32,8 +32,6 @@ func TestBasicManager(t *testing.T) {
 	interfaceRegistry := types.NewInterfaceRegistry()
 	cdc := codec.NewProtoCodec(interfaceRegistry)
 
-	clientCtx := client.Context{}
-	clientCtx = clientCtx.WithLegacyAmino(legacyAmino)
 	wantDefaultGenesis := map[string]json.RawMessage{"mockAppModuleBasic1": json.RawMessage(``)}
 
 	mockAppModuleBasic1 := mocks.NewMockAppModuleBasic(mockCtrl)
