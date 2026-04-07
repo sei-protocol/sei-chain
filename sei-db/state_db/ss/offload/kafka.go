@@ -12,8 +12,6 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/compress"
 	"github.com/segmentio/kafka-go/sasl"
-	"github.com/segmentio/kafka-go/sasl/plain"
-	"github.com/segmentio/kafka-go/sasl/scram"
 
 	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -33,8 +31,6 @@ type KafkaConfig struct {
 	BatchBytes    int
 	TLSEnabled    bool
 	SASLMechanism string
-	Username      string
-	Password      string
 }
 
 func (c *KafkaConfig) ApplyDefaults() {
@@ -89,11 +85,6 @@ func (c *KafkaConfig) Validate() error {
 
 	switch strings.ToLower(c.SASLMechanism) {
 	case "", kafkaOptionNone:
-		return nil
-	case "plain", "scram-sha-256", "scram-sha-512":
-		if c.Username == "" || c.Password == "" {
-			return fmt.Errorf("kafka sasl username and password are required for mechanism %q", c.SASLMechanism)
-		}
 		return nil
 	case "aws-msk-iam":
 		if !c.TLSEnabled {
@@ -224,15 +215,6 @@ func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
 		return nil, nil
-	case "plain":
-		return plain.Mechanism{
-			Username: cfg.Username,
-			Password: cfg.Password,
-		}, nil
-	case "scram-sha-256":
-		return scram.Mechanism(scram.SHA256, cfg.Username, cfg.Password)
-	case "scram-sha-512":
-		return scram.Mechanism(scram.SHA512, cfg.Username, cfg.Password)
 	case "aws-msk-iam":
 		return newAWSMSKIAMMechanism(cfg)
 	default:

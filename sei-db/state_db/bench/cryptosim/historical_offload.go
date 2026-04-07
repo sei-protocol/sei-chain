@@ -29,8 +29,6 @@ type KafkaHistoricalOffloadConfig struct {
 	BatchBytes     int
 	TLSEnabled     bool
 	SASLMechanism  string
-	Username       string
-	Password       string
 }
 
 func (c *CryptoSimConfig) validateHistoricalOffload() error {
@@ -90,8 +88,6 @@ func (c *KafkaHistoricalOffloadConfig) validate() error {
 		BatchBytes:    c.BatchBytes,
 		TLSEnabled:    c.TLSEnabled,
 		SASLMechanism: c.SASLMechanism,
-		Username:      c.Username,
-		Password:      c.Password,
 	}
 	return cfg.Validate()
 }
@@ -132,8 +128,6 @@ func configureHistoricalOffloadFactory(config *CryptoSimConfig) error {
 				BatchBytes:    kafkaCfg.BatchBytes,
 				TLSEnabled:    kafkaCfg.TLSEnabled,
 				SASLMechanism: kafkaCfg.SASLMechanism,
-				Username:      kafkaCfg.Username,
-				Password:      kafkaCfg.Password,
 			})
 		})
 		return nil
