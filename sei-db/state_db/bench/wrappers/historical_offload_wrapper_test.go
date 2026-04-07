@@ -86,9 +86,13 @@ func (m *mockHistoricalOffloadStateStore) Close() error {
 
 type mockOffloadStream struct {
 	closeCalls int
+	calls      int
+	entries    []*proto.ChangelogEntry
 }
 
-func (m *mockOffloadStream) Publish(_ context.Context, _ *proto.ChangelogEntry) (offload.Ack, error) {
+func (m *mockOffloadStream) Publish(_ context.Context, entry *proto.ChangelogEntry) (offload.Ack, error) {
+	m.calls++
+	m.entries = append(m.entries, entry)
 	return offload.Ack{Accepted: true}, nil
 }
 
@@ -101,7 +105,7 @@ func (m *mockOffloadStream) Close() error {
 	return nil
 }
 
-func TestHistoricalOffloadWrapperUsesAsyncSSWritesAndDummyReads(t *testing.T) {
+func TestHistoricalOffloadWrapperPublishesWithoutLocalWrites(t *testing.T) {
 	store := &mockHistoricalOffloadStateStore{latestVersion: 4}
 	stream := &mockOffloadStream{}
 	wrapper := NewHistoricalOffloadWrapper(store, stream)
@@ -110,10 +114,12 @@ func TestHistoricalOffloadWrapperUsesAsyncSSWritesAndDummyReads(t *testing.T) {
 
 	err := wrapper.ApplyChangeSets(changesets)
 	require.NoError(t, err)
-	require.Equal(t, 1, store.asyncCalls)
-	require.Equal(t, int64(5), store.asyncVersion)
-	require.Equal(t, changesets, store.asyncChanges)
+	require.Zero(t, store.asyncCalls)
 	require.Zero(t, store.syncCalls)
+	require.Equal(t, 1, stream.calls)
+	require.Len(t, stream.entries, 1)
+	require.Equal(t, int64(5), stream.entries[0].Version)
+	require.Equal(t, changesets, stream.entries[0].Changesets)
 	require.Equal(t, int64(5), wrapper.Version())
 
 	data, found, err := wrapper.Read([]byte("ignored"))
@@ -126,7 +132,6 @@ func TestHistoricalOffloadWrapperUsesAsyncSSWritesAndDummyReads(t *testing.T) {
 	require.Equal(t, int64(5), version)
 
 	require.NoError(t, wrapper.Close())
-	require.Equal(t, 1, store.closeCalls)
 	require.Equal(t, 1, stream.closeCalls)
 }
 

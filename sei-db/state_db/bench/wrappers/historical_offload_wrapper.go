@@ -12,7 +12,6 @@ import (
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
 
@@ -31,11 +30,11 @@ var (
 	historicalOffloadStreamFactory   HistoricalOffloadStreamFactory = bufferedHistoricalOffloadStreamFactory
 )
 
-// historicalOffloadWrapper exercises the production SS historical offload write
-// path. Reads are intentionally omitted because the benchmark only cares about
-// how quickly changelog entries can be accepted and drained.
+// historicalOffloadWrapper publishes changelog entries to the historical
+// offload stream without writing them to a local state store. Reads are
+// intentionally omitted because this benchmark mode only cares about how fast
+// entries can be accepted by the offload transport.
 type historicalOffloadWrapper struct {
-	base    dbTypes.StateStore
 	stream  offload.Stream
 	version atomic.Int64
 }
@@ -61,7 +60,7 @@ func currentHistoricalOffloadStreamFactory() HistoricalOffloadStreamFactory {
 }
 
 func newSSHistoricalOffloadStateStore(ctx context.Context, dbDir string) (DBWrapper, error) {
-	fmt.Printf("Opening composite state store with historical offload from directory %s\n", dbDir)
+	fmt.Printf("Opening historical offload stream from directory %s\n", dbDir)
 
 	cfg := config.DefaultStateStoreConfig()
 	cfg.Backend = config.PebbleDBBackend
@@ -73,30 +72,32 @@ func newSSHistoricalOffloadStateStore(ctx context.Context, dbDir string) (DBWrap
 	if err != nil {
 		return nil, fmt.Errorf("failed to create historical offload stream: %w", err)
 	}
-
-	store, err := ssComposite.NewCompositeStateStoreWithOffload(cfg, dbDir, stream)
-	if err != nil {
-		if closer, ok := stream.(io.Closer); ok {
-			_ = closer.Close()
-		}
-		return nil, fmt.Errorf("failed to open composite state store with historical offload: %w", err)
-	}
-
-	return NewHistoricalOffloadWrapper(store, stream), nil
+	return NewHistoricalOffloadWrapper(nil, stream), nil
 }
 
 func NewHistoricalOffloadWrapper(store dbTypes.StateStore, stream offload.Stream) DBWrapper {
 	w := &historicalOffloadWrapper{
-		base:   store,
 		stream: stream,
 	}
-	w.version.Store(store.GetLatestVersion())
+	if store != nil {
+		w.version.Store(store.GetLatestVersion())
+	}
 	return w
 }
 
 func (h *historicalOffloadWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
 	nextVersion := h.version.Add(1)
-	return h.base.ApplyChangesetAsync(nextVersion, cs)
+	ack, err := h.stream.Publish(context.Background(), &proto.ChangelogEntry{
+		Version:    nextVersion,
+		Changesets: cs,
+	})
+	if err != nil {
+		return err
+	}
+	if !ack.Accepted {
+		return fmt.Errorf("historical offload publish was not acknowledged at version %d", nextVersion)
+	}
+	return nil
 }
 
 func (h *historicalOffloadWrapper) Read(_ []byte) (data []byte, found bool, err error) {
@@ -108,15 +109,9 @@ func (h *historicalOffloadWrapper) Commit() (int64, error) {
 }
 
 func (h *historicalOffloadWrapper) Close() error {
-	baseErr := h.base.Close()
-
 	var streamErr error
 	if closer, ok := h.stream.(io.Closer); ok {
 		streamErr = closer.Close()
-	}
-
-	if baseErr != nil {
-		return baseErr
 	}
 	return streamErr
 }
