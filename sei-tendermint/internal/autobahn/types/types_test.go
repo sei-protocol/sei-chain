@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -144,10 +145,9 @@ func TestNewTimeoutQC(t *testing.T) {
 	}
 }
 
-func TestTimeoutQCView_EmptyVotes(t *testing.T) {
-	tqc := NewTimeoutQC(nil)
-	if got := tqc.View(); got != (View{}) {
-		t.Fatalf("View() = %v, want %v", got, View{})
+func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
+	if _, err := TimeoutQCConv.Decode(&pb.TimeoutQC{}); err == nil {
+		t.Fatal("Decode() succeeded, want error")
 	}
 }
 
