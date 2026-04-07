@@ -185,17 +185,22 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 }
 
 // insertQC verifies and inserts a FullCommitQC into the inner state.
+// Accepts QCs whose range starts at or before nextQC (partially pruned
+// prefix is silently skipped). Rejects gaps where gr.First > nextQC.
 func (i *inner) insertQC(committee *types.Committee, qc *types.FullCommitQC) error {
 	if err := qc.Verify(committee); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	gr := qc.QC().GlobalRange(committee)
-	if gr.First != i.nextQC {
-		return fmt.Errorf("QC gap: expected first=%d, got %d", i.nextQC, gr.First)
+	if gr.Next <= i.nextQC {
+		return nil // fully behind, skip
+	}
+	if gr.First > i.nextQC {
+		return fmt.Errorf("QC gap: expected first<=%d, got %d", i.nextQC, gr.First)
 	}
 	for i.nextQC < gr.Next {
 		i.qcs[i.nextQC] = qc
-		i.nextQC += 1
+		i.nextQC++
 	}
 	return nil
 }
@@ -274,25 +279,9 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	if dataFirst > cfg.Committee.FirstBlock() {
 		inner.skipTo(dataFirst)
 	}
-	// Restore QCs. Skip QCs fully before inner.first (pruned).
-	// The first overlapping QC (range starts before first but extends
-	// past it) is accepted — we need it for block verification.
+	// Restore QCs. insertQC handles partially pruned QCs (range starts
+	// before inner.first) by skipping the pruned prefix.
 	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
-		gr := qc.QC().GlobalRange(cfg.Committee)
-		if gr.Next <= inner.first {
-			continue // fully before first, skip
-		}
-		if gr.First < inner.first {
-			// Partially pruned QC — accept it but don't move first back.
-			if err := qc.Verify(cfg.Committee); err != nil {
-				return nil, fmt.Errorf("qc.Verify(): %w", err)
-			}
-			for inner.nextQC < gr.Next {
-				inner.qcs[inner.nextQC] = qc
-				inner.nextQC++
-			}
-			continue
-		}
 		if err := inner.insertQC(cfg.Committee, qc); err != nil {
 			return nil, fmt.Errorf("load QC from WAL: %w", err)
 		}
