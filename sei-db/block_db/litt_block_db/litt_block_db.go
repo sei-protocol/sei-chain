@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/docker/go-units"
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 )
@@ -41,7 +42,8 @@ func NewLittBlockDB(path string, blocksToKeep uint64) (*littBlockDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("litt default config: %w", err)
 	}
-	config.MaxSegmentKeyCount = 10_000_000
+	config.MaxSegmentKeyCount = 1_000_000
+	config.TargetSegmentKeyFileSize = 50 * units.MB
 
 	db, err := litt.NewDB(config)
 	if err != nil {
