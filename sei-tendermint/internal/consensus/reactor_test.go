@@ -151,7 +151,7 @@ func finalizeTx(
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, sub := range blocksSubs {
 			s.Spawn(func() error {
-				if err := states[i].txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+				if err := states[i].txMempool.CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 					return fmt.Errorf("CheckTx(): %w", err)
 				}
 				for {
@@ -368,7 +368,7 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	// send a tx
 	require.NoError(
 		t,
-		assertMempool(t, states[1].txNotifier).CheckTx(
+		states[1].txMempool.CheckTx(
 			ctx,
 			[]byte{1, 2, 3},
 			nil,

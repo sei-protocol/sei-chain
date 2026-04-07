@@ -886,6 +886,7 @@ func DefaultMempoolConfig() *MempoolConfig {
 func TestMempoolConfig() *MempoolConfig {
 	cfg := DefaultMempoolConfig()
 	cfg.CacheSize = 1000
+	cfg.DropUtilisationThreshold = 0.0
 	return cfg
 }
 
