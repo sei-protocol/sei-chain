@@ -235,7 +235,7 @@ var SignatureConv = protoutils.Conv[*Signature, *pb.Signature]{
 		}
 	},
 	Decode: func(p *pb.Signature) (*Signature, error) {
-		key, err := PublicKeyConv.Decode(p.Key)
+		key, err := PublicKeyConv.DecodeReq(p.Key)
 		if err != nil {
 			return nil, fmt.Errorf("key: %w", err)
 		}
@@ -304,11 +304,11 @@ func SignedMsgConv[T Msg]() *protoutils.Conv[*Signed[T], *pb.SignedMsg] {
 			return &pb.SignedMsg{Msg: MsgConv.Encode(m.hashed.msg), Sig: SignatureConv.Encode(m.sig)}
 		},
 		Decode: func(m *pb.SignedMsg) (*Signed[T], error) {
-			msg, err := MsgConv.Decode(m.Msg)
+			msg, err := MsgConv.DecodeReq(m.Msg)
 			if err != nil {
 				return nil, fmt.Errorf("msg: %w", err)
 			}
-			sig, err := SignatureConv.Decode(m.Sig)
+			sig, err := SignatureConv.DecodeReq(m.Sig)
 			if err != nil {
 				return nil, fmt.Errorf("sig: %w", err)
 			}
