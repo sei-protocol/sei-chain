@@ -46,6 +46,8 @@ var errTooManyMsgs = errors.New("too many messages")
 var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
 var errStreamKindMismatch = errors.New("stream kind mismatch")
+var errAlreadyOpened = errors.New("stream already opened")
+var errAlreadyClosed = errors.New("stream already closed")
 
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
