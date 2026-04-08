@@ -261,10 +261,11 @@ func NewBackend(
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	tmBlock, height, isLatestBlock, err := b.getResultBlockByNumberOrHash(ctx, blockNrOrHash)
+	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
+	height := tmBlock.Block.Height
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
@@ -433,10 +434,11 @@ func (b *Backend) Engine() consensus.Engine {
 }
 
 func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
-	tmBlock, height, _, err := b.getResultBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	tmBlock, _, err := b.getBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
 	}
+	height := tmBlock.Block.Height
 	return b.getHeader(ctx, big.NewInt(height), tmBlock), nil
 }
 
@@ -561,9 +563,9 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return utils.Big0, nil
 }
 
-// getResultBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
+// getBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
 // (by hash or by number, including latest). Callers can pass tmBlock to getHeader to avoid a second block fetch.
-func (b *Backend) getResultBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, int64, bool, error) {
+func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, bool, error) {
 	var (
 		block         *coretypes.ResultBlock
 		err           error
@@ -573,16 +575,16 @@ func (b *Backend) getResultBlockByNumberOrHash(ctx context.Context, blockNrOrHas
 	if blockNrOrHash.BlockHash != nil {
 		block, err = blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, false, err
 		}
-		return block, block.Block.Height, false, nil
+		return block, false, nil
 	}
 
 	var blockNumberPtr *int64
 	if blockNrOrHash.BlockNumber != nil {
 		blockNumberPtr, err = getBlockNumber(ctx, b.tmClient, *blockNrOrHash.BlockNumber)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, false, err
 		}
 		if blockNumberPtr == nil {
 			isLatestBlock = true
@@ -592,9 +594,9 @@ func (b *Backend) getResultBlockByNumberOrHash(ctx context.Context, blockNrOrHas
 	}
 	block, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, false, err
 	}
-	return block, block.Block.Height, isLatestBlock, nil
+	return block, isLatestBlock, nil
 }
 
 func (b *Backend) getHeader(ctx context.Context, blockNumber *big.Int, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
