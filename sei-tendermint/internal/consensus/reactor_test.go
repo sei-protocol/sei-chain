@@ -275,6 +275,8 @@ func TestReactorWithEvidence(t *testing.T) {
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool,
 			proxyAppConnMem,
+			mempool.NopMetrics(),
+			mempool.NopTxConstraintsFetcher,
 		)
 
 		// mock the evidence pool

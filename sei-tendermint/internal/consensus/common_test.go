@@ -467,6 +467,8 @@ func newStateWithConfigAndBlockStore(
 	mempool := mempool.NewTxMempool(
 		thisConfig.Mempool,
 		proxyAppConnMem,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	evpool := sm.EmptyEvidencePool{}

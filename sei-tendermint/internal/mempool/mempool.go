@@ -37,17 +37,14 @@ const (
 	MinGasEVMTx  = 21000
 )
 
-// TxMempoolOption sets an optional parameter on the TxMempool.
-type TxMempoolOption func(*TxMempool)
-
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
 // is used to gossip transactions to peers in a FIFO manner.
 type TxMempool struct {
-	metrics      *Metrics
-	config       *config.MempoolConfig
-	app abci.Application
+	metrics *Metrics
+	config  *config.MempoolConfig
+	app     abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -113,8 +110,8 @@ type TxMempool struct {
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
 	// however, a caller must explicitly grab a write-lock via Lock when updating
 	// the mempool via Update().
-	mtx            sync.RWMutex
-	txStateFetcher utils.Option[TxStateFetcher]
+	mtx                  sync.RWMutex
+	txConstraintsFetcher TxConstraintsFetcher
 
 	priorityReservoir *reservoir.Sampler[int64]
 }
@@ -122,23 +119,25 @@ type TxMempool struct {
 func NewTxMempool(
 	cfg *config.MempoolConfig,
 	app abci.Application,
-	options ...TxMempoolOption,
+	metrics *Metrics,
+	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
 
 	txmp := &TxMempool{
-		config:            cfg,
-		app:      app,
-		txsAvailable:      make(chan struct{}, 1),
-		height:            -1,
-		cache:             NopTxCache{},
-		blockFailedTxs:    NopTxCache{},
-		metrics:           NopMetrics(),
-		txStore:           NewTxStore(),
-		gossipIndex:       clist.New(),
-		priorityIndex:     NewTxPriorityQueue(),
-		expirationIndex:   NewWrappedTxList(),
-		pendingTxs:        NewPendingTxs(cfg),
-		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
+		config:               cfg,
+		app:                  app,
+		txsAvailable:         make(chan struct{}, 1),
+		height:               -1,
+		cache:                NopTxCache{},
+		blockFailedTxs:       NopTxCache{},
+		metrics:              metrics,
+		txStore:              NewTxStore(),
+		gossipIndex:          clist.New(),
+		priorityIndex:        NewTxPriorityQueue(),
+		expirationIndex:      NewWrappedTxList(),
+		pendingTxs:           NewPendingTxs(cfg),
+		txConstraintsFetcher: txConstraintsFetcher,
+		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
 	if cfg.CacheSize > 0 {
@@ -146,25 +145,11 @@ func NewTxMempool(
 		txmp.blockFailedTxs = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
 	}
 
-	for _, opt := range options {
-		opt(txmp)
-	}
-
 	if cfg.DuplicateTxsCacheSize > 0 {
 		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
 	}
 
 	return txmp
-}
-
-// WithTxStateFetcher sets the source of consensus-derived mempool limits.
-func WithTxStateFetcher(fetcher TxStateFetcher) TxMempoolOption {
-	return func(txmp *TxMempool) { txmp.txStateFetcher = utils.Some(fetcher) }
-}
-
-// WithMetrics sets the mempool's metrics collector.
-func WithMetrics(metrics *Metrics) TxMempoolOption {
-	return func(txmp *TxMempool) { txmp.metrics = metrics }
 }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
@@ -229,12 +214,7 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 }
 
 func (txmp *TxMempool) checkTxState(tx types.Tx) error {
-	fetcher, ok := txmp.txStateFetcher.Get()
-	if !ok {
-		return nil
-	}
-
-	constraints, err := fetcher()
+	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return err
 	}
@@ -247,13 +227,8 @@ func (txmp *TxMempool) checkTxState(tx types.Tx) error {
 	return nil
 }
 
-func (txmp *TxMempool) checkResponseState(tx types.Tx, res *abci.ResponseCheckTx) error {
-	fetcher, ok := txmp.txStateFetcher.Get()
-	if !ok {
-		return nil
-	}
-
-	constraints, err := fetcher()
+func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
+	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return err
 	}
@@ -636,14 +611,14 @@ func (txmp *TxMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
 	execTxResult []*abci.ExecTxResult,
-	newTxStateFetcher utils.Option[TxStateFetcher],
+	newTxConstraintsFetcher utils.Option[TxConstraintsFetcher],
 	recheck bool,
 ) error {
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable = false
 
-	if fetcher, ok := newTxStateFetcher.Get(); ok {
-		txmp.txStateFetcher = utils.Some(fetcher)
+	if fetcher, ok := newTxConstraintsFetcher.Get(); ok {
+		txmp.txConstraintsFetcher = fetcher
 	}
 
 	for i, tx := range blockTxs {
@@ -722,7 +697,7 @@ func (txmp *TxMempool) Update(
 // NOTE:
 // - An explicit lock is NOT required.
 func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheckTx, txInfo TxInfo) error {
-	err := txmp.checkResponseState(wtx.tx, res)
+	err := txmp.checkResponseState(res)
 
 	if err != nil || res.Code != abci.CodeTypeOK {
 		// ignore bad transactions
@@ -868,7 +843,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// if an existing transaction is evicted during CheckTx and while this
 	// callback is being executed for the same evicted transaction.
 	if !txmp.txStore.IsTxRemoved(wtx) {
-		err := txmp.checkResponseState(tx, res.ResponseCheckTx)
+		err := txmp.checkResponseState(res.ResponseCheckTx)
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
 		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {

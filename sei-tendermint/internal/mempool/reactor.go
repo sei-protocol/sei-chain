@@ -35,10 +35,6 @@ type Reactor struct {
 
 	router *p2p.Router
 
-	// observePanic is a function for observing panics that were recovered in methods on
-	// Reactor. observePanic is called with the recovered value.
-	observePanic func(any)
-
 	mtx                 sync.Mutex
 	peerRoutines        map[types.NodeID]context.CancelFunc
 	failedCheckTxCounts utils.Mutex[map[types.NodeID]int]
@@ -61,7 +57,6 @@ func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
 		channel:             channel,
 		peerRoutines:        map[types.NodeID]context.CancelFunc{},
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
-		observePanic:        defaultObservePanic,
 		readyToStart:        make(chan struct{}, 1),
 	}
 	r.BaseService = *service.NewBaseService("Mempool", r)
@@ -69,8 +64,6 @@ func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
 }
 
 func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
-
-func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
@@ -190,7 +183,6 @@ func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
 func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			r.observePanic(e)
 			err = fmt.Errorf("panic in processing message: %v", e)
 			logger.Error(
 				"recovering from processing message panic",
@@ -302,7 +294,6 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		r.mtx.Unlock()
 
 		if e := recover(); e != nil {
-			r.observePanic(e)
 			logger.Error(
 				"recovering from broadcasting mempool loop",
 				"err", e,

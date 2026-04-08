@@ -26,6 +26,13 @@ type TxConstraints struct {
 	MaxGas       int64
 }
 
-// TxStateFetcher returns the precomputed consensus-derived mempool limits for the current
+// TxConstraintsFetcher returns the precomputed consensus-derived mempool limits for the current
 // state snapshot.
-type TxStateFetcher func() (TxConstraints, error)
+type TxConstraintsFetcher func() (TxConstraints, error)
+
+func NopTxConstraintsFetcher() (TxConstraints, error) {
+	return TxConstraints{
+		MaxDataBytes: math.MaxInt64,
+		MaxGas:       -1,
+	}, nil
+}

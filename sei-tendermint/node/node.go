@@ -189,12 +189,7 @@ func makeNode(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
-	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		app,
-		mempool.WithMetrics(nodeMetrics.mempool),
-		mempool.WithTxStateFetcher(sm.TxStateFetcherFromStore(stateStore)),
-	)
+	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	mpReactor, err := mempool.NewReactor(mp, router)
 	if err != nil {
 		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
