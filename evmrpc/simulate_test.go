@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
@@ -451,6 +452,46 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
 	_, err = backend2.HeaderByNumber(context.Background(), 1)
 	require.Error(t, err)
+}
+
+// Exercises getHeader when tmBlock is nil (CurrentHeader): successful block fetch vs gas-limit
+// fallback when Block RPC fails. HeaderByNumber / BlockByNumber already cover the tmBlock != nil path.
+func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	ctxProvider := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			return baseCtx
+		}
+		return baseCtx.WithBlockHeight(h)
+	}
+	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
+		tmClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
+
+	t.Run("CurrentHeader_fetches_block_when_tmBlock_nil", func(t *testing.T) {
+		h := backend.CurrentHeader()
+		require.NotNil(t, h)
+		require.Equal(t, int64(1), h.Number.Int64())
+		require.Equal(t, common.BytesToHash(MockBlockID.Hash), h.ParentHash)
+	})
+
+	t.Run("CurrentHeader_fallback_gas_limit_when_block_unavailable", func(t *testing.T) {
+		bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
+		wm := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		b2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+			legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
+			bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, wm)
+		h := b2.CurrentHeader()
+		require.NotNil(t, h)
+		require.Equal(t, int64(1), h.Number.Int64())
+		require.Equal(t, uint64(10_000_000), h.GasLimit)
+		require.Equal(t, common.Hash{}, h.ParentHash)
+	})
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
