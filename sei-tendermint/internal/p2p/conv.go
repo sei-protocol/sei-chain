@@ -40,7 +40,7 @@ func (k NodePublicKey) NodeID() types.NodeID {
 	return types.NodeIDFromPubKey(ed25519.PublicKey(k))
 }
 
-var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
+var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 	Encode: func(k NodePublicKey) *pb.NodePublicKey {
 		return &pb.NodePublicKey{Ed25519: k.Bytes()}
 	},

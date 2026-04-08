@@ -332,6 +332,10 @@ func TestGetConfigStateStore(t *testing.T) {
 	v.Set("state-store.ss-keep-recent", 50000)
 	v.Set("state-store.ss-prune-interval", 1200)
 	v.Set("state-store.ss-import-num-workers", 4)
+	v.Set("state-store.evm-ss-db-directory", "/custom/evm/ss/path")
+	v.Set("state-store.evm-ss-write-mode", "split_write")
+	v.Set("state-store.evm-ss-read-mode", "split_read")
+	v.Set("state-store.evm-ss-separate-dbs", true)
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
@@ -344,6 +348,10 @@ func TestGetConfigStateStore(t *testing.T) {
 	require.Equal(t, 50000, cfg.StateStore.KeepRecent)
 	require.Equal(t, 1200, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, 4, cfg.StateStore.ImportNumWorkers)
+	require.Equal(t, "/custom/evm/ss/path", cfg.StateStore.EVMDBDirectory)
+	require.Equal(t, seidbconfig.SplitWrite, cfg.StateStore.WriteMode)
+	require.Equal(t, seidbconfig.SplitRead, cfg.StateStore.ReadMode)
+	require.True(t, cfg.StateStore.SeparateEVMSubDBs)
 }
 
 func TestDefaultStateCommitConfig(t *testing.T) {
@@ -367,4 +375,7 @@ func TestDefaultStateStoreConfig(t *testing.T) {
 	require.Equal(t, seidbconfig.DefaultSSKeepRecent, cfg.StateStore.KeepRecent)
 	require.Equal(t, seidbconfig.DefaultSSPruneInterval, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, seidbconfig.DefaultSSImportWorkers, cfg.StateStore.ImportNumWorkers)
+	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateStore.WriteMode)
+	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateStore.ReadMode)
+	require.False(t, cfg.StateStore.SeparateEVMSubDBs)
 }

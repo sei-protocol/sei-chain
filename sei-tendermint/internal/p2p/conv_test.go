@@ -10,6 +10,8 @@ import (
 func TestHandshakeMsgConv(t *testing.T) {
 	rng := utils.TestRng()
 	for range 5 {
+		require.NoError(t, nodePublicKeyConv.Test(makeKey(rng).Public()))
+
 		var challenge conn.Challenge
 		utils.OrPanic1(rng.Read(challenge[:]))
 		key := makeKey(rng)

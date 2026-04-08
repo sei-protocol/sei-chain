@@ -11,7 +11,7 @@ const EVMStoreKey = commonevm.EVMStoreKey
 // Alias to EVMKeyKind from common/evm - use commonevm.ParseEVMKey for routing.
 type EVMStoreType = commonevm.EVMKeyKind
 
-// NumEVMStoreTypes is the number of active EVM store types with separate DBs.
+// NumEVMStoreTypes is the number of active EVM store key namespaces.
 // Used for pre-allocating maps. Types: Nonce, CodeHash, Code, Storage, Legacy.
 const NumEVMStoreTypes = 5
 
