@@ -180,6 +180,16 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	rts.waitForTxns(t, convertTex(txs), secondaries...)
 }
 
+func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[int] {
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		if count, ok := counts[nodeID]; ok {
+			return utils.Some(count)
+		}
+		return utils.None[int]()
+	}
+	panic("unreachable")
+}
+
 func TestReactorFailedCheckTxCount(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
 	require.NoError(t, err)
@@ -221,19 +231,19 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = false
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
-	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(reactor, "sender"))
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = true
 	reactor.cfg.CheckTxErrorThreshold = 10
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
-	require.Equal(t, 1, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("precheck-bad"))))
-	require.Equal(t, 2, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(reactor, "sender"))
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("sender=key=1"))))
-	require.Equal(t, 2, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(reactor, "sender"))
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
@@ -241,27 +251,52 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
+	preCheckErr := errors.New("bad tx")
+	txmp := setup(
+		t,
+		&application{Application: kvstore.NewApplication()},
+		0,
+		WithPreCheck(func(tx types.Tx) error {
+			if string(tx) == "precheck-bad" {
+				return preCheckErr
+			}
+			return nil
+		}),
+	)
 	reactor := &Reactor{
 		cfg:                 cfg.Mempool,
+		mempool:             txmp,
 		ids:                 NewMempoolIDs(),
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{"other": 1}),
+		router:              &p2p.Router{},
 		peerRoutines:        map[types.NodeID]context.CancelFunc{},
 	}
+	msg := p2p.RecvMsg[*pb.Message]{
+		From: "sender",
+		Message: &pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+			},
+		},
+	}
 
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
 	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
 		NodeID: "sender",
 		Status: p2p.PeerStatusUp,
 	})
-	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(reactor, "sender"))
 
-	reactor.setFailedCheckTxCount("sender", 2)
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
+
 	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
 		NodeID: "sender",
 		Status: p2p.PeerStatusDown,
 	})
 
-	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
-	require.Equal(t, 1, reactor.GetPeerFailedCheckTxCount("other"))
+	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "other"))
 	require.Equal(t, uint16(0), reactor.ids.GetForPeer("sender"))
 }
 
@@ -310,7 +345,7 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 	})
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
-	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
 }
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408

@@ -188,13 +188,6 @@ func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
 	}
 }
 
-func (r *Reactor) GetPeerFailedCheckTxCount(nodeID types.NodeID) int {
-	for counts := range r.failedCheckTxCounts.Lock() {
-		return counts[nodeID]
-	}
-	panic("unreachable")
-}
-
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
 // It will handle errors and any possible panics gracefully. A caller can handle
 // any error returned by sending a PeerError on the respective channel.
