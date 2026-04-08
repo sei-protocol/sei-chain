@@ -104,6 +104,37 @@ func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), "has been pruned")
 }
 
+func TestEnsureReceiptHeightAvailable(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+
+	t.Run("no receipt store allows any height", func(t *testing.T) {
+		wm := NewWatermarkManager(tmClient, nil, nil, nil)
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 5))
+	})
+
+	t.Run("receipt store with no pruning allows any height", func(t *testing.T) {
+		rs := &fakeReceiptStore{latest: 200, earliest: 0}
+		wm := NewWatermarkManager(tmClient, nil, nil, rs)
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 5))
+	})
+
+	t.Run("pruned receipt height returns error", func(t *testing.T) {
+		rs := &fakeReceiptStore{latest: 200, earliest: 150}
+		wm := NewWatermarkManager(tmClient, nil, nil, rs)
+		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(context.Background(), 100), "receipts have been pruned")
+		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(context.Background(), 149), "receipts have been pruned")
+	})
+
+	t.Run("height within receipt retention succeeds", func(t *testing.T) {
+		rs := &fakeReceiptStore{latest: 200, earliest: 150}
+		wm := NewWatermarkManager(tmClient, nil, nil, rs)
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 150))
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 175))
+	})
+}
+
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 22, EarliestBlockHeight: 11}},
@@ -233,11 +264,16 @@ func (f *fakeStateStore) Prune(_ int64) error                                   
 func (f *fakeStateStore) Close() error                                                 { return nil }
 
 type fakeReceiptStore struct {
-	latest int64
+	latest   int64
+	earliest int64
 }
 
 func (f *fakeReceiptStore) LatestVersion() int64 {
 	return f.latest
+}
+
+func (f *fakeReceiptStore) EarliestVersion() int64 {
+	return f.earliest
 }
 
 func (f *fakeReceiptStore) SetLatestVersion(version int64) error {

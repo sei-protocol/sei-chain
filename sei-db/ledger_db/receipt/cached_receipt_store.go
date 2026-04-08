@@ -60,6 +60,10 @@ func (s *cachedReceiptStore) SetLatestVersion(version int64) error {
 	return s.backend.SetLatestVersion(version)
 }
 
+func (s *cachedReceiptStore) EarliestVersion() int64 {
+	return s.backend.EarliestVersion()
+}
+
 func (s *cachedReceiptStore) SetEarliestVersion(version int64) error {
 	return s.backend.SetEarliestVersion(version)
 }

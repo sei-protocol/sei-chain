@@ -175,6 +175,11 @@ func (s *Store) SetEarliestVersion(version int64) {
 	s.earliestVersion.Store(version)
 }
 
+// EarliestVersion returns the earliest version retained in the store.
+func (s *Store) EarliestVersion() int64 {
+	return s.earliestVersion.Load()
+}
+
 // CacheRotateInterval returns the interval at which the cache should rotate.
 func (s *Store) CacheRotateInterval() uint64 {
 	return s.config.MaxBlocksPerFile

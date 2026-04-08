@@ -52,6 +52,10 @@ func (s *parquetReceiptStore) SetLatestVersion(version int64) error {
 	return nil
 }
 
+func (s *parquetReceiptStore) EarliestVersion() int64 {
+	return s.store.EarliestVersion()
+}
+
 func (s *parquetReceiptStore) SetEarliestVersion(version int64) error {
 	s.store.SetEarliestVersion(version)
 	return nil
