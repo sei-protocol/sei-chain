@@ -214,6 +214,10 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 			},
 		}
 	}
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusUp,
+	})
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = false
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
@@ -230,6 +234,83 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("sender=key=1"))))
 	require.Equal(t, 2, reactor.GetPeerFailedCheckTxCount("sender"))
+}
+
+func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	reactor := &Reactor{
+		cfg:                 cfg.Mempool,
+		ids:                 NewMempoolIDs(),
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{"other": 1}),
+		peerRoutines:        map[types.NodeID]context.CancelFunc{},
+	}
+
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusUp,
+	})
+	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
+
+	reactor.setFailedCheckTxCount("sender", 2)
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusDown,
+	})
+
+	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, 1, reactor.GetPeerFailedCheckTxCount("other"))
+	require.Equal(t, uint16(0), reactor.ids.GetForPeer("sender"))
+}
+
+func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	preCheckErr := errors.New("bad tx")
+	txmp := setup(
+		t,
+		&application{Application: kvstore.NewApplication()},
+		0,
+		WithPreCheck(func(tx types.Tx) error {
+			if string(tx) == "precheck-bad" {
+				return preCheckErr
+			}
+			return nil
+		}),
+	)
+	reactor := &Reactor{
+		cfg:                 cfg.Mempool,
+		mempool:             txmp,
+		ids:                 NewMempoolIDs(),
+		router:              &p2p.Router{},
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
+		peerRoutines:        map[types.NodeID]context.CancelFunc{},
+	}
+	msg := p2p.RecvMsg[*pb.Message]{
+		From: "sender",
+		Message: &pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+			},
+		},
+	}
+
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusUp,
+	})
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusDown,
+	})
+
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
+	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
 }
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408

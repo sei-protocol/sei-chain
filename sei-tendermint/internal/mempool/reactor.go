@@ -178,6 +178,9 @@ func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
 		return
 	}
 	for counts := range r.failedCheckTxCounts.Lock() {
+		if _, ok := counts[nodeID]; !ok {
+			return
+		}
 		counts[nodeID]++
 		if counts[nodeID] > r.cfg.CheckTxErrorThreshold {
 			r.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
@@ -240,6 +243,10 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
+		for counts := range r.failedCheckTxCounts.Lock() {
+			counts[peerUpdate.NodeID] = 0
+		}
+
 		// Do not allow starting new tx broadcast loops after reactor shutdown
 		// has been initiated. This can happen after we've manually closed all
 		// peer broadcast, but the router still sends in-flight peer updates.
@@ -266,6 +273,9 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 
 	case p2p.PeerStatusDown:
 		r.ids.Reclaim(peerUpdate.NodeID)
+		for counts := range r.failedCheckTxCounts.Lock() {
+			delete(counts, peerUpdate.NodeID)
+		}
 
 		// Check if we've started a tx broadcasting goroutine for this peer.
 		// If we have, we signal to terminate the goroutine via the channel's closure.
