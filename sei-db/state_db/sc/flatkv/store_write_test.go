@@ -1710,10 +1710,6 @@ func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
-
-	// Only zero-length keys return EVMKeyUnknown (alias for EVMKeyEmpty).
-	// All non-empty keys are routed to at least EVMKeyLegacy.
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{

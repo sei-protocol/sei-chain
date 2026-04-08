@@ -595,22 +595,41 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	cases := []struct {
+	// Nil and empty keys map to EVMKeyEmpty/EVMKeyUnknown, which is
+	// unsupported and errors under StrictKeyTypeCheck.
+	for _, tc := range []struct {
 		name string
 		key  []byte
 	}{
 		{"nil key", nil},
 		{"empty key", []byte{}},
-		{"single byte", []byte{0xFF}},
-		{"random bytes", []byte{0xDE, 0xAD, 0xBE, 0xEF}},
-		{"short nonce-like (2 bytes)", []byte{0x04, 0x01}},
-	}
-	for _, tc := range cases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := s.Get(tc.key)
 			require.Error(t, err)
 			_, err = s.Has(tc.key)
 			require.Error(t, err)
+		})
+	}
+
+	// Non-empty keys that don't match a known prefix are classified as
+	// EVMKeyLegacy, which is a supported type — Get/Has should not error.
+	for _, tc := range []struct {
+		name string
+		key  []byte
+	}{
+		{"single byte", []byte{0xFF}},
+		{"random bytes", []byte{0xDE, 0xAD, 0xBE, 0xEF}},
+		{"short nonce-like (2 bytes)", []byte{0x04, 0x01}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			val, found, err := s.Get(tc.key)
+			require.NoError(t, err)
+			require.False(t, found)
+			require.Nil(t, val)
+			found, err = s.Has(tc.key)
+			require.NoError(t, err)
+			require.False(t, found)
 		})
 	}
 }

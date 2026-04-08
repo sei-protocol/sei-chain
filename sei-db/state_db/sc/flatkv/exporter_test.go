@@ -751,33 +751,36 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 
 func TestExportImportLargerDataset(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cfg.SnapshotInterval = 5
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
-	// Write multiple key types across multiple addresses.
+	// Write multiple key types across multiple addresses in a single block
+	// so that all rows share the same block height. The importer commits
+	// everything at a single version, so block heights must match for the
+	// LtHash round-trip to be identical.
+	var allPairs []*proto.KVPair
 	for i := byte(1); i <= 10; i++ {
 		addr := addrN(i)
-		pairs := []*proto.KVPair{
+		allPairs = append(allPairs,
 			noncePair(addr, uint64(i)),
-			{
+			&proto.KVPair{
 				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(i))),
 				Value: padLeft32(i, i, i),
 			},
-		}
+		)
 		if i%3 == 0 {
-			pairs = append(pairs,
+			allPairs = append(allPairs,
 				codeHashPair(addr, codeHashN(i)),
 				codePair(addr, []byte{0x60, i}),
 			)
 		}
-		cs := &proto.NamedChangeSet{
-			Name:      "evm",
-			Changeset: proto.ChangeSet{Pairs: pairs},
-		}
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		commitAndCheck(t, s)
 	}
+	cs := &proto.NamedChangeSet{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: allPairs},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
 	originalHash := s.RootHash()
 
 	// Export.
@@ -796,14 +799,14 @@ func TestExportImportLargerDataset(t *testing.T) {
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	imp, err := s2.Importer(10)
+	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, originalHash, s2.RootHash(), "imported store should have identical RootHash")
 	require.NoError(t, s2.Close())
 }

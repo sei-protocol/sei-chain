@@ -1307,22 +1307,27 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Build state across multiple blocks
+	// Build state in a single block so that all rows share the same block
+	// height. The importer commits everything at a single version, so block
+	// heights must match for the LtHash round-trip to be identical.
+	var evmPairs []*proto.KVPair
+	var legacyCS []*proto.NamedChangeSet
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
+		evmPairs = append(evmPairs,
+			noncePair(addr, uint64(i)*10),
+			codeHashPair(addr, codeHashN(i)),
+			codePair(addr, []byte{0x60, 0x80, i}),
+			storagePair(addr, slotN(i), []byte{i, 0xBB}),
+		)
 		legacyKey := append([]byte{0x09}, addr[:]...)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-			namedCS(
-				noncePair(addr, uint64(i)*10),
-				codeHashPair(addr, codeHashN(i)),
-				codePair(addr, []byte{0x60, 0x80, i}),
-				storagePair(addr, slotN(i), []byte{i, 0xBB}),
-			),
-			makeChangeSet(legacyKey, []byte{i, 0xCC}, false),
-		}))
-		commitAndCheck(t, s)
+		legacyCS = append(legacyCS, makeChangeSet(legacyKey, []byte{i, 0xCC}, false))
 	}
-	verifyLtHashAtHeight(t, s, 5)
+	allCS := append([]*proto.NamedChangeSet{namedCS(evmPairs...)}, legacyCS...)
+	require.NoError(t, s.ApplyChangeSets(allCS))
+	commitAndCheck(t, s)
+
+	verifyLtHashAtHeight(t, s, 1)
 	srcHash := s.RootHash()
 
 	// Export
@@ -1344,7 +1349,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 
 	// Import into fresh store
 	s2 := setupTestStore(t)
-	imp, err := s2.Importer(5)
+	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
 	for _, n := range nodes {
@@ -1352,10 +1357,10 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, srcHash, s2.RootHash(),
 		"imported store RootHash should match source")
-	verifyLtHashAtHeight(t, s2, 5)
+	verifyLtHashAtHeight(t, s2, 1)
 	require.NoError(t, s2.Close())
 }
 
