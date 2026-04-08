@@ -42,8 +42,9 @@ type StoreConfig struct {
 // DefaultStoreConfig returns the default store configuration.
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
-		BlockFlushInterval: defaultBlockFlushInterval,
-		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
+		BlockFlushInterval:   defaultBlockFlushInterval,
+		MaxBlocksPerFile:     defaultMaxBlocksPerFile,
+		DisableTxIndexLookup: true,
 	}
 }
 
@@ -91,7 +92,6 @@ type Store struct {
 	closeOnce       sync.Once
 
 	pruneStop chan struct{}
-	txIndex   *TxIndex
 
 	// WarmupRecords holds receipts recovered from WAL for cache warming.
 	WarmupRecords []ReceiptRecord
@@ -104,6 +104,9 @@ type Store struct {
 // NewStore creates a new parquet store.
 func NewStore(cfg StoreConfig) (*Store, error) {
 	storeCfg := resolveStoreConfig(cfg)
+	if !storeCfg.DisableTxIndexLookup {
+		panic("not implemented")
+	}
 
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
@@ -120,11 +123,6 @@ func NewStore(cfg StoreConfig) (*Store, error) {
 		return nil, err
 	}
 
-	txIndex, err := OpenTxIndex(cfg.DBDirectory)
-	if err != nil {
-		return nil, err
-	}
-
 	store := &Store{
 		basePath:       cfg.DBDirectory,
 		receiptsBuffer: make([]ReceiptRecord, 0, 1000),
@@ -133,7 +131,6 @@ func NewStore(cfg StoreConfig) (*Store, error) {
 		Reader:         reader,
 		wal:            receiptWAL,
 		pruneStop:      make(chan struct{}),
-		txIndex:        txIndex,
 	}
 
 	if maxBlock, ok, err := reader.MaxReceiptBlockNumber(context.Background()); err != nil {
@@ -197,15 +194,9 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 	s.config.BlockFlushInterval = interval
 }
 
-// GetReceiptByTxHash retrieves a receipt by transaction hash.
-// When the tx index contains the block number, the search is narrowed to the
-// single parquet file covering that block instead of scanning all files.
+// GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of
+// the closed parquet files tracked by the reader.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
-	if !s.config.DisableTxIndexLookup {
-		if blockNum, ok := s.txIndex.GetBlockNumber(txHash); ok {
-			return s.Reader.GetReceiptByTxHashInBlock(ctx, txHash, blockNum)
-		}
-	}
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
 }
 
@@ -262,22 +253,9 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	indexEntries := make([]TxIndexEntry, 0, len(inputs))
 	for i := range inputs {
 		if err := s.applyReceiptLocked(inputs[i]); err != nil {
 			return err
-		}
-		if len(inputs[i].Receipt.TxHash) > 0 {
-			indexEntries = append(indexEntries, TxIndexEntry{
-				TxHash:      common.BytesToHash(inputs[i].Receipt.TxHash),
-				BlockNumber: inputs[i].BlockNumber,
-			})
-		}
-	}
-
-	if len(indexEntries) > 0 {
-		if err := s.txIndex.SetBatch(indexEntries); err != nil {
-			return fmt.Errorf("failed to update tx index: %w", err)
 		}
 	}
 
@@ -322,7 +300,6 @@ func (s *Store) SimulateCrash() {
 
 	_ = s.wal.Close()
 	_ = s.Reader.Close()
-	_ = s.txIndex.Close()
 }
 
 // Close closes the store.
@@ -351,9 +328,6 @@ func (s *Store) Close() error {
 		if closeErr := s.Reader.Close(); closeErr != nil {
 			err = closeErr
 			return
-		}
-		if closeErr := s.txIndex.Close(); closeErr != nil {
-			err = closeErr
 		}
 	})
 
@@ -411,9 +385,6 @@ func (s *Store) startPruning(pruneIntervalSeconds int64) {
 				pruned := s.PruneOldFiles(uint64(pruneBeforeBlock))
 				if pruned > 0 {
 					logger.Info("Pruned parquet file pairs older than block", "pruned-count", pruned, "block", pruneBeforeBlock)
-				}
-				if err := s.txIndex.PruneBefore(uint64(pruneBeforeBlock)); err != nil {
-					logger.Error("failed to prune tx index", "err", err)
 				}
 			}
 

@@ -198,9 +198,9 @@ type CryptoSimConfig struct {
 	// Required when ReceiptReadConcurrency > 0.
 	ReceiptReadMode string
 
-	// If true, disable the parquet tx_hash -> block_number index lookup during
-	// receipt reads. Cache hits still use the in-memory ledger cache, but backend
-	// misses will scan all closed parquet files instead of narrowing to one file.
+	// Must remain true. The parquet tx_hash -> block_number lookup path is
+	// intentionally unsupported; setting this to false will panic during receipt
+	// store initialization.
 	DisableReceiptTxIndexLookup bool
 
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
@@ -289,7 +289,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadConcurrency:            0,
 		ReceiptReadsPerSecond:             100,
 		ReceiptReadMode:                   "cache",
-		DisableReceiptTxIndexLookup:       false,
+		DisableReceiptTxIndexLookup:       true,
 		ReceiptLogFilterReadConcurrency:   0,
 		ReceiptLogFilterReadsPerSecond:    100,
 		ReceiptLogFilterReadMode:          "cache",

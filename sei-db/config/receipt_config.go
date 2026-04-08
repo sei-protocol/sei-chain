@@ -49,9 +49,9 @@ type ReceiptStoreConfig struct {
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
-	// DisableTxIndexLookup disables the tx_hash -> block_number lookup during
-	// receipt reads. When true, parquet receipt reads fall back to scanning all
-	// closed parquet files instead of narrowing to a single file via the tx index.
+	// DisableTxIndexLookup must remain true. The tx_hash -> block_number lookup
+	// implementation is intentionally unsupported; setting this to false will
+	// panic during parquet store initialization.
 	DisableTxIndexLookup bool `mapstructure:"disable-tx-index-lookup"`
 }
 
@@ -62,7 +62,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
-		DisableTxIndexLookup: false,
+		DisableTxIndexLookup: true,
 	}
 }
 

@@ -36,8 +36,9 @@ func TestClearWALActuallyFreesSpace(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:      dir,
-		MaxBlocksPerFile: 10,
+		DBDirectory:          dir,
+		MaxBlocksPerFile:     10,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -86,8 +87,9 @@ func TestClearWALEmptiesAfterMultipleRotations(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:      dir,
-		MaxBlocksPerFile: 5,
+		DBDirectory:          dir,
+		MaxBlocksPerFile:     5,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
