@@ -330,6 +330,21 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	if err != nil {
 		return nil, nil, err
 	}
+	return b.blockFromResultBlock(ctx, tmBlock)
+}
+
+func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	tmBlock, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, hash.Bytes(), 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return b.blockFromResultBlock(ctx, tmBlock)
+}
+
+// blockFromResultBlock builds an Ethereum block from an already-fetched Tendermint ResultBlock,
+// avoiding a redundant block fetch when the caller already has the block in hand.
+func (b Backend) blockFromResultBlock(ctx context.Context, tmBlock *coretypes.ResultBlock) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	blockNum := tmBlock.Block.Height
 	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
 	if err != nil {
 		return nil, nil, err
@@ -395,15 +410,6 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	}
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
 	return block, metadata, nil
-}
-
-func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	tmBlock, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, hash.Bytes(), 1)
-	if err != nil {
-		return nil, nil, err
-	}
-	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
-	return b.BlockByNumber(ctx, blockNumber)
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -552,7 +558,12 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
-	header := b.getHeader(context.Background(), big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()), nil)
+	height := b.ctxProvider(LatestCtxHeight).BlockHeight()
+	// CurrentHeader has no incoming context (ethapi.Backend interface constraint),
+	// so we use context.Background() and pre-fetch the block here to avoid a
+	// redundant fetch inside getHeader.
+	tmBlock, _ := blockByNumberRespectingWatermarks(context.Background(), b.tmClient, b.watermarks, &height, 1)
+	header := b.getHeader(context.Background(), big.NewInt(height), tmBlock)
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
@@ -605,15 +616,12 @@ func (b *Backend) getHeader(ctx context.Context, blockNumber *big.Int, tmBlock *
 		baseFee = nil
 	}
 	number := blockNumber.Int64()
-	var block *coretypes.ResultBlock
-	var blockErr error
-	if tmBlock != nil {
-		block = tmBlock
-	} else {
-		block, blockErr = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &number, 1)
+	block := tmBlock
+	if block == nil {
+		block, _ = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &number, 1)
 	}
 	var gasLimit uint64
-	if blockErr == nil {
+	if block != nil {
 		// Try to get consensus parameters from block results
 		blockRes, blockResErr := blockResultsWithRetry(ctx, b.tmClient, &number)
 		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
@@ -636,8 +644,7 @@ func (b *Backend) getHeader(ctx context.Context, blockNumber *big.Int, tmBlock *
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
-	//TODO: what should happen if an err occurs here?
-	if blockErr == nil {
+	if block != nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 		header.Time = toUint64(block.Block.Time.Unix())
 	}
