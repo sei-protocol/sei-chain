@@ -14,7 +14,6 @@ import (
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
 )
 
@@ -50,9 +49,7 @@ var (
 	packet        = types.NewPacket(validPacketData, 1, portid, chanid, cpportid, cpchanid, timeoutHeight, timeoutTimestamp)
 	invalidPacket = types.NewPacket(unknownPacketData, 0, portid, chanid, cpportid, cpchanid, timeoutHeight, timeoutTimestamp)
 
-	emptyProof     = []byte{}
-	invalidProofs1 = exported.Proof(nil)
-	invalidProofs2 = emptyProof
+	emptyProof = []byte{}
 
 	addr      = sdk.AccAddress("testaddr111111111111").String()
 	emptyAddr string

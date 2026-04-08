@@ -445,7 +445,7 @@ var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 		}
 	},
 	Decode: func(m *pb.LaneRange) (*LaneRange, error) {
-		lane, err := PublicKeyConv.Decode(m.Lane)
+		lane, err := PublicKeyConv.DecodeReq(m.Lane)
 		if err != nil {
 			return nil, fmt.Errorf("Lane: %w", err)
 		}
@@ -477,9 +477,6 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 		}
 	},
 	Decode: func(m *pb.View) (View, error) {
-		if m == nil {
-			return View{}, nil
-		}
 		if m.Index == nil {
 			return View{}, fmt.Errorf("index: missing")
 		}
@@ -509,7 +506,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
-		view, err := ViewConv.Decode(m.View)
+		view, err := ViewConv.DecodeReq(m.View)
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
 		}
@@ -517,7 +514,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("laneRanges: %w", err)
 		}
-		timestamp, err := TimeConv.Decode(m.Timestamp)
+		timestamp, err := TimeConv.DecodeReq(m.Timestamp)
 		if err != nil {
 			return nil, fmt.Errorf("timestamp: %w", err)
 		}
