@@ -11,6 +11,7 @@
     "ReceiptReadsPerSecond": 100000,
     "ReceiptReadMode": "duckdb",
     "DisableReceiptTxIndexLookup": true,
+    "ReceiptKeepRecent": 33333,
     "ReceiptLogFilterReadConcurrency": 0,
     "ReceiptLogFilterReadsPerSecond": 0,
     "ReceiptLogFilterReadMode": "duckdb",

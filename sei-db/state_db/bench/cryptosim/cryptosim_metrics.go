@@ -71,8 +71,6 @@ type CryptosimMetrics struct {
 	receiptLogFilterLogsReturned   metric.Int64Histogram
 	cacheFilterScanDuration        metric.Float64Histogram
 	cacheGetDuration               metric.Float64Histogram
-	cacheLogCount                  metric.Int64Gauge
-	cacheReceiptCount              metric.Int64Gauge
 
 	mainThreadPhase              *metrics.PhaseTimer
 	transactionPhaseTimerFactory *metrics.PhaseTimerFactory
@@ -264,16 +262,6 @@ func NewCryptosimMetrics(
 		metric.WithExplicitBucketBoundaries(receiptReadLatencyBuckets...),
 		metric.WithUnit("s"),
 	)
-	cacheLogCount, _ := meter.Int64Gauge(
-		"cryptosim_receipt_cache_log_count",
-		metric.WithDescription("Total number of log entries across all ledger cache chunks"),
-		metric.WithUnit("{count}"),
-	)
-	cacheReceiptCount, _ := meter.Int64Gauge(
-		"cryptosim_receipt_cache_receipt_count",
-		metric.WithDescription("Total number of receipts across all ledger cache chunks"),
-		metric.WithUnit("{count}"),
-	)
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
@@ -316,8 +304,6 @@ func NewCryptosimMetrics(
 		receiptLogFilterLogsReturned:   receiptLogFilterLogsReturned,
 		cacheFilterScanDuration:        cacheFilterScanDuration,
 		cacheGetDuration:               cacheGetDuration,
-		cacheLogCount:                  cacheLogCount,
-		cacheReceiptCount:              cacheReceiptCount,
 		mainThreadPhase:                mainThreadPhase,
 		transactionPhaseTimerFactory:   transactionPhaseTimerFactory,
 	}
@@ -675,20 +661,6 @@ func (m *CryptosimMetrics) RecordCacheGetDuration(seconds float64) {
 		return
 	}
 	m.cacheGetDuration.Record(context.Background(), seconds)
-}
-
-func (m *CryptosimMetrics) RecordCacheLogCount(count int64) {
-	if m == nil || m.cacheLogCount == nil {
-		return
-	}
-	m.cacheLogCount.Record(context.Background(), count)
-}
-
-func (m *CryptosimMetrics) RecordCacheReceiptCount(count int64) {
-	if m == nil || m.cacheReceiptCount == nil {
-		return
-	}
-	m.cacheReceiptCount.Record(context.Background(), count)
 }
 
 // startReceiptChannelDepthSampling periodically records the depth of the receipt channel.

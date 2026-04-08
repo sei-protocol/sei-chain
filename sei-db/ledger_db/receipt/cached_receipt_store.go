@@ -113,7 +113,6 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 		return err
 	}
 	s.cacheReceipts(receipts)
-	s.reportCacheCounts()
 	return nil
 }
 
@@ -300,12 +299,5 @@ func (s *cachedReceiptStore) reportCacheFilterScanDuration(seconds float64) {
 func (s *cachedReceiptStore) reportCacheGetDuration(seconds float64) {
 	if s.readObserver != nil {
 		s.readObserver.RecordCacheGetDuration(seconds)
-	}
-}
-
-func (s *cachedReceiptStore) reportCacheCounts() {
-	if s.readObserver != nil {
-		s.readObserver.RecordCacheLogCount(s.cache.LogCount())
-		s.readObserver.RecordCacheReceiptCount(s.cache.ReceiptCount())
 	}
 }

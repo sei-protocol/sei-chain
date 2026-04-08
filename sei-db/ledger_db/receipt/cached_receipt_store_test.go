@@ -48,10 +48,6 @@ func (f *fakeReceiptReadObserver) RecordCacheFilterScanDuration(float64) {}
 
 func (f *fakeReceiptReadObserver) RecordCacheGetDuration(float64) {}
 
-func (f *fakeReceiptReadObserver) RecordCacheLogCount(int64) {}
-
-func (f *fakeReceiptReadObserver) RecordCacheReceiptCount(int64) {}
-
 func newFakeReceiptBackend() *fakeReceiptBackend {
 	return &fakeReceiptBackend{
 		receipts: make(map[common.Hash]*types.Receipt),
