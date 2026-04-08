@@ -226,7 +226,6 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, client, 0)
-	txmp.EnableTxsAvailable()
 
 	ensureNoTxFire := func() {
 		timer := time.NewTimer(500 * time.Millisecond)

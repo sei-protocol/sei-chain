@@ -277,10 +277,6 @@ func TestReactorWithEvidence(t *testing.T) {
 			proxyAppConnMem,
 		)
 
-		if thisConfig.Consensus.WaitForTxs() {
-			mempool.EnableTxsAvailable()
-		}
-
 		// mock the evidence pool
 		// everyone includes evidence of another double signing
 		vIdx := (i + 1) % n

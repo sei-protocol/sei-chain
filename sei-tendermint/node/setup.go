@@ -142,37 +142,6 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	return ok && bytes.Equal(k.Address(), addr)
 }
 
-func createMempool(
-	cfg *config.Config,
-	app abci.Application,
-	store sm.Store,
-	memplMetrics *mempool.Metrics,
-) *mempool.TxMempool {
-	return mempool.NewTxMempool(
-		cfg.Mempool,
-		app,
-		mempool.WithMetrics(memplMetrics),
-		mempool.WithTxStateFetcher(sm.TxStateFetcherFromStore(store)),
-	)
-}
-
-func createMempoolReactor(
-	cfg *config.Config,
-	router *p2p.Router,
-	mp *mempool.TxMempool,
-) (*mempool.Reactor, error) {
-	reactor, err := mempool.NewReactor(mp, router)
-	if err != nil {
-		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
-	}
-
-	if cfg.Consensus.WaitForTxs() {
-		mp.EnableTxsAvailable()
-	}
-
-	return reactor, nil
-}
-
 func createEvidenceReactor(
 	cfg *config.Config,
 	dbProvider config.DBProvider,

@@ -59,7 +59,7 @@ func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
 		ids:                 NewMempoolIDs(),
 		router:              router,
 		channel:             channel,
-		peerRoutines:        make(map[types.NodeID]context.CancelFunc),
+		peerRoutines:        map[types.NodeID]context.CancelFunc{},
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
 		observePanic:        defaultObservePanic,
 		readyToStart:        make(chan struct{}, 1),

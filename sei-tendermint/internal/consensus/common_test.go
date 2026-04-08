@@ -469,10 +469,6 @@ func newStateWithConfigAndBlockStore(
 		proxyAppConnMem,
 	)
 
-	if thisConfig.Consensus.WaitForTxs() {
-		mempool.EnableTxsAvailable()
-	}
-
 	evpool := sm.EmptyEvidencePool{}
 
 	// Make State

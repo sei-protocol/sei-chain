@@ -47,7 +47,7 @@ type TxMempoolOption func(*TxMempool)
 type TxMempool struct {
 	metrics      *Metrics
 	config       *config.MempoolConfig
-	proxyAppConn abci.Application
+	app abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -121,13 +121,14 @@ type TxMempool struct {
 
 func NewTxMempool(
 	cfg *config.MempoolConfig,
-	proxyAppConn abci.Application,
+	app abci.Application,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
 	txmp := &TxMempool{
 		config:            cfg,
-		proxyAppConn:      proxyAppConn,
+		app:      app,
+		txsAvailable:      make(chan struct{}, 1),
 		height:            -1,
 		cache:             NopTxCache{},
 		blockFailedTxs:    NopTxCache{},
@@ -221,14 +222,6 @@ func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex
 // thread-safe.
 func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
 
-// EnableTxsAvailable enables the mempool to trigger events when transactions
-// are available on a block by block basis.
-func (txmp *TxMempool) EnableTxsAvailable() {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-	txmp.txsAvailable = make(chan struct{}, 1)
-}
-
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.
 func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
@@ -290,7 +283,7 @@ func (txmp *TxMempool) checkResponseState(tx types.Tx, res *abci.ResponseCheckTx
 //   - The transaction size exceeds the maximum transaction size as defined by the
 //     configuration provided to the mempool.
 //   - The transaction fails the consensus-derived mempool checks.
-//   - The proxyAppConn fails, e.g. the buffer is full.
+//   - The app fails, e.g. the buffer is full.
 //
 // If the mempool is full, we still execute CheckTx and attempt to find a lower
 // priority transaction to evict. If such a transaction exists, we remove the
@@ -320,7 +313,7 @@ func (txmp *TxMempool) CheckTx(
 	if txmp.config.DropUtilisationThreshold > 0 && txmp.utilisation() >= txmp.config.DropUtilisationThreshold {
 		txmp.metrics.CheckTxMetDropUtilisationThreshold.Add(1)
 
-		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
+		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			logger.Error("failed to get tx priority hint", "err", err)
@@ -356,7 +349,7 @@ func (txmp *TxMempool) CheckTx(
 		c.Increment(txHash)
 	}
 
-	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
@@ -919,7 +912,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 // updateReCheckTxs updates the recheck cursors using the gossipIndex. For
 // each transaction, it executes CheckTx. The global callback defined on
-// the proxyAppConn will be executed for each transaction after CheckTx is
+// the app will be executed for each transaction after CheckTx is
 // executed.
 //
 // NOTE:
@@ -943,7 +936,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
-			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{
+			res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.tx,
 				Type: abci.CheckTxTypeV2Recheck,
 			})
@@ -955,7 +948,6 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			txmp.handleRecheckResult(wtx.tx, res)
 		}
 	}
-
 }
 
 // canAddTx returns an error if we cannot insert the provided *WrappedTx into
@@ -1124,18 +1116,14 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 }
 
 func (txmp *TxMempool) notifyTxsAvailable() {
-	if txmp.NumTxsNotPending() == 0 {
+	if txmp.NumTxsNotPending() == 0 || txmp.notifiedTxsAvailable {
 		return
 	}
-
-	if txmp.txsAvailable != nil && !txmp.notifiedTxsAvailable {
-		// channel cap is 1, so this will send once
-		txmp.notifiedTxsAvailable = true
-
-		select {
-		case txmp.txsAvailable <- struct{}{}:
-		default:
-		}
+	// channel cap is 1, so this will send once
+	txmp.notifiedTxsAvailable = true
+	select {
+	case txmp.txsAvailable <- struct{}{}:
+	default:
 	}
 }
 

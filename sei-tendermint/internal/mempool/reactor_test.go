@@ -56,11 +56,7 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 		mempool := setup(t, app, 0)
 		rts.mempools[nodeID] = mempool
 
-		reactor, err := NewReactor(
-			cfg.Mempool,
-			mempool,
-			node.Router,
-		)
+		reactor, err := NewReactor(mempool, node.Router)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
@@ -95,7 +91,7 @@ func setupReactorForTest(t *testing.T, options ...TxMempoolOption) (*Reactor, *T
 	node := network.Nodes()[0]
 
 	txmp := NewTxMempool(cfg.Mempool, kvstore.NewApplication(), options...)
-	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
+	reactor, err := NewReactor(txmp, node.Router)
 	require.NoError(t, err)
 	reactor.MarkReadyToStart()
 	require.NoError(t, reactor.Start(t.Context()))
