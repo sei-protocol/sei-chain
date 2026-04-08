@@ -17,6 +17,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -182,7 +183,13 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, app, dbProvider)
+	// Autobahn requires a local validator key; remote signers are not supported.
+	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
+		return nil, combineCloseError(
+			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
+			makeCloser(closers))
+	}
+	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)), cfg, app, genDoc, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
