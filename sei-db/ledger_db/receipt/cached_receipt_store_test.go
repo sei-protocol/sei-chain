@@ -31,6 +31,10 @@ func (f *fakeReceiptBackend) LatestVersion() int64 {
 	return 0
 }
 
+func (f *fakeReceiptBackend) EarliestVersion() int64 {
+	return 0
+}
+
 func (f *fakeReceiptBackend) SetLatestVersion(int64) error {
 	return nil
 }
