@@ -14,7 +14,7 @@
     "ReceiptKeepRecent": 100000,
     "ReceiptPruneIntervalSeconds": 60,
     "ReceiptLogFilterReadConcurrency": 16,
-    "ReceiptLogFilterReadsPerSecond": 10000,
+    "ReceiptLogFilterReadsPerSecond": 100000,
     "ReceiptLogFilterReadMode": "cache",
     "ReceiptLogFilterMinBlockRange": 1,
     "ReceiptLogFilterMaxBlockRange": 10
