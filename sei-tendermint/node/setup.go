@@ -154,8 +154,7 @@ func createMempoolReactor(
 		cfg.Mempool,
 		appClient,
 		mempool.WithMetrics(memplMetrics),
-		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
-		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
+		mempool.WithTxStateFetcher(sm.TxStateFetcherFromStore(store)),
 	)
 
 	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)

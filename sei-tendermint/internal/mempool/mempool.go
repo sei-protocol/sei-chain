@@ -113,9 +113,8 @@ type TxMempool struct {
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
 	// however, a caller must explicitly grab a write-lock via Lock when updating
 	// the mempool via Update().
-	mtx       sync.RWMutex
-	preCheck  PreCheckFunc
-	postCheck PostCheckFunc
+	mtx            sync.RWMutex
+	txStateFetcher utils.Option[TxStateFetcher]
 
 	priorityReservoir *reservoir.Sampler[int64]
 }
@@ -157,18 +156,9 @@ func NewTxMempool(
 	return txmp
 }
 
-// WithPreCheck sets a filter for the mempool to reject a transaction if f(tx)
-// returns an error. This is executed before CheckTx. It only applies to the
-// first created block. After that, Update() overwrites the existing value.
-func WithPreCheck(f PreCheckFunc) TxMempoolOption {
-	return func(txmp *TxMempool) { txmp.preCheck = f }
-}
-
-// WithPostCheck sets a filter for the mempool to reject a transaction if
-// f(tx, resp) returns an error. This is executed after CheckTx. It only applies
-// to the first created block. After that, Update overwrites the existing value.
-func WithPostCheck(f PostCheckFunc) TxMempoolOption {
-	return func(txmp *TxMempool) { txmp.postCheck = f }
+// WithTxStateFetcher sets the source of consensus-derived mempool limits.
+func WithTxStateFetcher(fetcher TxStateFetcher) TxMempoolOption {
+	return func(txmp *TxMempool) { txmp.txStateFetcher = utils.Some(fetcher) }
 }
 
 // WithMetrics sets the mempool's metrics collector.
@@ -245,6 +235,49 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 	return txmp.txsAvailable
 }
 
+func (txmp *TxMempool) checkTxState(tx types.Tx) error {
+	fetcher, ok := txmp.txStateFetcher.Get()
+	if !ok {
+		return nil
+	}
+
+	constraints, err := fetcher()
+	if err != nil {
+		return err
+	}
+
+	txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx})
+	if txSize > constraints.MaxDataBytes {
+		return fmt.Errorf("tx size is too big: %d, max: %d", txSize, constraints.MaxDataBytes)
+	}
+
+	return nil
+}
+
+func (txmp *TxMempool) checkResponseState(tx types.Tx, res *abci.ResponseCheckTx) error {
+	fetcher, ok := txmp.txStateFetcher.Get()
+	if !ok {
+		return nil
+	}
+
+	constraints, err := fetcher()
+	if err != nil {
+		return err
+	}
+
+	if constraints.MaxGas == -1 {
+		return nil
+	}
+	if res.GasWanted < 0 {
+		return fmt.Errorf("gas wanted %d is negative", res.GasWanted)
+	}
+	if res.GasWanted > constraints.MaxGas {
+		return fmt.Errorf("gas wanted %d is greater than max gas %d", res.GasWanted, constraints.MaxGas)
+	}
+
+	return nil
+}
+
 // CheckTx executes the ABCI CheckTx method for a given transaction.
 // It acquires a read-lock and attempts to execute the application's
 // CheckTx ABCI method synchronously. We return an error if any of
@@ -256,7 +289,7 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 //     return nil.
 //   - The transaction size exceeds the maximum transaction size as defined by the
 //     configuration provided to the mempool.
-//   - The transaction fails Pre-Check (if it is defined).
+//   - The transaction fails the consensus-derived mempool checks.
 //   - The proxyAppConn fails, e.g. the buffer is full.
 //
 // If the mempool is full, we still execute CheckTx and attempt to find a lower
@@ -302,10 +335,8 @@ func (txmp *TxMempool) CheckTx(
 		}
 	}
 
-	if txmp.preCheck != nil {
-		if err := txmp.preCheck(tx); err != nil {
-			return types.ErrPreCheck{Reason: err}
-		}
+	if err := txmp.checkTxState(tx); err != nil {
+		return types.ErrPreCheck{Reason: err}
 	}
 
 	txHash := tx.Key()
@@ -612,18 +643,14 @@ func (txmp *TxMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
 	execTxResult []*abci.ExecTxResult,
-	newPreFn PreCheckFunc,
-	newPostFn PostCheckFunc,
+	newTxStateFetcher utils.Option[TxStateFetcher],
 	recheck bool,
 ) error {
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable = false
 
-	if newPreFn != nil {
-		txmp.preCheck = newPreFn
-	}
-	if newPostFn != nil {
-		txmp.postCheck = newPostFn
+	if fetcher, ok := newTxStateFetcher.Get(); ok {
+		txmp.txStateFetcher = utils.Some(fetcher)
 	}
 
 	for i, tx := range blockTxs {
@@ -688,8 +715,8 @@ func (txmp *TxMempool) Update(
 // goes to handleRecheckResult.
 //
 // addNewTransaction runs after the ABCI application executes CheckTx.
-// It runs the postCheck hook if one is defined on the mempool.
-// If the CheckTx response code is not OK, or if the postCheck hook
+// It runs the consensus-derived post-check for the current state snapshot.
+// If the CheckTx response code is not OK, or if the post-check
 // reports an error, the transaction is rejected. Otherwise, we attempt to insert
 // the transaction into the mempool.
 //
@@ -702,10 +729,7 @@ func (txmp *TxMempool) Update(
 // NOTE:
 // - An explicit lock is NOT required.
 func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheckTx, txInfo TxInfo) error {
-	var err error
-	if txmp.postCheck != nil {
-		err = txmp.postCheck(wtx.tx, res)
-	}
+	err := txmp.checkResponseState(wtx.tx, res)
 
 	if err != nil || res.Code != abci.CodeTypeOK {
 		// ignore bad transactions
@@ -851,10 +875,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// if an existing transaction is evicted during CheckTx and while this
 	// callback is being executed for the same evicted transaction.
 	if !txmp.txStore.IsTxRemoved(wtx) {
-		var err error
-		if txmp.postCheck != nil {
-			err = txmp.postCheck(tx, res.ResponseCheckTx)
-		}
+		err := txmp.checkResponseState(tx, res.ResponseCheckTx)
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
 		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {

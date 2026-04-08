@@ -2,7 +2,6 @@ package mempool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -227,12 +226,12 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 	receiverReactor := rts.reactors[receiver]
 	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
 	receiverReactor.cfg.CheckTxErrorThreshold = 2
-	receiverReactor.mempool.preCheck = func(tx types.Tx) error {
-		if string(tx) == "bad" {
-			return errors.New("bad tx")
-		}
-		return nil
-	}
+	receiverReactor.mempool.txStateFetcher = utils.Some(TxStateFetcher(func() (TxStateConstraints, error) {
+		return TxStateConstraints{
+			MaxDataBytes: 10,
+			MaxGas:       -1,
+		}, nil
+	}))
 	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
 
 	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
@@ -250,7 +249,7 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
 	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
 
-	badTx := []byte("bad")
+	badTx := []byte("bad-transaction")
 	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
 	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
 
@@ -265,14 +264,13 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
-	preCheckErr := errors.New("bad tx")
 	reactor, _ := setupReactorForTest(
 		t,
-		WithPreCheck(func(tx types.Tx) error {
-			if string(tx) == "precheck-bad" {
-				return preCheckErr
-			}
-			return nil
+		WithTxStateFetcher(func() (TxStateConstraints, error) {
+			return TxStateConstraints{
+				MaxDataBytes: 10,
+				MaxGas:       -1,
+			}, nil
 		}),
 	)
 	for counts := range reactor.failedCheckTxCounts.Lock() {
@@ -282,7 +280,7 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 		From: "sender",
 		Message: &pb.Message{
 			Sum: &pb.Message_Txs{
-				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad-transaction")}},
 			},
 		},
 	}
@@ -307,21 +305,20 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 }
 
 func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
-	preCheckErr := errors.New("bad tx")
 	reactor, _ := setupReactorForTest(
 		t,
-		WithPreCheck(func(tx types.Tx) error {
-			if string(tx) == "precheck-bad" {
-				return preCheckErr
-			}
-			return nil
+		WithTxStateFetcher(func() (TxStateConstraints, error) {
+			return TxStateConstraints{
+				MaxDataBytes: 10,
+				MaxGas:       -1,
+			}, nil
 		}),
 	)
 	msg := p2p.RecvMsg[*pb.Message]{
 		From: "sender",
 		Message: &pb.Message{
 			Sum: &pb.Message_Txs{
-				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad-transaction")}},
 			},
 		},
 	}
@@ -377,7 +374,7 @@ func TestReactorConcurrency(t *testing.T) {
 				deliverTxResponses[i] = &abci.ExecTxResult{Code: 0}
 			}
 
-			require.NoError(t, mempool.Update(ctx, 1, convertTex(txs), deliverTxResponses, nil, nil, true))
+			require.NoError(t, mempool.Update(ctx, 1, convertTex(txs), deliverTxResponses, utils.None[TxStateFetcher](), true))
 		}()
 
 		// 1. submit a bunch of txs
@@ -391,7 +388,7 @@ func TestReactorConcurrency(t *testing.T) {
 			mempool.Lock()
 			defer mempool.Unlock()
 
-			err := mempool.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), nil, nil, true)
+			err := mempool.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), utils.None[TxStateFetcher](), true)
 			require.NoError(t, err)
 		}()
 	}

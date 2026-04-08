@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -266,7 +267,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// commit half the transactions and ensure we fire an event
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 	ensureTxFire()
 	ensureNoTxFire()
@@ -299,7 +300,7 @@ func TestTxMempool_Size(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	require.Equal(t, len(rawTxs)/2, txmp.Size())
@@ -327,7 +328,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	txmp.Flush()
@@ -900,7 +901,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 				}
 
 				txmp.Lock()
-				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, nil, nil, true))
+				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, utils.None[TxStateFetcher](), true))
 				txmp.Unlock()
 
 				height++
@@ -941,7 +942,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
@@ -967,14 +968,14 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
 	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
 }
 
-func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
+func TestTxMempool_CheckTxStateFetcherError(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
@@ -991,33 +992,25 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-
-			client := &application{Application: kvstore.NewApplication()}
-
-			postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
-				return tc.err
-			}
-			txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
 			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-			tx := make([]byte, txmp.config.MaxTxBytes-1)
+			tx := make([]byte, config.TestMempoolConfig().MaxTxBytes-1)
 			_, err := rng.Read(tx)
 			require.NoError(t, err)
 
-			callback := func(res *abci.ResponseCheckTx) {
-				expectedErrString := ""
-				if tc.err != nil {
-					expectedErrString = tc.err.Error()
-					require.Equal(t, expectedErrString, txmp.postCheck(tx, res).Error())
-				} else {
-					require.Equal(t, nil, txmp.postCheck(tx, res))
-				}
-			}
+			txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0, WithTxStateFetcher(func() (TxStateConstraints, error) {
+				return TxStateConstraints{
+					MaxDataBytes: int64(len(tx) + 100),
+					MaxGas:       1,
+				}, tc.err
+			}))
+
 			if tc.err == nil {
-				require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0}))
-			} else {
-				err = txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0})
-				fmt.Print(err.Error())
+				require.Error(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+				return
 			}
+
+			err = txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
+			require.ErrorIs(t, err, tc.err)
 		})
 	}
 }
@@ -1141,7 +1134,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas
-	}, nil, nil, true))
+	}, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	// Tx should be removed from the mempool
@@ -1155,7 +1148,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas again
-	}, nil, nil, true))
+	}, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	require.Equal(t, 0, txmp.Size())
@@ -1186,7 +1179,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, nil, nil, true))
+	}, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	// Re-enter the mempool (first failure allows retry)
@@ -1196,7 +1189,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: abci.CodeTypeOK},
-	}, nil, nil, true))
+	}, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
@@ -1210,7 +1203,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, nil, nil, true))
+	}, utils.None[TxStateFetcher](), true))
 	txmp.Unlock()
 
 	// First-failure grace should be restored: tx allowed to re-enter

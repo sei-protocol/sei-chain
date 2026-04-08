@@ -189,14 +189,13 @@ func makeNode(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
-	node.router = router
-	node.rpcEnv.Router = router
-	node.shutdownOps = makeCloser(closers)
-
-	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
+	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, router)
 	if err != nil {
 		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
 	}
+	node.router = router
+	node.rpcEnv.Router = router
+	node.shutdownOps = makeCloser(closers)
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
