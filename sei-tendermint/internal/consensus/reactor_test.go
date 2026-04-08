@@ -79,7 +79,7 @@ func setup(
 			NopMetrics(),
 			config.DefaultConfig(),
 		)
-
+		require.NoError(t, err)
 		blocksSub, err := state.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 			ClientID: testSubscriber,
 			Query:    types.EventQueryNewBlock,
