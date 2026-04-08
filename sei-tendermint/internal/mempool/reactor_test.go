@@ -213,20 +213,31 @@ func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[
 	panic("unreachable")
 }
 
-func TestReactorFailedCheckTxCount(t *testing.T) {
-	preCheckErr := errors.New("bad tx")
-	reactor, txmp := setupReactorForTest(
-		t,
-		WithPreCheck(func(tx types.Tx) error {
-			if string(tx) == "precheck-bad" {
-				return preCheckErr
-			}
-			return nil
-		}),
-	)
+func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
+	ctx := t.Context()
+
+	rts := setupReactors(ctx, t, 2)
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+
+	rts.start(t)
+
+	receiverReactor := rts.reactors[receiver]
+	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
+	receiverReactor.cfg.CheckTxErrorThreshold = 2
+	receiverReactor.mempool.preCheck = func(tx types.Tx) error {
+		if string(tx) == "bad" {
+			return errors.New("bad tx")
+		}
+		return nil
+	}
+	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+
 	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
 		return p2p.RecvMsg[*pb.Message]{
-			From: "sender",
+			From: sender,
 			Message: &pb.Message{
 				Sum: &pb.Message_Txs{
 					Txs: &pb.Txs{Txs: [][]byte{tx}},
@@ -234,26 +245,23 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 			},
 		}
 	}
-	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
-		NodeID: "sender",
-		Status: p2p.PeerStatusUp,
-	})
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
 
-	reactor.cfg.CheckTxErrorBlacklistEnabled = false
-	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
-	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(reactor, "sender"))
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
 
-	reactor.cfg.CheckTxErrorBlacklistEnabled = true
-	reactor.cfg.CheckTxErrorThreshold = 10
+	badTx := []byte("bad")
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
 
-	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
-	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-2"))))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
 
-	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("precheck-bad"))))
-	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(reactor, "sender"))
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(receiverReactor, sender))
 
-	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("sender=key=1"))))
-	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(reactor, "sender"))
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	rts.network.Node(receiver).WaitForDisconnect(ctx, conn)
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
