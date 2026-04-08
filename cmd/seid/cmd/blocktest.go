@@ -46,10 +46,6 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 				return err
 			}
 			home := serverCtx.Viper.GetString(flags.FlagHome)
-			db, err := openDB(home)
-			if err != nil {
-				return err
-			}
 
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
@@ -57,7 +53,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			// turn on Cancun for block test
 			evmtypes.CancunTime = 0
 			a := app.New(
-				db,
+				nil,
 				nil,
 				true,
 				map[int64]bool{},

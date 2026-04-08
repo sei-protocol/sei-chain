@@ -240,16 +240,6 @@ func dependenciesValidated(tasksMap map[int]*deliverTxTask, deps map[int]struct{
 	return true
 }
 
-func filterTasks(tasks []*deliverTxTask, filter func(*deliverTxTask) bool) []*deliverTxTask {
-	var res []*deliverTxTask
-	for _, t := range tasks {
-		if filter(t) {
-			res = append(res, t)
-		}
-	}
-	return res
-}
-
 func allValidated(tasks []*deliverTxTask) bool {
 	for _, t := range tasks {
 		if !t.IsStatus(statusValidated) {

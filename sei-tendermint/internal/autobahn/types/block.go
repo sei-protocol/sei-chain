@@ -82,6 +82,7 @@ type Block struct {
 // GlobalBlock is a finalized block with global block number.
 type GlobalBlock struct {
 	Header       *BlockHeader
+	Timestamp    time.Time
 	GlobalNumber GlobalBlockNumber
 	Payload      *Payload
 	// Highest known finalized state.
@@ -257,11 +258,11 @@ var BlockConv = protoutils.Conv[*Block, *pb.Block]{
 		}
 	},
 	Decode: func(b *pb.Block) (*Block, error) {
-		header, err := BlockHeaderConv.Decode(b.Header)
+		header, err := BlockHeaderConv.DecodeReq(b.Header)
 		if err != nil {
 			return nil, err
 		}
-		payload, err := PayloadConv.Decode(b.Payload)
+		payload, err := PayloadConv.DecodeReq(b.Payload)
 		if err != nil {
 			return nil, err
 		}

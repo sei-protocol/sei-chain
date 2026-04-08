@@ -63,6 +63,10 @@ func (app *proxyClient) Query(ctx context.Context, req *types.RequestQuery) (*ty
 	return app.app.Query(ctx, req)
 }
 
+func (app *proxyClient) GetValidators() []types.ValidatorUpdate {
+	return app.app.GetValidators()
+}
+
 func (app *proxyClient) ListSnapshots(ctx context.Context, req *types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "list_snapshots", "type", "sync"))()
 	return app.app.ListSnapshots(ctx, req)

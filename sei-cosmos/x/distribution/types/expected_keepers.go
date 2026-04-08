@@ -64,6 +64,7 @@ type StakingKeeper interface {
 	GetLastTotalPower(ctx sdk.Context) sdk.Int
 	GetLastValidatorPower(ctx sdk.Context, valAddr sdk.ValAddress) int64
 
+	GetAllValidators(ctx sdk.Context) []stakingtypes.Validator
 	GetAllSDKDelegations(ctx sdk.Context) []stakingtypes.Delegation
 }
 

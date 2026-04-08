@@ -21,6 +21,8 @@ linters:
     - unconvert
     - misspell
   exclusions:
+    paths:
+      - ".*\\.pb\\.go$"
     rules:
       - linters:
           - gosec

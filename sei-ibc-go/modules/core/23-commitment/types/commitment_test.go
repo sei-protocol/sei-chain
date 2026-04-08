@@ -3,31 +3,33 @@ package types_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/stretchr/testify/suite"
-	dbm "github.com/tendermint/tm-db"
 )
 
 type MerkleTestSuite struct {
 	suite.Suite
 
-	store     *rootmulti.Store
+	store     *storev2rootmulti.Store
 	storeKey  *storetypes.KVStoreKey
-	iavlStore *iavl.Store
+	iavlStore storetypes.KVStore
 }
 
 func (suite *MerkleTestSuite) SetupTest() {
-	db := dbm.NewMemDB()
-	suite.store = rootmulti.NewStore(db)
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	ssConfig := seidbconfig.StateStoreConfig{}
 
+	suite.store = storev2rootmulti.NewStore(suite.T().TempDir(), scConfig, ssConfig, nil)
 	suite.storeKey = storetypes.NewKVStoreKey("iavlStoreKey")
 
 	suite.store.MountStoreWithDB(suite.storeKey, storetypes.StoreTypeIAVL, nil)
-	suite.store.LoadVersion(0)
+	suite.store.LoadLatestVersion()
 
-	suite.iavlStore = suite.store.GetCommitStore(suite.storeKey).(*iavl.Store)
+	suite.iavlStore = suite.store.GetCommitKVStore(suite.storeKey)
 }
 
 func TestMerkleTestSuite(t *testing.T) {

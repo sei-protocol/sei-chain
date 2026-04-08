@@ -17,26 +17,21 @@ import (
 
 // NodeKey is the persistent peer key.
 // It contains the nodes private key for authentication.
-type NodeKey struct {
-	// Canonical ID - hex-encoded pubkey's address (IDByteLength bytes)
-	ID NodeID
-	// Private key
-	PrivKey crypto.PrivKey
-}
+type NodeKey crypto.PrivKey
 
 type nodeKeyJSON struct {
 	ID      NodeID          `json:"id"`
 	PrivKey json.RawMessage `json:"priv_key"`
 }
 
+func (nk NodeKey) ID() NodeID { return NodeIDFromPubKey(nk.PubKey()) }
+
 func (nk NodeKey) MarshalJSON() ([]byte, error) {
-	pk, err := jsontypes.Marshal(nk.PrivKey)
+	pk, err := jsontypes.Marshal(crypto.PrivKey(nk))
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(nodeKeyJSON{
-		ID: nk.ID, PrivKey: pk,
-	})
+	return json.Marshal(nodeKeyJSON{ID: nk.ID(), PrivKey: pk})
 }
 
 func (nk *NodeKey) UnmarshalJSON(data []byte) error {
@@ -44,22 +39,17 @@ func (nk *NodeKey) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &nkjson); err != nil {
 		return err
 	}
-	var pk crypto.PrivKey
-	if err := jsontypes.Unmarshal(nkjson.PrivKey, &pk); err != nil {
-		return err
-	}
-	*nk = NodeKey{ID: nkjson.ID, PrivKey: pk}
-	return nil
+	return jsontypes.Unmarshal(nkjson.PrivKey, (*crypto.PrivKey)(nk))
 }
 
 // PubKey returns the peer's PubKey
 func (nk NodeKey) PubKey() crypto.PubKey {
-	return nk.PrivKey.Public()
+	return crypto.PrivKey(nk).Public()
 }
 
 // SaveAs persists the NodeKey to filePath.
 func (nk NodeKey) SaveAs(filePath string) error {
-	jsonBytes, err := json.Marshal(nk)
+	jsonBytes, err := nk.MarshalJSON()
 	if err != nil {
 		return err
 	}
@@ -88,11 +78,7 @@ func LoadOrGenNodeKey(filePath string) (NodeKey, error) {
 
 // GenNodeKey generates a new node key.
 func GenNodeKey() NodeKey {
-	privKey := ed25519.GenerateSecretKey()
-	return NodeKey{
-		ID:      NodeIDFromPubKey(privKey.Public()),
-		PrivKey: privKey,
-	}
+	return NodeKey(ed25519.GenerateSecretKey())
 }
 
 // LoadNodeKey loads NodeKey located in filePath.
@@ -106,6 +92,5 @@ func LoadNodeKey(filePath string) (NodeKey, error) {
 	if err != nil {
 		return NodeKey{}, err
 	}
-	nodeKey.ID = NodeIDFromPubKey(nodeKey.PubKey())
 	return nodeKey, nil
 }

@@ -248,17 +248,6 @@ func (e Events) ToABCIEvents() []abci.Event {
 	return res
 }
 
-func toBytes(i interface{}) []byte {
-	switch x := i.(type) {
-	case []uint8:
-		return x
-	case string:
-		return []byte(x)
-	default:
-		panic(i)
-	}
-}
-
 // Common event types and attribute keys
 var (
 	EventTypeTx = "tx"

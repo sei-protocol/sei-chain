@@ -93,6 +93,7 @@ func TestState(t *testing.T) {
 
 			wantG := &types.GlobalBlock{
 				GlobalNumber:  n,
+				Timestamp:     want.QCs[n].QC().Proposal().BlockTimestamp(committee, n).OrPanic("global block not in QC"),
 				Header:        wantB.Header(),
 				Payload:       wantB.Payload(),
 				FinalAppState: want.QCs[n].QC().Proposal().App(),
@@ -132,7 +133,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	}
 	blocksPerLane := int(nextQC/types.GlobalBlockNumber(committee.Lanes().Len())) + 2
 	laneBlocks := map[types.LaneID][]*types.Block{}
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		for range blocksPerLane {
 			var b *types.Block
 			if bs := laneBlocks[lane]; len(bs) > 0 {
@@ -147,7 +148,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var malBlocks []*types.Block
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		bs := laneBlocks[lane]
 		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
 		for _, b := range bs {

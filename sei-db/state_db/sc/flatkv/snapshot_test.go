@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,8 +22,8 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr Address, slot Slot, v
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: key, Value: padded}},
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: key, Value: padded}},
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1243,12 +1242,12 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	addr := Address{0xAB}
 	slot := Slot{0xCD}
 
-	pairs := []*iavl.KVPair{
+	pairs := []*proto.KVPair{
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: padLeft32(0x11)},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
-	cs := &proto.NamedChangeSet{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}}
+	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
 	require.NoError(t, err)
@@ -1345,7 +1344,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	ch := codeHashN(0x77)
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: padLeft32(0x11)},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
@@ -1358,7 +1357,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 
 	delCS := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
@@ -1745,9 +1744,9 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: make([]byte, vtype.CodeHashLen)},
+			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: make([]byte, vtype.CodeHashLength)},
 		}},
 	}
 	ch := vtype.CodeHash{0xAA}
@@ -1758,7 +1757,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
@@ -1800,7 +1799,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		}},
 	}
@@ -1810,7 +1809,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
@@ -1863,7 +1862,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
 		}},
 	}
@@ -1878,7 +1877,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
@@ -1900,4 +1899,248 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
 
 	require.NoError(t, s.Close())
+}
+
+func TestRollbackOnReadOnlyStore(t *testing.T) {
+	s := setupTestStore(t)
+
+	cs := makeChangeSet(
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
+		padLeft32(0x11), false,
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	err = ro.Rollback(1)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errReadOnly)
+	require.NoError(t, s.Close())
+}
+
+func TestRollbackToCurrentVersion(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	addr := addrN(0x02)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x22), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s) // v1 + snapshot
+
+	hashV1 := s.RootHash()
+
+	// Rollback to current version: should be a valid no-op.
+	require.NoError(t, s.Rollback(1))
+	require.Equal(t, int64(1), s.Version())
+	require.Equal(t, hashV1, s.RootHash())
+
+	val, found, err := s.Get(key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x22), val)
+}
+
+func TestRollbackToFutureVersionFails(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	cs := makeChangeSet(
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x03), slotN(0x01))),
+		padLeft32(0x33), false,
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s) // v1
+
+	err := s.Rollback(99)
+	require.Error(t, err, "rollback to future version should fail")
+}
+
+func TestRollbackDiscardsUncommittedPendingWrites(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	addr := addrN(0x04)
+	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	cs1 := makeChangeSet(key1, padLeft32(0x44), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s) // v1
+
+	// Apply but do NOT commit.
+	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x02)))
+	cs2 := makeChangeSet(key2, padLeft32(0x55), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+
+	require.NoError(t, s.Rollback(1))
+	require.Equal(t, int64(1), s.Version())
+
+	val, found, err := s.Get(key1)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x44), val)
+
+	_, found, err = s.Get(key2)
+	require.NoError(t, err)
+	require.False(t, found, "uncommitted pending write should be discarded after rollback")
+}
+
+func TestRollbackThenNewTimeline(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	cfg.SnapshotInterval = 1
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	addr := addrN(0x05)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+
+	cs1 := makeChangeSet(key, padLeft32(0x11), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s) // v1
+
+	cs2 := makeChangeSet(key, padLeft32(0x22), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	commitAndCheck(t, s) // v2
+
+	require.NoError(t, s.Rollback(1))
+	require.Equal(t, int64(1), s.Version())
+
+	// Write new data in the alternate timeline.
+	cs3 := makeChangeSet(key, padLeft32(0xFF), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v) // Version 2 in the new timeline.
+
+	val, found, err := s.Get(key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0xFF), val)
+}
+
+func TestRollbackPreservesWALContinuity(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	cfg.SnapshotInterval = 2
+
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := addrN(0x06)
+	for i := 1; i <= 4; i++ {
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i)), false)
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		_, err := s.Commit()
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, s.Rollback(2))
+
+	// Continue committing.
+	for i := 5; i <= 6; i++ {
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i)), false)
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		_, err := s.Commit()
+		require.NoError(t, err)
+	}
+	hashAfterNewCommits := s.RootHash()
+	require.NoError(t, s.Close())
+
+	// Reopen and verify WAL continuity is intact.
+	s2, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(4), s2.Version())
+	require.Equal(t, hashAfterNewCommits, s2.RootHash())
+}
+
+func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
+	s := setupTestStore(t)
+
+	cs := makeChangeSet(
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
+		padLeft32(0x11), false,
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	err = ro.WriteSnapshot("")
+	require.Error(t, err)
+	require.ErrorIs(t, err, errReadOnly)
+	require.NoError(t, s.Close())
+}
+
+func TestWriteSnapshotAtVersion0(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	err := s.WriteSnapshot("")
+	require.Error(t, err, "snapshot at version 0 should fail")
+	require.Contains(t, err.Error(), "cannot snapshot uncommitted store")
+}
+
+func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
+	s := setupTestStore(t)
+
+	cs := makeChangeSet(
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x07), slotN(0x01))),
+		padLeft32(0x77), false,
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	// WriteSnapshot should succeed even with active RO clone.
+	require.NoError(t, s.WriteSnapshot(""))
+
+	// RO clone should still work.
+	val, found, err := ro.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x07), slotN(0x01))))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x77), val)
+	require.NoError(t, s.Close())
+}
+
+func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	cs := makeChangeSet(
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x08), slotN(0x01))),
+		padLeft32(0x88), false,
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	// Pass a non-empty dir parameter. The implementation should ignore it.
+	require.NoError(t, s.WriteSnapshot("/tmp/this-should-be-ignored"))
+
+	// Verify snapshot was created in the correct location (not the passed dir).
+	val, found, err := s.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x08), slotN(0x01))))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x88), val)
 }

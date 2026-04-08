@@ -41,9 +41,10 @@ const (
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
-	FlagEVMSSDirectory = "state-store.evm-ss-db-directory"
-	FlagEVMSSWriteMode = "state-store.evm-ss-write-mode"
-	FlagEVMSSReadMode  = "state-store.evm-ss-read-mode"
+	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
+	FlagEVMSSWriteMode   = "state-store.evm-ss-write-mode"
+	FlagEVMSSReadMode    = "state-store.evm-ss-read-mode"
+	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -58,18 +59,20 @@ func SetupSeiDB(
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
-		logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
-		return baseAppOptions, nil
+		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
 	}
 	scConfig := parseSCConfigs(appOpts)
-	logger.Info("SeiDB SC is enabled now, IAVL will be fully deprecated soon", "sc-config", scConfig)
+	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
 	}
 	if ssConfig.EVMEnabled() {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",
-			"writeMode", ssConfig.WriteMode, "readMode", ssConfig.ReadMode)
+			"writeMode", ssConfig.WriteMode,
+			"readMode", ssConfig.ReadMode,
+			"separateDBs", ssConfig.SeparateEVMSubDBs,
+		)
 	}
 	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
@@ -146,6 +149,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
+	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
 		parsedWM, err := config.ParseWriteMode(wm)
 		if err != nil {

@@ -138,7 +138,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push votes for all the blocks.")
-			for _, lane := range committee.Lanes().All() {
+			for lane := range committee.Lanes().All() {
 				next := state.NextBlock(lane)
 				for i := types.LaneRangeOpt(prev, lane).Next(); i < next; i++ {
 					b, err := state.Block(ctx, lane, i)
@@ -182,7 +182,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that the executed local blocks have been pruned")
-			for _, lane := range committee.Lanes().All() {
+			for lane := range committee.Lanes().All() {
 				if lr := types.LaneRangeOpt(prev, lane); lr.Next() > 0 {
 					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, data.ErrPruned) {
 						return fmt.Errorf("state.Block(): %w, want %v", err, data.ErrPruned.Error())
@@ -259,7 +259,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				}
 			}
 
-			for _, lane := range committee.Lanes().All() {
+			for lane := range committee.Lanes().All() {
 				next := state.NextBlock(lane)
 				for n := types.LaneRangeOpt(prev, lane).Next(); n < next; n++ {
 					b, err := state.Block(ctx, lane, n)
@@ -304,7 +304,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		}
 
 		wantNextBlocks = make(map[types.LaneID]types.BlockNumber, committee.Lanes().Len())
-		for _, lane := range committee.Lanes().All() {
+		for lane := range committee.Lanes().All() {
 			wantNextBlocks[lane] = state.NextBlock(lane)
 		}
 		return nil
@@ -324,7 +324,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	_, ok = state2.LastCommitQC().Load().Get()
 	require.True(t, ok, "LastCommitQC should be set after restart")
 
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		require.Equal(t, wantNextBlocks[lane], state2.NextBlock(lane),
 			"NextBlock(%v) should match pre-restart value", lane)
 	}

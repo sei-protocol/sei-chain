@@ -244,6 +244,17 @@ func (n *TestNode) WaitForConns(ctx context.Context, wantPeers int) {
 	}
 }
 
+func (n *TestNode) WaitForConnAndGet(ctx context.Context, target types.NodeID) (conn *ConnV2) {
+	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
+		ok := false
+		conn, ok = GetAny(conns, target)
+		return ok
+	}); err != nil {
+		panic(err)
+	}
+	return
+}
+
 func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
 	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		_, ok := GetAny(conns, target)

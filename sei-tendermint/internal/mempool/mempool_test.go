@@ -181,7 +181,7 @@ func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempo
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return NewTxMempool(cfg.Mempool, app, NewTestPeerEvictor(), options...)
+	return NewTxMempool(cfg.Mempool, app, options...)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
@@ -217,23 +217,6 @@ func convertTex(in []testTx) types.Txs {
 	}
 
 	return out
-}
-
-type TestPeerEvictor struct {
-	evicting map[types.NodeID]struct{}
-}
-
-func NewTestPeerEvictor() *TestPeerEvictor {
-	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
-}
-
-func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
-	_, ok := e.evicting[peerID]
-	return ok
-}
-
-func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
-	e.evicting[id] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {
@@ -1039,49 +1022,6 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 	}
 }
 
-func TestTxMempool_FailedCheckTxCount(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
-		return nil
-	}
-	txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
-	badTx := make([]byte, txmp.config.MaxTxBytes+1)
-
-	callback := func(res *abci.ResponseCheckTx) {
-		require.Equal(t, nil, txmp.postCheck(badTx, res))
-	}
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = false
-
-	// bad tx before enabling blacklisting does not increment the failed count
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = true
-	txmp.config.CheckTxErrorThreshold = 2
-
-	// first bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// second bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	goodTx := []byte("sender=key=1")
-	// good tx doesn't increase failedCount
-	require.NoError(t, txmp.CheckTx(ctx, goodTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// three strikes, you're out!
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.True(t, txmp.router.(*TestPeerEvictor).IsEvicted("sender"))
-}
-
 func TestAppendCheckTxErr(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	txmp := setup(t, client, 500)
@@ -1182,4 +1122,98 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	// Verify the last 2 transactions are non-EVM
 	require.True(t, strings.HasPrefix(string(reapedTxs[3]), "sender"), "Fourth tx should be non-EVM: %s", string(reapedTxs[3]))
 	require.True(t, strings.HasPrefix(string(reapedTxs[4]), "sender"), "Fifth tx should be non-EVM: %s", string(reapedTxs[4]))
+}
+
+func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500)
+
+	tx := types.Tx("sender-0-0=key=1000")
+
+	// Submit the tx — should enter the mempool
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate block inclusion where the tx fails (non-OK code)
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Tx should be removed from the mempool
+	require.Equal(t, 0, txmp.Size())
+
+	// First failure: tx should have been removed from cache, allowing re-entry
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate a second block failure for the same tx
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas again
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	require.Equal(t, 0, txmp.Size())
+
+	// Second failure: tx should remain in cache — CheckTx should reject it
+	err := txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
+	require.Equal(t, types.ErrTxInCache, err)
+	require.Equal(t, 0, txmp.Size())
+
+	// A different tx (different hash) should still be admitted
+	differentTx := types.Tx("sender-0-0=key=2000")
+	require.NoError(t, txmp.CheckTx(ctx, differentTx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+}
+
+func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500)
+
+	tx := types.Tx("sender-0-0=key=1000")
+	txKey := tx.Key()
+
+	// Submit and fail once in a block
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Re-enter the mempool (first failure allows retry)
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// This time the tx succeeds in the block
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: abci.CodeTypeOK},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Success clears the failure tracker. Simulate LRU eviction of the
+	// main cache entry so we can verify the tracker was actually reset.
+	txmp.cache.Remove(txKey)
+
+	// Tx should now be re-admittable
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// Fail again in a block — this should be treated as a fresh first failure
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// First-failure grace should be restored: tx allowed to re-enter
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
 }

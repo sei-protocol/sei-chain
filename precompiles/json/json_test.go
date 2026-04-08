@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
@@ -129,10 +127,7 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 	evm := &vm.EVM{StateDB: stateDB}
 
 	type args struct {
-		in0    sdk.Context
-		method *abi.Method
-		args   []interface{}
-		value  *big.Int
+		value *big.Int
 	}
 
 	type input struct {
@@ -274,6 +269,7 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 			p, err := json.NewPrecompile(nil)
 			require.Nil(t, err)
 			method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID)
+			require.Nil(t, err)
 			inputArgs, err := method.Inputs.Pack(tt.input.body, tt.input.indexArray)
 			require.Nil(t, err)
 			in := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID, inputArgs...)
@@ -307,13 +303,16 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	p, err := json.NewPrecompile(nil)
 	require.NoError(t, err)
 	methodExtractAsBytes, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
+	require.NoError(t, err)
 	methodExtractAsBytesList, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID)
+	require.NoError(t, err)
 	methodExtractAsBytesFromArray, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID)
 	require.NoError(t, err)
 
 	body := []byte("{\"data\":{\"exchange_rates\": [[1727762390,\"1.033207463698531844\"],[1727545459,\"1.032887092691178063\"]],\"apr\": \"0.000101145698240442\"}}")
 
 	args, err := methodExtractAsBytes.Inputs.Pack(body, "data")
+	require.NoError(t, err)
 	input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
 	res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 	require.NoError(t, err)
@@ -321,6 +320,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	require.NoError(t, err)
 
 	args, err = methodExtractAsBytesList.Inputs.Pack(data[0].([]byte), "exchange_rates")
+	require.NoError(t, err)
 	input2 := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
 	res, err = p.Run(evm, common.Address{}, common.Address{}, input2, nil, true, false, nil)
 	require.NoError(t, err)

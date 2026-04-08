@@ -13,10 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/testing/simapp"
 )
 
-const (
-	height = 4
-)
-
 var clientHeight = clienttypes.NewHeight(0, 10)
 
 type LocalhostTestSuite struct {

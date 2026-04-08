@@ -25,8 +25,9 @@ Data is stored in big-endian order. Bytecode is variable length.
 
 const (
 	codeVersionStart     = 0
-	codeBlockHeightStart = 1
-	codeBytecodeStart    = 9
+	codeBlockHeightStart = codeVersionStart + VersionLength
+
+	codeBytecodeStart = codeBlockHeightStart + BlockHeightLength
 )
 
 var _ VType = (*CodeData)(nil)

@@ -25,9 +25,10 @@ Data is stored in big-endian order.
 
 const (
 	storageVersionStart     = 0
-	storageBlockHeightStart = 1
-	storageValueStart       = 9
-	storageDataLength       = 41
+	storageBlockHeightStart = storageVersionStart + VersionLength
+	storageValueStart       = storageBlockHeightStart + BlockHeightLength
+
+	storageDataLength = VersionLength + BlockHeightLength + StorageValueLength
 )
 
 var _ VType = (*StorageData)(nil)

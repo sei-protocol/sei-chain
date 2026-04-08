@@ -113,19 +113,8 @@ func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 			return -1, false, nil
 		}
 		return cd.GetBlockHeight(), true, nil
-
-	case evm.EVMKeyLegacy:
-		ld, err := s.getLegacyData(keyBytes)
-		if err != nil {
-			return -1, false, err
-		}
-		if ld == nil || ld.IsDelete() {
-			return -1, false, nil
-		}
-		return ld.GetBlockHeight(), true, nil
-
 	default:
-		return -1, false, nil
+		return -1, false, fmt.Errorf("unsupported key type: %v", kind)
 	}
 }
 

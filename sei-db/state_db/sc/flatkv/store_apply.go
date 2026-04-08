@@ -220,9 +220,9 @@ func processLegacyChanges(
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
 			// Deletion is equivalent to setting the legacy value to a zero value
-			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(nil)
+			result[keyStr] = vtype.NewLegacyData().SetValue(nil)
 		} else {
-			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
+			result[keyStr] = vtype.NewLegacyData().SetValue(rawChange)
 		}
 	}
 	return result, nil

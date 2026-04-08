@@ -9,7 +9,6 @@ import (
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -96,12 +95,12 @@ func benchmarkPebbleWriteAsync(b *testing.B, receiptsPerBlock int, blocks int) {
 
 // applyReceiptsAsync writes receipts to pebble with async durability.
 func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRecord) error {
-	pairs := make([]*iavl.KVPair, 0, len(receipts))
+	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {
 			continue
 		}
-		kvPair := &iavl.KVPair{
+		kvPair := &proto.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
 			Value: record.ReceiptBytes,
 		}
@@ -110,7 +109,7 @@ func applyReceiptsAsync(store *receiptStore, version int64, receipts []ReceiptRe
 
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 	return store.db.ApplyChangesetAsync(version, []*proto.NamedChangeSet{ncs})
 }

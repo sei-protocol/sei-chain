@@ -6,7 +6,6 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
@@ -68,7 +67,7 @@ func TestUnpackInterfaces_Header(t *testing.T) {
 	registry := testdata.NewTestInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(registry)
 
-	pk := secp256k1.GenPrivKey().PubKey().(cryptotypes.PubKey)
+	pk := secp256k1.GenPrivKey().PubKey()
 	any, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(t, err)
 
@@ -92,7 +91,7 @@ func TestUnpackInterfaces_HeaderData(t *testing.T) {
 	registry := testdata.NewTestInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(registry)
 
-	pk := secp256k1.GenPrivKey().PubKey().(cryptotypes.PubKey)
+	pk := secp256k1.GenPrivKey().PubKey()
 	any, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(t, err)
 

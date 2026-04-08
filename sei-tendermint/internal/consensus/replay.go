@@ -8,11 +8,13 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -132,6 +134,10 @@ func NewHandshaker(
 	}
 }
 
+func newReplayTxMempool(appClient abci.Application) *mempool.TxMempool {
+	return mempool.NewTxMempool(config.DefaultMempoolConfig(), appClient)
+}
+
 // NBlocks returns the number of blocks applied to the state.
 func (h *Handshaker) NBlocks() int {
 	return h.nBlocks
@@ -139,7 +145,7 @@ func (h *Handshaker) NBlocks() int {
 
 // TODO: retry the handshake/replay if it fails ?
 func (h *Handshaker) Handshake(ctx context.Context, appClient abci.Application) error {
-	res, err := appClient.Info(ctx, &proxy.RequestInfo)
+	res, err := appClient.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("error calling Info: %w", err)
 	}
@@ -194,15 +200,7 @@ func (h *Handshaker) ReplayBlocks(
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-
-		pbParams := h.genDoc.ConsensusParams.ToProto()
-		res, err := appClient.InitChain(ctx, &abci.RequestInitChain{
-			Time:            h.genDoc.GenesisTime,
-			ChainId:         h.genDoc.ChainID,
-			InitialHeight:   h.genDoc.InitialHeight,
-			ConsensusParams: &pbParams,
-			AppStateBytes:   h.genDoc.AppState,
-		})
+		res, err := appClient.InitChain(ctx, h.genDoc.ToRequestInitChain())
 		if err != nil {
 			return nil, err
 		}
@@ -393,7 +391,7 @@ func (h *Handshaker) replayBlocks(
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(h.stateStore, appClient, newReplayTxMempool(appClient), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 			appHash, err = sm.ExecCommitBlock(ctx,
 				blockExec, appClient, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
@@ -436,7 +434,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(h.stateStore, appClient, newReplayTxMempool(appClient), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)

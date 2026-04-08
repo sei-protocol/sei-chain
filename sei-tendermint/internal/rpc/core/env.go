@@ -65,7 +65,7 @@ type consensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	ProxyApp abci.Application
+	App abci.Application
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -87,7 +87,7 @@ type Environment struct {
 	EventSinks        []indexer.EventSink
 	EventBus          *eventbus.EventBus // thread safe
 	EventLog          *eventlog.Log
-	Mempool           mempool.Mempool
+	Mempool           *mempool.TxMempool
 	StateSyncMetricer statesync.Metricer
 
 	Config config.RPCConfig

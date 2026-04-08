@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -75,8 +74,8 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 			Changesets: []*proto.NamedChangeSet{
 				{
 					Name: evm.EVMStoreKey,
-					Changeset: iavl.ChangeSet{
-						Pairs: []*iavl.KVPair{
+					Changeset: proto.ChangeSet{
+						Pairs: []*proto.KVPair{
 							{Key: evmKey, Value: evmValue},
 						},
 					},
@@ -122,8 +121,8 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 		changeset := []*proto.NamedChangeSet{
 			{
 				Name: evm.EVMStoreKey,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: evmKey, Value: []byte{byte(version)}},
 					},
 				},
@@ -145,8 +144,8 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 			Changesets: []*proto.NamedChangeSet{
 				{
 					Name: evm.EVMStoreKey,
-					Changeset: iavl.ChangeSet{
-						Pairs: []*iavl.KVPair{
+					Changeset: proto.ChangeSet{
+						Pairs: []*proto.KVPair{
 							{Key: evmKey, Value: []byte{byte(version)}},
 						},
 					},
@@ -191,8 +190,8 @@ func TestExtractEVMChanges(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: evm.EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("storage_val")},
 					{Key: nonceKey, Value: []byte("nonce_val")},
 				},
@@ -200,8 +199,8 @@ func TestExtractEVMChanges(t *testing.T) {
 		},
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: nonEvmKey, Value: []byte("bank_val")},
 				},
 			},
@@ -239,8 +238,8 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 		err := mvccDB.ApplyChangesetSync(v, []*proto.NamedChangeSet{
 			{
 				Name: evm.EVMStoreKey,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: evmKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -260,8 +259,8 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 			Changesets: []*proto.NamedChangeSet{
 				{
 					Name: evm.EVMStoreKey,
-					Changeset: iavl.ChangeSet{
-						Pairs: []*iavl.KVPair{
+					Changeset: proto.ChangeSet{
+						Pairs: []*proto.KVPair{
 							{Key: evmKey, Value: []byte{byte(v)}},
 						},
 					},

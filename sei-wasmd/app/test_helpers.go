@@ -46,6 +46,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
@@ -75,7 +77,18 @@ func setup(t testing.TB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Opt
 	require.NoError(t, err)
 	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
 	require.NoError(t, err)
-	baseAppOpts := []func(*bam.BaseApp){bam.SetSnapshotStore(snapshotStore), bam.SetSnapshotKeepRecent(2)}
+
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.SnapshotInterval = 1
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	scConfig.HistoricalProofRateLimit = 0
+	scConfig.HistoricalProofMaxInFlight = 100
+	ssConfig := seidbconfig.StateStoreConfig{}
+	cms := storev2rootmulti.NewStore(nodeHome, scConfig, ssConfig, nil)
+	cmsOpt := func(baseApp *bam.BaseApp) { baseApp.SetCMS(cms) }
+
+	baseAppOpts := []func(*bam.BaseApp){cmsOpt, bam.SetSnapshotStore(snapshotStore), bam.SetSnapshotKeepRecent(2)}
 	db := dbm.NewMemDB()
 	app := NewWasmApp(db, nil, true, map[int64]bool{}, nodeHome, invCheckPeriod, nil, MakeEncodingConfig(), wasm.EnableAllProposals, EmptyBaseAppOptions{}, opts, baseAppOpts...)
 	if withGenesis {

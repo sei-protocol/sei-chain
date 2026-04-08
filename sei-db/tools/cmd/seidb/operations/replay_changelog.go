@@ -14,7 +14,6 @@ import (
 )
 
 var ssStore types.StateStore
-var dryRun = true
 
 func ReplayChangelogCmd() *cobra.Command {
 	dumpDbCmd := &cobra.Command{
@@ -66,7 +65,6 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 
 	// open the database if this is not a dry run
 	if noDryRun {
-		dryRun = false
 		ssConfig := config.DefaultStateStoreConfig()
 		ssConfig.KeepRecent = 0
 		ssConfig.DBDirectory = dbDir

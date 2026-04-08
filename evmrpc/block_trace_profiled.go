@@ -27,8 +27,8 @@ const profiledDefaultTraceTimeout = 5 * time.Second
 const profiledDefaultTraceReexec = uint64(128)
 const maxProfiledTraceWorkers = 16
 
-func shouldUseProfiledBlockTrace(config *tracers.TraceConfig) bool {
-	return config == nil || config.Tracer == nil || *config.Tracer == ""
+func (api *DebugAPI) shouldUseProfiledBlockTrace(config *tracers.TraceConfig) bool {
+	return api.profiledBlockTrace && (config == nil || config.Tracer == nil || *config.Tracer == "")
 }
 
 func (api *DebugAPI) profiledTraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, error) {
