@@ -48,17 +48,13 @@ type Reactor struct {
 }
 
 // NewReactor returns a reference to a new reactor.
-func NewReactor(
-	cfg *config.MempoolConfig,
-	txmp *TxMempool,
-	router *p2p.Router,
-) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
+func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(txmp.config))
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		cfg:                 cfg,
+		cfg:                 txmp.config,
 		mempool:             txmp,
 		ids:                 NewMempoolIDs(),
 		router:              router,

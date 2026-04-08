@@ -142,31 +142,35 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	return ok && bytes.Equal(k.Address(), addr)
 }
 
-func createMempoolReactor(
+func createMempool(
 	cfg *config.Config,
-	appClient abci.Application,
+	app abci.Application,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
-	router *p2p.Router,
-) (*mempool.Reactor, *mempool.TxMempool, error) {
-
-	mp := mempool.NewTxMempool(
+) *mempool.TxMempool {
+	return mempool.NewTxMempool(
 		cfg.Mempool,
-		appClient,
+		app,
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithTxStateFetcher(sm.TxStateFetcherFromStore(store)),
 	)
+}
 
-	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)
+func createMempoolReactor(
+	cfg *config.Config,
+	router *p2p.Router,
+	mp *mempool.TxMempool,
+) (*mempool.Reactor, error) {
+	reactor, err := mempool.NewReactor(mp, router)
 	if err != nil {
-		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
 	}
 
 	if cfg.Consensus.WaitForTxs() {
 		mp.EnableTxsAvailable()
 	}
 
-	return reactor, mp, nil
+	return reactor, nil
 }
 
 func createEvidenceReactor(
@@ -196,7 +200,7 @@ func createRouter(
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	cfg *config.Config,
-	appClient abci.Application,
+	app abci.Application,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -204,7 +208,7 @@ func createRouter(
 	if err != nil {
 		return nil, closer, err
 	}
-	options := getRouterConfig(cfg, appClient)
+	options := getRouterConfig(cfg, app)
 	options.Endpoint = ep
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
