@@ -114,6 +114,7 @@ func NewWAL(dir string) (dbwal.GenericWAL[WALEntry], error) {
 		decodeWALEntry,
 		dir,
 		dbwal.Config{
+			// Allow the WAL to be fully emptied after rotation/truncation.
 			AllowEmpty: true,
 		},
 	)

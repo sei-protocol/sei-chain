@@ -79,16 +79,22 @@ func TestGetLogsPrunesBothEnds(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Query blocks 1100-1400: should only need files 1000 and 1500 (not 0, 500, 2000)
+	// Query blocks 1400-1600: should need overlapping files 1000 and 1500,
+	// but still prune non-overlapping files 0, 500, and 2000.
 	results, err := reader.GetLogs(ctx, LogFilter{
-		FromBlock: uint64Ptr(1100),
-		ToBlock:   uint64Ptr(1400),
+		FromBlock: uint64Ptr(1400),
+		ToBlock:   uint64Ptr(1600),
 	})
 	require.NoError(t, err)
-	require.Equal(t, 301, len(results))
+
+	for _, r := range results {
+		require.GreaterOrEqual(t, r.BlockNumber, uint64(1400))
+		require.LessOrEqual(t, r.BlockNumber, uint64(1600))
+	}
+	require.Equal(t, 201, len(results), "should have blocks 1400-1600 inclusive")
 }
 
-func TestStoreGetReceiptByTxHashUsesFullScanWhenLookupDisabled(t *testing.T) {
+func TestStoreGetReceiptByTxHashWithoutIndex(t *testing.T) {
 	dir := t.TempDir()
 
 	for _, start := range []uint64{0, 500, 1000} {

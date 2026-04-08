@@ -145,9 +145,9 @@ func NewRecieptStoreSimulator(
 	}
 
 	// nil StoreKey is safe: the parquet write path never touches the legacy KV store.
-	// Cryptosim passes its metrics as a read observer so cache hits/misses are measured
-	// at the cache wrapper, which is the only layer that can distinguish them reliably.
-	store, err := receipt.NewReceiptStoreWithReadObserver(storeCfg, nil, metrics)
+	// Cryptosim passes its metrics into the cache wrapper so cache hits/misses are
+	// measured at the only layer that can distinguish them reliably.
+	store, err := receipt.NewReceiptStoreWithReadMetrics(storeCfg, nil, metrics)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create receipt store: %w", err)

@@ -21,32 +21,32 @@ type fakeReceiptBackend struct {
 	lastFilterToBlock   uint64
 }
 
-type fakeReceiptReadObserver struct {
+type fakeReceiptReadMetrics struct {
 	cacheHits            int
 	cacheMisses          int
 	logFilterCacheHits   int
 	logFilterCacheMisses int
 }
 
-func (f *fakeReceiptReadObserver) ReportReceiptCacheHit() {
+func (f *fakeReceiptReadMetrics) ReportReceiptCacheHit() {
 	f.cacheHits++
 }
 
-func (f *fakeReceiptReadObserver) ReportReceiptCacheMiss() {
+func (f *fakeReceiptReadMetrics) ReportReceiptCacheMiss() {
 	f.cacheMisses++
 }
 
-func (f *fakeReceiptReadObserver) ReportLogFilterCacheHit() {
+func (f *fakeReceiptReadMetrics) ReportLogFilterCacheHit() {
 	f.logFilterCacheHits++
 }
 
-func (f *fakeReceiptReadObserver) ReportLogFilterCacheMiss() {
+func (f *fakeReceiptReadMetrics) ReportLogFilterCacheMiss() {
 	f.logFilterCacheMisses++
 }
 
-func (f *fakeReceiptReadObserver) RecordCacheFilterScanDuration(float64) {}
+func (f *fakeReceiptReadMetrics) RecordCacheFilterScanDuration(float64) {}
 
-func (f *fakeReceiptReadObserver) RecordCacheGetDuration(float64) {}
+func (f *fakeReceiptReadMetrics) RecordCacheGetDuration(float64) {}
 
 func newFakeReceiptBackend() *fakeReceiptBackend {
 	return &fakeReceiptBackend{
@@ -309,8 +309,8 @@ func TestFilterLogsMultipleBlocksCacheOnly(t *testing.T) {
 func TestCachedReceiptStoreReportsCacheHit(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
-	observer := &fakeReceiptReadObserver{}
-	store := newCachedReceiptStore(backend, observer)
+	metrics := &fakeReceiptReadMetrics{}
+	store := newCachedReceiptStore(backend, metrics)
 
 	txHash := common.HexToHash("0x10")
 	receipt := makeTestReceipt(txHash, 7, 1, common.HexToAddress("0x100"), nil)
@@ -322,19 +322,19 @@ func TestCachedReceiptStoreReportsCacheHit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
 	require.Equal(t, 0, backend.getReceiptCalls)
-	require.Equal(t, 1, observer.cacheHits)
-	require.Equal(t, 0, observer.cacheMisses)
+	require.Equal(t, 1, metrics.cacheHits)
+	require.Equal(t, 0, metrics.cacheMisses)
 }
 
 func TestCachedReceiptStoreReportsCacheMiss(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
-	observer := &fakeReceiptReadObserver{}
-	store := newCachedReceiptStore(backend, observer)
+	metrics := &fakeReceiptReadMetrics{}
+	store := newCachedReceiptStore(backend, metrics)
 
 	_, err := store.GetReceipt(ctx, common.HexToHash("0x404"))
 	require.ErrorIs(t, err, ErrNotFound)
 	require.Equal(t, 1, backend.getReceiptCalls)
-	require.Equal(t, 0, observer.cacheHits)
-	require.Equal(t, 1, observer.cacheMisses)
+	require.Equal(t, 0, metrics.cacheHits)
+	require.Equal(t, 1, metrics.cacheMisses)
 }

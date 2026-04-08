@@ -30,10 +30,10 @@ type cachedReceiptStore struct {
 	cacheRotateInterval uint64
 	cacheNextRotate     uint64
 	cacheMu             sync.Mutex
-	readObserver        ReceiptReadObserver
+	readMetrics         ReceiptReadMetrics
 }
 
-func newCachedReceiptStore(backend ReceiptStore, observer ReceiptReadObserver) ReceiptStore {
+func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) ReceiptStore {
 	if backend == nil {
 		return nil
 	}
@@ -47,7 +47,7 @@ func newCachedReceiptStore(backend ReceiptStore, observer ReceiptReadObserver) R
 		backend:             backend,
 		cache:               newLedgerCache(),
 		cacheRotateInterval: interval,
-		readObserver:        observer,
+		readMetrics:         metrics,
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
 		store.cacheReceipts(provider.warmupReceipts())
@@ -267,37 +267,37 @@ func (s *cachedReceiptStore) maybeRotateCacheLocked(blockNumber uint64) {
 }
 
 func (s *cachedReceiptStore) reportCacheHit() {
-	if s.readObserver != nil {
-		s.readObserver.ReportReceiptCacheHit()
+	if s.readMetrics != nil {
+		s.readMetrics.ReportReceiptCacheHit()
 	}
 }
 
 func (s *cachedReceiptStore) reportCacheMiss() {
-	if s.readObserver != nil {
-		s.readObserver.ReportReceiptCacheMiss()
+	if s.readMetrics != nil {
+		s.readMetrics.ReportReceiptCacheMiss()
 	}
 }
 
 func (s *cachedReceiptStore) reportLogFilterCacheHit() {
-	if s.readObserver != nil {
-		s.readObserver.ReportLogFilterCacheHit()
+	if s.readMetrics != nil {
+		s.readMetrics.ReportLogFilterCacheHit()
 	}
 }
 
 func (s *cachedReceiptStore) reportLogFilterCacheMiss() {
-	if s.readObserver != nil {
-		s.readObserver.ReportLogFilterCacheMiss()
+	if s.readMetrics != nil {
+		s.readMetrics.ReportLogFilterCacheMiss()
 	}
 }
 
 func (s *cachedReceiptStore) reportCacheFilterScanDuration(seconds float64) {
-	if s.readObserver != nil {
-		s.readObserver.RecordCacheFilterScanDuration(seconds)
+	if s.readMetrics != nil {
+		s.readMetrics.RecordCacheFilterScanDuration(seconds)
 	}
 }
 
 func (s *cachedReceiptStore) reportCacheGetDuration(seconds float64) {
-	if s.readObserver != nil {
-		s.readObserver.RecordCacheGetDuration(seconds)
+	if s.readMetrics != nil {
+		s.readMetrics.RecordCacheGetDuration(seconds)
 	}
 }
