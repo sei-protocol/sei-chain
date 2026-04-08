@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -449,18 +448,6 @@ func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKe
 
 func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
 	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
-}
-
-func (blockExec *BlockExecutor) CheckTxFromPeerProposal(ctx context.Context, tx types.Tx) {
-	// Ignore errors from CheckTx because there could be benign errors due to the same tx being
-	// inserted into the mempool from gossiping. Since such simultaneous insertion could result in
-	// multiple different kinds of errors, we will ignore them all here, and verify in the consensus
-	// state machine whether all txs in the proposal are present in the mempool at a later time.
-	if err := blockExec.mempool.CheckTx(ctx, tx, func(rct *abci.ResponseCheckTx) {}, mempool.TxInfo{
-		SenderID: math.MaxUint16,
-	}); err != nil {
-		logger.Info("CheckTx for proposal tx from peer raised error; this could be ignored if the error is because the tx is added to the mempool while this check was happening", "err", err)
-	}
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
