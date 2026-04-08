@@ -1,0 +1,200 @@
+package keymap
+
+import (
+	"fmt"
+	"log/slog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+)
+
+// KeymapManager manages modification of and access to the keymap. Write operations are offloaded
+// to a background goroutine so that callers are not blocked by keymap I/O.
+type KeymapManager struct {
+	logger *slog.Logger
+
+	// Responsible for handling fatal DB errors.
+	errorMonitor *util.ErrorMonitor
+
+	// The keymap implementation to use.
+	keymap Keymap
+
+	// Work for the keymap manager loop is sent to this channel.
+	workChan chan any
+
+	// Once the keymap manager makes keys durable in the keymap, it passes those keys to this channel
+	// (possibly in batches).
+	durableKeyChan chan<- []*types.ScopedKey
+
+	// The loop accumulates consecutive write requests into a single keymap.Put() call.
+	// Once the accumulated key count reaches this threshold, the batch is flushed to the keymap
+	// before draining further messages.
+	targetWriteBatchSize int
+
+	// Set to true when the loop should stop after the current iteration.
+	stopped bool
+}
+
+// NewKeymapManager creates a new KeymapManager and starts its background goroutine.
+func NewKeymapManager(
+	logger *slog.Logger,
+	errorMonitor *util.ErrorMonitor,
+	keymap Keymap,
+	durableKeyChan chan<- []*types.ScopedKey,
+	workChanSize int,
+	targetWriteBatchSize int,
+) *KeymapManager {
+	km := &KeymapManager{
+		logger:               logger,
+		errorMonitor:         errorMonitor,
+		keymap:               keymap,
+		workChan:             make(chan any, workChanSize),
+		durableKeyChan:       durableKeyChan,
+		targetWriteBatchSize: targetWriteBatchSize,
+	}
+	go km.run()
+	return km
+}
+
+// WriteKeys enqueues a batch of keys to be written to the keymap. This method is non-blocking as
+// long as there is space in the work channel. Keys may not be visible to LookupAddress() until
+// after a Flush() completes.
+func (k *KeymapManager) WriteKeys(keys []*types.ScopedKey) error {
+	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerWriteRequest{keys: keys})
+	if err != nil {
+		return fmt.Errorf("failed to enqueue write request: %w", err)
+	}
+	return nil
+}
+
+// DeleteKeys enqueues a batch of keys to be deleted from the keymap. This method is non-blocking
+// as long as there is space in the work channel.
+func (k *KeymapManager) DeleteKeys(keys []*types.ScopedKey) error {
+	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerDeleteRequest{keys: keys})
+	if err != nil {
+		return fmt.Errorf("failed to enqueue delete request: %w", err)
+	}
+	return nil
+}
+
+// LookupAddress looks up the address for a key. Returns true if the key exists, and false otherwise.
+func (k *KeymapManager) LookupAddress(key []byte) (types.Address, bool, error) {
+	address, exists, err := k.keymap.Get(key)
+	if err != nil {
+		return types.Address{}, false, fmt.Errorf("failed to look up address in keymap: %w", err)
+	}
+	return address, exists, nil
+}
+
+// Flush blocks until all keys enqueued via WriteKeys() prior to this call have been written to
+// the keymap and reported to the durable key channel.
+func (k *KeymapManager) Flush() error {
+	responseChan := make(chan struct{}, 1)
+	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerFlushRequest{responseChan: responseChan})
+	if err != nil {
+		return fmt.Errorf("failed to enqueue flush request: %w", err)
+	}
+	_, err = util.Await(k.errorMonitor, responseChan)
+	if err != nil {
+		return fmt.Errorf("failed to wait for flush completion: %w", err)
+	}
+	return nil
+}
+
+// Stop cleanly shuts down the keymap manager loop. All previously enqueued writes are processed
+// before the loop exits. Blocks until shutdown is complete.
+func (k *KeymapManager) Stop() error {
+	responseChan := make(chan struct{}, 1)
+	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerShutdownRequest{responseChan: responseChan})
+	if err != nil {
+		return fmt.Errorf("failed to enqueue shutdown request: %w", err)
+	}
+	_, err = util.Await(k.errorMonitor, responseChan)
+	if err != nil {
+		return fmt.Errorf("failed to wait for shutdown completion: %w", err)
+	}
+	return nil
+}
+
+// run is the keymap manager loop. It processes write, flush, and shutdown requests serially.
+// Consecutive write requests are coalesced into a single keymap.Put() call up to
+// targetWriteBatchSize keys. Because the work channel is FIFO, a flush or shutdown request
+// is only handled after all previously enqueued write requests have been completed.
+func (k *KeymapManager) run() {
+	for !k.stopped {
+		select {
+		case <-k.errorMonitor.ImmediateShutdownRequired():
+			k.logger.Info("shutting down keymap manager loop due to error monitor")
+			return
+		case message := <-k.workChan:
+			if req, ok := message.(*keymapManagerWriteRequest); ok {
+				k.drainAndWrite(req)
+			} else {
+				k.handleNonWriteMessage(message)
+			}
+		}
+	}
+}
+
+// drainAndWrite accumulates the initial write request plus any consecutive write requests
+// that are immediately available in the work channel, up to targetWriteBatchSize total keys.
+// The accumulated batch is submitted as a single keymap.Put(). If a non-write message is
+// encountered while draining, the accumulated writes are flushed first, then the non-write
+// message is handled.
+func (k *KeymapManager) drainAndWrite(first *keymapManagerWriteRequest) {
+	batch := first.keys
+	batchSize := len(batch)
+
+	for batchSize < k.targetWriteBatchSize {
+		select {
+		case message := <-k.workChan:
+			if req, ok := message.(*keymapManagerWriteRequest); ok {
+				batch = append(batch, req.keys...)
+				batchSize += len(req.keys)
+			} else {
+				k.flushWriteBatch(batch)
+				k.handleNonWriteMessage(message)
+				return
+			}
+		default:
+			k.flushWriteBatch(batch)
+			return
+		}
+	}
+
+	k.flushWriteBatch(batch)
+}
+
+// flushWriteBatch writes a combined batch of keys to the keymap and sends them to the
+// durable key channel.
+func (k *KeymapManager) flushWriteBatch(batch []*types.ScopedKey) {
+	err := k.keymap.Put(batch)
+	if err != nil {
+		k.errorMonitor.Panic(fmt.Errorf("failed to write keys to keymap: %w", err))
+		return
+	}
+
+	select {
+	case k.durableKeyChan <- batch:
+	case <-k.errorMonitor.ImmediateShutdownRequired():
+		return
+	}
+}
+
+// handleNonWriteMessage dispatches a message that is not a write request.
+func (k *KeymapManager) handleNonWriteMessage(message any) {
+	if req, ok := message.(*keymapManagerDeleteRequest); ok {
+		err := k.keymap.Delete(req.keys)
+		if err != nil {
+			k.errorMonitor.Panic(fmt.Errorf("failed to delete keys from keymap: %w", err))
+		}
+	} else if req, ok := message.(*keymapManagerFlushRequest); ok {
+		req.responseChan <- struct{}{}
+	} else if req, ok := message.(*keymapManagerShutdownRequest); ok {
+		req.responseChan <- struct{}{}
+		k.stopped = true
+	} else {
+		k.errorMonitor.Panic(fmt.Errorf("unknown keymap manager message type %T", message))
+		k.stopped = true
+	}
+}
