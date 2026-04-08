@@ -197,7 +197,11 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 			},
 		}
 	}
-	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
+	// The network connection can be established before the reactor processes the
+	// async PeerStatusUp update that initializes the sender's failure count, so we need to wait.
+	require.Eventually(t, func() bool {
+		return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
+	}, time.Second, 50*time.Millisecond)
 
 	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
 	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
