@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -38,8 +39,9 @@ type Reactor struct {
 	// Reactor. observePanic is called with the recovered value.
 	observePanic func(any)
 
-	mtx          sync.Mutex
-	peerRoutines map[types.NodeID]context.CancelFunc
+	mtx                 sync.Mutex
+	peerRoutines        map[types.NodeID]context.CancelFunc
+	failedCheckTxCounts utils.Mutex[map[types.NodeID]int]
 
 	channel      *p2p.Channel[*pb.Message]
 	readyToStart chan struct{}
@@ -56,15 +58,17 @@ func NewReactor(
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		cfg:          cfg,
-		mempool:      txmp,
-		ids:          NewMempoolIDs(),
-		router:       router,
-		channel:      channel,
-		peerRoutines: make(map[types.NodeID]context.CancelFunc),
-		observePanic: defaultObservePanic,
-		readyToStart: make(chan struct{}, 1),
+		cfg:                 cfg,
+		mempool:             txmp,
+		ids:                 NewMempoolIDs(),
+		router:              router,
+		channel:             channel,
+		peerRoutines:        make(map[types.NodeID]context.CancelFunc),
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
+		observePanic:        defaultObservePanic,
+		readyToStart:        make(chan struct{}, 1),
 	}
+	txmp.setPeerFailedCheckTxCounter(r)
 
 	r.BaseService = *service.NewBaseService("Mempool", r)
 	return r, nil
@@ -135,6 +139,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 
 		for _, tx := range protoTxs {
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
+				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, types.ErrTxInCache) {
 					// if the tx is in the cache,
 					// then we've been gossiped a
@@ -165,6 +170,28 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 	}
 
 	return nil
+}
+
+func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
+	if !r.cfg.CheckTxErrorBlacklistEnabled {
+		return
+	}
+	if !utils.ErrorAs[types.ErrTxTooLarge](err).IsPresent() && !utils.ErrorAs[types.ErrPreCheck](err).IsPresent() {
+		return
+	}
+	for counts := range r.failedCheckTxCounts.Lock() {
+		counts[nodeID]++
+		if counts[nodeID] > r.cfg.CheckTxErrorThreshold {
+			r.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
+		}
+	}
+}
+
+func (r *Reactor) GetPeerFailedCheckTxCount(nodeID types.NodeID) int {
+	for counts := range r.failedCheckTxCounts.Lock() {
+		return counts[nodeID]
+	}
+	panic("unreachable")
 }
 
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.

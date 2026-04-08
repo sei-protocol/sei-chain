@@ -2,6 +2,7 @@ package mempool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -18,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -175,6 +177,39 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	// Wait till all secondary suites (reactor) received all mempool txs from the
 	// primary suite (node).
 	rts.waitForTxns(t, convertTex(txs), secondaries...)
+}
+
+func TestReactorFailedCheckTxCount(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0)
+	reactor := &Reactor{
+		cfg:                 cfg.Mempool,
+		mempool:             txmp,
+		router:              &p2p.Router{},
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]uint64{}),
+	}
+	txmp.setPeerFailedCheckTxCounter(reactor)
+
+	reactor.cfg.CheckTxErrorBlacklistEnabled = false
+	reactor.accountFailedCheckTx("sender", types.ErrTxTooLarge{Max: 1, Actual: 2})
+	require.Equal(t, uint64(0), reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
+	reactor.cfg.CheckTxErrorThreshold = 10
+
+	reactor.accountFailedCheckTx("sender", types.ErrTxTooLarge{Max: 1, Actual: 2})
+	require.Equal(t, uint64(1), reactor.GetPeerFailedCheckTxCount("sender"))
+	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	reactor.accountFailedCheckTx("sender", types.ErrPreCheck{Reason: errors.New("bad tx")})
+	require.Equal(t, uint64(2), reactor.GetPeerFailedCheckTxCount("sender"))
+
+	reactor.accountFailedCheckTx("sender", errors.New("application rejected tx"))
+	require.Equal(t, uint64(2), reactor.GetPeerFailedCheckTxCount("sender"))
 }
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408

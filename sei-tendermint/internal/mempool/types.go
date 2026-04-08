@@ -69,3 +69,7 @@ func PostCheckMaxGas(maxGas int64) PostCheckFunc {
 type router interface {
 	Evict(types.NodeID, error)
 }
+
+type peerFailedCheckTxCounter interface {
+	GetPeerFailedCheckTxCount(types.NodeID) uint64
+}

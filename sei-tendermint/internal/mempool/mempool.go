@@ -117,8 +117,7 @@ type TxMempool struct {
 	preCheck  PreCheckFunc
 	postCheck PostCheckFunc
 
-	// NodeID to count of transactions failing CheckTx
-	failedCheckTxCounts utils.Mutex[map[types.NodeID]uint64]
+	failedCheckTxCounter utils.Option[peerFailedCheckTxCounter]
 
 	router            router
 	priorityReservoir *reservoir.Sampler[int64]
@@ -132,20 +131,19 @@ func NewTxMempool(
 ) *TxMempool {
 
 	txmp := &TxMempool{
-		config:              cfg,
-		proxyAppConn:        proxyAppConn,
-		height:              -1,
-		cache:               NopTxCache{},
-		blockFailedTxs:      NopTxCache{},
-		metrics:             NopMetrics(),
-		txStore:             NewTxStore(),
-		gossipIndex:         clist.New(),
-		priorityIndex:       NewTxPriorityQueue(),
-		expirationIndex:     NewWrappedTxList(),
-		pendingTxs:          NewPendingTxs(cfg),
-		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]uint64{}),
-		router:              router,
-		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
+		config:            cfg,
+		proxyAppConn:      proxyAppConn,
+		height:            -1,
+		cache:             NopTxCache{},
+		blockFailedTxs:    NopTxCache{},
+		metrics:           NopMetrics(),
+		txStore:           NewTxStore(),
+		gossipIndex:       clist.New(),
+		priorityIndex:     NewTxPriorityQueue(),
+		expirationIndex:   NewWrappedTxList(),
+		pendingTxs:        NewPendingTxs(cfg),
+		router:            router,
+		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
 	if cfg.CacheSize > 0 {
@@ -283,7 +281,6 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 		return types.ErrTxTooLarge{
 			Max:    txmp.config.MaxTxBytes,
 			Actual: txSize,
@@ -312,7 +309,6 @@ func (txmp *TxMempool) CheckTx(
 
 	if txmp.preCheck != nil {
 		if err := txmp.preCheck(tx); err != nil {
-			txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 			return types.ErrPreCheck{Reason: err}
 		}
 	}
@@ -422,19 +418,6 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	return nil
-}
-
-func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
-	if !txmp.config.CheckTxErrorBlacklistEnabled || nodeID == "" || txmp.router == nil {
-		return
-	}
-
-	for counts := range txmp.failedCheckTxCounts.Lock() {
-		counts[nodeID]++
-		if counts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
-			txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
-		}
-	}
 }
 
 func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
@@ -1141,10 +1124,14 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 }
 
 func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
-	for counts := range txmp.failedCheckTxCounts.Lock() {
-		return counts[nodeID]
+	if counter, ok := txmp.failedCheckTxCounter.Get(); ok {
+		return counter.GetPeerFailedCheckTxCount(nodeID)
 	}
-	panic("unreachable")
+	return 0
+}
+
+func (txmp *TxMempool) setPeerFailedCheckTxCounter(counter peerFailedCheckTxCounter) {
+	txmp.failedCheckTxCounter = utils.Some(counter)
 }
 
 // AppendCheckTxErr wraps error message into an ABCIMessageLogs json string
