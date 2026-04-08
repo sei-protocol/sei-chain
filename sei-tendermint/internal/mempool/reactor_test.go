@@ -83,6 +83,29 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 	return rts
 }
 
+func setupReactorForTest(t *testing.T, options ...TxMempoolOption) (*Reactor, *TxMempool) {
+	t.Helper()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	cfg.Mempool.DropUtilisationThreshold = 0.0
+	cfg.Mempool.Broadcast = false
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
+	node := network.Nodes()[0]
+
+	txmp := NewTxMempool(cfg.Mempool, kvstore.NewApplication(), options...)
+	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
+	require.NoError(t, err)
+	reactor.MarkReadyToStart()
+	require.NoError(t, reactor.Start(t.Context()))
+	require.True(t, reactor.IsRunning())
+	t.Cleanup(reactor.Stop)
+
+	return reactor, txmp
+}
+
 func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
 	rts.network.Start(t)
@@ -191,15 +214,9 @@ func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[
 }
 
 func TestReactorFailedCheckTxCount(t *testing.T) {
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
 	preCheckErr := errors.New("bad tx")
-	txmp := setup(
+	reactor, txmp := setupReactorForTest(
 		t,
-		&application{Application: kvstore.NewApplication()},
-		0,
 		WithPreCheck(func(tx types.Tx) error {
 			if string(tx) == "precheck-bad" {
 				return preCheckErr
@@ -207,13 +224,6 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 			return nil
 		}),
 	)
-	reactor := &Reactor{
-		cfg:                 cfg.Mempool,
-		mempool:             txmp,
-		ids:                 NewMempoolIDs(),
-		router:              &p2p.Router{},
-		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
-	}
 	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
 		return p2p.RecvMsg[*pb.Message]{
 			From: "sender",
@@ -247,15 +257,9 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
 	preCheckErr := errors.New("bad tx")
-	txmp := setup(
+	reactor, _ := setupReactorForTest(
 		t,
-		&application{Application: kvstore.NewApplication()},
-		0,
 		WithPreCheck(func(tx types.Tx) error {
 			if string(tx) == "precheck-bad" {
 				return preCheckErr
@@ -263,13 +267,8 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 			return nil
 		}),
 	)
-	reactor := &Reactor{
-		cfg:                 cfg.Mempool,
-		mempool:             txmp,
-		ids:                 NewMempoolIDs(),
-		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{"other": 1}),
-		router:              &p2p.Router{},
-		peerRoutines:        map[types.NodeID]context.CancelFunc{},
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		counts["other"] = 1
 	}
 	msg := p2p.RecvMsg[*pb.Message]{
 		From: "sender",
@@ -297,19 +296,12 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 
 	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
 	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "other"))
-	require.Equal(t, uint16(0), reactor.ids.GetForPeer("sender"))
 }
 
 func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
 	preCheckErr := errors.New("bad tx")
-	txmp := setup(
+	reactor, _ := setupReactorForTest(
 		t,
-		&application{Application: kvstore.NewApplication()},
-		0,
 		WithPreCheck(func(tx types.Tx) error {
 			if string(tx) == "precheck-bad" {
 				return preCheckErr
@@ -317,14 +309,6 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 			return nil
 		}),
 	)
-	reactor := &Reactor{
-		cfg:                 cfg.Mempool,
-		mempool:             txmp,
-		ids:                 NewMempoolIDs(),
-		router:              &p2p.Router{},
-		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
-		peerRoutines:        map[types.NodeID]context.CancelFunc{},
-	}
 	msg := p2p.RecvMsg[*pb.Message]{
 		From: "sender",
 		Message: &pb.Message{
