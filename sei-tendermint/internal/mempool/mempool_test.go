@@ -997,8 +997,8 @@ func TestTxMempool_CheckTxStateFetcherError(t *testing.T) {
 			_, err := rng.Read(tx)
 			require.NoError(t, err)
 
-			txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0, WithTxStateFetcher(func() (TxStateConstraints, error) {
-				return TxStateConstraints{
+			txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0, WithTxStateFetcher(func() (TxConstraints, error) {
+				return TxConstraints{
 					MaxDataBytes: int64(len(tx) + 100),
 					MaxGas:       1,
 				}, tc.err

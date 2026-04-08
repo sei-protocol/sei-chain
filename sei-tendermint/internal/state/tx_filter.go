@@ -37,15 +37,15 @@ func cachingStateFetcher(store Store) func() (State, error) {
 
 }
 
-// TxStateFetcherFromStore returns the consensus-derived mempool limits for the
+// TxStateFetcherFromStore returns the precomputed consensus-derived mempool limits for the
 // current persisted state.
 func TxStateFetcherFromStore(store Store) mempool.TxStateFetcher {
 	fetch := cachingStateFetcher(store)
 
-	return func() (mempool.TxStateConstraints, error) {
+	return func() (mempool.TxConstraints, error) {
 		state, err := fetch()
 		if err != nil {
-			return mempool.TxStateConstraints{}, err
+			return mempool.TxConstraints{}, err
 		}
 
 		return TxStateFetcherForState(state)()
@@ -53,8 +53,8 @@ func TxStateFetcherFromStore(store Store) mempool.TxStateFetcher {
 }
 
 func TxStateFetcherForState(state State) mempool.TxStateFetcher {
-	return func() (mempool.TxStateConstraints, error) {
-		return mempool.TxStateConstraints{
+	return func() (mempool.TxConstraints, error) {
+		return mempool.TxConstraints{
 			MaxDataBytes: types.MaxDataBytesNoEvidence(
 				state.ConsensusParams.Block.MaxBytes,
 				state.Validators.Size(),

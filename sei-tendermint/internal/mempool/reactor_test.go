@@ -226,8 +226,8 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 	receiverReactor := rts.reactors[receiver]
 	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
 	receiverReactor.cfg.CheckTxErrorThreshold = 2
-	receiverReactor.mempool.txStateFetcher = utils.Some(TxStateFetcher(func() (TxStateConstraints, error) {
-		return TxStateConstraints{
+	receiverReactor.mempool.txStateFetcher = utils.Some(TxStateFetcher(func() (TxConstraints, error) {
+		return TxConstraints{
 			MaxDataBytes: 10,
 			MaxGas:       -1,
 		}, nil
@@ -266,8 +266,8 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 	reactor, _ := setupReactorForTest(
 		t,
-		WithTxStateFetcher(func() (TxStateConstraints, error) {
-			return TxStateConstraints{
+		WithTxStateFetcher(func() (TxConstraints, error) {
+			return TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
 			}, nil
@@ -307,8 +307,8 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 	reactor, _ := setupReactorForTest(
 		t,
-		WithTxStateFetcher(func() (TxStateConstraints, error) {
-			return TxStateConstraints{
+		WithTxStateFetcher(func() (TxConstraints, error) {
+			return TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
 			}, nil

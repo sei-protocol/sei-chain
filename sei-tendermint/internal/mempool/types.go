@@ -19,13 +19,13 @@ const (
 	MaxActiveIDs = math.MaxUint16
 )
 
-// TxStateConstraints contains the consensus-derived mempool limits for the
-// current state snapshot.
-type TxStateConstraints struct {
+// TxConstraints contains the precomputed consensus-derived mempool limits for
+// the current state snapshot.
+type TxConstraints struct {
 	MaxDataBytes int64
 	MaxGas       int64
 }
 
-// TxStateFetcher returns the consensus-derived mempool limits for the current
+// TxStateFetcher returns the precomputed consensus-derived mempool limits for the current
 // state snapshot.
-type TxStateFetcher func() (TxStateConstraints, error)
+type TxStateFetcher func() (TxConstraints, error)
