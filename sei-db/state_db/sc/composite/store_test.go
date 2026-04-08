@@ -710,7 +710,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},
@@ -777,7 +777,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: []byte("bal"), Value: []byte{i}},
 			}}},
 			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: storageKey, Value: []byte{i}},
+				{Key: storageKey, Value: padLeft32(i)},
 			}}},
 		}))
 		_, err = cs.Commit()
@@ -807,13 +807,13 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	// Continue committing new blocks on top of the reconciled state.
 	// Version 3 is re-created with new data (0xA3 instead of 0x03).
 	for i := byte(0); i < 3; i++ {
-		v := []byte{0xA0 + i + 3}
+		v := 0xA0 + i + 3
 		require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
 			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: []byte("bal"), Value: v},
+				{Key: []byte("bal"), Value: []byte{v}},
 			}}},
 			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: storageKey, Value: v},
+				{Key: storageKey, Value: padLeft32(v)},
 			}}},
 		}))
 		ver, err := cs2.Commit()
@@ -872,7 +872,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},
