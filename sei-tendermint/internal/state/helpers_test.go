@@ -231,16 +231,12 @@ func randomGenesisDoc() *types.GenesisDoc {
 	}
 }
 
-type testMempoolRouter struct{}
-
-func (testMempoolRouter) Evict(types.NodeID, error) {}
-
 func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
 	t.Helper()
 
 	cfg := config.TestMempoolConfig()
 
-	return mempool.NewTxMempool(cfg, app, testMempoolRouter{})
+	return mempool.NewTxMempool(cfg, app)
 }
 
 // used for testing by state store
