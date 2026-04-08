@@ -334,14 +334,14 @@ func (r *RecieptStoreSimulator) executeReceiptRead(crand *CannedRandom) {
 	buffer := cacheWindow / 10
 	var entry *txHashEntry
 	switch r.config.ReceiptReadMode {
-	case "cache":
+	case receiptReadModeCache:
 		safeWindow := cacheWindow - buffer
 		minBlock := uint64(0)
 		if latest > safeWindow {
 			minBlock = latest - safeWindow
 		}
 		entry = r.txRing.RandomEntryInBlockRange(crand, minBlock, latest)
-	case "duckdb":
+	case receiptReadModeDuckDB:
 		maxBlock := uint64(0)
 		if latest > cacheWindow {
 			maxBlock = latest - cacheWindow - 1
@@ -387,10 +387,11 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *CannedRandom) {
 		return
 	}
 
+	//nolint:gosec // Config validation guarantees a positive block range before this conversion.
 	rangeSize := uint64(crand.Int64Range(
 		int64(r.config.ReceiptLogFilterMinBlockRange),
 		int64(r.config.ReceiptLogFilterMaxBlockRange)+1,
-	)) //nolint:gosec
+	))
 	latest := uint64(latestVersion) //nolint:gosec
 	cacheWindow := r.receiptCacheWindowBlocks
 
@@ -398,7 +399,7 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *CannedRandom) {
 
 	buffer := cacheWindow / 10
 	switch r.config.ReceiptLogFilterReadMode {
-	case "cache":
+	case receiptReadModeCache:
 		safeWindow := cacheWindow - buffer
 		cacheMin := uint64(0)
 		if latest > safeWindow {
@@ -412,7 +413,7 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *CannedRandom) {
 		if toBlock > latest {
 			toBlock = latest
 		}
-	case "duckdb":
+	case receiptReadModeDuckDB:
 		if latest <= cacheWindow {
 			return
 		}

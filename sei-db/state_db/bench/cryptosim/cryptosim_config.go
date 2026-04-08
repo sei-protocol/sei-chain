@@ -16,6 +16,8 @@ const (
 	minPaddedAccountSize        = 8
 	minErc20StorageSlotSize     = 32
 	minErc20InteractionsPerAcct = 1
+	receiptReadModeCache        = "cache"
+	receiptReadModeDuckDB       = "duckdb"
 )
 
 // Defines the configuration for the cryptosim benchmark.
@@ -292,11 +294,11 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MaxTPS:                            0,
 		ReceiptReadConcurrency:            0,
 		ReceiptReadsPerSecond:             100,
-		ReceiptReadMode:                   "cache",
+		ReceiptReadMode:                   receiptReadModeCache,
 		DisableReceiptTxIndexLookup:       true,
 		ReceiptLogFilterReadConcurrency:   0,
 		ReceiptLogFilterReadsPerSecond:    100,
-		ReceiptLogFilterReadMode:          "cache",
+		ReceiptLogFilterReadMode:          receiptReadModeCache,
 		ReceiptLogFilterMinBlockRange:     1,
 		ReceiptLogFilterMaxBlockRange:     10,
 		ReceiptKeepRecent:                 100_000,
@@ -393,9 +395,10 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptReadConcurrency > 0 {
 		switch c.ReceiptReadMode {
-		case "cache", "duckdb":
+		case receiptReadModeCache, receiptReadModeDuckDB:
 		default:
-			return fmt.Errorf("ReceiptReadMode must be \"cache\" or \"duckdb\" (got %q)", c.ReceiptReadMode)
+			return fmt.Errorf("ReceiptReadMode must be %q or %q (got %q)",
+				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptReadMode)
 		}
 	}
 	if c.ReceiptLogFilterReadConcurrency < 0 {
@@ -403,9 +406,10 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptLogFilterReadConcurrency > 0 {
 		switch c.ReceiptLogFilterReadMode {
-		case "cache", "duckdb":
+		case receiptReadModeCache, receiptReadModeDuckDB:
 		default:
-			return fmt.Errorf("ReceiptLogFilterReadMode must be \"cache\" or \"duckdb\" (got %q)", c.ReceiptLogFilterReadMode)
+			return fmt.Errorf("ReceiptLogFilterReadMode must be %q or %q (got %q)",
+				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptLogFilterReadMode)
 		}
 	}
 	if c.ReceiptLogFilterMinBlockRange < 1 {
