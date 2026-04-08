@@ -164,7 +164,7 @@ func (s *MockState) ProduceBlock(ctx context.Context, payload *types.Payload) er
 }
 
 // PushAppHash marks all blocks up to n as executed.
-func (s *MockState) PushAppHash(n types.GlobalBlockNumber, appHash types.AppHash) error {
+func (s *MockState) PushAppHash(_ context.Context, n types.GlobalBlockNumber, appHash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if got, wantMin := n, inner.first; got < wantMin {
 			return fmt.Errorf("received app proposal out of order: got %v, want >= %v", got, wantMin)
