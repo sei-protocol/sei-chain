@@ -148,7 +148,7 @@ func createMempoolReactor(
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
-) (*mempool.Reactor, mempool.Mempool, error) {
+) (*mempool.Reactor, *mempool.TxMempool, error) {
 
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
@@ -159,11 +159,7 @@ func createMempoolReactor(
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor, err := mempool.NewReactor(
-		cfg.Mempool,
-		mp,
-		router,
-	)
+	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
 	}

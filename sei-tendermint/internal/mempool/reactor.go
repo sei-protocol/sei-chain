@@ -70,9 +70,7 @@ func NewReactor(
 	return r, nil
 }
 
-func (r *Reactor) MarkReadyToStart() {
-	r.readyToStart <- struct{}{}
-}
+func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
 
 func defaultObservePanic(r any) {}
 

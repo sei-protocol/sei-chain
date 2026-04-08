@@ -8,8 +8,10 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -130,6 +132,10 @@ func NewHandshaker(
 		eventBus:     eventBus,
 		genDoc:       genDoc,
 	}
+}
+
+func newReplayTxMempool(appClient abci.Application) *mempool.TxMempool {
+	return mempool.NewTxMempool(config.DefaultMempoolConfig(), appClient, replayPeerEvictor{})
 }
 
 // NBlocks returns the number of blocks applied to the state.
@@ -385,7 +391,7 @@ func (h *Handshaker) replayBlocks(
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(h.stateStore, appClient, newReplayTxMempool(appClient), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 			appHash, err = sm.ExecCommitBlock(ctx,
 				blockExec, appClient, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
@@ -428,7 +434,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(h.stateStore, appClient, newReplayTxMempool(appClient), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)

@@ -3,9 +3,10 @@ package keeper_test
 import (
 	"errors"
 	"fmt"
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/keeper"
 	"github.com/stretchr/testify/require"
-	"testing"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
@@ -26,13 +27,8 @@ var (
 	timeoutHeight            = clienttypes.NewHeight(0, 100)
 
 	// for when the testing package cannot be used
-	clientIDA  = "clientA"
-	clientIDB  = "clientB"
-	connIDA    = "connA"
-	connIDB    = "connB"
-	portID     = "portid"
-	channelIDA = "channelidA"
-	channelIDB = "channelidB"
+	connIDA = "connA"
+	connIDB = "connB"
 )
 
 // TestSendPacket tests SendPacket from chainA to chainB
