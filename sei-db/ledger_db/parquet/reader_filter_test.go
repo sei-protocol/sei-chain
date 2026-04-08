@@ -159,6 +159,37 @@ func TestStoreGetReceiptByTxHashUsesIndex(t *testing.T) {
 	require.Equal(t, uint64(750), result.BlockNumber)
 }
 
+func TestStoreGetReceiptByTxHashCanDisableIndexLookup(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, start := range []uint64{0, 500, 1000} {
+		require.NoError(t, createTestReceiptFile(dir, start, 500))
+	}
+
+	store, err := NewStore(StoreConfig{
+		DBDirectory:          dir,
+		MaxBlocksPerFile:     500,
+		DisableTxIndexLookup: true,
+	})
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	txHash := common.BigToHash(new(big.Int).SetUint64(750))
+
+	// Populate the index with an incorrect block number. With index lookup enabled
+	// this would narrow to the wrong file and miss. Disabling lookup should fall
+	// back to a full scan and still find the receipt.
+	require.NoError(t, store.txIndex.SetBatch([]TxIndexEntry{
+		{TxHash: txHash, BlockNumber: 250},
+	}))
+
+	ctx := context.Background()
+	result, err := store.GetReceiptByTxHash(ctx, txHash)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, uint64(750), result.BlockNumber)
+}
+
 func TestStoreWriteReceiptsPopulatesIndex(t *testing.T) {
 	dir := t.TempDir()
 

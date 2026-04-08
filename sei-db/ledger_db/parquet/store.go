@@ -36,6 +36,7 @@ type StoreConfig struct {
 	PruneIntervalSeconds int64
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
+	DisableTxIndexLookup bool
 }
 
 // DefaultStoreConfig returns the default store configuration.
@@ -158,6 +159,7 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 	resolved.DBDirectory = cfg.DBDirectory
 	resolved.KeepRecent = cfg.KeepRecent
 	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
+	resolved.DisableTxIndexLookup = cfg.DisableTxIndexLookup
 	if cfg.BlockFlushInterval > 0 {
 		resolved.BlockFlushInterval = cfg.BlockFlushInterval
 	}
@@ -199,8 +201,10 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 // When the tx index contains the block number, the search is narrowed to the
 // single parquet file covering that block instead of scanning all files.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
-	if blockNum, ok := s.txIndex.GetBlockNumber(txHash); ok {
-		return s.Reader.GetReceiptByTxHashInBlock(ctx, txHash, blockNum)
+	if !s.config.DisableTxIndexLookup {
+		if blockNum, ok := s.txIndex.GetBlockNumber(txHash); ok {
+			return s.Reader.GetReceiptByTxHashInBlock(ctx, txHash, blockNum)
+		}
 	}
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
 }

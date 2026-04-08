@@ -141,6 +141,7 @@ func NewRecieptStoreSimulator(
 		Backend:              "parquet",
 		KeepRecent:           int(config.ReceiptKeepRecent),
 		PruneIntervalSeconds: int(config.ReceiptPruneIntervalSeconds),
+		DisableTxIndexLookup: config.DisableReceiptTxIndexLookup,
 	}
 
 	// nil StoreKey is safe: the parquet write path never touches the legacy KV store.

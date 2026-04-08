@@ -24,6 +24,7 @@ func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreK
 		DBDirectory:          cfg.DBDirectory,
 		KeepRecent:           int64(cfg.KeepRecent),
 		PruneIntervalSeconds: int64(cfg.PruneIntervalSeconds),
+		DisableTxIndexLookup: cfg.DisableTxIndexLookup,
 	}
 
 	store, err := parquet.NewStore(storeCfg)
