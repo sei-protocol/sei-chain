@@ -147,6 +147,21 @@ func (hp HostPort) String() string {
 	return net.JoinHostPort(hp.Hostname, strconv.FormatInt(int64(hp.Port), 10))
 }
 
+// MarshalText implements the encoding.TextMarshaler interface.
+func (hp HostPort) MarshalText() ([]byte, error) {
+	return []byte(hp.String()), nil
+}
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (hp *HostPort) UnmarshalText(b []byte) error {
+	x, err := ParseHostPort(string(b))
+	if err != nil {
+		return err
+	}
+	*hp = x
+	return nil
+}
+
 func ParseHostPort(hp string) (HostPort, error) {
 	h, p, err := net.SplitHostPort(hp)
 	if err != nil {

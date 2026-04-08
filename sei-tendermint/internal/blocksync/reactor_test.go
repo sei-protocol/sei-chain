@@ -26,10 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-type testMempoolRouter struct{}
-
-func (testMempoolRouter) Evict(types.NodeID, error) {}
-
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
 	nodes   []types.NodeID
@@ -97,7 +93,7 @@ func makeReactor(
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(config.TestMempoolConfig(), app, testMempoolRouter{})
+	mp := mempool.NewTxMempool(config.TestMempoolConfig(), app)
 	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 

@@ -2,6 +2,7 @@ package mempool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -18,7 +19,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -78,6 +81,29 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 		}
 	})
 	return rts
+}
+
+func setupReactorForTest(t *testing.T, options ...TxMempoolOption) (*Reactor, *TxMempool) {
+	t.Helper()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	cfg.Mempool.DropUtilisationThreshold = 0.0
+	cfg.Mempool.Broadcast = false
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
+	node := network.Nodes()[0]
+
+	txmp := NewTxMempool(cfg.Mempool, kvstore.NewApplication(), options...)
+	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
+	require.NoError(t, err)
+	reactor.MarkReadyToStart()
+	require.NoError(t, reactor.Start(t.Context()))
+	require.True(t, reactor.IsRunning())
+	t.Cleanup(reactor.Stop)
+
+	return reactor, txmp
 }
 
 func (rts *reactorTestSuite) start(t *testing.T) {
@@ -175,6 +201,147 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	// Wait till all secondary suites (reactor) received all mempool txs from the
 	// primary suite (node).
 	rts.waitForTxns(t, convertTex(txs), secondaries...)
+}
+
+func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[int] {
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		if count, ok := counts[nodeID]; ok {
+			return utils.Some(count)
+		}
+		return utils.None[int]()
+	}
+	panic("unreachable")
+}
+
+func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
+	ctx := t.Context()
+
+	rts := setupReactors(ctx, t, 2)
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+
+	rts.start(t)
+
+	receiverReactor := rts.reactors[receiver]
+	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
+	receiverReactor.cfg.CheckTxErrorThreshold = 2
+	receiverReactor.mempool.preCheck = func(tx types.Tx) error {
+		if string(tx) == "bad" {
+			return errors.New("bad tx")
+		}
+		return nil
+	}
+	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+
+	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
+		return p2p.RecvMsg[*pb.Message]{
+			From: sender,
+			Message: &pb.Message{
+				Sum: &pb.Message_Txs{
+					Txs: &pb.Txs{Txs: [][]byte{tx}},
+				},
+			},
+		}
+	}
+	// The network connection can be established before the reactor processes the
+	// async PeerStatusUp update that initializes the sender's failure count, so we need to wait.
+	require.Eventually(t, func() bool {
+		return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
+	}, time.Second, 50*time.Millisecond)
+
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
+
+	badTx := []byte("bad")
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
+
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-2"))))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
+
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(receiverReactor, sender))
+
+	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+	rts.network.Node(receiver).WaitForDisconnect(ctx, conn)
+}
+
+func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
+	preCheckErr := errors.New("bad tx")
+	reactor, _ := setupReactorForTest(
+		t,
+		WithPreCheck(func(tx types.Tx) error {
+			if string(tx) == "precheck-bad" {
+				return preCheckErr
+			}
+			return nil
+		}),
+	)
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		counts["other"] = 1
+	}
+	msg := p2p.RecvMsg[*pb.Message]{
+		From: "sender",
+		Message: &pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+			},
+		},
+	}
+
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusUp,
+	})
+	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(reactor, "sender"))
+
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
+
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusDown,
+	})
+
+	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
+	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "other"))
+}
+
+func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
+	preCheckErr := errors.New("bad tx")
+	reactor, _ := setupReactorForTest(
+		t,
+		WithPreCheck(func(tx types.Tx) error {
+			if string(tx) == "precheck-bad" {
+				return preCheckErr
+			}
+			return nil
+		}),
+	)
+	msg := p2p.RecvMsg[*pb.Message]{
+		From: "sender",
+		Message: &pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{[]byte("precheck-bad")}},
+			},
+		},
+	}
+
+	reactor.cfg.CheckTxErrorBlacklistEnabled = true
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusUp,
+	})
+	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
+		NodeID: "sender",
+		Status: p2p.PeerStatusDown,
+	})
+
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
+	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
 }
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408

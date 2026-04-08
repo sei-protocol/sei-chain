@@ -1,0 +1,26 @@
+{
+  "Comment": "Sample cryptosim config for offchain pipeline testing. Replace HistoricalOffload.Kafka.Brokers, Topic, and Region with your environment values.",
+  "Backend": "SSHistoricalOffload",
+  "HistoricalOffload": {
+    "Provider": "kafka",
+    "Kafka": {
+      "Brokers": [
+        "b-1.example.kafka.amazonaws.com:9098",
+        "b-2.example.kafka.amazonaws.com:9098"
+      ],
+      "Topic": "historical-offload",
+      "Region": "us-east-1",
+      "TLSEnabled": true,
+      "SASLMechanism": "aws-msk-iam"
+    }
+  },
+  "BlocksPerCommit": 32,
+  "ConsoleUpdateIntervalSeconds": 5,
+  "DataDir": "data/historical-offload-kafka",
+  "EnableSuspension": false,
+  "MetricsAddr": "",
+  "MaxRuntimeSeconds": 1200,
+  "DisableTransactionReads": true,
+  "LogDir": "logs/historical-offload-kafka",
+  "MaxTPS": 150000
+}
