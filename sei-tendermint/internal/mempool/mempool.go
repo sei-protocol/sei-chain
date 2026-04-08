@@ -117,8 +117,6 @@ type TxMempool struct {
 	preCheck  PreCheckFunc
 	postCheck PostCheckFunc
 
-	failedCheckTxCounter utils.Option[peerFailedCheckTxCounter]
-
 	router            router
 	priorityReservoir *reservoir.Sampler[int64]
 }
@@ -1121,17 +1119,6 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 		default:
 		}
 	}
-}
-
-func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
-	if counter, ok := txmp.failedCheckTxCounter.Get(); ok {
-		return counter.GetPeerFailedCheckTxCount(nodeID)
-	}
-	return 0
-}
-
-func (txmp *TxMempool) setPeerFailedCheckTxCounter(counter peerFailedCheckTxCounter) {
-	txmp.failedCheckTxCounter = utils.Some(counter)
 }
 
 // AppendCheckTxErr wraps error message into an ABCIMessageLogs json string

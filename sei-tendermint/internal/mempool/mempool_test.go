@@ -1039,21 +1039,6 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 	}
 }
 
-type peerFailedCheckTxCounterStub map[types.NodeID]uint64
-
-func (s peerFailedCheckTxCounterStub) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
-	return s[nodeID]
-}
-
-func TestTxMempool_GetPeerFailedCheckTxCount(t *testing.T) {
-	txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0)
-
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.setPeerFailedCheckTxCounter(peerFailedCheckTxCounterStub{"sender": 2})
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-}
-
 func TestAppendCheckTxErr(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	txmp := setup(t, client, 500)

@@ -21,6 +21,7 @@ import (
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -184,32 +185,51 @@ func TestReactorFailedCheckTxCount(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0)
+	preCheckErr := errors.New("bad tx")
+	txmp := setup(
+		t,
+		&application{Application: kvstore.NewApplication()},
+		0,
+		WithPreCheck(func(tx types.Tx) error {
+			if string(tx) == "precheck-bad" {
+				return preCheckErr
+			}
+			return nil
+		}),
+	)
 	reactor := &Reactor{
 		cfg:                 cfg.Mempool,
 		mempool:             txmp,
+		ids:                 NewMempoolIDs(),
 		router:              &p2p.Router{},
-		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]uint64{}),
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
 	}
-	txmp.setPeerFailedCheckTxCounter(reactor)
+	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
+		return p2p.RecvMsg[*pb.Message]{
+			From: "sender",
+			Message: &pb.Message{
+				Sum: &pb.Message_Txs{
+					Txs: &pb.Txs{Txs: [][]byte{tx}},
+				},
+			},
+		}
+	}
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = false
-	reactor.accountFailedCheckTx("sender", types.ErrTxTooLarge{Max: 1, Actual: 2})
-	require.Equal(t, uint64(0), reactor.GetPeerFailedCheckTxCount("sender"))
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
+	require.Equal(t, 0, reactor.GetPeerFailedCheckTxCount("sender"))
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = true
 	reactor.cfg.CheckTxErrorThreshold = 10
 
-	reactor.accountFailedCheckTx("sender", types.ErrTxTooLarge{Max: 1, Actual: 2})
-	require.Equal(t, uint64(1), reactor.GetPeerFailedCheckTxCount("sender"))
-	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx(make([]byte, txmp.config.MaxTxBytes+1))))
+	require.Equal(t, 1, reactor.GetPeerFailedCheckTxCount("sender"))
 
-	reactor.accountFailedCheckTx("sender", types.ErrPreCheck{Reason: errors.New("bad tx")})
-	require.Equal(t, uint64(2), reactor.GetPeerFailedCheckTxCount("sender"))
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("precheck-bad"))))
+	require.Equal(t, 2, reactor.GetPeerFailedCheckTxCount("sender"))
 
-	reactor.accountFailedCheckTx("sender", errors.New("application rejected tx"))
-	require.Equal(t, uint64(2), reactor.GetPeerFailedCheckTxCount("sender"))
+	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msgForTx([]byte("sender=key=1"))))
+	require.Equal(t, 2, reactor.GetPeerFailedCheckTxCount("sender"))
 }
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408

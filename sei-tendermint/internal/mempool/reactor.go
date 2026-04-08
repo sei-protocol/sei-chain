@@ -68,8 +68,6 @@ func NewReactor(
 		observePanic:        defaultObservePanic,
 		readyToStart:        make(chan struct{}, 1),
 	}
-	txmp.setPeerFailedCheckTxCounter(r)
-
 	r.BaseService = *service.NewBaseService("Mempool", r)
 	return r, nil
 }
