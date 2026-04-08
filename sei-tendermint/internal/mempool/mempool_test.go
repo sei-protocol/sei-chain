@@ -62,7 +62,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 		// format is evm-sender-0=account=priority=nonce
 		// split into respective vars
 		parts := bytes.Split(req.Tx, []byte("="))
-		sender = string(parts[0])
 		account := string(parts[1])
 		v, err := strconv.ParseInt(string(parts[2]), 10, 64)
 		if err != nil {
@@ -181,7 +180,7 @@ func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempo
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return NewTxMempool(cfg.Mempool, app, NewTestPeerEvictor(), options...)
+	return NewTxMempool(cfg.Mempool, app, options...)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
@@ -217,23 +216,6 @@ func convertTex(in []testTx) types.Txs {
 	}
 
 	return out
-}
-
-type TestPeerEvictor struct {
-	evicting map[types.NodeID]struct{}
-}
-
-func NewTestPeerEvictor() *TestPeerEvictor {
-	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
-}
-
-func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
-	_, ok := e.evicting[peerID]
-	return ok
-}
-
-func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
-	e.evicting[id] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {
@@ -1037,49 +1019,6 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTxMempool_FailedCheckTxCount(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
-		return nil
-	}
-	txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
-	badTx := make([]byte, txmp.config.MaxTxBytes+1)
-
-	callback := func(res *abci.ResponseCheckTx) {
-		require.Equal(t, nil, txmp.postCheck(badTx, res))
-	}
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = false
-
-	// bad tx before enabling blacklisting does not increment the failed count
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = true
-	txmp.config.CheckTxErrorThreshold = 2
-
-	// first bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// second bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	goodTx := []byte("sender=key=1")
-	// good tx doesn't increase failedCount
-	require.NoError(t, txmp.CheckTx(ctx, goodTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// three strikes, you're out!
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.True(t, txmp.router.(*TestPeerEvictor).IsEvicted("sender"))
 }
 
 func TestAppendCheckTxErr(t *testing.T) {

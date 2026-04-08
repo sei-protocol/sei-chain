@@ -73,6 +73,11 @@ func NewHashed[T Msg](msg T) *Hashed[T] {
 // SecretKey is the secret key of the validator.
 type SecretKey struct{ key ed25519.SecretKey }
 
+// SecretKeyFromED25519 constructs a SecretKey from an ed25519.SecretKey.
+func SecretKeyFromED25519(key ed25519.SecretKey) SecretKey {
+	return SecretKey{key: key}
+}
+
 // Public returns the public key corresponding to the secret key.
 func (k SecretKey) Public() PublicKey {
 	return PublicKey{key: k.key.Public()}
@@ -235,7 +240,7 @@ var SignatureConv = protoutils.Conv[*Signature, *pb.Signature]{
 		}
 	},
 	Decode: func(p *pb.Signature) (*Signature, error) {
-		key, err := PublicKeyConv.Decode(p.Key)
+		key, err := PublicKeyConv.DecodeReq(p.Key)
 		if err != nil {
 			return nil, fmt.Errorf("key: %w", err)
 		}
@@ -304,11 +309,11 @@ func SignedMsgConv[T Msg]() *protoutils.Conv[*Signed[T], *pb.SignedMsg] {
 			return &pb.SignedMsg{Msg: MsgConv.Encode(m.hashed.msg), Sig: SignatureConv.Encode(m.sig)}
 		},
 		Decode: func(m *pb.SignedMsg) (*Signed[T], error) {
-			msg, err := MsgConv.Decode(m.Msg)
+			msg, err := MsgConv.DecodeReq(m.Msg)
 			if err != nil {
 				return nil, fmt.Errorf("msg: %w", err)
 			}
-			sig, err := SignatureConv.Decode(m.Sig)
+			sig, err := SignatureConv.DecodeReq(m.Sig)
 			if err != nil {
 				return nil, fmt.Errorf("sig: %w", err)
 			}

@@ -72,6 +72,10 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
+
+	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+	// configuration. Leave empty to disable Autobahn.
+	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -886,6 +890,7 @@ func DefaultMempoolConfig() *MempoolConfig {
 func TestMempoolConfig() *MempoolConfig {
 	cfg := DefaultMempoolConfig()
 	cfg.CacheSize = 1000
+	cfg.DropUtilisationThreshold = 0.0
 	return cfg
 }
 

@@ -25,6 +25,25 @@ func BenchmarkSSCompositeWrite(b *testing.B) {
 	}
 }
 
+func BenchmarkSSHistoricalOffloadWrite(b *testing.B) {
+	const totalKeys int64 = 10_000
+
+	scenarios := []TestScenario{
+		{
+			Name:      "100_keys_per_block",
+			TotalKeys: totalKeys,
+			NumBlocks: totalKeys / 100,
+			Backend:   wrappers.SSHistoricalOffload,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		b.Run(scenario.Name, func(b *testing.B) {
+			runBenchmark(b, scenario, false)
+		})
+	}
+}
+
 func BenchmarkCombinedCompositeDualSSCompositeWrite(b *testing.B) {
 	const totalKeys int64 = 10_000
 

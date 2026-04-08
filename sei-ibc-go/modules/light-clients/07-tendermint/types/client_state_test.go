@@ -16,12 +16,6 @@ import (
 )
 
 const (
-	testClientID     = "clientidone"
-	testConnectionID = "connectionid"
-	testPortID       = "testportid"
-	testChannelID    = "testchannelid"
-	testSequence     = 1
-
 	// Do not change the length of these variables
 	fiftyCharChainID    = "12345678901234567890123456789012345678901234567890"
 	fiftyOneCharChainID = "123456789012345678901234567890123456789012345678901"

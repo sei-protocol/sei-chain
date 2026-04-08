@@ -467,7 +467,6 @@ func newStateWithConfigAndBlockStore(
 	mempool := mempool.NewTxMempool(
 		thisConfig.Mempool,
 		proxyAppConnMem,
-		nil,
 	)
 
 	if thisConfig.Consensus.WaitForTxs() {

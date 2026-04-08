@@ -8,20 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-type TestPeerEvictor struct {
-	evicting map[types.NodeID]struct{}
-}
-
-func NewTestPeerEvictor() *TestPeerEvictor {
-	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
-}
-
-func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
-	e.evicting[id] = struct{}{}
-}
 
 func FuzzMempool(f *testing.F) {
 	app := kvstore.NewApplication()
@@ -29,7 +16,7 @@ func FuzzMempool(f *testing.F) {
 	cfg := config.DefaultMempoolConfig()
 	cfg.Broadcast = false
 
-	mp := mempool.NewTxMempool(cfg, app, NewTestPeerEvictor())
+	mp := mempool.NewTxMempool(cfg, app)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_ = mp.CheckTx(t.Context(), data, nil, mempool.TxInfo{})

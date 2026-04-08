@@ -37,8 +37,6 @@ const (
 	MinGasEVMTx  = 21000
 )
 
-var _ Mempool = (*TxMempool)(nil)
-
 // TxMempoolOption sets an optional parameter on the TxMempool.
 type TxMempoolOption func(*TxMempool)
 
@@ -119,36 +117,28 @@ type TxMempool struct {
 	preCheck  PreCheckFunc
 	postCheck PostCheckFunc
 
-	// NodeID to count of transactions failing CheckTx
-	failedCheckTxCounts    map[types.NodeID]uint64
-	mtxFailedCheckTxCounts sync.RWMutex
-
-	router            router
 	priorityReservoir *reservoir.Sampler[int64]
 }
 
 func NewTxMempool(
 	cfg *config.MempoolConfig,
 	proxyAppConn abci.Application,
-	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
 	txmp := &TxMempool{
-		config:              cfg,
-		proxyAppConn:        proxyAppConn,
-		height:              -1,
-		cache:               NopTxCache{},
-		blockFailedTxs:      NopTxCache{},
-		metrics:             NopMetrics(),
-		txStore:             NewTxStore(),
-		gossipIndex:         clist.New(),
-		priorityIndex:       NewTxPriorityQueue(),
-		expirationIndex:     NewWrappedTxList(),
-		pendingTxs:          NewPendingTxs(cfg),
-		failedCheckTxCounts: map[types.NodeID]uint64{},
-		router:              router,
-		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
+		config:            cfg,
+		proxyAppConn:      proxyAppConn,
+		height:            -1,
+		cache:             NopTxCache{},
+		blockFailedTxs:    NopTxCache{},
+		metrics:           NopMetrics(),
+		txStore:           NewTxStore(),
+		gossipIndex:       clist.New(),
+		priorityIndex:     NewTxPriorityQueue(),
+		expirationIndex:   NewWrappedTxList(),
+		pendingTxs:        NewPendingTxs(cfg),
+		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
 	if cfg.CacheSize > 0 {
@@ -186,20 +176,14 @@ func WithMetrics(metrics *Metrics) TxMempoolOption {
 	return func(txmp *TxMempool) { txmp.metrics = metrics }
 }
 
-func (txmp *TxMempool) TxStore() *TxStore {
-	return txmp.txStore
-}
+func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
-func (txmp *TxMempool) Lock() {
-	txmp.mtx.Lock()
-}
+func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 
 // Unlock releases a write-lock on the mempool.
-func (txmp *TxMempool) Unlock() {
-	txmp.mtx.Unlock()
-}
+func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
 // Size returns the number of valid transactions in the mempool. It is
 // thread-safe.
@@ -230,39 +214,28 @@ func (txmp *TxMempool) TotalTxsBytesSize() int64 {
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
-func (txmp *TxMempool) PendingSize() int {
-	return txmp.pendingTxs.Size()
-}
+func (txmp *TxMempool) PendingSize() int { return txmp.pendingTxs.Size() }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
 // mempool. It is thread-safe.
-func (txmp *TxMempool) SizeBytes() int64 {
-	return atomic.LoadInt64(&txmp.sizeBytes)
-}
+func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeBytes) }
 
-func (txmp *TxMempool) PendingSizeBytes() int64 {
-	return atomic.LoadInt64(&txmp.pendingSizeBytes)
-}
+func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
 
 // WaitForNextTx returns a blocking channel that will be closed when the next
 // valid transaction is available to gossip. It is thread-safe.
-func (txmp *TxMempool) WaitForNextTx() <-chan struct{} {
-	return txmp.gossipIndex.WaitChan()
-}
+func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex.WaitChan() }
 
 // NextGossipTx returns the next valid transaction to gossip. A caller must wait
 // for WaitForNextTx to signal a transaction is available to gossip first. It is
 // thread-safe.
-func (txmp *TxMempool) NextGossipTx() *clist.CElement {
-	return txmp.gossipIndex.Front()
-}
+func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
 
 // EnableTxsAvailable enables the mempool to trigger events when transactions
 // are available on a block by block basis.
 func (txmp *TxMempool) EnableTxsAvailable() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-
 	txmp.txsAvailable = make(chan struct{}, 1)
 }
 
@@ -303,7 +276,6 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 		return types.ErrTxTooLarge{
 			Max:    txmp.config.MaxTxBytes,
 			Actual: txSize,
@@ -332,7 +304,6 @@ func (txmp *TxMempool) CheckTx(
 
 	if txmp.preCheck != nil {
 		if err := txmp.preCheck(tx); err != nil {
-			txmp.incrementBlacklistCounter(txInfo.SenderNodeID)
 			return types.ErrPreCheck{Reason: err}
 		}
 	}
@@ -442,19 +413,6 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	return nil
-}
-
-func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
-	if !txmp.config.CheckTxErrorBlacklistEnabled || nodeID == "" || txmp.router == nil {
-		return
-	}
-
-	txmp.mtxFailedCheckTxCounts.Lock()
-	defer txmp.mtxFailedCheckTxCounts.Unlock()
-	txmp.failedCheckTxCounts[nodeID]++
-	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
-		txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
-	}
 }
 
 func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
@@ -1158,12 +1116,6 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 		default:
 		}
 	}
-}
-
-func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
-	txmp.mtxFailedCheckTxCounts.RLock()
-	defer txmp.mtxFailedCheckTxCounts.RUnlock()
-	return txmp.failedCheckTxCounts[nodeID]
 }
 
 // AppendCheckTxErr wraps error message into an ABCIMessageLogs json string

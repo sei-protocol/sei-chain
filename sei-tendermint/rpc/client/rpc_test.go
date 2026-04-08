@@ -567,7 +567,7 @@ func TestClientMethodCalls(t *testing.T) {
 	}
 }
 
-func getMempool(t *testing.T, srv service.Service) mempool.Mempool {
+func getMempool(t *testing.T, srv service.Service) *mempool.TxMempool {
 	t.Helper()
 	n, ok := srv.(interface {
 		RPCEnvironment() *rpccore.Environment
