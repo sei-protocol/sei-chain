@@ -2,18 +2,14 @@ package mux
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"sync/atomic"
 	"testing"
-
-	"google.golang.org/protobuf/proto"
 )
 
 // Arbitrary nontrivial transformation to make sure that
@@ -253,46 +249,6 @@ func makeConfig(kinds ...StreamKind) *Config {
 		cfg.Kinds[kind] = &StreamKindConfig{MaxAccepts: 1, MaxConnects: 1}
 	}
 	return cfg
-}
-
-func exchangeHandshake(ctx context.Context, c conn.Conn, kinds map[StreamKind]*StreamKindConfig) error {
-	handshakeRaw := handshakeConv.Marshal(&handshake{Kinds: kinds})
-	sizeRaw := binary.LittleEndian.AppendUint32(nil, uint32(len(handshakeRaw))) //nolint:gosec // handshake size is bounded in tests
-	if err := c.Write(ctx, sizeRaw); err != nil {
-		return err
-	}
-	if err := c.Write(ctx, handshakeRaw); err != nil {
-		return err
-	}
-	if err := c.Flush(ctx); err != nil {
-		return err
-	}
-
-	var remoteSizeRaw [4]byte
-	if err := c.Read(ctx, remoteSizeRaw[:]); err != nil {
-		return err
-	}
-	remoteSize := binary.LittleEndian.Uint32(remoteSizeRaw[:])
-	remoteHandshakeRaw := make([]byte, remoteSize)
-	if err := c.Read(ctx, remoteHandshakeRaw); err != nil {
-		return err
-	}
-	_, err := handshakeConv.Unmarshal(remoteHandshakeRaw)
-	return err
-}
-
-func writeFrame(ctx context.Context, c conn.Conn, h *pb.Header) error {
-	headerRaw, err := proto.Marshal(h)
-	if err != nil {
-		return err
-	}
-	if err := c.Write(ctx, []byte{byte(len(headerRaw))}); err != nil {
-		return err
-	}
-	if err := c.Write(ctx, headerRaw); err != nil {
-		return err
-	}
-	return c.Flush(ctx)
 }
 
 func TestStreamKindsMismatch(t *testing.T) {
@@ -676,35 +632,28 @@ func TestProtocol_UnknownKind(t *testing.T) {
 	}
 }
 
-func TestProtocol_StreamKindMismatch(t *testing.T) {
+func TestProtocol_OpenWithoutKind(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := conn.NewTestConn()
 		kind := StreamKind(0)
-		badKind := StreamKind(1)
+
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
 		s.SpawnBg(func() error {
-			if err := exchangeHandshake(ctx, c1, makeConfig(kind).Kinds); err != nil {
-				return fmt.Errorf("exchangeHandshake(): %w", err)
-			}
-			// First frame for a new inbound stream arrives without Kind, so protobuf defaults GetKind() to 0.
-			if err := writeFrame(ctx, c1, &pb.Header{Id: 0}); err != nil {
-				return fmt.Errorf("writeFrame(no kind): %w", err)
-			}
-			// Later frame on the same stream id supplies an unconfigured kind.
-			if err := writeFrame(ctx, c1, &pb.Header{
-				Id:         0,
-				Kind:       utils.Alloc(uint64(badKind)),
-				MaxMsgSize: utils.Alloc(uint64(1)),
-			}); err != nil {
-				return fmt.Errorf("writeFrame(bad kind): %w", err)
+			// Send OPEN with no kind set - it should be rejected, instead of defaulting to 0. 
+			for queue, ctrl := range badMux.queue.Lock() {
+				f := queue.Get(streamID(0))
+				f.Header.Kind = nil 
+				ctrl.Updated()
 			}
 			return nil
 		})
-
 		mux := NewMux(makeConfig(kind))
 		err := mux.Run(ctx, c2)
 		t.Logf("mux terminated: %v", err)
 		if !errors.Is(err, errUnknownStream) {
-			return fmt.Errorf("err = %v, want %v", err, errUnknownStream)
+			return fmt.Errorf("err = %v, want %v", err, errTooManyAccepts)
 		}
 		return nil
 	})
