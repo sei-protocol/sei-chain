@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
-	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
 const (
@@ -37,7 +36,7 @@ type DataGenerator struct {
 	initialNextBlockNumber uint64
 
 	// The random number generator.
-	rand *rand.CannedRandom
+	rand *CannedRandom
 
 	// The address of the fee account (i.e. the account that collects gas fees). This is a special account
 	// and has account ID 0. Since we reuse this account very often, it is cached for performance.
@@ -65,7 +64,7 @@ type DataGenerator struct {
 func NewDataGenerator(
 	config *CryptoSimConfig,
 	database *Database,
-	rand *rand.CannedRandom,
+	rand *CannedRandom,
 	metrics *CryptosimMetrics,
 ) (*DataGenerator, error) {
 
@@ -324,6 +323,6 @@ func (d *DataGenerator) ReportEndOfBlock() {
 
 // Get the random number generator. Note that the random number generator is not thread safe, and
 // so the caller is responsible for ensuring that it is not used concurrently with other calls to the data generator.
-func (d *DataGenerator) Rand() *rand.CannedRandom {
+func (d *DataGenerator) Rand() *CannedRandom {
 	return d.rand
 }
