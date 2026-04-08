@@ -210,7 +210,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: evmStorageKey, Value: []byte{round}},
+						{Key: evmStorageKey, Value: padLeft32(round)},
 					},
 				},
 			},
