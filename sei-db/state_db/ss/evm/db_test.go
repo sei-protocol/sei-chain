@@ -1,6 +1,8 @@
 package evm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 )
 
 func testConfig() config.StateStoreConfig {
@@ -29,6 +31,81 @@ func openTestStore(t *testing.T) types.StateStore {
 	return store
 }
 
+func TestEVMStateStoreDefaultUsesUnifiedDB(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.False(t, store.separateDBs)
+	require.Len(t, store.managedDBs, 1)
+
+	for _, storeType := range AllEVMStoreTypes() {
+		require.Same(t, store.managedDBs[0], store.subDBs[storeType])
+		_, err := os.Stat(filepath.Join(dir, StoreTypeName(storeType)))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	}
+}
+
+func TestEVMStateStoreSeparatedPreservesUnifiedKeyLayout(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+
+	addr := make([]byte, 20)
+	addr[0] = 0x11
+	slot := make([]byte, 32)
+	slot[0] = 0x22
+	nonceKey := append([]byte{0x0a}, addr...)
+	storageKey := append([]byte{0x03}, append(addr, slot...)...)
+
+	cs := []*proto.NamedChangeSet{
+		{
+			Name: EVMStoreKey,
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
+					{Key: nonceKey, Value: []byte{0x09}},
+					{Key: storageKey, Value: []byte("slot_value")},
+				},
+			},
+		},
+	}
+	require.NoError(t, store.ApplyChangesetSync(7, cs))
+	require.NoError(t, store.SetLatestVersion(7))
+	require.NoError(t, store.Close())
+
+	opener := backend.ResolveBackend(cfg.Backend)
+
+	nonceDir := filepath.Join(dir, StoreTypeName(StoreNonce))
+	nonceDB, err := opener(nonceDir, subDBConfig(cfg, nonceDir))
+	require.NoError(t, err)
+	defer nonceDB.Close()
+
+	nonceVal, err := nonceDB.Get(EVMStoreKey, 7, nonceKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x09}, nonceVal)
+	require.Equal(t, int64(7), nonceDB.GetLatestVersion())
+
+	_, strippedNonceKey := commonevm.ParseEVMKey(nonceKey)
+	rewrittenNonceVal, err := nonceDB.Get(StoreTypeName(StoreNonce), 7, strippedNonceKey)
+	require.NoError(t, err)
+	require.Nil(t, rewrittenNonceVal, "separated DB should preserve evm store key and full key layout")
+
+	storageDir := filepath.Join(dir, StoreTypeName(StoreStorage))
+	storageDB, err := opener(storageDir, subDBConfig(cfg, storageDir))
+	require.NoError(t, err)
+	defer storageDB.Close()
+
+	storageVal, err := storageDB.Get(EVMStoreKey, 7, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte("slot_value"), storageVal)
+}
+
 // verifyStateStoreInterface ensures EVMStateStore satisfies db_engine.StateStore.
 func TestEVMStateStoreImplementsInterface(t *testing.T) {
 	var _ types.StateStore = (*EVMStateStore)(nil)
@@ -46,8 +123,8 @@ func TestEVMStateStoreGetHas(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("storage_value")},
 				},
 			},
@@ -80,8 +157,8 @@ func TestEVMStateStoreVersionHandling(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: nonceKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -107,8 +184,8 @@ func TestEVMStateStoreDeleteTombstone(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
 				},
 			},
@@ -119,8 +196,8 @@ func TestEVMStateStoreDeleteTombstone(t *testing.T) {
 	cs = []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: codeKey, Delete: true},
 				},
 			},
@@ -158,8 +235,8 @@ func TestEVMStateStoreMultipleSubDBs(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: nonceKey, Value: []byte{0x05}},
 					{Key: codeHashKey, Value: []byte("hash_abc")},
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
@@ -205,8 +282,8 @@ func TestEVMStateStoreVersionTracking(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: nonceKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -234,8 +311,8 @@ func TestEVMStateStorePrune(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: storageKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -262,8 +339,8 @@ func TestEVMStateStoreNonEVMChangesetsIgnored(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("balance"), Value: []byte("100")},
 				},
 			},
@@ -338,8 +415,8 @@ func TestCodeSizeGoesToLegacyDB(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: codeSizeKey, Value: []byte{0x00, 0x10}},
 				},
 			},

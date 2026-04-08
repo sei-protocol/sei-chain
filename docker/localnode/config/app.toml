@@ -269,6 +269,12 @@ ss-prune-interval = 60
 # defaults to 1
 ss-import-num-workers = 1
 
+# EVM state-store DB directory and routing mode controls.
+evm-ss-db-directory = ""
+evm-ss-write-mode = "cosmos_only"
+evm-ss-read-mode = "cosmos_only"
+evm-ss-separate-dbs = false
+
 [evm]
 
 # EnableTestAPI enables the EVM test API
