@@ -611,15 +611,12 @@ func (txmp *TxMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
 	execTxResult []*abci.ExecTxResult,
-	newTxConstraintsFetcher utils.Option[TxConstraintsFetcher],
+	txConstraintsFetcher TxConstraintsFetcher,
 	recheck bool,
 ) error {
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable = false
-
-	if fetcher, ok := newTxConstraintsFetcher.Get(); ok {
-		txmp.txConstraintsFetcher = fetcher
-	}
+	txmp.txConstraintsFetcher = txConstraintsFetcher
 
 	for i, tx := range blockTxs {
 		txKey := tx.Key()

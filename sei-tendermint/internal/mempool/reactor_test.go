@@ -331,7 +331,7 @@ func TestReactorConcurrency(t *testing.T) {
 				deliverTxResponses[i] = &abci.ExecTxResult{Code: 0}
 			}
 
-			require.NoError(t, mempool.Update(ctx, 1, convertTex(txs), deliverTxResponses, utils.None[TxConstraintsFetcher](), true))
+			require.NoError(t, mempool.Update(ctx, 1, convertTex(txs), deliverTxResponses, mempool.txConstraintsFetcher, true))
 		}()
 
 		// 1. submit a bunch of txs
@@ -345,7 +345,7 @@ func TestReactorConcurrency(t *testing.T) {
 			mempool.Lock()
 			defer mempool.Unlock()
 
-			err := mempool.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), utils.None[TxConstraintsFetcher](), true)
+			err := mempool.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.txConstraintsFetcher, true)
 			require.NoError(t, err)
 		}()
 	}

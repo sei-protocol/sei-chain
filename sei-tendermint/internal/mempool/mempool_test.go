@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -266,7 +265,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// commit half the transactions and ensure we fire an event
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxConstraintsFetcher](), true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 	ensureTxFire()
 	ensureNoTxFire()
@@ -299,7 +298,7 @@ func TestTxMempool_Size(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxConstraintsFetcher](), true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.Equal(t, len(rawTxs)/2, txmp.Size())
@@ -327,7 +326,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.None[TxConstraintsFetcher](), true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	txmp.Flush()
@@ -900,7 +899,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 				}
 
 				txmp.Lock()
-				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, utils.None[TxConstraintsFetcher](), true))
+				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 				txmp.Unlock()
 
 				height++
@@ -941,7 +940,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, utils.None[TxConstraintsFetcher](), true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
@@ -967,7 +966,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, utils.None[TxConstraintsFetcher](), true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
@@ -1133,7 +1132,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas
-	}, utils.None[TxConstraintsFetcher](), true))
+	}, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	// Tx should be removed from the mempool
@@ -1147,7 +1146,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas again
-	}, utils.None[TxConstraintsFetcher](), true))
+	}, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.Equal(t, 0, txmp.Size())
@@ -1178,7 +1177,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, utils.None[TxConstraintsFetcher](), true))
+	}, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	// Re-enter the mempool (first failure allows retry)
@@ -1188,7 +1187,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: abci.CodeTypeOK},
-	}, utils.None[TxConstraintsFetcher](), true))
+	}, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
@@ -1202,7 +1201,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, utils.None[TxConstraintsFetcher](), true))
+	}, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	// First-failure grace should be restored: tx allowed to re-enter
