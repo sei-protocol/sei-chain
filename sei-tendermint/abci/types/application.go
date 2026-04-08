@@ -10,6 +10,7 @@ type Application interface {
 	// Info/Query Connection
 	Info(context.Context, *RequestInfo) (*ResponseInfo, error)    // Return application info
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
+	GetValidators() []ValidatorUpdate
 
 	// Mempool Connection
 	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error)                             // Validate a tx for the mempool
@@ -43,6 +44,10 @@ func NewBaseApplication() *BaseApplication {
 
 func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo, error) {
 	return &ResponseInfo{}, nil
+}
+
+func (BaseApplication) GetValidators() []ValidatorUpdate {
+	return nil
 }
 
 func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {

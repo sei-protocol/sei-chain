@@ -71,8 +71,10 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 			return types.NewErrInvalidEvidence(evidence, err)
 		}
 
-		_, val := valSet.GetByAddress(ev.VoteA.ValidatorAddress)
-
+		_, val, ok := valSet.GetByAddress(ev.VoteA.ValidatorAddress)
+		if !ok {
+			return fmt.Errorf("validator %v not in committee", ev.VoteA.ValidatorAddress)
+		}
 		if err := ev.ValidateABCI(val, valSet, evTime); err != nil {
 			ev.GenerateABCI(val, valSet, evTime)
 			if addErr := evpool.addPendingEvidence(ctx, ev); addErr != nil {
@@ -202,8 +204,8 @@ func VerifyLightClientAttack(e *types.LightClientAttackEvidence, commonHeader, t
 //   - the block ID's must be different
 //   - The signatures must both be valid
 func VerifyDuplicateVote(e *types.DuplicateVoteEvidence, chainID string, valSet *types.ValidatorSet) error {
-	_, val := valSet.GetByAddress(e.VoteA.ValidatorAddress)
-	if val == nil {
+	_, val, ok := valSet.GetByAddress(e.VoteA.ValidatorAddress)
+	if !ok {
 		return fmt.Errorf("address %X was not a validator at height %d", e.VoteA.ValidatorAddress, e.Height())
 	}
 	pubKey := val.PubKey

@@ -90,19 +90,6 @@ func (suite *TendermintTestSuite) SetupTest() {
 	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1, Time: suite.now})
 }
 
-func getSuiteSigners(suite *TendermintTestSuite) []tmtypes.PrivValidator {
-	return []tmtypes.PrivValidator{suite.privVal}
-}
-
-func getBothSigners(suite *TendermintTestSuite, altVal *tmtypes.Validator, altPrivVal tmtypes.PrivValidator) (*tmtypes.ValidatorSet, []tmtypes.PrivValidator) {
-	// Create bothValSet with both suite validator and altVal. Would be valid update
-	bothValSet := tmtypes.NewValidatorSet(append(suite.valSet.Validators, altVal))
-	// Create signer array and ensure it is in same order as bothValSet
-	_, suiteVal := suite.valSet.GetByIndex(0)
-	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
-	return bothValSet, bothSigners
-}
-
 func TestTendermintTestSuite(t *testing.T) {
 	suite.Run(t, new(TendermintTestSuite))
 }

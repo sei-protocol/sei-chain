@@ -84,7 +84,10 @@ func makeVote(t testing.TB, header *types.Header, valset *types.ValidatorSet, ke
 	t.Helper()
 
 	addr := key.Public().Address()
-	idx, _ := valset.GetByAddress(addr)
+	idx, _, ok := valset.GetByAddress(addr)
+	if !ok {
+		panic("validator missing")
+	}
 	vote := &types.Vote{
 		ValidatorAddress: addr,
 		ValidatorIndex:   idx,

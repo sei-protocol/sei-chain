@@ -77,6 +77,69 @@ func TestLedgerCacheRotatePrunes(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestLedgerCacheLogMinBlockIncludesGenesis(t *testing.T) {
+	cache := newLedgerCache()
+	addr := common.HexToAddress("0x300")
+
+	cache.AddLogsForBlock(0, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 0,
+			TxHash:      common.HexToHash("0x3"),
+		},
+	})
+	cache.AddLogsForBlock(1, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 1,
+			TxHash:      common.HexToHash("0x4"),
+		},
+	})
+
+	minBlock, ok := cache.LogMinBlock()
+	require.True(t, ok)
+	require.Equal(t, uint64(0), minBlock)
+}
+
+func TestLedgerCacheFilterLogsWithMinBlockUsesSingleSnapshot(t *testing.T) {
+	cache := newLedgerCache()
+	addr := common.HexToAddress("0x301")
+
+	cache.AddLogsForBlock(10, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 10,
+			TxHash:      common.HexToHash("0x31"),
+		},
+	})
+	cache.Rotate()
+	cache.AddLogsForBlock(20, []*ethtypes.Log{
+		{
+			Address:     addr,
+			BlockNumber: 20,
+			TxHash:      common.HexToHash("0x32"),
+		},
+	})
+
+	logs, minBlock, ok := cache.FilterLogsWithMinBlock(10, 20, filters.FilterCriteria{})
+	require.True(t, ok)
+	require.Equal(t, uint64(10), minBlock)
+	require.Len(t, logs, 2)
+
+	blockNumbers := make([]uint64, 0, len(logs))
+	for _, lg := range logs {
+		blockNumbers = append(blockNumbers, lg.BlockNumber)
+	}
+	require.ElementsMatch(t, []uint64{10, 20}, blockNumbers)
+
+	// A later rotate can prune the oldest chunk, but the snapshot above should
+	// still describe the pre-rotation cache view.
+	cache.Rotate()
+	postRotateMinBlock, ok := cache.LogMinBlock()
+	require.True(t, ok)
+	require.Equal(t, uint64(20), postRotateMinBlock)
+}
+
 func TestParquetReceiptStoreCacheLogs(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()

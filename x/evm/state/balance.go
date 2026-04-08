@@ -23,6 +23,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
+	var oldBalance *uint256.Int
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		oldBalance = s.GetBalance(evmAddr)
+	}
 
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
@@ -45,11 +49,9 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
+	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
 		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Add(newBalance, amt)
-
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
@@ -70,6 +72,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	ctx := s.ctx
+	var oldBalance *uint256.Int
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		oldBalance = s.GetBalance(evmAddr)
+	}
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
 	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
@@ -88,11 +94,9 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		return *ZeroInt
 	}
 
-	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
+	if s.logger != nil && s.logger.OnBalanceChange != nil && oldBalance != nil {
 		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Sub(newBalance, amt)
-
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
@@ -104,10 +108,8 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-
 	// Hook for mock balances (no-op in production builds)
 	s.ensureMinimumBalance(evmAddr)
-
 	seiAddr := s.getSeiAddress(evmAddr)
 	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
 	if overflow {

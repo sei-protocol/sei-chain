@@ -15,19 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// testCommittee creates a committee from the given keys (for test use only).
-func testCommittee(keys ...types.SecretKey) *types.Committee {
-	pks := make([]types.PublicKey, len(keys))
-	for i, k := range keys {
-		pks[i] = k.Public()
-	}
-	c, err := types.NewRoundRobinElection(pks)
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
 // seedPersistedInner is a test helper that persists a persistedInner using the public API.
 func seedPersistedInner(dir string, state *persistedInner) {
 	p, _, err := persist.NewPersister[*pb.PersistedInner](utils.Some(dir), innerFile)
@@ -74,8 +61,8 @@ func TestNewInnerPrepareVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a prepare vote at genesis view (0, 0)
-	key := types.GenSecretKey(rng)
-	committee := testCommittee(key)
+	committee, keys := types.GenCommittee(rng, 1)
+	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	vote := types.Sign(key, types.NewPrepareVote(genesisProposal))
 
@@ -96,8 +83,8 @@ func TestNewInnerCommitVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a commit vote at genesis view (0, 0)
-	key := types.GenSecretKey(rng)
-	committee := testCommittee(key)
+	committee, keys := types.GenCommittee(rng, 1)
+	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
 	vote := types.Sign(key, types.NewCommitVote(genesisProposal))
@@ -120,8 +107,8 @@ func TestNewInnerTimeoutVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a timeout vote at genesis view (0, 0)
-	key := types.GenSecretKey(rng)
-	committee := testCommittee(key)
+	committee, keys := types.GenCommittee(rng, 1)
+	key := keys[0]
 	vote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC]())
 
 	seedPersistedInner(dir, &persistedInner{
@@ -141,8 +128,8 @@ func TestNewInnerAllVotes(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create all vote types at genesis view (0, 0)
-	key := types.GenSecretKey(rng)
-	committee := testCommittee(key)
+	committee, keys := types.GenCommittee(rng, 1)
+	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
@@ -169,8 +156,8 @@ func TestNewInnerPartialState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Only persist prepareVote
-	key := types.GenSecretKey(rng)
-	committee := testCommittee(key)
+	committee, keys := types.GenCommittee(rng, 1)
+	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
 

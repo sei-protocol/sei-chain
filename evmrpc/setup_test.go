@@ -595,7 +595,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -607,7 +607,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore(), nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -631,7 +631,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -656,7 +656,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
-		testApp.GetStateStore(),
+		nil,
 		isPanicTxFunc,
 	)
 	if err != nil {
@@ -667,7 +667,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", testApp.GetStateStore())
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -1114,11 +1114,6 @@ func sendRequestBad(t *testing.T, method string, params ...interface{}) map[stri
 	return sendRequest(t, TestBadPort, method, params...)
 }
 
-//nolint:deadcode
-func sendSeiRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
-	return sendSeiRequest(t, TestBadPort, method, params...)
-}
-
 // nolint:deadcode
 func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
@@ -1163,10 +1158,6 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 
 func sendWSRequestGood(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
 	return sendWSRequestAndListen(t, TestWSPort, method, params...)
-}
-
-func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
-	return sendWSRequestAndListen(t, TestBadPort, method, params...)
 }
 
 func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {

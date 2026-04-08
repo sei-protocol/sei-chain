@@ -109,9 +109,11 @@ message View {
 }
 
 message Proposal {
+  reserved 2;
+  reserved "created_at";
   option (hashable.hashable) = true;
   optional View view = 1; // required.
-  optional Timestamp created_at = 2; // required
+  optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3; // Sorted by lane.
   optional AppProposal app = 4; // optional
 }

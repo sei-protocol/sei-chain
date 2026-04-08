@@ -1,5 +1,5 @@
-// Data-dependent: bind block number from latest, then getTransactionByBlockNumberAndIndex(blockNum, 0). Run evm_rpc_tests.sh when local.
->> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}
+// Data-dependent: use seed block (always has EVM txs from the harness), not "latest" (can be an empty block). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",false]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
 @ bind blockNum = result.number
 >> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionByBlockNumberAndIndex","params":["${blockNum}","0x0"]}

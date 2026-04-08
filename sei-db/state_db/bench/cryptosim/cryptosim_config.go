@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 )
 
 const (
@@ -97,6 +99,11 @@ type CryptoSimConfig struct {
 	// The backend to use for the benchmark database.
 	Backend wrappers.DBType
 
+	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
+	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100,
+	// split_write, and evm_first reads.
+	StateStoreConfig *config.StateStoreConfig
+
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
 	Comment string
@@ -137,6 +144,21 @@ type CryptoSimConfig struct {
 	// If false, Enter has no effect.
 	EnableSuspension bool
 
+	// If true, the data directory will be deleted on startup if it exists.
+	DeleteDataDirOnStartup bool
+
+	// If true, the log directory will be deleted on startup if it exists.
+	DeleteLogDirOnStartup bool
+
+	// If true, the data directory will be deleted on a clean shutdown.
+	DeleteDataDirOnShutdown bool
+
+	// If true, the log directory will be deleted on a clean shutdown.
+	DeleteLogDirOnShutdown bool
+
+	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
+	FlatKVConfig *flatkv.Config
+
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
 
@@ -154,6 +176,11 @@ type CryptoSimConfig struct {
 	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
 	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
 	DisableTransactionExecution bool
+
+	// If true, skip transaction-time database reads and only issue writes. Useful
+	// when benchmarking write-path overhead for backends that are not consulted by
+	// execution-time reads in production.
+	DisableTransactionReads bool
 
 	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
 	MaxTPS float64
@@ -179,7 +206,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
 	// That file should contain every available config set to its default value, as a reference.
 
-	return &CryptoSimConfig{
+	cfg := &CryptoSimConfig{
 		NumberOfHotAccounts:               100,
 		MinimumNumberOfColdAccounts:       1_000_000,
 		MinimumNumberOfDormantAccounts:    1_000_000,
@@ -199,6 +226,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
+		StateStoreConfig:                  wrappers.DefaultBenchStateStoreConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -210,15 +238,23 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
+		DeleteDataDirOnStartup:            false,
+		DeleteLogDirOnStartup:             false,
+		DeleteDataDirOnShutdown:           false,
+		DeleteLogDirOnShutdown:            false,
+		FlatKVConfig:                      flatkv.DefaultConfig(),
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
+		DisableTransactionReads:           false,
 		MaxTPS:                            0,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 		LogLevel:                          "info",
 	}
+
+	return cfg
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.
@@ -301,6 +337,18 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.MaxTPS < 0 {
 		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
+	switch c.StateStoreConfig.Backend {
+	case config.PebbleDBBackend, config.RocksDBBackend:
+	default:
+		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
+			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
+	}
+	if c.StateStoreConfig.WriteMode != "" && !c.StateStoreConfig.WriteMode.IsValid() {
+		return fmt.Errorf("StateStoreConfig.WriteMode must be valid (got %q)", c.StateStoreConfig.WriteMode)
+	}
+	if c.StateStoreConfig.ReadMode != "" && !c.StateStoreConfig.ReadMode.IsValid() {
+		return fmt.Errorf("StateStoreConfig.ReadMode must be valid (got %q)", c.StateStoreConfig.ReadMode)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

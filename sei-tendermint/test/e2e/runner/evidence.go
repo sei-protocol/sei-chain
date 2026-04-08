@@ -227,12 +227,12 @@ func generateDuplicateVoteEvidence(
 func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) (types.MockPV, int32, error) {
 	for _, idx := range rand.Perm(len(privVals)) {
 		pv := privVals[idx]
-		valIdx, _ := vals.GetByAddress(pv.PrivKey.Public().Address())
-		if valIdx >= 0 {
+		valIdx, _, ok := vals.GetByAddress(pv.PrivKey.Public().Address())
+		if ok {
 			return pv, valIdx, nil
 		}
 	}
-	return types.MockPV{}, -1, errors.New("no private validator found in validator set")
+	return types.MockPV{}, 0, errors.New("no private validator found in validator set")
 }
 
 func readPrivKey(keyFilePath string) (crypto.PrivKey, error) {

@@ -380,14 +380,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		caller             common.Address
 		callingContract    common.Address
 		validator          string
@@ -541,14 +538,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		caller             common.Address
 		callingContract    common.Address
 		validators         []string
@@ -702,14 +696,11 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		addressToSet       common.Address
 		caller             common.Address
 		callingContract    common.Address
@@ -1004,14 +995,11 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		delegatorAddress   common.Address
 		caller             common.Address
 		callingContract    common.Address

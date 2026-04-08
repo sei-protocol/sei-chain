@@ -1183,3 +1183,97 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	require.True(t, strings.HasPrefix(string(reapedTxs[3]), "sender"), "Fourth tx should be non-EVM: %s", string(reapedTxs[3]))
 	require.True(t, strings.HasPrefix(string(reapedTxs[4]), "sender"), "Fifth tx should be non-EVM: %s", string(reapedTxs[4]))
 }
+
+func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500)
+
+	tx := types.Tx("sender-0-0=key=1000")
+
+	// Submit the tx — should enter the mempool
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate block inclusion where the tx fails (non-OK code)
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Tx should be removed from the mempool
+	require.Equal(t, 0, txmp.Size())
+
+	// First failure: tx should have been removed from cache, allowing re-entry
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate a second block failure for the same tx
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas again
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	require.Equal(t, 0, txmp.Size())
+
+	// Second failure: tx should remain in cache — CheckTx should reject it
+	err := txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
+	require.Equal(t, types.ErrTxInCache, err)
+	require.Equal(t, 0, txmp.Size())
+
+	// A different tx (different hash) should still be admitted
+	differentTx := types.Tx("sender-0-0=key=2000")
+	require.NoError(t, txmp.CheckTx(ctx, differentTx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+}
+
+func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500)
+
+	tx := types.Tx("sender-0-0=key=1000")
+	txKey := tx.Key()
+
+	// Submit and fail once in a block
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Re-enter the mempool (first failure allows retry)
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// This time the tx succeeds in the block
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: abci.CodeTypeOK},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// Success clears the failure tracker. Simulate LRU eviction of the
+	// main cache entry so we can verify the tracker was actually reset.
+	txmp.cache.Remove(txKey)
+
+	// Tx should now be re-admittable
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// Fail again in a block — this should be treated as a fresh first failure
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, nil, nil, true))
+	txmp.Unlock()
+
+	// First-failure grace should be restored: tx allowed to re-enter
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+}

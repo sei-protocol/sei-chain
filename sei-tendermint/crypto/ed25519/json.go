@@ -2,6 +2,7 @@ package ed25519
 
 import (
 	"encoding/json"
+	"runtime"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
@@ -25,7 +26,8 @@ func (k PublicKey) Type() string    { return KeyType }
 // a private key in some struct and then calling json.Marshal on it.
 // TODO(gprusak): get rid of it.
 func (k SecretKey) MarshalJSON() ([]byte, error) {
-	return json.Marshal((*k.key)[:])
+	defer runtime.KeepAlive(k)
+	return json.Marshal((*k.key())[:])
 }
 
 func (k *SecretKey) UnmarshalJSON(j []byte) error {

@@ -8,8 +8,19 @@ import (
 	"math"
 
 	ics23 "github.com/confio/ics23/go"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
+
+// ProofInnerNode represents an inner node in an IAVL proof path.
+type ProofInnerNode struct {
+	Height  int8   `json:"height"`
+	Size    int64  `json:"size"`
+	Version int64  `json:"version"`
+	Left    []byte `json:"left"`
+	Right   []byte `json:"right"`
+}
+
+// PathToLeaf represents an inner path to a leaf node in an IAVL tree.
+type PathToLeaf []ProofInnerNode
 
 /*
 GetMembershipProof will produce a CommitmentProof that the given key (and queries value) exists in the iavl tree.
@@ -109,7 +120,7 @@ func convertLeafOp(version int64) *ics23.LeafOp {
 }
 
 // we cannot get the proofInnerNode type, so we need to do the whole path in one function
-func convertInnerOps(path iavl.PathToLeaf) []*ics23.InnerOp {
+func convertInnerOps(path PathToLeaf) []*ics23.InnerOp {
 	steps := make([]*ics23.InnerOp, 0, len(path))
 
 	// lengthByte is the length prefix prepended to each of the sha256 sub-hashes
@@ -155,8 +166,8 @@ func convertVarIntToBytes(orig int64) []byte {
 	return buf[:n]
 }
 
-func pathToLeaf(node Node, key []byte) (iavl.PathToLeaf, Node, error) {
-	var path iavl.PathToLeaf
+func pathToLeaf(node Node, key []byte) (PathToLeaf, Node, error) {
+	var path PathToLeaf
 
 	for {
 		h := node.Height()
@@ -175,7 +186,7 @@ func pathToLeaf(node Node, key []byte) (iavl.PathToLeaf, Node, error) {
 		if bytes.Compare(key, node.Key()) < 0 {
 			// left side
 			right := node.Right()
-			path = append(path, iavl.ProofInnerNode{
+			path = append(path, ProofInnerNode{
 				Height:  height,
 				Size:    node.Size(),
 				Version: int64(node.Version()),
@@ -188,7 +199,7 @@ func pathToLeaf(node Node, key []byte) (iavl.PathToLeaf, Node, error) {
 
 		// right side
 		left := node.Left()
-		path = append(path, iavl.ProofInnerNode{
+		path = append(path, ProofInnerNode{
 			Height:  height,
 			Size:    node.Size(),
 			Version: int64(node.Version()),

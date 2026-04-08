@@ -165,6 +165,11 @@ func (tkv *Store) GetStoreType() types.StoreType {
 	return tkv.parent.GetStoreType()
 }
 
+// Parent returns the wrapped KVStore (without tracing). Used to reach proof-capable stores.
+func (tkv *Store) Parent() types.KVStore {
+	return tkv.parent
+}
+
 // CacheWrap implements the KVStore interface. It panics because a Store
 // cannot be branched.
 func (tkv *Store) CacheWrap(_ types.StoreKey) types.CacheWrap {

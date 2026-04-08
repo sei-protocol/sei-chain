@@ -16,7 +16,6 @@ import (
 )
 
 var output = ""
-var outputDeps = ""
 var gasless = true
 
 type FakeAnteDecoratorOne struct{}

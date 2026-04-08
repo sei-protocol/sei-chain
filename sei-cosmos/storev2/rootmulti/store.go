@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -55,7 +54,6 @@ type Store struct {
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
-	pruningManager *pruning.Manager
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
@@ -94,7 +92,11 @@ func NewStore(
 	ctx := context.Background()
 	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
-		panic(err)
+		if commonerrors.IsFileLockError(err) {
+			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)
+		} else {
+			panic(err)
+		}
 	}
 	store := &Store{
 		scStore:          scStore,
@@ -211,6 +213,9 @@ func (rs *Store) Close() error {
 
 // LastCommitID Implements interface Committer
 func (rs *Store) LastCommitID() types.CommitID {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+
 	if rs.lastCommitInfo == nil {
 		v, err := rs.scStore.GetLatestVersion()
 		if err != nil {
@@ -434,7 +439,7 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	}
 	rs.scStore.Initialize(initialStores)
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
-		return nil
+		return err
 	}
 
 	storesKeysForDeletion := make(map[types.StoreKey]struct{})
@@ -521,14 +526,6 @@ func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 // used by InitChain when the initial height is bigger than 1
 func (rs *Store) SetInitialVersion(version int64) error {
 	return rs.scStore.SetInitialVersion(version)
-}
-
-// Implements interface CommitMultiStore
-func (rs *Store) SetIAVLCacheSize(_ int) {
-}
-
-// Implements interface CommitMultiStore
-func (rs *Store) SetIAVLDisableFastNode(_ bool) {
 }
 
 // Implements interface CommitMultiStore
@@ -633,7 +630,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-
 	}
 
 	res := store.Query(req)

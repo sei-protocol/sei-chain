@@ -471,7 +471,18 @@ func (c Context) WithIsTracing(it bool) Context {
 	c.isTracing = it
 	if it {
 		c.storeTracer = NewStoreTracer()
+	} else {
+		c.storeTracer = nil
 	}
+	return c
+}
+
+// WithTraceMode enables historical tracing behavior without allocating a KV
+// store tracer. This keeps upgrade-aware tracing semantics for ordinary
+// debug_trace* RPCs without paying the per-access StoreTracer overhead.
+func (c Context) WithTraceMode(it bool) Context {
+	c.isTracing = it
+	c.storeTracer = nil
 	return c
 }
 

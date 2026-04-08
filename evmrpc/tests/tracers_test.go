@@ -17,6 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func mustMarshalJSON(t *testing.T, v interface{}) string {
+	t.Helper()
+	bz, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(bz)
+}
+
 func TestTraceBlockByNumber(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
@@ -162,6 +169,66 @@ func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
 			require.Contains(t, res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["error"].(string), "insufficient funds")
 			// the second tx should show a trace success and a gas used of 21000 (0x5208)
 			require.Equal(t, "0x5208", res["result"].([]interface{})[1].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})["gasUsed"])
+		},
+	)
+}
+
+func TestTraceBlockByNumberDefaultTracerDoesNotAbortOnFailedTx(t *testing.T) {
+	maxUseiInWei := sdk.NewInt(math.MaxInt64).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+	insufficientFundsTx := signAndEncodeTx(sendAmount(0, maxUseiInWei), mnemonic1)
+	successTx := signAndEncodeTx(send(1), mnemonic1)
+
+	SetupTestServer(t, [][][]byte{{insufficientFundsTx, successTx}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
+				"timeout": "60s",
+			})
+
+			require.NotContains(t, res, "error")
+			txs := res["result"].([]interface{})
+			require.Len(t, txs, 2)
+			// Both txs should have per-tx entries (result or error);
+			// the key assertion is that the block trace did NOT abort
+			// with a top-level error.
+			tx0 := txs[0].(map[string]interface{})
+			require.True(t, tx0["result"] != nil || tx0["error"] != nil,
+				"tx0 should have a result or error entry")
+			tx1 := txs[1].(map[string]interface{})
+			require.True(t, tx1["result"] != nil || tx1["error"] != nil,
+				"tx1 should have a result or error entry")
+		},
+	)
+}
+
+func TestTraceBlockByNumberDefaultTracerMatchesTraceTransaction(t *testing.T) {
+	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+
+	tx1Data := callWasmIter(0, cwIter)
+	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
+	tx1Bz := encodeEvmTx(tx1Data, signedTx1)
+
+	tx2Data := callWasmIter(1, cwIter)
+	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
+	tx2Bz := encodeEvmTx(tx2Data, signedTx2)
+
+	SetupTestServer(t, [][][]byte{{tx1Bz, tx2Bz}}, mnemonicInitializer(mnemonic1), cwIterInitializer(mnemonic1)).Run(
+		func(port int) {
+			blockRes := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
+				"timeout": "60s",
+			})
+			txRes := sendRequestWithNamespace("debug", port, "traceTransaction", signedTx2.Hash().Hex(), map[string]interface{}{
+				"timeout": "60s",
+			})
+
+			require.NotContains(t, blockRes, "error")
+			require.NotContains(t, txRes, "error")
+
+			blockTxs := blockRes["result"].([]interface{})
+			require.Len(t, blockTxs, 2)
+
+			blockTrace := blockTxs[1].(map[string]interface{})["result"]
+			txTrace := txRes["result"]
+			require.JSONEq(t, mustMarshalJSON(t, txTrace), mustMarshalJSON(t, blockTrace))
 		},
 	)
 }

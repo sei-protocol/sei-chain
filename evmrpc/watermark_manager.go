@@ -15,6 +15,10 @@ import (
 
 var errNoHeightSource = errors.New("unable to determine height information")
 
+// ErrBlockHeightNotYetAvailable is returned when a concrete block height is above the
+// node's safe latest watermark. eth_getBlockByNumber maps this to result null (Ethereum spec).
+var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
+
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
 // requests only target heights where all backing data sources are fully
@@ -217,7 +221,7 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 
 func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
-		return fmt.Errorf("requested height %d is not yet available; safe latest is %d", height, latest)
+		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
 	}
 	if height < earliest {
 		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)

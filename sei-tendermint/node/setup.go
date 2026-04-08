@@ -135,11 +135,11 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	if !ok {
 		return false
 	}
-	if state.Validators.Size() > 1 {
+	if state.Validators.Size() != 1 {
 		return false
 	}
-	addr, _ := state.Validators.GetByIndex(0)
-	return bytes.Equal(k.Address(), addr)
+	addr, _, ok := state.Validators.GetByIndex(0)
+	return ok && bytes.Equal(k.Address(), addr)
 }
 
 func createMempoolReactor(
@@ -148,7 +148,7 @@ func createMempoolReactor(
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	router *p2p.Router,
-) (*mempool.Reactor, mempool.Mempool, error) {
+) (*mempool.Reactor, *mempool.TxMempool, error) {
 
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
@@ -159,11 +159,7 @@ func createMempoolReactor(
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor, err := mempool.NewReactor(
-		cfg.Mempool,
-		mp,
-		router,
-	)
+	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
 	}
@@ -206,7 +202,7 @@ func createRouter(
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
-	ep, err := p2p.ResolveEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, err
 	}
@@ -223,7 +219,7 @@ func createRouter(
 	options.Connection.RecvRate = cfg.P2P.RecvRate
 	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
-		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID.AddressString(addr))
+		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
 		if err != nil {
 			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
 		}
@@ -290,7 +286,7 @@ func createRouter(
 	closer = peerDB.Close
 	router, err := p2p.NewRouter(
 		p2pMetrics,
-		p2p.NodeSecretKey(nodeKey.PrivKey),
+		p2p.NodeSecretKey(nodeKey),
 		nodeInfoProducer,
 		peerDB,
 		options,
@@ -321,7 +317,7 @@ func makeNodeInfo(
 			Block: versionInfo.Block,
 			App:   versionInfo.App,
 		},
-		NodeID:  nodeKey.ID,
+		NodeID:  nodeKey.ID(),
 		Network: genDoc.ChainID,
 		Version: version.TMVersion,
 		Channels: []byte{
@@ -368,7 +364,7 @@ func makeSeedNodeInfo(
 			Block: state.Version.Consensus.Block,
 			App:   state.Version.Consensus.App,
 		},
-		NodeID:  nodeKey.ID,
+		NodeID:  nodeKey.ID(),
 		Network: genDoc.ChainID,
 		Version: version.TMVersion,
 		Channels: []byte{

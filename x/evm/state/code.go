@@ -23,7 +23,7 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 		// The SetCode method could be modified to return the old code/hash directly.
 		oldHash := s.GetCodeHash(addr)
 
-		s.logger.OnCodeChange(addr, oldHash, oldCode, common.Hash(crypto.Keccak256(code)), code)
+		s.logger.OnCodeChange(addr, oldHash, oldCode, crypto.Keccak256Hash(code), code)
 	}
 
 	s.k.SetCode(s.ctx, addr, code)

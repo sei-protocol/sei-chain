@@ -12,7 +12,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
 
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	seidbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func LogPath(dir string) string {
@@ -108,10 +108,10 @@ func channelBatchRecv[T any](ch <-chan T) []T {
 	return result
 }
 
-func MockKVPairs(kvPairs ...string) []*iavl.KVPair {
-	result := make([]*iavl.KVPair, len(kvPairs)/2)
+func MockKVPairs(kvPairs ...string) []*seidbproto.KVPair {
+	result := make([]*seidbproto.KVPair, len(kvPairs)/2)
 	for i := 0; i < len(kvPairs); i += 2 {
-		result[i/2] = &iavl.KVPair{
+		result[i/2] = &seidbproto.KVPair{
 			Key:   []byte(kvPairs[i]),
 			Value: []byte(kvPairs[i+1]),
 		}

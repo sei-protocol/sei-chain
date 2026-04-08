@@ -47,6 +47,12 @@ func (s Store) GetStoreType() types.StoreType {
 	return s.parent.GetStoreType()
 }
 
+// Parent returns the underlying KVStore (without the key prefix). Used when unwrapping
+// to a root store that supports ABCI proofs (e.g. eth_getProof).
+func (s Store) Parent() types.KVStore {
+	return s.parent
+}
+
 // Implements CacheWrap
 func (s Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
 	return cachekv.NewStore(s, storeKey, types.DefaultCacheSizeLimit)

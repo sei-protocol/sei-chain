@@ -30,7 +30,7 @@ func ShowNodeIDCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Println(nodeKey.ID)
+			fmt.Println(nodeKey.ID())
 			return nil
 		},
 	}

@@ -39,7 +39,7 @@ func exampleVote(tb testing.TB, t byte) *Vote {
 		BlockID: BlockID{
 			Hash: crypto.Checksum([]byte("blockID_hash")),
 			PartSetHeader: PartSetHeader{
-				Total: 1000000,
+				Total: MaxBlockPartsCount,
 				Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
 			},
 		},
@@ -315,7 +315,7 @@ func TestVoteProtobuf(t *testing.T) {
 	}
 }
 
-var sink interface{}
+var sink any
 
 func getSampleCommit(ctx context.Context, t testing.TB) *Commit {
 	t.Helper()
@@ -342,7 +342,7 @@ func BenchmarkVoteSignBytes(b *testing.B) {
 	}
 
 	// Reset the sink.
-	sink = (interface{})(nil)
+	sink = nil
 }
 
 func BenchmarkCommitVoteSignBytes(b *testing.B) {
@@ -355,7 +355,7 @@ func BenchmarkCommitVoteSignBytes(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		for index := range sampleCommit.Signatures {
-			sink = sampleCommit.VoteSignBytes("test_chain_id", int32(index))
+			sink, _ = sampleCommit.VoteSignBytes("test_chain_id", int32(index))
 		}
 	}
 
@@ -364,5 +364,5 @@ func BenchmarkCommitVoteSignBytes(b *testing.B) {
 	}
 
 	// Reset the sink.
-	sink = (interface{})(nil)
+	sink = nil
 }

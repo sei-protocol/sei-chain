@@ -15,8 +15,7 @@ const (
 
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
-	// Enable defines if the state-commit(SeiDB) should be enabled.
-	// If true, it will replace the existing IAVL db backend with memIAVL.
+	// Enable defines if the state-commit (SeiDB) should be enabled.
 	// defaults to true.
 	Enable bool `mapstructure:"enable"`
 
@@ -62,13 +61,12 @@ type StateCommitConfig struct {
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:            true,
-		WriteMode:         CosmosOnlyWrite,
-		ReadMode:          CosmosOnlyRead,
-		EnableLatticeHash: false,
-		MemIAVLConfig:     memiavl.DefaultConfig(),
-		FlatKVConfig:      flatkv.DefaultConfig(),
-
+		Enable:                     true,
+		WriteMode:                  CosmosOnlyWrite,
+		ReadMode:                   CosmosOnlyRead,
+		EnableLatticeHash:          false,
+		MemIAVLConfig:              memiavl.DefaultConfig(),
+		FlatKVConfig:               *flatkv.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
@@ -82,6 +80,9 @@ func (c StateCommitConfig) Validate() error {
 	}
 	if !c.ReadMode.IsValid() {
 		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
+	}
+	if c.WriteMode == SplitWrite && !c.EnableLatticeHash {
+		return fmt.Errorf("lattice hash must be enabled when using split_write mode")
 	}
 	return nil
 }

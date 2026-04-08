@@ -37,8 +37,6 @@ const (
 	MinGasEVMTx  = 21000
 )
 
-var _ Mempool = (*TxMempool)(nil)
-
 // TxMempoolOption sets an optional parameter on the TxMempool.
 type TxMempoolOption func(*TxMempool)
 
@@ -67,6 +65,11 @@ type TxMempool struct {
 	// cache defines a fixed-size cache of already seen transactions as this
 	// reduces pressure on the proxyApp.
 	cache TxCache
+
+	// blockFailedTxs tracks tx hashes that have previously failed during
+	// block execution. Used to prevent infinite re-entry of txs that
+	// consistently fail before fee charging in DeliverTx.
+	blockFailedTxs TxCache
 
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
@@ -115,8 +118,7 @@ type TxMempool struct {
 	postCheck PostCheckFunc
 
 	// NodeID to count of transactions failing CheckTx
-	failedCheckTxCounts    map[types.NodeID]uint64
-	mtxFailedCheckTxCounts sync.RWMutex
+	failedCheckTxCounts utils.Mutex[map[types.NodeID]uint64]
 
 	router            router
 	priorityReservoir *reservoir.Sampler[int64]
@@ -134,19 +136,21 @@ func NewTxMempool(
 		proxyAppConn:        proxyAppConn,
 		height:              -1,
 		cache:               NopTxCache{},
+		blockFailedTxs:      NopTxCache{},
 		metrics:             NopMetrics(),
 		txStore:             NewTxStore(),
 		gossipIndex:         clist.New(),
 		priorityIndex:       NewTxPriorityQueue(),
 		expirationIndex:     NewWrappedTxList(),
 		pendingTxs:          NewPendingTxs(cfg),
-		failedCheckTxCounts: map[types.NodeID]uint64{},
+		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]uint64{}),
 		router:              router,
 		priorityReservoir:   reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
 	if cfg.CacheSize > 0 {
 		txmp.cache = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
+		txmp.blockFailedTxs = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
 	}
 
 	for _, opt := range options {
@@ -179,20 +183,14 @@ func WithMetrics(metrics *Metrics) TxMempoolOption {
 	return func(txmp *TxMempool) { txmp.metrics = metrics }
 }
 
-func (txmp *TxMempool) TxStore() *TxStore {
-	return txmp.txStore
-}
+func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
-func (txmp *TxMempool) Lock() {
-	txmp.mtx.Lock()
-}
+func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 
 // Unlock releases a write-lock on the mempool.
-func (txmp *TxMempool) Unlock() {
-	txmp.mtx.Unlock()
-}
+func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
 // Size returns the number of valid transactions in the mempool. It is
 // thread-safe.
@@ -223,39 +221,28 @@ func (txmp *TxMempool) TotalTxsBytesSize() int64 {
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
-func (txmp *TxMempool) PendingSize() int {
-	return txmp.pendingTxs.Size()
-}
+func (txmp *TxMempool) PendingSize() int { return txmp.pendingTxs.Size() }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
 // mempool. It is thread-safe.
-func (txmp *TxMempool) SizeBytes() int64 {
-	return atomic.LoadInt64(&txmp.sizeBytes)
-}
+func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeBytes) }
 
-func (txmp *TxMempool) PendingSizeBytes() int64 {
-	return atomic.LoadInt64(&txmp.pendingSizeBytes)
-}
+func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
 
 // WaitForNextTx returns a blocking channel that will be closed when the next
 // valid transaction is available to gossip. It is thread-safe.
-func (txmp *TxMempool) WaitForNextTx() <-chan struct{} {
-	return txmp.gossipIndex.WaitChan()
-}
+func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex.WaitChan() }
 
 // NextGossipTx returns the next valid transaction to gossip. A caller must wait
 // for WaitForNextTx to signal a transaction is available to gossip first. It is
 // thread-safe.
-func (txmp *TxMempool) NextGossipTx() *clist.CElement {
-	return txmp.gossipIndex.Front()
-}
+func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
 
 // EnableTxsAvailable enables the mempool to trigger events when transactions
 // are available on a block by block basis.
 func (txmp *TxMempool) EnableTxsAvailable() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-
 	txmp.txsAvailable = make(chan struct{}, 1)
 }
 
@@ -442,11 +429,11 @@ func (txmp *TxMempool) incrementBlacklistCounter(nodeID types.NodeID) {
 		return
 	}
 
-	txmp.mtxFailedCheckTxCounts.Lock()
-	defer txmp.mtxFailedCheckTxCounts.Unlock()
-	txmp.failedCheckTxCounts[nodeID]++
-	if txmp.failedCheckTxCounts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
-		txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
+	for counts := range txmp.failedCheckTxCounts.Lock() {
+		counts[nodeID]++
+		if counts[nodeID] > uint64(txmp.config.CheckTxErrorThreshold) { //nolint:gosec // CheckTxErrorThreshold is a validated non-negative config value
+			txmp.router.Evict(nodeID, errors.New("mempool: checkTx error exceeded threshold"))
+		}
 	}
 }
 
@@ -666,9 +653,13 @@ func (txmp *TxMempool) Update(
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
 			_ = txmp.cache.Push(txKey)
+			txmp.blockFailedTxs.Remove(txKey)
 		} else if !txmp.config.KeepInvalidTxsInCache {
-			// allow invalid transactions to be re-submitted
-			txmp.cache.Remove(txKey)
+			if txmp.blockFailedTxs.Push(txKey) {
+				// First block failure: allow one retry
+				txmp.cache.Remove(txKey)
+			}
+			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 
 		// remove the committed transaction from the transaction store and indexes
@@ -1150,9 +1141,10 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 }
 
 func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
-	txmp.mtxFailedCheckTxCounts.RLock()
-	defer txmp.mtxFailedCheckTxCounts.RUnlock()
-	return txmp.failedCheckTxCounts[nodeID]
+	for counts := range txmp.failedCheckTxCounts.Lock() {
+		return counts[nodeID]
+	}
+	panic("unreachable")
 }
 
 // AppendCheckTxErr wraps error message into an ABCIMessageLogs json string

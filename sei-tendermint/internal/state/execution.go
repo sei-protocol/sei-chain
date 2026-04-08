@@ -42,7 +42,7 @@ type BlockExecutor struct {
 
 	// manage the mempool lock during commit
 	// and update both with block results after commit.
-	mempool mempool.Mempool
+	mempool *mempool.TxMempool
 	evpool  EvidencePool
 
 	metrics *Metrics
@@ -55,7 +55,7 @@ type BlockExecutor struct {
 func NewBlockExecutor(
 	stateStore Store,
 	app abci.Application,
-	pool mempool.Mempool,
+	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,

@@ -808,7 +808,10 @@ type Commit struct {
 // signature will not be present in the returned vote.
 // Returns nil if the precommit at valIdx is nil.
 // Panics if valIdx >= commit.Size().
-func (commit *Commit) GetVote(valIdx int32) *Vote {
+func (commit *Commit) GetVote(valIdx int32) (*Vote, bool) {
+	if int(valIdx) >= len(commit.Signatures) {
+		return nil, false
+	}
 	commitSig := commit.Signatures[valIdx]
 	return &Vote{
 		Type:             tmproto.PrecommitType,
@@ -819,7 +822,7 @@ func (commit *Commit) GetVote(valIdx int32) *Vote {
 		ValidatorAddress: commitSig.ValidatorAddress,
 		ValidatorIndex:   valIdx,
 		Signature:        commitSig.Signature,
-	}
+	}, true
 }
 
 // VoteSignBytes returns the bytes of the Vote corresponding to valIdx for
@@ -831,9 +834,12 @@ func (commit *Commit) GetVote(valIdx int32) *Vote {
 // Panics if valIdx >= commit.Size().
 //
 // See VoteSignBytes
-func (commit *Commit) VoteSignBytes(chainID string, valIdx int32) []byte {
-	v := commit.GetVote(valIdx).ToProto()
-	return VoteSignBytes(chainID, v)
+func (commit *Commit) VoteSignBytes(chainID string, valIdx int32) ([]byte, bool) {
+	v, ok := commit.GetVote(valIdx)
+	if !ok {
+		return nil, false
+	}
+	return VoteSignBytes(chainID, v.ToProto()), true
 }
 
 // Size returns the number of signatures in the commit.
@@ -991,7 +997,10 @@ func (commit *Commit) ToVoteSet(chainID string, vals *ValidatorSet) *VoteSet {
 		if cs.BlockIDFlag == BlockIDFlagAbsent {
 			continue // OK, some precommits can be missing.
 		}
-		vote := commit.GetVote(int32(idx)) //nolint:gosec // idx is bounded by commit.Signatures length which fits in int32
+		vote, ok := commit.GetVote(int32(idx)) //nolint:gosec // idx is bounded by commit.Signatures length which fits in int32
+		if !ok {
+			panic(fmt.Errorf("too many signatures"))
+		}
 		if err := vote.ValidateBasic(); err != nil {
 			panic(fmt.Errorf("failed to validate vote reconstructed from commit: %w", err))
 		}
@@ -1033,7 +1042,7 @@ func (ec *Commit) BitArray() *bits.BitArray {
 // GetByIndex returns the vote corresponding to a given validator index.
 // Panics if `index >= extCommit.Size()`.
 // Implements VoteSetReader.
-func (ec *Commit) GetByIndex(valIdx int32) *Vote {
+func (ec *Commit) GetByIndex(valIdx int32) (*Vote, bool) {
 	return ec.GetVote(valIdx)
 }
 

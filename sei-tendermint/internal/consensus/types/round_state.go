@@ -400,7 +400,7 @@ type RoundStateSimple struct {
 	Proposer          types.ValidatorInfo `json:"proposer"`
 }
 
-// Compress the RoundState to RoundStateSimple
+// Compress the RoundState to RoundStateSimple.
 func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 	votesJSON, err := rs.Votes.MarshalJSON()
 	if err != nil {
@@ -408,7 +408,10 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 	}
 
 	addr := rs.Validators.GetProposer().Address
-	idx, _ := rs.Validators.GetByAddress(addr)
+	idx, _, ok := rs.Validators.GetByAddress(addr)
+	if !ok {
+		panic(fmt.Errorf("validator %v not in committee", addr))
+	}
 
 	return RoundStateSimple{
 		HeightRoundStep:   fmt.Sprintf("%d/%d/%d", rs.Height, rs.Round, rs.Step),
@@ -427,8 +430,10 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 // NewRoundEvent returns the RoundState with proposer information as an event.
 func (rs *RoundState) NewRoundEvent() types.EventDataNewRound {
 	addr := rs.Validators.GetProposer().Address
-	idx, _ := rs.Validators.GetByAddress(addr)
-
+	idx, _, ok := rs.Validators.GetByAddress(addr)
+	if !ok {
+		panic(fmt.Errorf("validator %v not in committee", addr))
+	}
 	return types.EventDataNewRound{
 		Height: rs.Height,
 		Round:  rs.Round,

@@ -14,6 +14,11 @@ import (
 type NodeSecretKey ed25519.SecretKey
 type NodePublicKey ed25519.PublicKey
 
+func (k NodePublicKey) String() string   { return fmt.Sprintf("node:%v", ed25519.PublicKey(k).String()) }
+func (k NodePublicKey) GoString() string { return k.String() }
+func (k NodeSecretKey) String() string   { return fmt.Sprintf("<secret of %v>", k.Public().String()) }
+func (k NodeSecretKey) GoString() string { return k.String() }
+
 type NodeChallengeSig struct {
 	utils.ReadOnly
 	key NodePublicKey

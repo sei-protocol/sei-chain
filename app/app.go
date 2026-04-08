@@ -139,7 +139,6 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -1502,11 +1501,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
-type ChannelResult struct {
-	txIndex int
-	result  *abci.ExecTxResult
-}
-
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
@@ -1809,7 +1803,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	chainID := cache.chainID
 
 	// Recover sender using the same logic as preprocess.go (version-based signer selection)
-	sender, seiAddr, pubkey, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
+	sender, seiAddr, _, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
 	if recoverErr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1831,6 +1825,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// For successful txs, the nonce is bumped by the EVM during execution.
 		if validation.bumpNonce {
 			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
+			app.EvmKeeper.SetNonceBumped(ctx)
 		}
 		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
 		// but no actual balance is deducted
@@ -1841,26 +1836,9 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	if !isAssociated {
-		// Set address mapping
-		app.GigaEvmKeeper.SetAddressMapping(ctx, seiAddr, sender)
-		// Set pubkey on account if not already set
-		if acc := app.AccountKeeper.GetAccount(ctx, seiAddr); acc != nil && acc.GetPubKey() == nil {
-			if err := acc.SetPubKey(pubkey); err != nil {
-				return &abci.ExecTxResult{
-					Code: 1,
-					Log:  fmt.Sprintf("failed to set pubkey: %v", err),
-				}, nil
-			}
-			app.AccountKeeper.SetAccount(ctx, acc)
-		}
-		// Migrate balance from cast address
-		associateHelper := helpers.NewAssociationHelper(&app.GigaEvmKeeper, app.GigaBankKeeper, &app.AccountKeeper)
-		if err := associateHelper.MigrateBalance(ctx, sender, seiAddr, false); err != nil {
-			return &abci.ExecTxResult{
-				Code: 1,
-				Log:  fmt.Sprintf("failed to migrate balance: %v", err),
-			}, nil
-		}
+		// Unassociated addresses require balance migration (iterating all balances),
+		// which giga's cachekv doesn't support. Fall back to v2 for this tx.
+		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
 
 	// Create state DB for this transaction (only for valid transactions)
@@ -2206,6 +2184,11 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 	return app.cdc
 }
 
+func (app *App) GetValidators() []abci.ValidatorUpdate {
+	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
+	return app.StakingKeeper.GetBondedValidators(ctx)
+}
+
 // AppCodec returns an app codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
@@ -2278,7 +2261,7 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		return app.GetCheckCtx().WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
@@ -2289,7 +2272,7 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 		closestUpgrade = LatestUpgrade
 	}
 	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
-	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
+	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.

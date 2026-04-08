@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -165,12 +164,14 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, r.TxHashHex, got.TxHashHex)
 
-	// Pebble backend does not support range queries
-	_, err = store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
+	// The cache covers block 1 (just written via SetReceipts), so FilterLogs
+	// returns the cached log without hitting the pebble backend.
+	logs, err := store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
-	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
 }
 
 func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
@@ -231,13 +232,13 @@ func makeChangeSetEntry(version int64, txHash common.Hash, receipt *types.Receip
 	if err != nil {
 		return proto.ChangelogEntry{}, err
 	}
-	kvPair := &iavl.KVPair{
+	kvPair := &proto.KVPair{
 		Key:   types.ReceiptKey(txHash),
 		Value: marshalledReceipt,
 	}
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{kvPair}},
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{kvPair}},
 	}
 	return proto.ChangelogEntry{
 		Version:    version,
