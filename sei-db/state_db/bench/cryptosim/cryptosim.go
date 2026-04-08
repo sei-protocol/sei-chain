@@ -135,8 +135,10 @@ func NewCryptoSim(
 	switch config.Backend {
 	case wrappers.FlatKV:
 		dbConfig = config.FlatKVConfig
-	case wrappers.SSComposite:
+	case wrappers.SSComposite, wrappers.CompositeDual_SSComposite:
 		dbConfig = config.StateStoreConfig
+	case wrappers.SSHistoricalOffload:
+		dbConfig = config.HistoricalOffload
 	}
 
 	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir, dbConfig)
