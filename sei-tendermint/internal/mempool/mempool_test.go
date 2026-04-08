@@ -181,7 +181,7 @@ func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempo
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return NewTxMempool(cfg.Mempool, app, NewTestPeerEvictor(), options...)
+	return NewTxMempool(cfg.Mempool, app, options...)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
@@ -217,23 +217,6 @@ func convertTex(in []testTx) types.Txs {
 	}
 
 	return out
-}
-
-type TestPeerEvictor struct {
-	evicting map[types.NodeID]struct{}
-}
-
-func NewTestPeerEvictor() *TestPeerEvictor {
-	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
-}
-
-func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
-	_, ok := e.evicting[peerID]
-	return ok
-}
-
-func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
-	e.evicting[id] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {

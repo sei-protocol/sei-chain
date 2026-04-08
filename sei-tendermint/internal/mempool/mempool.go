@@ -117,14 +117,12 @@ type TxMempool struct {
 	preCheck  PreCheckFunc
 	postCheck PostCheckFunc
 
-	router            router
 	priorityReservoir *reservoir.Sampler[int64]
 }
 
 func NewTxMempool(
 	cfg *config.MempoolConfig,
 	proxyAppConn abci.Application,
-	router router,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
@@ -140,7 +138,6 @@ func NewTxMempool(
 		priorityIndex:     NewTxPriorityQueue(),
 		expirationIndex:   NewWrappedTxList(),
 		pendingTxs:        NewPendingTxs(cfg),
-		router:            router,
 		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 

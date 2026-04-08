@@ -65,7 +65,3 @@ func PostCheckMaxGas(maxGas int64) PostCheckFunc {
 		return nil
 	}
 }
-
-type router interface {
-	Evict(types.NodeID, error)
-}

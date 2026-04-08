@@ -275,7 +275,6 @@ func TestReactorWithEvidence(t *testing.T) {
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool,
 			proxyAppConnMem,
-			nil,
 		)
 
 		if thisConfig.Consensus.WaitForTxs() {
