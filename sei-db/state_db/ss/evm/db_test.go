@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func testConfig() config.StateStoreConfig {
@@ -67,8 +68,8 @@ func TestEVMStateStoreSeparatedPreservesUnifiedKeyLayout(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: nonceKey, Value: []byte{0x09}},
 					{Key: storageKey, Value: []byte("slot_value")},
 				},
@@ -123,8 +124,8 @@ func TestEVMStateStoreGetHas(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: storageKey, Value: []byte("storage_value")},
 				},
 			},
@@ -157,8 +158,8 @@ func TestEVMStateStoreVersionHandling(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
 						{Key: nonceKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -184,8 +185,8 @@ func TestEVMStateStoreDeleteTombstone(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
 				},
 			},
@@ -196,8 +197,8 @@ func TestEVMStateStoreDeleteTombstone(t *testing.T) {
 	cs = []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: codeKey, Delete: true},
 				},
 			},
@@ -235,8 +236,8 @@ func TestEVMStateStoreMultipleSubDBs(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: nonceKey, Value: []byte{0x05}},
 					{Key: codeHashKey, Value: []byte("hash_abc")},
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
@@ -282,8 +283,8 @@ func TestEVMStateStoreVersionTracking(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
 						{Key: nonceKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -311,8 +312,8 @@ func TestEVMStateStorePrune(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: EVMStoreKey,
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
 						{Key: storageKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -339,8 +340,8 @@ func TestEVMStateStoreNonEVMChangesetsIgnored(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: []byte("balance"), Value: []byte("100")},
 				},
 			},
@@ -415,8 +416,8 @@ func TestCodeSizeGoesToLegacyDB(t *testing.T) {
 	cs := []*proto.NamedChangeSet{
 		{
 			Name: EVMStoreKey,
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
+			Changeset: iavl.ChangeSet{
+				Pairs: []*iavl.KVPair{
 					{Key: codeSizeKey, Value: []byte{0x00, 0x10}},
 				},
 			},
