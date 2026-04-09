@@ -297,9 +297,15 @@ func (m *LittDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
 	return m.readCacheMetrics
 }
 
-func (m *LittDBMetrics) GetControlLoopPhaseTimer() *sharedmetrics.PhaseTimer {
+// SetControlLoopPhase transitions the control loop phase timer to the given phase.
+// Passing an empty string resets the phase timer.
+func (m *LittDBMetrics) SetControlLoopPhase(phase string) {
 	if m == nil {
-		return nil
+		return
 	}
-	return m.controlLoopPhaseTimer
+	if phase == "" {
+		m.controlLoopPhaseTimer.Reset()
+	} else {
+		m.controlLoopPhaseTimer.SetPhase(phase)
+	}
 }

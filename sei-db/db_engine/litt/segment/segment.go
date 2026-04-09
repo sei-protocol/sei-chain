@@ -98,6 +98,9 @@ type Segment struct {
 	// If true, then sync the file system for atomic operations. Should always be true in production, but can
 	// be set to false for tests to save time.
 	fsync bool
+
+	// Metrics for the database.
+	m *metrics.LittDBMetrics
 }
 
 // CreateSegment creates a new data segment.
@@ -172,6 +175,7 @@ func CreateSegment(
 		deletionChannel:     make(chan struct{}, 1),
 		snapshottingEnabled: snapshottingEnabled,
 		fsync:               fsync,
+		m:                   m,
 	}
 
 	// Segments are returned with an initial reference count of 1, as the caller of the constructor is considered to
@@ -408,10 +412,14 @@ func (s *Segment) GetShard(key []byte) uint8 {
 //
 // This method does not ensure that the key-value pair is actually written to disk, only that it will eventually be
 // written to disk. Flush must be called to ensure that all data previously passed to Write is written to disk.
-func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize uint64, err error) {
+func (s *Segment) Write(
+	data *types.PutRequest,
+) (keyCount uint32, keyFileSize uint64, err error) {
 	if s.metadata.sealed {
 		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
 	}
+
+	s.m.SetControlLoopPhase("write/bookkeeping")
 
 	shard := s.GetShard(data.Key)
 	currentSize := s.shardSizes[shard]
@@ -445,6 +453,7 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	}
 
 	// Forward the value to the shard control loop, which asynchronously writes it to the value file.
+	s.m.SetControlLoopPhase("write/send_shard")
 	shardRequest := &valueToWrite{
 		value:                  data.Value,
 		expectedFirstByteIndex: firstByteIndex,
@@ -456,6 +465,7 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	}
 
 	// Generate the keys + addresses to send to the keymap and key file.
+	s.m.SetControlLoopPhase("write/build_keys")
 	totalKeys := 1 + len(data.SecondaryKeys)
 	keyBatch := make([]types.ScopedKey, totalKeys)
 
@@ -470,12 +480,14 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 		}
 	}
 
+	s.m.SetControlLoopPhase("write/send_keymap")
 	err = s.keymapManager.WriteKeys(keyBatch)
 	if err != nil {
 		return 0, 0,
 			fmt.Errorf("failed to send keys to keymap manager: %v", err)
 	}
 
+	s.m.SetControlLoopPhase("write/send_keyfile")
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyBatch)
 	if err != nil {
 		return 0, 0,

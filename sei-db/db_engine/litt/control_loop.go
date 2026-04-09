@@ -127,32 +127,30 @@ func (c *controlLoop) run() {
 	ticker := time.NewTicker(c.garbageCollectionPeriod)
 	defer ticker.Stop()
 
-	phaseTimer := c.metrics.GetControlLoopPhaseTimer()
-
 	for {
-		phaseTimer.SetPhase("idle")
+		c.metrics.SetControlLoopPhase("idle")
 		select {
 		case <-c.errorMonitor.ImmediateShutdownRequired():
-			phaseTimer.Reset()
+			c.metrics.SetControlLoopPhase("")
 			c.diskTable.logger.Info("context done, shutting down disk table control loop")
 			return
 		case message := <-c.controllerChannel:
 			if req, ok := message.(*controlLoopWriteRequest); ok {
-				phaseTimer.SetPhase("write")
+				c.metrics.SetControlLoopPhase("write")
 				c.handleWriteRequest(req)
 			} else if req, ok := message.(*controlLoopFlushRequest); ok {
-				phaseTimer.SetPhase("flush")
+				c.metrics.SetControlLoopPhase("flush")
 				c.handleFlushRequest(req)
 			} else if req, ok := message.(*controlLoopSetShardingFactorRequest); ok {
-				phaseTimer.SetPhase("set_sharding_factor")
+				c.metrics.SetControlLoopPhase("set_sharding_factor")
 				c.handleControlLoopSetShardingFactorRequest(req)
 			} else if req, ok := message.(*controlLoopShutdownRequest); ok {
-				phaseTimer.SetPhase("shutdown")
+				c.metrics.SetControlLoopPhase("shutdown")
 				c.handleShutdownRequest(req)
-				phaseTimer.Reset()
+				c.metrics.SetControlLoopPhase("")
 				return
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
-				phaseTimer.SetPhase("gc")
+				c.metrics.SetControlLoopPhase("gc")
 				c.doGarbageCollection()
 				req.completionChan <- struct{}{}
 			} else {
@@ -160,7 +158,7 @@ func (c *controlLoop) run() {
 				return
 			}
 		case <-ticker.C:
-			phaseTimer.SetPhase("gc")
+			c.metrics.SetControlLoopPhase("gc")
 			c.doGarbageCollection()
 		}
 	}
@@ -278,7 +276,6 @@ func (c *controlLoop) updateCurrentSize() {
 // handleWriteRequest handles a controlLoopWriteRequest control message.
 func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 	for _, kv := range req.values {
-		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
 		keyCount, keyFileSize, err := seg.Write(kv)
 		shardSize := seg.GetMaxShardSize()
@@ -288,9 +285,8 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 			return
 		}
 
-		// Check to see if the write caused the mutable segment to become full.
 		if shardSize > uint64(c.targetFileSize) || keyCount >= c.maxKeyCount || keyFileSize >= c.targetKeyFileSize {
-			// Mutable segment is full. Before continuing, we need to expand the segments.
+			c.metrics.SetControlLoopPhase("write/expand_segments")
 			err = c.expandSegments()
 			if err != nil {
 				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
@@ -299,6 +295,7 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 		}
 	}
 
+	c.metrics.SetControlLoopPhase("write/update_size")
 	c.updateCurrentSize()
 }
 
