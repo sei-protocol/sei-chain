@@ -118,8 +118,7 @@ func (f *flushLoop) run() {
 // sent to the segment that is being sealed, since only the control loop can schedule work for the flush loop.
 func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 
-	// Flush the keymap manager.
-	f.metrics.SetFlushLoopPhase("seal/keymap_flush+segment_seal")
+	// Flush the keymap manager concurrently with sealing the segment.
 	var keymapFlushErr error
 	wg := sync.WaitGroup{}
 	wg.Add(1)

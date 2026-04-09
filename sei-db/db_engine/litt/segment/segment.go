@@ -628,16 +628,19 @@ func (s *Segment) IsSnapshot() (bool, error) {
 // Seal flushes all data to disk and finalizes the metadata. Returns addresses that became durable as a result of
 // this method call. After this method is called, no more data can be written to this segment.
 func (s *Segment) Seal(now time.Time) ([]types.ScopedKey, error) {
+	s.m.SetFlushLoopPhase("seal/schedule_flush")
 	flushWaitFunction, err := s.flush(true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to flush segment: %w", err)
 	}
+	s.m.SetFlushLoopPhase("seal/wait_flush")
 	addresses, err := flushWaitFunction()
 	if err != nil {
 		return nil, fmt.Errorf("failed to flush segment: %w", err)
 	}
 
 	// Seal the metadata file.
+	s.m.SetFlushLoopPhase("seal/metadata")
 	err = s.metadata.seal(now, s.keyCount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to seal metadata file: %w", err)
