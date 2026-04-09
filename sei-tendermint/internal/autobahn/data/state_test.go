@@ -331,7 +331,201 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
-func TestStateRecoveryFromWAL(t *testing.T) {
+// ── Reconcile tests (grouped by case number) ──────────────────────────
+
+// TestStateRecoveryBlocksOnly simulates a crash after blocks are written
+// TestReconcileCase1Empty verifies that reconcile is a no-op on a fresh
+// WAL directory with no data.
+func TestReconcileCase1Empty(t *testing.T) {
+	t.Log("Reconcile case 1: Fresh start (empty/empty)")
+	rng := utils.TestRng()
+	committee, _ := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+	fb := committee.FirstBlock()
+
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state := utils.OrPanic1(NewState(&Config{Committee: committee}, dw))
+
+	for inner := range state.inner.Lock() {
+		require.Equal(t, fb, inner.first)
+		require.Equal(t, fb, inner.nextQC)
+		require.Equal(t, fb, inner.nextBlock)
+	}
+	require.NoError(t, dw.Close())
+}
+
+// TestReconcileCase2QCsLost simulates a crash after blocks are written
+// to the WAL but before QCs are written (or after QCs WAL is truncated but
+// blocks WAL is not). On recovery, blocks are loaded but no QCs exist.
+// NewState must still produce a functional state that accepts new QCs.
+func TestReconcileCase2QCsLost(t *testing.T) {
+	// Reconcile case 2: QCs lost (corruption), blocks re-pushed
+	t.Log("Reconcile case 2: QCs lost (corruption), blocks re-pushed")
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// First run: populate both WALs.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange(committee)
+
+	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state1 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw1))
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
+		i++
+	}
+	require.NoError(t, dw1.Close())
+
+	// Simulate crash: delete QCs WAL directory, keep blocks WAL.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "fullcommitqcs")))
+
+	// Second run: only blocks WAL survives.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	// Without QCs, blocks are ignored on load (no QC to validate against).
+	// Re-pushing the QC with blocks makes them available again.
+	require.NoError(t, state2.PushQC(ctx, qc1, blocks1))
+
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+
+	// State should accept the next QC normally.
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
+	require.Equal(t, qc2.QC().GlobalRange(committee).Next, state2.NextBlock())
+	require.NoError(t, dw2.Close())
+}
+
+// TestReconcileResetsBlocksWhenQCsEmpty verifies that when blocks exist
+// in the WAL but QCs are lost (corruption), reconcile resets blocks
+// cursor to committee.FirstBlock() instead of keeping a stale cursor.
+func TestReconcileCase2ResetsCursor(t *testing.T) {
+	// Reconcile case 2: QCs lost, verifies cursor reset to fb
+	t.Log("Reconcile case 2: QCs lost, verifies cursor reset to fb")
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// Persist two QCs, then prune the first. This leaves blocks starting
+	// above fb. Then delete QCs WAL to simulate corruption.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange(committee)
+	gr2 := qc2.QC().GlobalRange(committee)
+
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc2))
+	allBlocks := append(blocks1, blocks2...)
+	for i, n := 0, gr1.First; n < gr2.Next; n++ {
+		require.NoError(t, dw.Blocks.PersistBlock(n, allBlocks[i]))
+		i++
+	}
+	// Prune first QC range — blocks now start at gr2.First > fb.
+	require.NoError(t, dw.TruncateBefore(gr2.First))
+	require.NoError(t, dw.Close())
+
+	// Simulate corruption: delete QCs WAL.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "fullcommitqcs")))
+
+	// Reopen: blocks exist but QCs are gone. Without Reset, blocks
+	// persister cursor would be at gr1.Next, causing "out of sequence"
+	// when new blocks arrive at committee.FirstBlock().
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+
+	// After reconcile, blocks persister cursor should be at fb, not stale.
+	fb := committee.FirstBlock()
+	require.Equal(t, fb, dw2.Blocks.Next(),
+		"blocks persister cursor should be reset to fb, not stale")
+
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, fb, inner.first)
+		require.Equal(t, fb, inner.nextQC)
+	}
+
+	// Push new data and run persistence. Without Reset, runPersist would
+	// hit "out of sequence" because blocks persister expects block at
+	// gr2.First (stale), not fb.
+	require.NoError(t, state2.PushQC(ctx, qc1, blocks1))
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- state2.Run(runCtx) }()
+	// PushAppHash waits for persistence — if persister cursor is stale,
+	// runPersist fails and Run returns an error.
+	require.NoError(t, state2.PushAppHash(ctx, gr1.First, types.GenAppHash(rng)))
+	cancel()
+	require.NoError(t, dw2.Close())
+}
+
+// TestStateRecoveryQCsOnly simulates a crash after QCs are written to the
+// WAL but before blocks are written (or after blocks WAL is truncated but
+// QCs WAL is not). On recovery, QCs are loaded but no blocks exist.
+// The cursor sync in NewState must advance the blocks persister so that
+// subsequent PersistBlock calls don't fail with "out of sequence".
+func TestReconcileCase3BlocksLost(t *testing.T) {
+	// Reconcile case 3: Blocks lost (crash), QCs survive
+	t.Log("Reconcile case 3: Blocks lost (crash), QCs survive")
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// First run: populate both WALs.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange(committee)
+
+	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state1 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw1))
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
+		i++
+	}
+	require.NoError(t, dw1.Close())
+
+	// Simulate crash: delete blocks WAL directory, keep QCs WAL.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "globalblocks")))
+
+	// Second run: only QCs WAL survives.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	// QCs loaded, blocks empty. The state needs blocks re-pushed.
+	// Without the cursor sync fix, PushBlock here would fail with
+	// "out of sequence" because the blocks persister cursor is 0
+	// but inner.nextBlock was advanced by QC data.
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, state2.PushBlock(ctx, n, blocks1[i]))
+		i++
+	}
+
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+
+	// State should accept the next QC normally.
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
+	require.Equal(t, qc2.QC().GlobalRange(committee).Next, state2.NextBlock())
+	require.NoError(t, dw2.Close())
+}
+
+func TestReconcileCase4Normal(t *testing.T) {
+	// Reconcile case 4: Normal (a=X, b<Y)
+	t.Log("Reconcile case 4: Normal (a=X, b<Y)")
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -397,112 +591,12 @@ func TestStateRecoveryFromWAL(t *testing.T) {
 	require.NoError(t, dw3.Close())
 }
 
-// TestStateRecoveryBlocksOnly simulates a crash after blocks are written
-// to the WAL but before QCs are written (or after QCs WAL is truncated but
-// blocks WAL is not). On recovery, blocks are loaded but no QCs exist.
-// NewState must still produce a functional state that accepts new QCs.
-func TestStateRecoveryBlocksOnly(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	dir := t.TempDir()
-
-	// First run: populate both WALs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange(committee)
-
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state1 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// Simulate crash: delete QCs WAL directory, keep blocks WAL.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, "fullcommitqcs")))
-
-	// Second run: only blocks WAL survives.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
-
-	// Without QCs, blocks are ignored on load (no QC to validate against).
-	// Re-pushing the QC with blocks makes them available again.
-	require.NoError(t, state2.PushQC(ctx, qc1, blocks1))
-
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// State should accept the next QC normally.
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
-	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, qc2.QC().GlobalRange(committee).Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
-}
-
-// TestStateRecoveryQCsOnly simulates a crash after QCs are written to the
-// WAL but before blocks are written (or after blocks WAL is truncated but
-// QCs WAL is not). On recovery, QCs are loaded but no blocks exist.
-// The cursor sync in NewState must advance the blocks persister so that
-// subsequent PersistBlock calls don't fail with "out of sequence".
-func TestStateRecoveryQCsOnly(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	dir := t.TempDir()
-
-	// First run: populate both WALs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange(committee)
-
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state1 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// Simulate crash: delete blocks WAL directory, keep QCs WAL.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, "globalblocks")))
-
-	// Second run: only QCs WAL survives.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
-
-	// QCs loaded, blocks empty. The state needs blocks re-pushed.
-	// Without the cursor sync fix, PushBlock here would fail with
-	// "out of sequence" because the blocks persister cursor is 0
-	// but inner.nextBlock was advanced by QC data.
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, state2.PushBlock(ctx, n, blocks1[i]))
-		i++
-	}
-
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// State should accept the next QC normally.
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
-	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, qc2.QC().GlobalRange(committee).Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
-}
-
 // TestStateRecoveryAfterPruning verifies that after pruning removes entries
 // from both WALs and the state is restarted, it recovers correctly with
 // only the unpruned tail.
-func TestStateRecoveryAfterPruning(t *testing.T) {
+func TestReconcileCase4AfterPruning(t *testing.T) {
+	// Reconcile case 4 variant: Normal after pruning, both WALs truncated
+	t.Log("Reconcile case 4 variant: Normal after pruning, both WALs truncated")
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -554,11 +648,57 @@ func TestStateRecoveryAfterPruning(t *testing.T) {
 	require.NoError(t, dw2.Close())
 }
 
+// Reconcile case 5: Prune crash, blocks ahead (a>X).
+// Blocks WAL was truncated further than QCs during a crash between
+// the two parallel TruncateBefore calls.
+func TestReconcileCase5BlocksAhead(t *testing.T) {
+	t.Log("Reconcile case 5: Prune crash, blocks ahead (a>X)")
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange(committee)
+	gr2 := qc2.QC().GlobalRange(committee)
+
+	// Persist both QCs and all blocks.
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc2))
+	allBlocks := append(blocks1, blocks2...)
+	for i, n := 0, gr1.First; n < gr2.Next; n++ {
+		require.NoError(t, dw.Blocks.PersistBlock(n, allBlocks[i]))
+		i++
+	}
+	// Simulate crash: blocks truncated to gr2.First but QCs not.
+	require.NoError(t, dw.Blocks.TruncateBefore(gr2.First))
+	require.NoError(t, dw.Close())
+
+	// Reopen: blocks start at gr2.First, QCs start at gr1.First.
+	// Reconcile should truncate QCs to match blocks.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr2.First, inner.first)
+	}
+	// Blocks in qc2's range should be available.
+	for n := gr2.First; n < gr2.Next; n++ {
+		got, err := state.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+	require.NoError(t, dw2.Close())
+}
+
 // TestStateRecoverySkipsStaleBlocks verifies that blocks loaded from the WAL
 // that fall before the first QC range are not inserted into the state map.
 // This can happen when the QCs WAL is pruned but the blocks WAL still has
 // older entries (e.g., a crash between the two TruncateBefore calls).
-func TestStateRecoverySkipsStaleBlocks(t *testing.T) {
+func TestReconcileCase6QCsAhead(t *testing.T) {
+	// Reconcile case 6: Prune crash, QCs ahead (a<X)
+	t.Log("Reconcile case 6: Prune crash, QCs ahead (a<X)")
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -607,61 +747,12 @@ func TestStateRecoverySkipsStaleBlocks(t *testing.T) {
 	require.NoError(t, dw2.Close())
 }
 
-// TestStateRecoveryBlocksBehindQCs verifies recovery when QCs cover a wider
-// range than blocks (e.g. crash during block persistence). Blocks up to
-// blocksEnd are available; the rest must be re-fetched via PushBlock.
-func TestStateRecoveryBlocksBehindQCs(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	dir := t.TempDir()
-
-	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange(committee)
-	gr2 := qc2.QC().GlobalRange(committee)
-
-	// Persist both QCs but only qc1's blocks to WALs.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// On recovery: both QCs loaded, but only qc1's blocks.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
-
-	// qc1's blocks should be available.
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// qc2's blocks are missing — not yet available.
-	for n := gr2.First; n < gr2.Next; n++ {
-		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrNotFound)
-	}
-
-	// Re-push qc2's blocks to fill the gap.
-	for i, n := 0, gr2.First; n < gr2.Next; n++ {
-		require.NoError(t, state2.PushBlock(ctx, n, blocks2[i]))
-		i++
-	}
-	require.Equal(t, gr2.Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
-}
-
 // TestStateRecoveryIgnoresBlocksBeyondQC verifies that blocks loaded from the
 // WAL with numbers >= nextQC are ignored. This can happen when blocks are
 // persisted in parallel with QCs and we crash before QCs catch up.
-func TestStateRecoveryIgnoresBlocksBeyondQC(t *testing.T) {
+func TestReconcileCase7BlocksPastQCs(t *testing.T) {
+	// Reconcile case 7: Persist crash, blocks past QCs (b>=Y)
+	t.Log("Reconcile case 7: Persist crash, blocks past QCs (b>=Y)")
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
 	dir := t.TempDir()
@@ -710,7 +801,9 @@ func TestStateRecoveryIgnoresBlocksBeyondQC(t *testing.T) {
 // TestReconcileTruncatesBlocksTail verifies that blocks persisted without
 // corresponding QCs are removed during WAL reconciliation. This prevents
 // stale blocks from blocking new (different) blocks at the same positions.
-func TestReconcileTruncatesBlocksTail(t *testing.T) {
+func TestReconcileCase7BlocksTail(t *testing.T) {
+	// Reconcile case 7: Persist crash, tail truncation with re-push
+	t.Log("Reconcile case 7: Persist crash, tail truncation with re-push")
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -754,6 +847,153 @@ func TestReconcileTruncatesBlocksTail(t *testing.T) {
 	require.Equal(t, gr2.Next, state.NextBlock())
 	require.NoError(t, dw2.Close())
 }
+
+// TestStateRecoveryBlocksBehindQCs verifies recovery when QCs cover a wider
+// range than blocks (e.g. crash during block persistence). Blocks up to
+// blocksEnd are available; the rest must be re-fetched via PushBlock.
+func TestReconcileCase8BlocksBehind(t *testing.T) {
+	// Reconcile case 8: QCs ahead normal (b<Y)
+	t.Log("Reconcile case 8: QCs ahead normal (b<Y)")
+	ctx := t.Context()
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// Build 2 sequential QCs.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange(committee)
+	gr2 := qc2.QC().GlobalRange(committee)
+
+	// Persist both QCs but only qc1's blocks to WALs.
+	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
+	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
+		i++
+	}
+	require.NoError(t, dw1.Close())
+
+	// On recovery: both QCs loaded, but only qc1's blocks.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	// qc1's blocks should be available.
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+
+	// qc2's blocks are missing — not yet available.
+	for n := gr2.First; n < gr2.Next; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, ErrNotFound)
+	}
+
+	// Re-push qc2's blocks to fill the gap.
+	for i, n := 0, gr2.First; n < gr2.Next; n++ {
+		require.NoError(t, state2.PushBlock(ctx, n, blocks2[i]))
+		i++
+	}
+	require.Equal(t, gr2.Next, state2.NextBlock())
+	require.NoError(t, dw2.Close())
+}
+
+// TestRecoveryWithPartialQCPrefix verifies that after per-block pruning
+// splits a QC range, recovery sets first from blocks (not QCs), and the
+// node can serve surviving blocks without re-fetching pruned ones.
+func TestReconcilePartialQCPrefix(t *testing.T) {
+	// Reconcile: partial QC prefix from per-block pruning
+	t.Log("Reconcile: partial QC prefix from per-block pruning")
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	// Build one QC with enough blocks to split.
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange(committee)
+	if gr1.Next-gr1.First < 3 {
+		t.Skip("need at least 3 blocks in QC range to test split")
+	}
+
+	// Persist QC and all blocks.
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, dw.Blocks.PersistBlock(n, blocks1[i]))
+		i++
+	}
+	// Simulate per-block pruning: truncate blocks prefix, keep QC intact.
+	// This creates the split: QC covers [gr1.First, gr1.Next) but blocks
+	// start at mid.
+	mid := gr1.First + (gr1.Next-gr1.First)/2
+	require.NoError(t, dw.Blocks.TruncateBefore(mid))
+	require.NoError(t, dw.Close())
+
+	// Recovery should use blocks as golden, not try to re-fetch pruned prefix.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
+
+	// first should be at mid (where blocks start), not gr1.First (where QC starts).
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, mid, inner.first,
+			"first should be where blocks start, not where QC starts")
+		require.Equal(t, gr1.Next, inner.nextQC,
+			"QC should still cover the full range")
+	}
+
+	// Blocks before mid should be pruned, not ErrNotFound.
+	for n := gr1.First; n < mid; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, ErrPruned)
+	}
+
+	// Blocks at mid and above should be available.
+	for n := mid; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+	require.NoError(t, dw2.Close())
+}
+
+// TestStateRejectsBlockGapInWAL verifies that NewState returns an error
+// if loaded blocks have a gap (defense in depth for future storage backends).
+func TestReconcileBlockGap(t *testing.T) {
+	// Reconcile: block gap in WAL detected (defense in depth)
+	t.Log("Reconcile: block gap in WAL detected (defense in depth)")
+	rng := utils.TestRng()
+	committee, keys := types.GenCommittee(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange(committee)
+	if gr1.Next-gr1.First < 3 {
+		t.Skip("need at least 3 blocks in QC range to test gap")
+	}
+
+	// Persist QC to real WAL so it loads on restart.
+	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
+	require.NoError(t, dw.Close())
+
+	// Reopen and inject blocks with a gap via test helper.
+	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
+	dw2.Blocks.SetLoadedForTest([]persist.LoadedGlobalBlock{
+		{Number: gr1.First, Block: blocks1[0]},
+		// skip gr1.First+1
+		{Number: gr1.First + 2, Block: blocks1[2]},
+	})
+
+	_, err := NewState(&Config{Committee: committee}, dw2)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "block gap")
+	require.NoError(t, dw2.Close())
+}
+
+// ── Non-reconcile tests ───────────────────────────────────────────────
 
 // TestPruningKeepsLastQCRange verifies that pruning never removes the last
 // QC range, ensuring WALs are never empty and inner.first is recoverable
@@ -858,62 +1098,6 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	require.NoError(t, dw2.Close())
 }
 
-// TestRecoveryWithPartialQCPrefix verifies that after per-block pruning
-// splits a QC range, recovery sets first from blocks (not QCs), and the
-// node can serve surviving blocks without re-fetching pruned ones.
-func TestRecoveryWithPartialQCPrefix(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	dir := t.TempDir()
-
-	// Build one QC with enough blocks to split.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange(committee)
-	if gr1.Next-gr1.First < 3 {
-		t.Skip("need at least 3 blocks in QC range to test split")
-	}
-
-	// Persist QC and all blocks.
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	// Simulate per-block pruning: truncate blocks prefix, keep QC intact.
-	// This creates the split: QC covers [gr1.First, gr1.Next) but blocks
-	// start at mid.
-	mid := gr1.First + (gr1.Next-gr1.First)/2
-	require.NoError(t, dw.Blocks.TruncateBefore(mid))
-	require.NoError(t, dw.Close())
-
-	// Recovery should use blocks as golden, not try to re-fetch pruned prefix.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	state2 := utils.OrPanic1(NewState(&Config{Committee: committee}, dw2))
-
-	// first should be at mid (where blocks start), not gr1.First (where QC starts).
-	for inner := range state2.inner.Lock() {
-		require.Equal(t, mid, inner.first,
-			"first should be where blocks start, not where QC starts")
-		require.Equal(t, gr1.Next, inner.nextQC,
-			"QC should still cover the full range")
-	}
-
-	// Blocks before mid should be pruned, not ErrNotFound.
-	for n := gr1.First; n < mid; n++ {
-		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
-	}
-
-	// Blocks at mid and above should be available.
-	for n := mid; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-	require.NoError(t, dw2.Close())
-}
-
 // TestRunPruningEmptyState verifies that runPruning does not panic when
 // the state has no QCs (e.g. on first startup before any data arrives).
 func TestRunPruningEmptyState(t *testing.T) {
@@ -929,38 +1113,6 @@ func TestRunPruningEmptyState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	_ = state.Run(ctx) // returns context.DeadlineExceeded, that's fine
-}
-
-// TestStateRejectsBlockGapInWAL verifies that NewState returns an error
-// if loaded blocks have a gap (defense in depth for future storage backends).
-func TestStateRejectsBlockGapInWAL(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	dir := t.TempDir()
-
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange(committee)
-	if gr1.Next-gr1.First < 3 {
-		t.Skip("need at least 3 blocks in QC range to test gap")
-	}
-
-	// Persist QC to real WAL so it loads on restart.
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw.Close())
-
-	// Reopen and inject blocks with a gap via test helper.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), committee))
-	dw2.Blocks.SetLoadedForTest([]persist.LoadedGlobalBlock{
-		{Number: gr1.First, Block: blocks1[0]},
-		// skip gr1.First+1
-		{Number: gr1.First + 2, Block: blocks1[2]},
-	})
-
-	_, err := NewState(&Config{Committee: committee}, dw2)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "block gap")
-	require.NoError(t, dw2.Close())
 }
 
 func TestPushBlockWaitsForQC(t *testing.T) {

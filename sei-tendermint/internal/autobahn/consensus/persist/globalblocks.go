@@ -209,6 +209,23 @@ func (gp *GlobalBlockPersister) TruncateAfter(n types.GlobalBlockNumber) error {
 	panic("unreachable")
 }
 
+// Reset clears all blocks and resets the cursor to n. Used when QCs are
+// empty (corruption) to avoid fast-forwarding next to a stale number.
+func (gp *GlobalBlockPersister) Reset(n types.GlobalBlockNumber) error {
+	for s := range gp.state.Lock() {
+		iw, ok := s.iw.Get()
+		if ok && iw.Count() > 0 {
+			if err := iw.TruncateAll(); err != nil {
+				return err
+			}
+		}
+		s.next = n
+		s.loaded = nil
+		return nil
+	}
+	panic("unreachable")
+}
+
 // Close shuts down the WAL.
 func (gp *GlobalBlockPersister) Close() error {
 	for s := range gp.state.Lock() {

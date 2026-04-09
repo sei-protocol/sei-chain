@@ -79,19 +79,30 @@ func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
 // reconcile fixes cursor inconsistencies between the two WALs that can
 // result from crashes during parallel persistence or pruning.
 //
-// Prefix: advances both WALs to the max of their starting points.
-// blocksFirst > qcsFirst can only happen if a prune completed on blocks
-// but crashed before completing on QCs (blocks never naturally start
-// ahead of QCs since QCs arrive first). In that case, truncating QCs
-// to match completes the interrupted prune.
+// The possible WAL states on startup and how they are handled:
 //
-// Tail: if blocks WAL extends past QCs WAL, the excess blocks were
-// persisted without their corresponding QCs (crash during parallel
-// persistence in runPersist). These blocks are untrustworthy — a
-// different QC could arrive for those positions — so they are removed.
+//	Case  Blocks    QCs       Scenario                          Action
+//	1     empty     empty     Fresh start                       no-op
+//	2     [a,b]     empty     QCs lost (corruption)             Reset blocks to fb
+//	3     empty     [X,Y)     Blocks lost (crash)               Prefix: fast-forward blocks.next to X
+//	4     [a,b]     [X,Y)     Normal (a=X, b<Y)                 no-op
+//	5     [a,b]     [X,Y)     Prune crash: blocks ahead (a>X)   Prefix: truncate QCs to a
+//	6     [a,b]     [X,Y)     Prune crash: QCs ahead (a<X)      Prefix: truncate blocks to X
+//	7     [a,b]     [X,Y)     Persist crash: blocks past (b>=Y) Tail: truncate blocks to Y
+//	8     [a,b]     [X,Y)     QCs ahead (normal, b<Y)           Tail: no-op (blocks catch up)
 func (dw *DataWAL) reconcile(committee *types.Committee) error {
 	fb := committee.FirstBlock()
-	// Fix prefix.
+	// Fix tail first: when QCs are empty (corruption), reset blocks
+	// before prefix gets a chance to fast-forward cursors to stale values.
+	qcNext := dw.CommitQCs.Next()
+	if qcNext == fb {
+		if err := dw.Blocks.Reset(fb); err != nil {
+			return err
+		}
+	} else if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
+		return fmt.Errorf("truncate blocks tail: %w", err)
+	}
+	// Fix prefix: align both WALs to the later start.
 	blocksFirst := dw.Blocks.LoadedFirst()
 	qcsFirst := dw.CommitQCs.LoadedFirst()
 	reconciled := max(blocksFirst, qcsFirst)
@@ -99,13 +110,6 @@ func (dw *DataWAL) reconcile(committee *types.Committee) error {
 		if err := dw.TruncateBefore(reconciled); err != nil {
 			return err
 		}
-	}
-	// Fix tail and trim loaded blocks to match QC range.
-	// QCs are the source of truth; blocks outside [reconciled, qcNext)
-	// are stale (from prefix desync or parallel persistence crash).
-	qcNext := dw.CommitQCs.Next()
-	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
-		return fmt.Errorf("truncate blocks tail: %w", err)
 	}
 	return nil
 }
