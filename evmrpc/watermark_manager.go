@@ -228,9 +228,6 @@ func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, heigh
 		return nil
 	}
 	earliest := m.receiptStore.EarliestVersion()
-	if earliest <= 0 {
-		return nil
-	}
 	if height < earliest {
 		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
 	}
