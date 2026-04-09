@@ -52,10 +52,6 @@ type valueFile struct {
 	// as many test scenarios do lots of tiny writes and flushes, and this workload is MUCH slower with fsync
 	// mode enabled. In production, fsync mode should always be enabled.
 	fsync bool
-
-	// Bytes written since the last flush. Used to trigger periodic background flushes
-	// so that seal doesn't pay the full fsync cost in one shot.
-	bytesSinceLastFlush uint64
 }
 
 // createValueFile creates a new value file.
@@ -248,9 +244,7 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	n := uint64(len(value)) //nolint:gosec
-	v.size += n
-	v.bytesSinceLastFlush += n
+	v.size += uint64(len(value)) //nolint:gosec
 
 	return firstByteIndex, nil
 }
@@ -275,20 +269,8 @@ func (v *valueFile) flush() error {
 
 	// It is now safe to read the flushed bytes directly from the file.
 	v.flushedSize.Store(v.size)
-	v.bytesSinceLastFlush = 0
 
 	return nil
-}
-
-// backgroundFlushThreshold is the number of bytes that can accumulate before
-// the shard goroutine proactively fsyncs. This spreads fsync cost over time
-// so that seal doesn't pay for it all at once.
-const backgroundFlushThreshold = 64 * 1024 * 1024 // 64 MiB
-
-// needsBackgroundFlush returns true if enough data has accumulated since the
-// last flush to warrant a proactive fsync.
-func (v *valueFile) needsBackgroundFlush() bool {
-	return v.fsync && v.bytesSinceLastFlush >= backgroundFlushThreshold
 }
 
 // seal seals the value file.

@@ -101,6 +101,10 @@ type Segment struct {
 
 	// Metrics for the database.
 	m *metrics.LittDBMetrics
+
+	// Round-robin shard assignment state (only used on the control loop thread).
+	currentShard  uint8
+	writesOnShard uint32
 }
 
 // CreateSegment creates a new data segment.
@@ -421,7 +425,7 @@ func (s *Segment) Write(
 
 	s.m.SetControlLoopPhase("write/bookkeeping")
 
-	shard := s.GetShard(data.Key)
+	shard := s.currentShard
 	currentSize := s.shardSizes[shard]
 
 	if currentSize > math.MaxUint32 {
@@ -462,6 +466,19 @@ func (s *Segment) Write(
 	if err != nil {
 		return 0, 0,
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
+	}
+
+	// Rotate to the next shard after filling the current one's channel.
+	s.writesOnShard++
+	if s.writesOnShard >= shardControlChannelCapacity-1 {
+		// Send a background flush to the current shard (fire-and-forget).
+		err = util.Send(s.errorMonitor, s.shardChannels[shard], &shardBackgroundFlushRequest{})
+		if err != nil {
+			return 0, 0,
+				fmt.Errorf("failed to send background flush to shard %d: %v", shard, err)
+		}
+		s.writesOnShard = 0
+		s.currentShard = (s.currentShard + 1) % s.metadata.shardingFactor
 	}
 
 	// Generate the keys + addresses to send to the keymap and key file.
@@ -831,6 +848,10 @@ type shardFlushRequest struct {
 	completionChannel chan struct{}
 }
 
+// shardBackgroundFlushRequest is a fire-and-forget message sent to a shard goroutine to trigger
+// a flush (bufio + fsync). No completion channel — the control loop does not wait for it.
+type shardBackgroundFlushRequest struct{}
+
 // valueToWrite is a message sent to the shard control loop to request that it write a value to the value file.
 type valueToWrite struct {
 	value                  []byte
@@ -854,11 +875,11 @@ func (s *Segment) shardControlLoop(shard uint8) {
 				}
 			} else if data, ok := operation.(*valueToWrite); ok {
 				s.handleShardWrite(shard, data)
-				if s.shards[shard].needsBackgroundFlush() {
-					err := s.shards[shard].flush()
-					if err != nil {
-						s.errorMonitor.Panic(fmt.Errorf("failed to background flush shard %d: %w", shard, err))
-					}
+				continue
+			} else if _, ok := operation.(*shardBackgroundFlushRequest); ok {
+				err := s.shards[shard].flush()
+				if err != nil {
+					s.errorMonitor.Panic(fmt.Errorf("failed to background flush shard %d: %w", shard, err))
 				}
 				continue
 			} else {
