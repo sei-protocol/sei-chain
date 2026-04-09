@@ -18,10 +18,10 @@ func newTestCache(t *testing.T) *UnflushedDataCache {
 	return NewUnflushedDataCache(logger, errorMonitor, 64)
 }
 
-func makeScopedKeys(keyStrings ...string) []*types.ScopedKey {
-	keys := make([]*types.ScopedKey, len(keyStrings))
+func makeScopedKeys(keyStrings ...string) []types.ScopedKey {
+	keys := make([]types.ScopedKey, len(keyStrings))
 	for i, k := range keyStrings {
-		keys[i] = &types.ScopedKey{Key: []byte(k)}
+		keys[i] = types.ScopedKey{Key: []byte(k)}
 	}
 	return keys
 }

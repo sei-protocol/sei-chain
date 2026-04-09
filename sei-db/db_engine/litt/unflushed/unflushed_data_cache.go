@@ -156,4 +156,3 @@ func (u *UnflushedDataCache) tryEvict() {
 		u.cache.DeleteBatch(toDelete)
 	}
 }
-

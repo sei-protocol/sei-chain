@@ -2,16 +2,31 @@ package segment
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestKeymapManager(t *testing.T) *keymap.KeymapManager {
+	t.Helper()
+	logger := test.GetLogger()
+	ctx := context.Background()
+	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
+	kmap, _, err := keymap.NewMemKeymap(logger, "", false)
+	require.NoError(t, err)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	t.Cleanup(func() { cache.Stop() })
+	return keymap.NewKeymapManager(logger, errorMonitor, kmap, cache, 1024, 1024)
+}
 
 // countFilesInDirectory returns the number of files in the given directory.
 func countFilesInDirectory(t *testing.T, directory string) int {
@@ -54,6 +69,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 	seg, err := CreateSegment(
 		logger,
 		util.NewErrorMonitor(ctx, logger, nil),
+		newTestKeymapManager(t),
 		index,
 		[]*SegmentPath{segmentPath},
 		false,
@@ -205,6 +221,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 	seg, err := CreateSegment(
 		logger,
 		util.NewErrorMonitor(ctx, logger, nil),
+		newTestKeymapManager(t),
 		index,
 		[]*SegmentPath{segmentPath},
 		false,
@@ -365,6 +382,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	seg, err := CreateSegment(
 		logger,
 		util.NewErrorMonitor(ctx, logger, nil),
+		newTestKeymapManager(t),
 		index,
 		[]*SegmentPath{segmentPath},
 		false,
@@ -476,6 +494,7 @@ func TestGetFilePaths(t *testing.T) {
 	segment, err := CreateSegment(
 		logger,
 		errorMonitor,
+		newTestKeymapManager(t),
 		index,
 		[]*SegmentPath{segmentPath},
 		false,

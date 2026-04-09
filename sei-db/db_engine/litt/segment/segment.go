@@ -505,7 +505,7 @@ func (s *Segment) GetKeys() ([]types.ScopedKey, error) {
 
 // FlushWaitFunction is a function that waits for a flush operation to complete. It returns the addresses of the data
 // that was flushed, or an error if the flush operation failed.
-type FlushWaitFunction func() ([]types.ScopedKey, error) // TODO before merge: perhaps this indirection is unecessary now?
+type FlushWaitFunction func() ([]types.ScopedKey, error) // TODO before merge: perhaps this indirection is unnecessary now?
 
 // Flush schedules a flush operation. Flush operations are performed serially in the order they are scheduled.
 // This method returns a function that, when called, will block until the flush operation is complete. The function

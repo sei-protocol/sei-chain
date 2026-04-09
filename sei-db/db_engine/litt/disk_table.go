@@ -58,7 +58,7 @@ type diskTable struct {
 	// The type file for the keymap.
 	keymapTypeFile *keymap.KeymapTypeFile
 
-	// Manages asyncronous writes / flushes to the keymap.
+	// Manages asynchronous writes / flushes to the keymap.
 	keymapManager *keymap.KeymapManager
 
 	// Data that hasn't yet been fully flushed to disk. Reads always hit this first to avoid

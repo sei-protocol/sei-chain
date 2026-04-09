@@ -116,7 +116,7 @@ func TestTableInfo(t *testing.T) {
 		require.False(t, info.IsSnapshot)
 		require.Greater(t, info.Size, uint64(0))
 		require.Equal(t, info.KeyCount, uint64(100))
-		require.Equal(t, "LevelDBKeymap", info.KeymapType)
+		require.Equal(t, "PebbleKeymap", info.KeymapType)
 	}
 
 	// A non-existent table should return an error for the core directories as well.

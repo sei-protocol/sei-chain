@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/test"
 	"github.com/stretchr/testify/require"
@@ -17,18 +18,16 @@ const defaultTargetWriteBatchSize = 1024
 func newTestKeymapManager(
 	t *testing.T,
 	workChanSize int,
-	durableKeyChanSize int,
-) (*KeymapManager, chan []*types.ScopedKey) {
+) *KeymapManager {
 	t.Helper()
-	return newTestKeymapManagerWithBatchSize(t, workChanSize, durableKeyChanSize, defaultTargetWriteBatchSize)
+	return newTestKeymapManagerWithBatchSize(t, workChanSize, defaultTargetWriteBatchSize)
 }
 
 func newTestKeymapManagerWithBatchSize(
 	t *testing.T,
 	workChanSize int,
-	durableKeyChanSize int,
 	targetWriteBatchSize int,
-) (*KeymapManager, chan []*types.ScopedKey) {
+) *KeymapManager {
 	t.Helper()
 	logger := test.GetLogger()
 	ctx := context.Background()
@@ -36,28 +35,16 @@ func newTestKeymapManagerWithBatchSize(
 	kmap, _, err := NewMemKeymap(logger, "", false)
 	require.NoError(t, err)
 
-	durableKeyChan := make(chan []*types.ScopedKey, durableKeyChanSize)
-	km := NewKeymapManager(logger, errorMonitor, kmap, durableKeyChan, workChanSize, targetWriteBatchSize)
-	return km, durableKeyChan
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	t.Cleanup(func() { cache.Stop() })
+	km := NewKeymapManager(logger, errorMonitor, kmap, cache, workChanSize, targetWriteBatchSize)
+	return km
 }
 
-// drainDurableKeys collects all keys from the durable key channel until it would block.
-func drainDurableKeys(ch chan []*types.ScopedKey) []*types.ScopedKey {
-	var all []*types.ScopedKey
-	for {
-		select {
-		case batch := <-ch:
-			all = append(all, batch...)
-		default:
-			return all
-		}
-	}
-}
-
-func makeKeys(keys ...string) []*types.ScopedKey {
-	result := make([]*types.ScopedKey, len(keys))
+func makeKeys(keys ...string) []types.ScopedKey {
+	result := make([]types.ScopedKey, len(keys))
 	for i, k := range keys {
-		result[i] = &types.ScopedKey{
+		result[i] = types.ScopedKey{
 			Key:     []byte(k),
 			Address: types.NewAddress(uint32(i), uint32(i*10), uint8(i%256), uint32(i*100)),
 		}
@@ -66,7 +53,7 @@ func makeKeys(keys ...string) []*types.ScopedKey {
 }
 
 func TestWriteAndFlush(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	keys := makeKeys("alpha", "beta", "gamma")
@@ -79,13 +66,10 @@ func TestWriteAndFlush(t *testing.T) {
 		require.True(t, exists)
 		require.Equal(t, k.Address, addr)
 	}
-
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, len(keys), len(durable))
 }
 
 func TestWriteMultipleBatchesThenFlush(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	batch1 := makeKeys("a", "b")
@@ -101,13 +85,10 @@ func TestWriteMultipleBatchesThenFlush(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, exists)
 	}
-
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, len(allExpected), len(durable))
 }
 
 func TestLookupBeforeFlush(t *testing.T) {
-	km, _ := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	keys := makeKeys("pending")
@@ -124,7 +105,7 @@ func TestLookupBeforeFlush(t *testing.T) {
 }
 
 func TestLookupNonexistentKey(t *testing.T) {
-	km, _ := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	_, exists, err := km.LookupAddress([]byte("missing"))
@@ -133,7 +114,7 @@ func TestLookupNonexistentKey(t *testing.T) {
 }
 
 func TestDeleteKeys(t *testing.T) {
-	km, _ := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	keys := makeKeys("delete-me")
@@ -153,7 +134,7 @@ func TestDeleteKeys(t *testing.T) {
 }
 
 func TestFlushWithNoWrites(t *testing.T) {
-	km, _ := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	require.NoError(t, km.Flush())
@@ -161,7 +142,7 @@ func TestFlushWithNoWrites(t *testing.T) {
 }
 
 func TestStop(t *testing.T) {
-	km, _ := newTestKeymapManager(t, 16, 16)
+	km := newTestKeymapManager(t, 16)
 
 	keys := makeKeys("before-stop")
 	require.NoError(t, km.WriteKeys(keys))
@@ -174,7 +155,7 @@ func TestStop(t *testing.T) {
 }
 
 func TestStopProcessesPendingWrites(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManager(t, 64, 64)
+	km := newTestKeymapManager(t, 64)
 
 	const writeCount = 50
 	for i := 0; i < writeCount; i++ {
@@ -182,27 +163,11 @@ func TestStopProcessesPendingWrites(t *testing.T) {
 		require.NoError(t, km.WriteKeys(keys))
 	}
 	require.NoError(t, km.Stop())
-
-	// All keys should have been processed, though they may be coalesced into fewer batches.
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, writeCount, len(durable))
 }
 
 func TestWriteIsNonBlocking(t *testing.T) {
-	// Use a large work channel and a zero-size durable key channel to let the loop block
-	// on durableKeyChan sends. Writes should still succeed as long as workChan has capacity.
-	logger := test.GetLogger()
-	ctx := context.Background()
-	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
-	kmap, _, err := NewMemKeymap(logger, "", false)
-	require.NoError(t, err)
+	km := newTestKeymapManager(t, 32)
 
-	durableKeyChan := make(chan []*types.ScopedKey) // unbuffered
-	km := NewKeymapManager(logger, errorMonitor, kmap, durableKeyChan, 32, defaultTargetWriteBatchSize)
-
-	// Fill up the work channel without anyone draining durableKeyChan.
-	// The first write will be picked up by the loop and block on durableKeyChan.
-	// Subsequent writes should still land in the buffered workChan.
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 30; i++ {
@@ -222,11 +187,6 @@ func TestWriteIsNonBlocking(t *testing.T) {
 		t.Fatal("WriteKeys blocked unexpectedly")
 	}
 
-	// Drain durableKeyChan so the loop can finish, then stop.
-	go func() {
-		for range durableKeyChan {
-		}
-	}()
 	_ = km.Stop()
 }
 
@@ -237,8 +197,9 @@ func TestErrorMonitorPanic(t *testing.T) {
 	kmap, _, err := NewMemKeymap(logger, "", false)
 	require.NoError(t, err)
 
-	durableKeyChan := make(chan []*types.ScopedKey, 16)
-	km := NewKeymapManager(logger, errorMonitor, kmap, durableKeyChan, 16, defaultTargetWriteBatchSize)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	t.Cleanup(func() { cache.Stop() })
+	km := NewKeymapManager(logger, errorMonitor, kmap, cache, 16, defaultTargetWriteBatchSize)
 
 	// Panic cancels the context, which causes ImmediateShutdownRequired to fire.
 	errorMonitor.Panic(fmt.Errorf("test error"))
@@ -252,8 +213,8 @@ func TestErrorMonitorPanic(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDurableKeyChanReceivesAllKeys(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManager(t, 16, 16)
+func TestAllKeysWritten(t *testing.T) {
+	km := newTestKeymapManager(t, 16)
 	defer km.Stop()
 
 	batch1 := makeKeys("x", "y")
@@ -263,23 +224,17 @@ func TestDurableKeyChanReceivesAllKeys(t *testing.T) {
 	require.NoError(t, km.WriteKeys(batch2))
 	require.NoError(t, km.Flush())
 
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, len(batch1)+len(batch2), len(durable))
+	allExpected := append(batch1, batch2...)
+	for _, k := range allExpected {
+		_, exists, err := km.LookupAddress(k.Key)
+		require.NoError(t, err)
+		require.True(t, exists)
+	}
 }
 
 func TestConcurrentWritesAndFlush(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManager(t, 128, 128)
+	km := newTestKeymapManager(t, 128)
 	defer km.Stop()
-
-	// Drain the durable key channel in the background.
-	totalDurable := make(chan int, 1)
-	go func() {
-		count := 0
-		for range durableKeyChan {
-			count++
-		}
-		totalDurable <- count
-	}()
 
 	rand := test.NewTestRandom()
 
@@ -312,8 +267,6 @@ func TestConcurrentWritesAndFlush(t *testing.T) {
 // TestWriteBatching verifies that the loop coalesces consecutive write requests into a single
 // keymap.Put() call when they are immediately available in the work channel.
 func TestWriteBatching(t *testing.T) {
-	// Use a small targetWriteBatchSize so batching kicks in quickly, and a counting keymap
-	// to observe how many Put() calls are made.
 	logger := test.GetLogger()
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
@@ -322,33 +275,24 @@ func TestWriteBatching(t *testing.T) {
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 
-	durableKeyChan := make(chan []*types.ScopedKey, 128)
-	// targetWriteBatchSize=100: the loop will coalesce up to 100 keys before flushing.
-	km := NewKeymapManager(logger, errorMonitor, counting, durableKeyChan, 128, 100)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	t.Cleanup(func() { cache.Stop() })
+	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 100)
 
-	// Enqueue 50 write requests of 1 key each. Because the loop hasn't started draining
-	// yet (or is very fast), many of these will be in the channel simultaneously.
 	for i := 0; i < 50; i++ {
 		require.NoError(t, km.WriteKeys(makeKeys(fmt.Sprintf("key-%d", i))))
 	}
 	require.NoError(t, km.Flush())
 
-	// All 50 keys must be present.
 	for i := 0; i < 50; i++ {
 		_, exists, err := km.LookupAddress([]byte(fmt.Sprintf("key-%d", i)))
 		require.NoError(t, err)
 		require.True(t, exists)
 	}
 
-	// Batching should have reduced the number of Put() calls. The exact count depends on
-	// timing, but it must be less than 50 (one per write request) and at least 1.
 	putCount := counting.putCount
 	require.GreaterOrEqual(t, putCount, 1)
 	require.LessOrEqual(t, putCount, 50)
-
-	// Durable key channel should have received all 50 keys total.
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, 50, len(durable))
 
 	require.NoError(t, km.Stop())
 }
@@ -364,9 +308,9 @@ func TestWriteBatchingRespectsTargetSize(t *testing.T) {
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 
-	durableKeyChan := make(chan []*types.ScopedKey, 128)
-	// targetWriteBatchSize=5: after accumulating 5 keys, stop draining and flush.
-	km := NewKeymapManager(logger, errorMonitor, counting, durableKeyChan, 128, 5)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	t.Cleanup(func() { cache.Stop() })
+	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 5)
 
 	// Enqueue 20 write requests of 1 key each.
 	for i := 0; i < 20; i++ {
@@ -392,21 +336,18 @@ func TestWriteBatchingRespectsTargetSize(t *testing.T) {
 // TestWriteBatchingStopsOnNonWriteMessage verifies that a non-write message (e.g. delete)
 // causes the accumulated write batch to be flushed before the non-write message is handled.
 func TestWriteBatchingStopsOnNonWriteMessage(t *testing.T) {
-	km, durableKeyChan := newTestKeymapManagerWithBatchSize(t, 128, 128, 1000)
+	km := newTestKeymapManagerWithBatchSize(t, 128, 1000)
 	defer km.Stop()
 
-	// Enqueue writes, then a delete, then more writes.
 	require.NoError(t, km.WriteKeys(makeKeys("a", "b")))
 	require.NoError(t, km.DeleteKeys(makeKeys("a")))
 	require.NoError(t, km.WriteKeys(makeKeys("c")))
 	require.NoError(t, km.Flush())
 
-	// "a" was written then deleted.
 	_, exists, err := km.LookupAddress([]byte("a"))
 	require.NoError(t, err)
 	require.False(t, exists)
 
-	// "b" and "c" should still exist.
 	_, exists, err = km.LookupAddress([]byte("b"))
 	require.NoError(t, err)
 	require.True(t, exists)
@@ -414,9 +355,6 @@ func TestWriteBatchingStopsOnNonWriteMessage(t *testing.T) {
 	_, exists, err = km.LookupAddress([]byte("c"))
 	require.NoError(t, err)
 	require.True(t, exists)
-
-	durable := drainDurableKeys(durableKeyChan)
-	require.Equal(t, 3, len(durable))
 }
 
 // countingKeymap wraps a Keymap and counts Put calls.
@@ -425,7 +363,7 @@ type countingKeymap struct {
 	putCount int
 }
 
-func (c *countingKeymap) Put(pairs []*types.ScopedKey) error {
+func (c *countingKeymap) Put(pairs []types.ScopedKey) error {
 	c.putCount++
 	return c.inner.Put(pairs)
 }
@@ -434,7 +372,7 @@ func (c *countingKeymap) Get(key []byte) (types.Address, bool, error) {
 	return c.inner.Get(key)
 }
 
-func (c *countingKeymap) Delete(keys []*types.ScopedKey) error {
+func (c *countingKeymap) Delete(keys []types.ScopedKey) error {
 	return c.inner.Delete(keys)
 }
 

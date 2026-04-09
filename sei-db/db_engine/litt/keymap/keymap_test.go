@@ -63,19 +63,19 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 			key := []byte(rand.String(32))
 			address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
 
-			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
+			err := keymap.Put([]types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
 			expected[string(key)] = address
 		} else if choice < 0.75 {
 			// Delete a few random values
 			numberToDelete := rand.Int32Range(1, 10)
 			numberToDelete = min(numberToDelete, int32(len(expected)))
-			keysToDelete := make([]*types.ScopedKey, 0, numberToDelete)
+			keysToDelete := make([]types.ScopedKey, 0, numberToDelete)
 			for key := range expected {
 				if numberToDelete == int32(len(keysToDelete)) {
 					break
 				}
-				keysToDelete = append(keysToDelete, &types.ScopedKey{Key: []byte(key)})
+				keysToDelete = append(keysToDelete, types.ScopedKey{Key: []byte(key)})
 				numberToDelete--
 			}
 
@@ -87,11 +87,11 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 		} else {
 			// Write a batch of random values
 			numberToWrite := rand.Int32Range(1, 10)
-			pairs := make([]*types.ScopedKey, numberToWrite)
+			pairs := make([]types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
 				address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
-				pairs[i] = &types.ScopedKey{Key: key, Address: address}
+				pairs[i] = types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
 			err := keymap.Put(pairs)
@@ -206,11 +206,11 @@ func TestReverseIterator(t *testing.T) {
 		kmap, err := builder(logger, dbDir)
 		require.NoError(t, err)
 
-		batch1 := []*types.ScopedKey{
+		batch1 := []types.ScopedKey{
 			{Key: []byte("key1"), Address: types.NewAddress(1, 0, 0, 100)},
 			{Key: []byte("key2"), Address: types.NewAddress(1, 100, 0, 200)},
 		}
-		batch2 := []*types.ScopedKey{
+		batch2 := []types.ScopedKey{
 			{Key: []byte("key3"), Address: types.NewAddress(2, 0, 0, 300)},
 		}
 
@@ -257,7 +257,7 @@ func TestReverseIteratorDelete(t *testing.T) {
 		kmap, err := builder(logger, dbDir)
 		require.NoError(t, err)
 
-		keys := []*types.ScopedKey{
+		keys := []types.ScopedKey{
 			{Key: []byte("a"), Address: types.NewAddress(1, 0, 0, 10)},
 			{Key: []byte("b"), Address: types.NewAddress(1, 10, 0, 20)},
 			{Key: []byte("c"), Address: types.NewAddress(1, 30, 0, 30)},
@@ -318,18 +318,18 @@ func TestReverseIteratorMissingLink(t *testing.T) {
 		kmap, err := builder(logger, dbDir)
 		require.NoError(t, err)
 
-		batch1 := []*types.ScopedKey{
+		batch1 := []types.ScopedKey{
 			{Key: []byte("x"), Address: types.NewAddress(1, 0, 0, 10)},
 			{Key: []byte("y"), Address: types.NewAddress(1, 10, 0, 20)},
 		}
-		batch2 := []*types.ScopedKey{
+		batch2 := []types.ScopedKey{
 			{Key: []byte("z"), Address: types.NewAddress(2, 0, 0, 30)},
 		}
 		require.NoError(t, kmap.Put(batch1))
 		require.NoError(t, kmap.Put(batch2))
 
 		// Delete "y" directly (simulates GC removing a middle segment)
-		require.NoError(t, kmap.Delete([]*types.ScopedKey{{Key: []byte("y")}}))
+		require.NoError(t, kmap.Delete([]types.ScopedKey{{Key: []byte("y")}}))
 
 		// Chain is z -> y -> x, but y is missing, so iteration stops after z
 		iter, err := kmap.ReverseIterator()
@@ -380,7 +380,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		kmap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, false)
 		require.NoError(t, err)
 
-		batch1 := []*types.ScopedKey{
+		batch1 := []types.ScopedKey{
 			{Key: []byte("k1"), Address: types.NewAddress(1, 0, 0, 10)},
 			{Key: []byte("k2"), Address: types.NewAddress(1, 10, 0, 20)},
 		}
@@ -391,7 +391,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		kmap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, false)
 		require.NoError(t, err)
 
-		batch2 := []*types.ScopedKey{
+		batch2 := []types.ScopedKey{
 			{Key: []byte("k3"), Address: types.NewAddress(2, 0, 0, 30)},
 		}
 		require.NoError(t, kmap.Put(batch2))
@@ -430,7 +430,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		kmap, _, err := NewPebbleKeymap(logger, dbDir, false)
 		require.NoError(t, err)
 
-		batch1 := []*types.ScopedKey{
+		batch1 := []types.ScopedKey{
 			{Key: []byte("k1"), Address: types.NewAddress(1, 0, 0, 10)},
 			{Key: []byte("k2"), Address: types.NewAddress(1, 10, 0, 20)},
 		}
@@ -441,7 +441,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		kmap, _, err = NewPebbleKeymap(logger, dbDir, false)
 		require.NoError(t, err)
 
-		batch2 := []*types.ScopedKey{
+		batch2 := []types.ScopedKey{
 			{Key: []byte("k3"), Address: types.NewAddress(2, 0, 0, 30)},
 		}
 		require.NoError(t, kmap.Put(batch2))
@@ -560,19 +560,19 @@ func TestRestart(t *testing.T) {
 			key := []byte(rand.String(32))
 			address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
 
-			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
+			err := keymap.Put([]types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
 			expected[string(key)] = address
 		} else if choice < 0.75 {
 			// Delete a few random values
 			numberToDelete := rand.Int32Range(1, 10)
 			numberToDelete = min(numberToDelete, int32(len(expected)))
-			keysToDelete := make([]*types.ScopedKey, 0, numberToDelete)
+			keysToDelete := make([]types.ScopedKey, 0, numberToDelete)
 			for key := range expected {
 				if numberToDelete == int32(len(keysToDelete)) {
 					break
 				}
-				keysToDelete = append(keysToDelete, &types.ScopedKey{Key: []byte(key)})
+				keysToDelete = append(keysToDelete, types.ScopedKey{Key: []byte(key)})
 				numberToDelete--
 			}
 
@@ -584,11 +584,11 @@ func TestRestart(t *testing.T) {
 		} else {
 			// Write a batch of random values
 			numberToWrite := rand.Int32Range(1, 10)
-			pairs := make([]*types.ScopedKey, numberToWrite)
+			pairs := make([]types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
 				address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
-				pairs[i] = &types.ScopedKey{Key: key, Address: address}
+				pairs[i] = types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
 			err := keymap.Put(pairs)
@@ -635,19 +635,19 @@ func TestRestart(t *testing.T) {
 			key := []byte(rand.String(32))
 			address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
 
-			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
+			err := keymap.Put([]types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
 			expected[string(key)] = address
 		} else if choice < 0.75 {
 			// Delete a few random values
 			numberToDelete := rand.Int32Range(1, 10)
 			numberToDelete = min(numberToDelete, int32(len(expected)))
-			keysToDelete := make([]*types.ScopedKey, 0, numberToDelete)
+			keysToDelete := make([]types.ScopedKey, 0, numberToDelete)
 			for key := range expected {
 				if numberToDelete == int32(len(keysToDelete)) {
 					break
 				}
-				keysToDelete = append(keysToDelete, &types.ScopedKey{Key: []byte(key)})
+				keysToDelete = append(keysToDelete, types.ScopedKey{Key: []byte(key)})
 				numberToDelete--
 			}
 
@@ -659,11 +659,11 @@ func TestRestart(t *testing.T) {
 		} else {
 			// Write a batch of random values
 			numberToWrite := rand.Int32Range(1, 10)
-			pairs := make([]*types.ScopedKey, numberToWrite)
+			pairs := make([]types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
 				address := types.NewAddress(rand.Uint32(), rand.Uint32(), uint8(rand.Uint32()), rand.Uint32())
-				pairs[i] = &types.ScopedKey{Key: key, Address: address}
+				pairs[i] = types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
 			err := keymap.Put(pairs)
