@@ -854,6 +854,12 @@ func (s *Segment) shardControlLoop(shard uint8) {
 				}
 			} else if data, ok := operation.(*valueToWrite); ok {
 				s.handleShardWrite(shard, data)
+				if s.shards[shard].needsBackgroundFlush() {
+					err := s.shards[shard].flush()
+					if err != nil {
+						s.errorMonitor.Panic(fmt.Errorf("failed to background flush shard %d: %w", shard, err))
+					}
+				}
 				continue
 			} else {
 				s.errorMonitor.Panic(
