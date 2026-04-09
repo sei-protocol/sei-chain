@@ -9,6 +9,8 @@ import (
 	"log/slog"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/cockroachdb/pebble/v2/sstable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -71,12 +73,39 @@ func newPebbleKeymap(
 	}
 	requiresReload = !exists
 
+	cache := pebble.NewCache(32 << 20) // 32 MiB
+	defer cache.Unref()
+
 	opts := &pebble.Options{
-		FormatMajorVersion: pebble.FormatVirtualSSTables,
+		Cache:                       cache,
+		FormatMajorVersion:          pebble.FormatVirtualSSTables,
+		L0CompactionThreshold:       2,
+		L0StopWritesThreshold:       1000,
+		LBaseMaxBytes:               64 << 20,
+		MemTableSize:                64 << 20,
+		MemTableStopWritesThreshold: 4,
 	}
 	if !syncWrites {
 		opts.DisableWAL = true
 	}
+
+	opts.Levels[0].BlockSize = 32 << 10
+	opts.Levels[0].IndexBlockSize = 256 << 10
+	opts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
+	opts.Levels[0].FilterType = pebble.TableFilter
+	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	opts.Levels[0].EnsureL0Defaults()
+
+	for i := 1; i < len(opts.Levels); i++ {
+		l := &opts.Levels[i]
+		l.BlockSize = 32 << 10
+		l.IndexBlockSize = 256 << 10
+		l.FilterPolicy = bloom.FilterPolicy(10)
+		l.FilterType = pebble.TableFilter
+		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.EnsureL1PlusDefaults(&opts.Levels[i-1])
+	}
+	opts.Levels[6].FilterPolicy = nil
 
 	db, err := pebble.Open(keymapPath, opts)
 	if err != nil {
