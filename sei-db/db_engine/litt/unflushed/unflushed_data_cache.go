@@ -157,16 +157,3 @@ func (u *UnflushedDataCache) tryEvict() {
 	}
 }
 
-// Messages sent to the background eviction loop.
-
-type reportFlushedKeysMsg struct {
-	keys []*types.ScopedKey
-}
-
-type reportFlushedSegmentMsg struct {
-	keys []*types.ScopedKey
-}
-
-type shutdownMsg struct {
-	responseChan chan struct{}
-}
