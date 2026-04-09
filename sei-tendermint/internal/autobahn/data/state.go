@@ -547,6 +547,7 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 // a QC range; this is handled on recovery (NewState skips partial QC prefixes).
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	pruningTime := time.Now()
+	truncateTo := utils.None[types.GlobalBlockNumber]()
 	for inner, ctrl := range s.inner.Lock() {
 		// Can only prune executed blocks (those with AppProposals).
 		firstToKeep := min(retainFrom, inner.nextAppProposal)
@@ -558,9 +559,11 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 			inner.pruneFirst(pruningTime, s.metrics)
 		}
 		ctrl.Updated()
-		if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-			return err
-		}
+		truncateTo = utils.Some(inner.first)
+	}
+	// Truncate WALs outside the lock to avoid holding it during disk I/O.
+	if n, ok := truncateTo.Get(); ok {
+		return s.dataWAL.TruncateBefore(n)
 	}
 	return nil
 }
@@ -654,6 +657,7 @@ func (s *State) runPersist(ctx context.Context) error {
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
+		truncateTo := utils.None[types.GlobalBlockNumber]()
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune blocks old enough. Keep at least one entry.
 			// Per-block pruning may split QC ranges; handled on recovery.
@@ -665,9 +669,7 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 			}
 			if pruned {
 				ctrl.Updated()
-				if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-					return err
-				}
+				truncateTo = utils.Some(inner.first)
 			}
 			// Wait for at least 2 entries before retrying. Without +1,
 			// the loop would spin when only one entry remains (kept by
@@ -676,6 +678,12 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 				return err
 			}
 			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
+		}
+		// Truncate WALs outside the lock to avoid holding it during disk I/O.
+		if n, ok := truncateTo.Get(); ok {
+			if err := s.dataWAL.TruncateBefore(n); err != nil {
+				return err
+			}
 		}
 		// Wait until the next pruning time.
 		if err := utils.SleepUntil(ctx, pruningTime); err != nil {
