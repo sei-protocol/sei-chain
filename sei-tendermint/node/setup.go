@@ -3,15 +3,20 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
+	"os"
 	"strings"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -27,6 +32,7 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -164,12 +170,141 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
+// autobahnValidator represents a validator entry in the autobahn config file.
+type autobahnValidator struct {
+	ValidatorKey atypes.PublicKey  `json:"validator_key"` // autobahn validator public key
+	NodeKey      p2p.NodePublicKey `json:"node_key"`      // p2p node public key
+	Address      tcp.HostPort      `json:"address"`       // network address (host:port)
+}
+
+// autobahnFileConfig is the JSON structure of the autobahn config file.
+type autobahnFileConfig struct {
+	Validators         []autobahnValidator  `json:"validators"`
+	MaxGasPerBlock     uint64               `json:"max_gas_per_block"`
+	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
+	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
+	MempoolSize        uint64               `json:"mempool_size"`
+	BlockInterval      utils.Duration       `json:"block_interval"`
+	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
+	ViewTimeout        utils.Duration       `json:"view_timeout"`
+	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
+	DialInterval       utils.Duration       `json:"dial_interval"`
+}
+
+func (fc *autobahnFileConfig) validate() error {
+	if len(fc.Validators) == 0 {
+		return errors.New("validators must not be empty")
+	}
+	if fc.MaxGasPerBlock == 0 {
+		return errors.New("max_gas_per_block must be > 0")
+	}
+	if fc.MaxTxsPerBlock == 0 {
+		return errors.New("max_txs_per_block must be > 0")
+	}
+	if fc.MempoolSize == 0 {
+		return errors.New("mempool_size must be > 0")
+	}
+	if fc.BlockInterval <= 0 {
+		return errors.New("block_interval must be > 0")
+	}
+	if fc.ViewTimeout <= 0 {
+		return errors.New("view_timeout must be > 0")
+	}
+	if fc.DialInterval <= 0 {
+		return errors.New("dial_interval must be > 0")
+	}
+	return nil
+}
+
+func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is from operator-controlled config
+	if err != nil {
+		return nil, err
+	}
+	var fc autobahnFileConfig
+	if err := json.Unmarshal(data, &fc); err != nil {
+		return nil, err
+	}
+	if err := fc.validate(); err != nil {
+		return nil, err
+	}
+	return &fc, nil
+}
+
+// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, app, and genesis doc.
+func buildGigaConfig(
+	autobahnConfigFile string,
+	nodeKey types.NodeKey,
+	validatorKey atypes.SecretKey,
+	appClient abci.Application,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterConfig, error) {
+	if autobahnConfigFile == "" {
+		return nil, errors.New("autobahn config file path must not be empty")
+	}
+	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+	}
+
+	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
+	seenNodeKeys := map[p2p.NodePublicKey]bool{}
+
+	for _, entry := range fc.Validators {
+		if _, exists := validatorAddrs[entry.ValidatorKey]; exists {
+			return nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
+		}
+		if seenNodeKeys[entry.NodeKey] {
+			return nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
+		}
+		seenNodeKeys[entry.NodeKey] = true
+		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
+			Key:      entry.NodeKey,
+			HostPort: entry.Address,
+		}
+	}
+
+	// Verify self is in the validator set.
+	selfAddr, ok := validatorAddrs[validatorKey.Public()]
+	if !ok {
+		return nil, fmt.Errorf("node's own validator key not found in autobahn validators; the node must be a committee member")
+	}
+	selfNodePub := p2p.NodeSecretKey(nodeKey).Public()
+	if selfAddr.Key != selfNodePub {
+		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
+	}
+
+	return &p2p.GigaRouterConfig{
+		DialInterval:   time.Duration(fc.DialInterval),
+		ValidatorAddrs: validatorAddrs,
+		Consensus: &autobahnConsensus.Config{
+			Key: validatorKey,
+			ViewTimeout: func(atypes.View) time.Duration {
+				return time.Duration(fc.ViewTimeout)
+			},
+			PersistentStateDir: fc.PersistentStateDir,
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   fc.MaxGasPerBlock,
+			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
+			MempoolSize:      fc.MempoolSize,
+			BlockInterval:    time.Duration(fc.BlockInterval),
+			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+		},
+		App:    appClient,
+		GenDoc: genDoc,
+	}, nil
+}
+
 func createRouter(
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
+	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
 	app abci.Application,
+	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
@@ -250,6 +385,20 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
+	// Wire up Autobahn (GigaRouter) if enabled.
+	if cfg.AutobahnConfigFile != "" {
+		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
+		valKey, ok := validatorKey.Get()
+		if !ok {
+			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
+		}
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, appClient, genDoc)
+		if err != nil {
+			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+		}
+		options.Giga = utils.Some(gigaCfg)
+	}
+
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
 		return nil, closer, fmt.Errorf("unable to initialize peer store: %w", err)

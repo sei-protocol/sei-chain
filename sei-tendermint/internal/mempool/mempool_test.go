@@ -61,7 +61,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 		// format is evm-sender-0=account=priority=nonce
 		// split into respective vars
 		parts := bytes.Split(req.Tx, []byte("="))
-		sender = string(parts[0])
 		account := string(parts[1])
 		v, err := strconv.ParseInt(string(parts[2]), 10, 64)
 		if err != nil {

@@ -72,10 +72,14 @@ func CheckTx(
 	var gasWanted uint64
 	var gasEstimate uint64
 
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, defaultRecoveryMiddleware)
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()

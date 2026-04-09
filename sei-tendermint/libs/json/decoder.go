@@ -207,8 +207,3 @@ func decodeStdlib(bz []byte, rv reflect.Value) error {
 	rv.Set(target.Elem())
 	return nil
 }
-
-type interfaceWrapper struct {
-	Type  string          `json:"type"`
-	Value json.RawMessage `json:"value"`
-}

@@ -76,6 +76,12 @@ type StateStoreConfig struct {
 	// EVMDBDirectory defines the directory for EVM state store db files.
 	// If not set, defaults to <home>/data/evm_ss
 	EVMDBDirectory string `mapstructure:"evm-db-directory"`
+
+	// SeparateEVMSubDBs controls whether EVM data is physically split across
+	// per-type databases. When false (default), all EVM data stays in one DB.
+	// When true, data is routed to separate DBs by EVM key family while
+	// preserving the same logical store key and full key encoding inside each DB.
+	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
 }
 
 // EVMEnabled returns true if EVM state stores should be opened.
@@ -106,5 +112,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		UseDefaultComparer:   false,
 		WriteMode:            CosmosOnlyWrite,
 		ReadMode:             CosmosOnlyRead,
+		SeparateEVMSubDBs:    false,
 	}
 }
