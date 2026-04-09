@@ -32,7 +32,6 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -198,62 +197,16 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
-// autobahnValidator represents a validator entry in the autobahn config file.
-type autobahnValidator struct {
-	ValidatorKey atypes.PublicKey  `json:"validator_key"` // autobahn validator public key
-	NodeKey      p2p.NodePublicKey `json:"node_key"`      // p2p node public key
-	Address      tcp.HostPort      `json:"address"`       // network address (host:port)
-}
-
-// autobahnFileConfig is the JSON structure of the autobahn config file.
-type autobahnFileConfig struct {
-	Validators         []autobahnValidator  `json:"validators"`
-	MaxGasPerBlock     uint64               `json:"max_gas_per_block"`
-	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
-	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
-	MempoolSize        uint64               `json:"mempool_size"`
-	BlockInterval      utils.Duration       `json:"block_interval"`
-	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
-	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
-	DialInterval       utils.Duration       `json:"dial_interval"`
-}
-
-func (fc *autobahnFileConfig) validate() error {
-	if len(fc.Validators) == 0 {
-		return errors.New("validators must not be empty")
-	}
-	if fc.MaxGasPerBlock == 0 {
-		return errors.New("max_gas_per_block must be > 0")
-	}
-	if fc.MaxTxsPerBlock == 0 {
-		return errors.New("max_txs_per_block must be > 0")
-	}
-	if fc.MempoolSize == 0 {
-		return errors.New("mempool_size must be > 0")
-	}
-	if fc.BlockInterval <= 0 {
-		return errors.New("block_interval must be > 0")
-	}
-	if fc.ViewTimeout <= 0 {
-		return errors.New("view_timeout must be > 0")
-	}
-	if fc.DialInterval <= 0 {
-		return errors.New("dial_interval must be > 0")
-	}
-	return nil
-}
-
-func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
+func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path is from operator-controlled config
 	if err != nil {
 		return nil, err
 	}
-	var fc autobahnFileConfig
+	var fc config.AutobahnFileConfig
 	if err := json.Unmarshal(data, &fc); err != nil {
 		return nil, err
 	}
-	if err := fc.validate(); err != nil {
+	if err := fc.Validate(); err != nil {
 		return nil, err
 	}
 	return &fc, nil
@@ -415,6 +368,7 @@ func createRouter(
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
 	if cfg.AutobahnConfigFile != "" {
+		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile)
 		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
 		valKey, ok := validatorKey.Get()
 		if !ok {
@@ -424,6 +378,7 @@ func createRouter(
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
+		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
 		options.Giga = utils.Some(gigaCfg)
 	}
 

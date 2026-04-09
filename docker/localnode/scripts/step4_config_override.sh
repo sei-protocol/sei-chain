@@ -3,6 +3,7 @@
 NODE_ID=${ID:-0}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
+AUTOBAHN=${AUTOBAHN:-false}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -58,4 +59,28 @@ if [ -n "$RECEIPT_BACKEND" ]; then
     echo "[receipt-store]" >> ~/.sei/config/app.toml
     echo "rs-backend = \"$RECEIPT_BACKEND\"" >> ~/.sei/config/app.toml
   fi
+fi
+
+# Generate Autobahn (GigaRouter) config if requested
+if [ "$AUTOBAHN" = "true" ]; then
+  echo "Generating Autobahn config for node $NODE_ID..."
+  AUTOBAHN_CONFIG="$HOME/.sei/config/autobahn.json"
+
+  # Collect node directories as arguments
+  NODE_DIRS=""
+  for i in $(seq 0 $((CLUSTER_SIZE - 1))); do
+    NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
+  done
+
+  # Generate autobahn config using seid
+  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+
+  # Inject autobahn config file path into config.toml
+  # Must be placed before any [section] header so TOML parser reads it as a top-level key.
+  if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
+    sed -i 's|autobahn-config-file = .*|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"|' ~/.sei/config/config.toml
+  else
+    sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
+  fi
+  echo "Autobahn config written to $AUTOBAHN_CONFIG"
 fi
