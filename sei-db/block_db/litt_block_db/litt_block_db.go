@@ -45,6 +45,8 @@ func NewLittBlockDB(path string, blocksToKeep uint64) (*littBlockDB, error) {
 	config.MaxSegmentKeyCount = 100_000_000
 	config.TargetSegmentKeyFileSize = 5 * units.GB
 	config.MetricsEnabled = true
+	config.ControlChannelSize = 8
+	config.ShardingFactor = 1
 
 	db, err := litt.NewDB(config)
 	if err != nil {
