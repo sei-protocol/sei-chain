@@ -623,7 +623,7 @@
           "expr": "rate(litt_write_latency_seconds_sum[$__rate_interval]) / rate(litt_write_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Write Latency",
@@ -737,7 +737,7 @@
           "expr": "rate(litt_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_flush_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Flush Latency",
@@ -851,7 +851,7 @@
           "expr": "rate(litt_segment_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_segment_flush_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Segment Flush Latency",
@@ -965,7 +965,7 @@
           "expr": "rate(litt_keymap_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_keymap_flush_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Keymap Flush Latency",
@@ -1079,7 +1079,7 @@
           "expr": "rate(litt_gc_latency_seconds_sum[$__rate_interval]) / rate(litt_gc_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "GC Latency",
@@ -1379,7 +1379,7 @@
           "expr": "rate(litt_read_latency_seconds_sum[$__rate_interval]) / rate(litt_read_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Read Latency",
@@ -1679,7 +1679,7 @@
           "expr": "rate(litt_cache_miss_latency_seconds_sum[$__rate_interval]) / rate(litt_cache_miss_latency_seconds_count[$__rate_interval])",
           "legendFormat": "avg",
           "range": true,
-          "refId": "B"
+          "refId": "D"
         }
       ],
       "title": "Cache Miss Latency",
