@@ -1,6 +1,7 @@
 package keymap
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sync"
@@ -33,6 +34,8 @@ type PebbleKeymap struct {
 	// writeLock serializes Put calls to maintain linked-list consistency across batches.
 	writeLock sync.Mutex
 	lastKey   []byte
+	// Reusable buffer for encodeLinkedValue, safe because Put is serialized by writeLock.
+	encodeBuf []byte
 }
 
 var _ BuildKeymap = NewPebbleKeymap
@@ -84,8 +87,9 @@ func newPebbleKeymap(
 
 	opts := &pebble.Options{
 		Cache:                       cache,
+		CompactionConcurrencyRange:  func() (int, int) { return 2, 4 },
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
-		L0CompactionThreshold:       2,
+		L0CompactionThreshold:       8,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20,
 		MemTableSize:                64 << 20,
@@ -99,7 +103,7 @@ func newPebbleKeymap(
 	opts.Levels[0].IndexBlockSize = 256 << 10
 	opts.Levels[0].FilterPolicy = bloom.FilterPolicy(10)
 	opts.Levels[0].FilterType = pebble.TableFilter
-	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+	opts.Levels[0].Compression = func() *sstable.CompressionProfile { return sstable.NoCompression }
 	opts.Levels[0].EnsureL0Defaults()
 
 	for i := 1; i < len(opts.Levels); i++ {
@@ -108,7 +112,7 @@ func newPebbleKeymap(
 		l.IndexBlockSize = 256 << 10
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
-		l.Compression = func() *sstable.CompressionProfile { return sstable.ZstdCompression }
+		l.Compression = func() *sstable.CompressionProfile { return sstable.NoCompression }
 		l.EnsureL1PlusDefaults(&opts.Levels[i-1])
 	}
 	opts.Levels[6].FilterPolicy = nil
@@ -169,7 +173,7 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 
 	prevKey := p.lastKey
 	for _, k := range keys {
-		val := encodeLinkedValue(k.Address, prevKey)
+		val := p.encodeLinkedValuePooled(k.Address, prevKey)
 		if err := batch.Set(k.Key, val, nil); err != nil {
 			return fmt.Errorf("failed to set key in PebbleDB batch: %w", err)
 		}
@@ -190,6 +194,22 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 	copy(p.lastKey, lastKeyInBatch)
 
 	return nil
+}
+
+// encodeLinkedValuePooled encodes into p.encodeBuf, growing it as needed.
+// The returned slice is valid only until the next call. Caller must hold writeLock.
+func (p *PebbleKeymap) encodeLinkedValuePooled(address types.Address, prevKey []byte) []byte {
+	size := types.AddressLength + prevKeyLenSize + len(prevKey)
+	if cap(p.encodeBuf) < size {
+		p.encodeBuf = make([]byte, size)
+	}
+	buf := p.encodeBuf[:size]
+	address.SerializeInto(buf[:types.AddressLength])
+	binary.BigEndian.PutUint32(buf[types.AddressLength:types.AddressLength+prevKeyLenSize], uint32(len(prevKey))) //nolint:gosec
+	if len(prevKey) > 0 {
+		copy(buf[types.AddressLength+prevKeyLenSize:], prevKey)
+	}
+	return buf
 }
 
 func (p *PebbleKeymap) Get(key []byte) (address types.Address, exists bool, err error) {
