@@ -1,8 +1,21 @@
 {
-    "Comment": "For testing with the state store and reciept store both enabled.",
+    "Comment": "For receipt-read-focused benchmarking against the parquet receipt store with tx-index lookup disabled. Log-filter reads are disabled to avoid competing with receipt reads.",
+    "DisableTransactionExecution": true,
     "DataDir": "data",
+    "LogDir": "logs",
+    "LogLevel": "info",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 1000000,
-    "GenerateReceipts": true
+    "GenerateReceipts": true,
+    "ReceiptReadConcurrency": 16,
+    "ReceiptReadsPerSecond": 500000,
+    "ReceiptReadMode": "duckdb",
+    "DisableReceiptTxIndexLookup": true,
+    "ReceiptKeepRecent": 100000,
+    "ReceiptPruneIntervalSeconds": 60,
+    "ReceiptLogFilterReadConcurrency": 0,
+    "ReceiptLogFilterReadsPerSecond": 0,
+    "ReceiptLogFilterReadMode": "cache",
+    "ReceiptLogFilterMinBlockRange": 1,
+    "ReceiptLogFilterMaxBlockRange": 10
 }
-

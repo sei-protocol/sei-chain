@@ -36,13 +36,15 @@ type StoreConfig struct {
 	PruneIntervalSeconds int64
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
+	DisableTxIndexLookup bool
 }
 
 // DefaultStoreConfig returns the default store configuration.
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
-		BlockFlushInterval: defaultBlockFlushInterval,
-		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
+		BlockFlushInterval:   defaultBlockFlushInterval,
+		MaxBlocksPerFile:     defaultMaxBlocksPerFile,
+		DisableTxIndexLookup: true,
 	}
 }
 
@@ -102,6 +104,9 @@ type Store struct {
 // NewStore creates a new parquet store.
 func NewStore(cfg StoreConfig) (*Store, error) {
 	storeCfg := resolveStoreConfig(cfg)
+	if !storeCfg.DisableTxIndexLookup {
+		panic("not implemented")
+	}
 
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
@@ -151,6 +156,7 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 	resolved.DBDirectory = cfg.DBDirectory
 	resolved.KeepRecent = cfg.KeepRecent
 	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
+	resolved.DisableTxIndexLookup = cfg.DisableTxIndexLookup
 	if cfg.BlockFlushInterval > 0 {
 		resolved.BlockFlushInterval = cfg.BlockFlushInterval
 	}
@@ -188,7 +194,8 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 	s.config.BlockFlushInterval = interval
 }
 
-// GetReceiptByTxHash retrieves a receipt by transaction hash.
+// GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of
+// the closed parquet files tracked by the reader.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
 }
@@ -320,6 +327,7 @@ func (s *Store) Close() error {
 		}
 		if closeErr := s.Reader.Close(); closeErr != nil {
 			err = closeErr
+			return
 		}
 	})
 
