@@ -11,60 +11,60 @@ import (
 )
 
 // Get returns the value for the given memiavl key.
-// Returns (value, true, nil) if found, (nil, false, nil) if not found.
-func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
+// Returns (value, true) if found, (nil, false) if not found.
+// Panics on I/O errors or unsupported key types.
+func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	kind, keyBytes := evm.ParseEVMKey(key)
 	if !IsSupportedKeyType(kind) {
-		// Only possible if a new type is added to evm.ParseEVMKey() without updating code to handle that type.
-		return nil, false, fmt.Errorf("unsupported key type: %v", kind)
+		panic(fmt.Sprintf("flatkv: unsupported key type: %v", kind))
 	}
 
 	switch kind {
 	case evm.EVMKeyStorage:
 		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
-			return nil, false, err
+			panic(fmt.Sprintf("flatkv: Get storage key %x: %v", key, err))
 		}
-		return value, value != nil, nil
+		return value, value != nil
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
-			return nil, false, err
+			panic(fmt.Sprintf("flatkv: Get account key %x: %v", key, err))
 		}
 		if accountData == nil || accountData.IsDelete() {
-			return nil, false, nil
+			return nil, false
 		}
 
 		if kind == evm.EVMKeyNonce {
 			nonceBytes := make([]byte, vtype.NonceLen)
 			binary.BigEndian.PutUint64(nonceBytes, accountData.GetNonce())
-			return nonceBytes, true, nil
+			return nonceBytes, true
 		}
 		// CodeHash
 		codeHash := accountData.GetCodeHash()
 		var zeroCodeHash vtype.CodeHash
 		if *codeHash == zeroCodeHash {
-			return nil, false, nil
+			return nil, false
 		}
-		return codeHash[:], true, nil
+		return codeHash[:], true
 
 	case evm.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
 		if err != nil {
-			return nil, false, err
+			panic(fmt.Sprintf("flatkv: Get code key %x: %v", key, err))
 		}
-		return value, value != nil, nil
+		return value, value != nil
 
 	case evm.EVMKeyLegacy:
 		value, err := s.getLegacyValue(keyBytes)
 		if err != nil {
-			return nil, false, err
+			panic(fmt.Sprintf("flatkv: Get legacy key %x: %v", key, err))
 		}
-		return value, value != nil, nil
+		return value, value != nil
 
 	default:
-		return nil, false, nil
+		return nil, false
 	}
 }
 
@@ -113,12 +113,10 @@ func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 }
 
 // Has reports whether the given memiavl key exists.
-func (s *CommitStore) Has(key []byte) (bool, error) {
-	_, found, err := s.Get(key)
-	if err != nil {
-		return false, fmt.Errorf("failed to get key %x: %w", key, err)
-	}
-	return found, nil
+// Panics on I/O errors or unsupported key types.
+func (s *CommitStore) Has(key []byte) bool {
+	_, found := s.Get(key)
+	return found
 }
 
 // Iterator returns an iterator over [start, end) in memiavl key order.

@@ -61,7 +61,8 @@ func (f *flatKVWrapper) Close() error {
 }
 
 func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
-	return f.base.Get(key)
+	val, ok := f.base.Get(key)
+	return val, ok, nil
 }
 
 func (f *flatKVWrapper) GetPhaseTimer() *metrics.PhaseTimer {
