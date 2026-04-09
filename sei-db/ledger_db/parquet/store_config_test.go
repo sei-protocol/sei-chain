@@ -37,9 +37,10 @@ func (m *mockParquetWAL) Close() error { return nil }
 
 func TestNewStoreAppliesConfiguredIntervals(t *testing.T) {
 	store, err := NewStore(StoreConfig{
-		DBDirectory:        t.TempDir(),
-		BlockFlushInterval: 7,
-		MaxBlocksPerFile:   11,
+		DBDirectory:          t.TempDir(),
+		BlockFlushInterval:   7,
+		MaxBlocksPerFile:     11,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -54,7 +55,8 @@ func TestNewStoreAppliesConfiguredIntervals(t *testing.T) {
 
 func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 	store, err := NewStore(StoreConfig{
-		DBDirectory: t.TempDir(),
+		DBDirectory:          t.TempDir(),
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -62,6 +64,7 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 	require.Equal(t, defaultBlockFlushInterval, store.config.BlockFlushInterval)
 	require.Equal(t, defaultMaxBlocksPerFile, store.config.MaxBlocksPerFile)
 	require.Equal(t, defaultMaxBlocksPerFile, store.CacheRotateInterval())
+	require.True(t, store.config.DisableTxIndexLookup)
 }
 
 func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
@@ -69,17 +72,29 @@ func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
 		DBDirectory:          t.TempDir(),
 		KeepRecent:           123,
 		PruneIntervalSeconds: 9,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
 	require.Equal(t, int64(123), store.config.KeepRecent)
 	require.Equal(t, int64(9), store.config.PruneIntervalSeconds)
+	require.True(t, store.config.DisableTxIndexLookup)
+}
+
+func TestNewStorePanicsWhenTxIndexLookupEnabled(t *testing.T) {
+	require.PanicsWithValue(t, "not implemented", func() {
+		_, _ = NewStore(StoreConfig{
+			DBDirectory:          t.TempDir(),
+			DisableTxIndexLookup: false,
+		})
+	})
 }
 
 func TestPruneOldFilesKeepsTrackingOnDeleteFailure(t *testing.T) {
 	store, err := NewStore(StoreConfig{
-		DBDirectory: t.TempDir(),
+		DBDirectory:          t.TempDir(),
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -133,7 +148,8 @@ func TestCorruptLastFileDeletedOnStartup(t *testing.T) {
 	require.NoError(t, os.WriteFile(corruptLog, []byte("not a parquet file"), 0o644))
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory: dir,
+		DBDirectory:          dir,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -165,7 +181,8 @@ func TestCorruptLogFileUntracksReceiptCounterpart(t *testing.T) {
 	require.NoError(t, os.WriteFile(corruptLog, []byte("not a parquet file"), 0o644))
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory: dir,
+		DBDirectory:          dir,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -184,7 +201,8 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory: dir,
+		DBDirectory:          dir,
+		DisableTxIndexLookup: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })

@@ -65,11 +65,15 @@ func DeliverTx(
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 	var gasWanted uint64
 	ms := ctx.MultiStore()
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, defaultRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()

@@ -57,7 +57,6 @@ type nodeImpl struct {
 
 	// network
 	router           *p2p.Router
-	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
 	ServiceRestartCh chan []string
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -29,9 +30,10 @@ type cachedReceiptStore struct {
 	cacheRotateInterval uint64
 	cacheNextRotate     uint64
 	cacheMu             sync.Mutex
+	readMetrics         ReceiptReadMetrics
 }
 
-func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
+func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) ReceiptStore {
 	if backend == nil {
 		return nil
 	}
@@ -45,11 +47,32 @@ func newCachedReceiptStore(backend ReceiptStore) ReceiptStore {
 		backend:             backend,
 		cache:               newLedgerCache(),
 		cacheRotateInterval: interval,
+		readMetrics:         metrics,
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
 		store.cacheReceipts(provider.warmupReceipts())
 	}
 	return store
+}
+
+// StableReceiptCacheWindowBlocks returns the near-tip block window that is
+// guaranteed to stay in the active write chunk until the next rotation.
+func StableReceiptCacheWindowBlocks(store ReceiptStore) uint64 {
+	cached, ok := store.(*cachedReceiptStore)
+	if !ok || cached.cacheRotateInterval == 0 {
+		return 0
+	}
+	return cached.cacheRotateInterval
+}
+
+// EstimatedReceiptCacheWindowBlocks returns the approximate recent block window
+// normally served by the in-memory receipt cache (current chunk + previous one).
+func EstimatedReceiptCacheWindowBlocks(store ReceiptStore) uint64 {
+	hotWindow := StableReceiptCacheWindowBlocks(store)
+	if hotWindow == 0 {
+		return 0
+	}
+	return hotWindow * uint64(numCacheChunks-1)
 }
 
 func (s *cachedReceiptStore) LatestVersion() int64 {
@@ -69,16 +92,23 @@ func (s *cachedReceiptStore) SetEarliestVersion(version int64) error {
 }
 
 func (s *cachedReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+	start := time.Now()
+	receipt, ok := s.cache.GetReceipt(txHash)
+	s.reportCacheGetDuration(time.Since(start).Seconds())
+	if ok {
+		s.reportCacheHit()
 		return receipt, nil
 	}
+	s.reportCacheMiss()
 	return s.backend.GetReceipt(ctx, txHash)
 }
 
 func (s *cachedReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	if receipt, ok := s.cache.GetReceipt(txHash); ok {
+		s.reportCacheHit()
 		return receipt, nil
 	}
+	s.reportCacheMiss()
 	return s.backend.GetReceiptFromStore(ctx, txHash)
 }
 
@@ -94,11 +124,14 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 // When the cache fully covers the requested range the backend is skipped
 // entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	scanStart := time.Now()
 	// Take a single cache snapshot so rotation cannot advance the cache minimum
 	// past the logs we already copied out of the cache.
 	cacheLogs, cacheMin, hasCacheLogs := s.cache.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
+	s.reportCacheFilterScanDuration(time.Since(scanStart).Seconds())
 	if hasCacheLogs && fromBlock >= cacheMin {
 		// Cache logs come from map-backed chunks, so direct cache hits need sorting.
+		s.reportLogFilterCacheHit()
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
@@ -115,10 +148,12 @@ func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint
 	}
 
 	if len(cacheLogs) == 0 {
+		s.reportLogFilterCacheMiss()
 		// ReceiptStore backends are not required to return ordered logs.
 		sortLogs(backendLogs)
 		return backendLogs, nil
 	}
+	s.reportLogFilterCacheHit()
 	if len(backendLogs) == 0 {
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
@@ -232,5 +267,41 @@ func (s *cachedReceiptStore) maybeRotateCacheLocked(blockNumber uint64) {
 	for blockNumber >= s.cacheNextRotate {
 		s.cache.Rotate()
 		s.cacheNextRotate += s.cacheRotateInterval
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheHit() {
+	if s.readMetrics != nil {
+		s.readMetrics.ReportReceiptCacheHit()
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheMiss() {
+	if s.readMetrics != nil {
+		s.readMetrics.ReportReceiptCacheMiss()
+	}
+}
+
+func (s *cachedReceiptStore) reportLogFilterCacheHit() {
+	if s.readMetrics != nil {
+		s.readMetrics.ReportLogFilterCacheHit()
+	}
+}
+
+func (s *cachedReceiptStore) reportLogFilterCacheMiss() {
+	if s.readMetrics != nil {
+		s.readMetrics.ReportLogFilterCacheMiss()
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheFilterScanDuration(seconds float64) {
+	if s.readMetrics != nil {
+		s.readMetrics.RecordCacheFilterScanDuration(seconds)
+	}
+}
+
+func (s *cachedReceiptStore) reportCacheGetDuration(seconds float64) {
+	if s.readMetrics != nil {
+		s.readMetrics.RecordCacheGetDuration(seconds)
 	}
 }
