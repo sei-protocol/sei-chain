@@ -975,16 +975,27 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 func TestTxMempool_CheckTxConstraintsFetcherError(t *testing.T) {
 	cases := []struct {
-		name string
-		err  error
+		name         string
+		fetcherErr   error
+		maxDataBytes int64
+		maxGas       int64
+		assertErr    func(*testing.T, error)
 	}{
 		{
-			name: "error",
-			err:  errors.New("test error"),
+			name:       "fetcher error",
+			fetcherErr: errors.New("test error"),
+			maxGas:     1,
 		},
 		{
-			name: "no error",
-			err:  nil,
+			name:         "post-check constraint violation",
+			maxDataBytes: int64(config.TestMempoolConfig().MaxTxBytes + 100),
+			maxGas:       0,
+			assertErr: func(t *testing.T, err error) {
+				t.Helper()
+				var gasErr ErrGasWantedTooHigh
+				require.ErrorAs(t, err, &gasErr)
+				require.EqualError(t, gasErr, "gas wanted 1 is greater than max gas 0")
+			},
 		},
 	}
 	for _, tc := range cases {
@@ -997,18 +1008,18 @@ func TestTxMempool_CheckTxConstraintsFetcherError(t *testing.T) {
 
 			txmp := setup(t, &application{Application: kvstore.NewApplication()}, 0, func() (TxConstraints, error) {
 				return TxConstraints{
-					MaxDataBytes: int64(len(tx) + 100),
-					MaxGas:       1,
-				}, tc.err
+					MaxDataBytes: tc.maxDataBytes,
+					MaxGas:       tc.maxGas,
+				}, tc.fetcherErr
 			})
 
-			if tc.err == nil {
-				require.Error(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+			err = txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
+			if tc.fetcherErr != nil {
+				require.True(t, IsPreCheckError(err))
+				require.ErrorIs(t, err, tc.fetcherErr)
 				return
 			}
-
-			err = txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
-			require.ErrorIs(t, err, tc.err)
+			tc.assertErr(t, err)
 		})
 	}
 }
@@ -1153,7 +1164,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 
 	// Second failure: tx should remain in cache — CheckTx should reject it
 	err := txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
-	require.Equal(t, types.ErrTxInCache, err)
+	require.Equal(t, ErrTxInCache, err)
 	require.Equal(t, 0, txmp.Size())
 
 	// A different tx (different hash) should still be admitted

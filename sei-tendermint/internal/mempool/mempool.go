@@ -237,10 +237,10 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 		return nil
 	}
 	if res.GasWanted < 0 {
-		return fmt.Errorf("gas wanted %d is negative", res.GasWanted)
+		return ErrNegativeGasWanted{fmt.Errorf("gas wanted %d is negative", res.GasWanted)}
 	}
 	if res.GasWanted > constraints.MaxGas {
-		return fmt.Errorf("gas wanted %d is greater than max gas %d", res.GasWanted, constraints.MaxGas)
+		return ErrGasWantedTooHigh{fmt.Errorf("gas wanted %d is greater than max gas %d", res.GasWanted, constraints.MaxGas)}
 	}
 
 	return nil
@@ -277,10 +277,7 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return types.ErrTxTooLarge{
-			Max:    txmp.config.MaxTxBytes,
-			Actual: txSize,
-		}
+		return fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -304,7 +301,7 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	if err := txmp.checkTxState(tx); err != nil {
-		return types.ErrPreCheck{Reason: err}
+		return ErrPreCheck{err}
 	}
 
 	txHash := tx.Key()
@@ -314,7 +311,7 @@ func (txmp *TxMempool) CheckTx(
 	// check if we've seen this transaction and error if we have.
 	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
-		return types.ErrTxInCache
+		return ErrTxInCache
 	}
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
@@ -932,12 +929,13 @@ func (txmp *TxMempool) canAddTx(wtx *WrappedTx) error {
 	)
 
 	if numTxs >= txmp.config.Size || int64(wtx.Size())+sizeBytes > txmp.config.MaxTxsBytes {
-		return types.ErrMempoolIsFull{
-			NumTxs:      numTxs,
-			MaxTxs:      txmp.config.Size,
-			TxsBytes:    sizeBytes,
-			MaxTxsBytes: txmp.config.MaxTxsBytes,
-		}
+		return ErrMempoolIsFull{fmt.Errorf(
+			"mempool is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
+			numTxs,
+			txmp.config.Size,
+			sizeBytes,
+			txmp.config.MaxTxsBytes,
+		)}
 	}
 
 	return nil
@@ -950,12 +948,13 @@ func (txmp *TxMempool) canAddPendingTx(wtx *WrappedTx) error {
 	)
 
 	if numTxs >= txmp.config.PendingSize || int64(wtx.Size())+sizeBytes > txmp.config.MaxPendingTxsBytes {
-		return types.ErrMempoolPendingIsFull{
-			NumTxs:      numTxs,
-			MaxTxs:      txmp.config.PendingSize,
-			TxsBytes:    sizeBytes,
-			MaxTxsBytes: txmp.config.MaxPendingTxsBytes,
-		}
+		return ErrMempoolPendingIsFull{fmt.Errorf(
+			"mempool pending set is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
+			numTxs,
+			txmp.config.PendingSize,
+			sizeBytes,
+			txmp.config.MaxPendingTxsBytes,
+		)}
 	}
 
 	return nil
