@@ -972,7 +972,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
 }
 
-
 func TestAppendCheckTxErr(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	txmp := setup(t, client, 500, NopTxConstraintsFetcher)

@@ -20,6 +20,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// errTxInCache is returned to the client if we saw tx earlier.
+var errTxInCache = errors.New("tx already exists in cache")
+
+// errTxTooLarge defines an error when a transaction is too big to be sent to peers.
+var errTxTooLarge = errors.New("tx too large")
+
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
 // collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
 // still negligible over years). If reduced 3× smaller (~43 bits), collisions
@@ -223,10 +229,10 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 		return nil
 	}
 	if res.GasWanted < 0 {
-		return fmt.Errorf("%w: %d", errNegativeGasWanted, res.GasWanted)
+		return fmt.Errorf("negative gas wanted: %d", res.GasWanted)
 	}
 	if res.GasWanted > constraints.MaxGas {
-		return fmt.Errorf("%w: gas wanted %d is greater than max gas %d", errGasWantedTooHigh, res.GasWanted, constraints.MaxGas)
+		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", res.GasWanted, constraints.MaxGas)
 	}
 
 	return nil
@@ -262,13 +268,12 @@ func (txmp *TxMempool) CheckTx(
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
 		return fmt.Errorf("%w: max size is %d, but got %d", errTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
-		return fmt.Errorf("txmp.txConstraintsFetcher(): %w",err)
+		return fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
 	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
 		return fmt.Errorf("%w: tx size is too big: %d, max: %d", errTxTooLarge, txSize, constraints.MaxDataBytes)
@@ -918,8 +923,7 @@ func (txmp *TxMempool) canAddTx(wtx *WrappedTx) error {
 	)
 
 	if numTxs >= txmp.config.Size || int64(wtx.Size())+sizeBytes > txmp.config.MaxTxsBytes {
-		return fmt.Errorf("%w: number of txs %d (max: %d), total txs bytes %d (max: %d)",
-			errMempoolIsFull,
+		return fmt.Errorf("mempool is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
 			numTxs,
 			txmp.config.Size,
 			sizeBytes,
@@ -937,8 +941,7 @@ func (txmp *TxMempool) canAddPendingTx(wtx *WrappedTx) error {
 	)
 
 	if numTxs >= txmp.config.PendingSize || int64(wtx.Size())+sizeBytes > txmp.config.MaxPendingTxsBytes {
-		return fmt.Errorf("%w: number of txs %d (max: %d), total txs bytes %d (max: %d)",
-			errMempoolPendingIsFull,
+		return fmt.Errorf("mempool pending set is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
 			numTxs,
 			txmp.config.PendingSize,
 			sizeBytes,
