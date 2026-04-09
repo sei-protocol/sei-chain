@@ -218,6 +218,17 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	require.Contains(t, logs[0], "logs_5000.parquet")
 }
 
+func TestStoreEarliestVersion(t *testing.T) {
+	store, err := NewStore(StoreConfig{DBDirectory: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.Equal(t, int64(0), store.EarliestVersion())
+
+	store.SetEarliestVersion(55)
+	require.Equal(t, int64(55), store.EarliestVersion())
+}
+
 func writeValidParquetFile(t *testing.T, dir, name string) {
 	t.Helper()
 	path := filepath.Join(dir, name)

@@ -402,6 +402,24 @@ func TestParquetPruneOldFiles(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestParquetReceiptStoreEarliestVersion(t *testing.T) {
+	_, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pqStore := store.(*cachedReceiptStore).backend.(*parquetReceiptStore)
+
+	require.Equal(t, int64(0), pqStore.EarliestVersion())
+
+	require.NoError(t, pqStore.SetEarliestVersion(77))
+	require.Equal(t, int64(77), pqStore.EarliestVersion())
+}
+
 func TestExtractBlockNumber(t *testing.T) {
 	tests := []struct {
 		path     string

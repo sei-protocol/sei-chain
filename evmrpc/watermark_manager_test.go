@@ -281,7 +281,10 @@ func (f *fakeReceiptStore) SetLatestVersion(version int64) error {
 	return nil
 }
 
-func (f *fakeReceiptStore) SetEarliestVersion(_ int64) error { return nil }
+func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
+	f.earliest = version
+	return nil
+}
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 	return nil, errors.New("not found")
