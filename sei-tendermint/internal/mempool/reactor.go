@@ -127,7 +127,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		for _, tx := range protoTxs {
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
-				if errors.Is(err, ErrTxInCache) {
+				if errors.Is(err, errTxInCache) {
 					// if the tx is in the cache,
 					// then we've been gossiped a
 					// Tx that we've already
@@ -160,10 +160,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 }
 
 func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
-	if !r.cfg.CheckTxErrorBlacklistEnabled {
-		return
-	}
-	if !errors.Is(err,ErrTxTooLarge) && !utils.ErrorAs[ErrPreCheck](err).IsPresent() {
+	if !r.cfg.CheckTxErrorBlacklistEnabled || !errors.Is(err, errTxTooLarge) {
 		return
 	}
 	for counts := range r.failedCheckTxCounts.Lock() {
