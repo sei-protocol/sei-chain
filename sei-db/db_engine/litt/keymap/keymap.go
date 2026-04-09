@@ -30,7 +30,7 @@ type Keymap interface {
 	//
 	// It is not safe to modify the contents of any slices passed to this function after the call.
 	// This includes the byte slices containing the keys.
-	Put(pairs []*types.ScopedKey) error
+	Put(pairs []types.ScopedKey) error
 
 	// Get returns the address for a key. Returns true if the key exists, and false otherwise (i.e. does not
 	// return an error if the key does not exist).
@@ -44,7 +44,7 @@ type Keymap interface {
 	//
 	// It is not safe to modify the contents of any slices passed to this function after the call.
 	// This includes the byte slices containing the keys.
-	Delete(keys []*types.ScopedKey) error
+	Delete(keys []types.ScopedKey) error
 
 	// Stop stops the keymap.
 	Stop() error

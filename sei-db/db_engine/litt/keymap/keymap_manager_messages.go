@@ -14,7 +14,7 @@ type keymapManagerWriteRequest struct {
 	keymapManagerMessage
 
 	// keys is the batch of keys to write.
-	keys []*types.ScopedKey
+	keys []types.ScopedKey
 }
 
 // keymapManagerDeleteRequest is a request to delete keys from the keymap.
@@ -22,7 +22,7 @@ type keymapManagerDeleteRequest struct {
 	keymapManagerMessage
 
 	// keys is the batch of keys to delete.
-	keys []*types.ScopedKey
+	keys []types.ScopedKey
 }
 
 // keymapManagerFlushRequest is a request to flush the keymap manager. All prior write requests are guaranteed

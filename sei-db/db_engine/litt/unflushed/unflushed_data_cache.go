@@ -72,7 +72,7 @@ func (u *UnflushedDataCache) PutBatch(batch []*types.PutRequest) {
 
 // ReportFlushedKeys reports keys that are now durable in the keymap. Keys must be reported in
 // the same order they were originally written via PutBatch.
-func (u *UnflushedDataCache) ReportFlushedKeys(keys []*types.ScopedKey) error {
+func (u *UnflushedDataCache) ReportFlushedKeys(keys []types.ScopedKey) error {
 	err := util.Send(u.errorMonitor, u.workChan, &reportFlushedKeysMsg{keys: keys})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue flushed keys report: %w", err)
@@ -82,7 +82,7 @@ func (u *UnflushedDataCache) ReportFlushedKeys(keys []*types.ScopedKey) error {
 
 // ReportFlushedSegment reports keys whose segment data is now durable on disk. Keys must be
 // reported in the same order they were originally written via PutBatch.
-func (u *UnflushedDataCache) ReportFlushedSegment(keys []*types.ScopedKey) error {
+func (u *UnflushedDataCache) ReportFlushedSegment(keys []types.ScopedKey) error {
 	err := util.Send(u.errorMonitor, u.workChan, &reportFlushedSegmentMsg{keys: keys})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue flushed segment report: %w", err)

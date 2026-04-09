@@ -105,7 +105,7 @@ func newPebbleKeymap(
 	return kmap, requiresReload, nil
 }
 
-func (p *PebbleKeymap) Put(keys []*types.ScopedKey) error {
+func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (p *PebbleKeymap) Get(key []byte) (address types.Address, exists bool, err 
 	return address, true, nil
 }
 
-func (p *PebbleKeymap) Delete(keys []*types.ScopedKey) error {
+func (p *PebbleKeymap) Delete(keys []types.ScopedKey) error {
 	batch := p.db.NewBatch()
 	defer func() { _ = batch.Close() }()
 

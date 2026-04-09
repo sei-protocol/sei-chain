@@ -171,7 +171,7 @@ func (k *keyFile) atomicSwap(sync bool) error {
 }
 
 // write writes a key to the key file.
-func (k *keyFile) write(scopedKey *types.ScopedKey) error {
+func (k *keyFile) write(scopedKey types.ScopedKey) error {
 	if k.writer == nil {
 		return fmt.Errorf("key file is sealed")
 	}
@@ -201,7 +201,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 
 // writeBatch serializes all keys into a single contiguous buffer and writes it to the key file in one call.
 // This is much more efficient than calling write() per key when the batch is large.
-func (k *keyFile) writeBatch(keys []*types.ScopedKey) error {
+func (k *keyFile) writeBatch(keys []types.ScopedKey) error {
 	if k.writer == nil {
 		return fmt.Errorf("key file is sealed")
 	}
@@ -275,7 +275,7 @@ func (k *keyFile) seal() error {
 // If there are keys that were only partially written (i.e. keys being written when the process crashed), then
 // those keys may not be returned. If a key is returned, it is guaranteed to be "whole" (i.e. a partial key will
 // never be returned).
-func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
+func (k *keyFile) readKeys() ([]types.ScopedKey, error) {
 	if !k.isSealed() {
 		return nil, fmt.Errorf("key file is not sealed")
 	}
@@ -296,7 +296,7 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
-	keys := make([]*types.ScopedKey, 0)
+	keys := make([]types.ScopedKey, 0)
 
 	index := 0
 	for {
@@ -323,7 +323,7 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		}
 		index += types.AddressLength
 
-		keys = append(keys, &types.ScopedKey{
+		keys = append(keys, types.ScopedKey{
 			Key:     key,
 			Address: address,
 		})

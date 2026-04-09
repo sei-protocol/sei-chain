@@ -16,8 +16,8 @@ type flushLoopMessage interface {
 type flushLoopFlushRequest struct {
 	flushLoopMessage
 
-	// flushWaitFunction is the function that will wait for the flush to complete.
-	flushWaitFunction segment.FlushWaitFunction
+	// the segment to be flushed
+	segmentToFlush *segment.Segment
 
 	// responseChan sends an object when the flush is complete.
 	responseChan chan struct{}
@@ -29,8 +29,10 @@ type flushLoopSealRequest struct {
 
 	// the time when the segment is sealed
 	now time.Time
+
 	// segmentToSeal is the segment that is being sealed.
 	segmentToSeal *segment.Segment
+
 	// responseChan sends an object when the seal is complete.
 	responseChan chan struct{}
 }

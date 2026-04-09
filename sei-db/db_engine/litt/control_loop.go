@@ -101,7 +101,10 @@ type controlLoop struct {
 	gcBatchSize uint64
 
 	// The keymap used to store key-to-address mappings.
-	keymap keymap.Keymap
+	keymap keymap.Keymap // TODO before merge: remove this?
+
+	// Manages access to the keymap.
+	keymapManager *keymap.KeymapManager
 
 	// The goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
@@ -323,6 +326,7 @@ func (c *controlLoop) expandSegments() error {
 	newSegment, err := segment.CreateSegment(
 		c.logger,
 		c.errorMonitor,
+		c.keymapManager,
 		c.highestSegmentIndex+1,
 		c.segmentPaths,
 		c.snapshottingEnabled,
@@ -350,20 +354,11 @@ func (c *controlLoop) expandSegments() error {
 // ensuring a serial ordering with respect to other operations on the control loop), but not for
 // waiting for the segment to finish the flush.
 func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
-	// This method will enqueue a flush operation within the segment. Once that is done,
-	// it becomes the responsibility of the flush loop to wait for the flush to complete.
-	flushWaitFunction, err := c.segments[c.highestSegmentIndex].Flush()
-	if err != nil {
-		c.errorMonitor.Panic(fmt.Errorf("failed to flush segment %d: %w", c.highestSegmentIndex, err))
-		return
-	}
-
-	// The flush loop is responsible for the remaining parts of the flush.
 	request := &flushLoopFlushRequest{
-		flushWaitFunction: flushWaitFunction,
-		responseChan:      req.responseChan,
+		segmentToFlush: c.segments[c.highestSegmentIndex],
+		responseChan:   req.responseChan,
 	}
-	err = c.flushLoop.enqueue(request)
+	err := c.flushLoop.enqueue(request)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to send flush request to flush loop: %v", err))
 	}
@@ -412,23 +407,33 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 	}
 
 	// Seal the mutable segment
-	durableKeys, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
+	_, err = c.segments[c.highestSegmentIndex].Seal(c.clock())
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment: %w", err))
 		return
 	}
 
-	// Flush the keys that are now durable in the segment.
-	err = c.diskTable.writeKeysToKeymap(durableKeys)
+	// Flush the keymap.
+	err = c.keymapManager.Flush()
 	if err != nil {
-		c.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
+		c.errorMonitor.Panic(fmt.Errorf("failed to flush keymap manager: %w", err))
 		return
 	}
 
 	// Stop the keymap
-	err = c.keymap.Stop()
+	err = c.keymapManager.Stop()
+	if err != nil {
+		c.errorMonitor.Panic(fmt.Errorf("failed to stop keymap manager: %w", err))
+		return
+	}
+	err = c.keymap.Stop() // TODO merge into keymap manager?
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to stop keymap: %w", err))
+		return
+	}
+	err = c.diskTable.unflushedDataCache.Stop()
+	if err != nil {
+		c.errorMonitor.Panic(fmt.Errorf("failed to stop unflushed data cache: %w", err))
 		return
 	}
 

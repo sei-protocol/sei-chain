@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -49,7 +50,7 @@ type diskTable struct {
 	metadata *tableMetadata
 
 	// A map of keys to their addresses.
-	keymap keymap.Keymap
+	keymap keymap.Keymap // TODO remove?
 
 	// The path to the keymap directory.
 	keymapPath string
@@ -57,9 +58,12 @@ type diskTable struct {
 	// The type file for the keymap.
 	keymapTypeFile *keymap.KeymapTypeFile
 
-	// unflushedDataCache is a map of keys to their values that may not have been flushed to disk yet. This is used as a
-	// lookup table when data is requested from the table before it has been flushed to disk.
-	unflushedDataCache *util.SyncMap[string, []byte]
+	// Manages asyncronous writes / flushes to the keymap.
+	keymapManager *keymap.KeymapManager
+
+	// Data that hasn't yet been fully flushed to disk. Reads always hit this first to avoid
+	// attempting reads against data that may only be partially flushed to disk.
+	unflushedDataCache *unflushed.UnflushedDataCache
 
 	// clock is the time source used by the disk table.
 	clock func() time.Time
@@ -97,7 +101,7 @@ type diskTable struct {
 func newDiskTable(
 	config *Config,
 	name string,
-	keymap keymap.Keymap,
+	kmap keymap.Keymap,
 	keymapPath string,
 	keymapTypeFile *keymap.KeymapTypeFile,
 	roots []string,
@@ -173,7 +177,22 @@ func newDiskTable(
 
 	errorMonitor := util.NewErrorMonitor(config.CTX, config.Logger, config.FatalErrorCallback)
 
-	table := &diskTable{
+	unflushedDataCache := unflushed.NewUnflushedDataCache(
+		config.Logger,
+		errorMonitor,
+		tableFlushChannelCapacity, // TODO explicit setting for this!
+	)
+
+	keymapManager := keymap.NewKeymapManager(
+		config.Logger,
+		errorMonitor,
+		kmap,
+		unflushedDataCache,
+		tableFlushChannelCapacity, // TODO explicit settings!
+		keymapReloadBatchSize,
+	)
+
+	table := &diskTable{ // TODO before merge: create a constructor
 		logger:             config.Logger,
 		errorMonitor:       errorMonitor,
 		clock:              config.Clock,
@@ -181,10 +200,11 @@ func newDiskTable(
 		segmentPaths:       segmentPaths,
 		name:               name,
 		metadata:           metadata,
-		keymap:             keymap,
+		keymap:             kmap,
 		keymapPath:         keymapPath,
 		keymapTypeFile:     keymapTypeFile,
-		unflushedDataCache: util.NewSyncMap[string, []byte](),
+		keymapManager:      keymapManager,
+		unflushedDataCache: unflushedDataCache,
 		metrics:            metrics,
 		fsync:              config.Fsync,
 	}
@@ -235,6 +255,7 @@ func newDiskTable(
 	mutableSegment, err := segment.CreateSegment(
 		config.Logger,
 		errorMonitor,
+		keymapManager,
 		nextSegmentIndex,
 		segmentPaths,
 		snapshottingEnabled,
@@ -274,21 +295,22 @@ func newDiskTable(
 	}
 
 	// Start the flush loop.
-	fLoop := &flushLoop{
-		logger:                 config.Logger,
-		diskTable:              table,
-		errorMonitor:           errorMonitor,
-		flushChannel:           make(chan any, tableFlushChannelCapacity),
-		metrics:                metrics,
-		clock:                  config.Clock,
-		name:                   name,
-		upperBoundSnapshotFile: upperBoundSnapshotFile,
-	}
+	fLoop := NewFlushLoop(
+		config.Logger,
+		errorMonitor,
+		table,
+		unflushedDataCache,
+		keymapManager,
+		config.Clock,
+		name,
+		upperBoundSnapshotFile,
+		metrics,
+	)
 	table.flushLoop = fLoop
 	go fLoop.run()
 
 	// Start the control loop.
-	cLoop := &controlLoop{
+	cLoop := &controlLoop{ // TODO before merge: create a constructor
 		logger:                  config.Logger,
 		diskTable:               table,
 		errorMonitor:            errorMonitor,
@@ -310,7 +332,8 @@ func newDiskTable(
 		metrics:                 metrics,
 		name:                    name,
 		gcBatchSize:             config.GCBatchSize,
-		keymap:                  keymap,
+		keymap:                  kmap,
+		keymapManager:           keymapManager,
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
@@ -430,7 +453,7 @@ func (d *diskTable) reloadKeymap(
 		d.logger.Info(fmt.Sprintf("spent %v reloading keymap", d.clock().Sub(start)))
 	}()
 
-	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+	batch := make([]types.ScopedKey, 0, keymapReloadBatchSize)
 
 	for i := lowestSegmentIndex; i <= highestSegmentIndex; i++ {
 		if !segments[i].IsSealed() {
@@ -452,7 +475,7 @@ func (d *diskTable) reloadKeymap(
 				if err != nil {
 					return fmt.Errorf("failed to put keys for segment %d: %w", i, err)
 				}
-				batch = make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+				batch = make([]types.ScopedKey, 0, keymapReloadBatchSize)
 			}
 		}
 	}
@@ -650,9 +673,9 @@ func (d *diskTable) Get(key []byte) (value []byte, exists bool, err error) {
 			"cannot process Get() request, DB is in panicked state due to error: %w", err)
 	}
 
-	// First, check if the key is in the unflushed data map.
+	// First, check if the key is in the unflushed data cache.
 	// If so, return it from there.
-	if bytes, ok := d.unflushedDataCache.Get(util.UnsafeBytesToString(key)); ok {
+	if bytes, ok := d.unflushedDataCache.Get(key); ok {
 		return bytes, true, nil
 	}
 
@@ -694,7 +717,7 @@ func (d *diskTable) CacheAwareGet(
 	// First, check if the key is in the unflushed data map. If so, return it from there.
 	// Performance wise, this has equivalent semantics to reading the value from
 	// a cache, so we'd might as well count it as a cache hit.
-	if value, exists = d.unflushedDataCache.Get(util.UnsafeBytesToString(key)); exists {
+	if value, exists = d.unflushedDataCache.Get(key); exists {
 		return value, true, true, nil
 	}
 
@@ -764,23 +787,7 @@ func (d *diskTable) PutBatch(batch []*types.PutRequest) error {
 	}
 
 	// Load keys into the unflushed data cache (needed for read-your-writes consistency).
-	// Build a single map and insert it in one lock acquisition.
-	newKeys := 0
-	cacheEntries := make(map[string][]byte)
-	for _, req := range batch {
-		cacheEntries[util.UnsafeBytesToString(req.Key)] = req.Value
-		newKeys++
-
-		if req.SecondaryKeys != nil {
-			newKeys += len(req.SecondaryKeys)
-
-			for _, secondaryKey := range req.SecondaryKeys {
-				subrange := req.Value[secondaryKey.Offset : secondaryKey.Offset+secondaryKey.Length]
-				cacheEntries[util.UnsafeBytesToString(secondaryKey.Key)] = subrange
-			}
-		}
-	}
-	d.unflushedDataCache.PutBatch(cacheEntries)
+	d.unflushedDataCache.PutBatch(batch)
 
 	// Schedule the actual write on a background thread.
 	request := &controlLoopWriteRequest{
@@ -789,6 +796,14 @@ func (d *diskTable) PutBatch(batch []*types.PutRequest) error {
 	err = d.controlLoop.enqueue(request)
 	if err != nil {
 		return fmt.Errorf("failed to send write request: %w", err)
+	}
+
+	newKeys := 0
+	for _, req := range batch {
+		newKeys += 1
+		if req.SecondaryKeys != nil {
+			newKeys += len(req.SecondaryKeys)
+		}
 	}
 
 	d.keyCount.Add(int64(newKeys)) // TODO should we track secondary keys separately?
@@ -834,7 +849,7 @@ func (d *diskTable) sanityCheckBatch(batch []*types.PutRequest) error {
 }
 
 func (d *diskTable) Exists(key []byte) (bool, error) {
-	_, ok := d.unflushedDataCache.Get(util.UnsafeBytesToString(key))
+	_, ok := d.unflushedDataCache.Get(key)
 	if ok {
 		return true, nil
 	}
@@ -928,39 +943,6 @@ func (d *diskTable) RunGC() error {
 	if err != nil {
 		return fmt.Errorf("failed to await GC completion: %w", err)
 	}
-
-	return nil
-}
-
-// writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the
-// unflushedDataCache.
-func (d *diskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
-	if len(keys) == 0 {
-		// Nothing to flush.
-		return nil
-	}
-
-	if d.metrics != nil {
-		start := d.clock()
-		defer func() {
-			end := d.clock()
-			delta := end.Sub(start)
-			d.metrics.ReportKeymapFlushLatency(d.name, delta)
-		}()
-	}
-
-	err := d.keymap.Put(keys)
-	if err != nil {
-		return fmt.Errorf("failed to flush keys: %w", err)
-	}
-
-	// Keys are now durably written to both the segment and the keymap. It is therefore safe to remove them from the
-	// unflushed data cache.
-	deleteKeys := make([]string, len(keys))
-	for i, ka := range keys {
-		deleteKeys[i] = util.UnsafeBytesToString(ka.Key)
-	}
-	d.unflushedDataCache.DeleteBatch(deleteKeys)
 
 	return nil
 }

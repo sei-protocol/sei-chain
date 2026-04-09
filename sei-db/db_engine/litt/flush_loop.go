@@ -2,12 +2,17 @@ package litt
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
+
+// TODO before merge: see if this can be extracted!
 
 // flushLoop is a struct that runs a goroutine that is responsible for blocking on flush operations.
 type flushLoop struct {
@@ -15,6 +20,13 @@ type flushLoop struct {
 
 	// the parent disk table
 	diskTable *diskTable
+
+	// Caches data that hasn't yet been flushed to disk. We need to report when we flush segment data,
+	// as this i sa prereq for data in the unflushed data cache to be evicted.
+	unflushedDataCache *unflushed.UnflushedDataCache
+
+	// Manages access/modification of the keymap.
+	keymapManager *keymap.KeymapManager
 
 	// Responsible for handling fatal DB errors.
 	errorMonitor *util.ErrorMonitor
@@ -34,6 +46,32 @@ type flushLoop struct {
 	// This file stores the highest segment index that is fully snapshot. Written as segments are sealed
 	// and copied to the snapshot directory, read by the external snapshot consumer.
 	upperBoundSnapshotFile *BoundaryFile
+}
+
+// Creates a new flush loop.
+func NewFlushLoop(
+	logger *slog.Logger,
+	errorMonitor *util.ErrorMonitor,
+	diskTable *diskTable,
+	unflushedDataCache *unflushed.UnflushedDataCache,
+	keymapManager *keymap.KeymapManager,
+	clock func() time.Time,
+	name string,
+	upperBoundSnapshotFile *BoundaryFile,
+	metrics *littDBMetrics,
+) *flushLoop {
+	return &flushLoop{
+		logger:                 logger,
+		errorMonitor:           errorMonitor,
+		diskTable:              diskTable,
+		unflushedDataCache:     unflushedDataCache,
+		keymapManager:          keymapManager,
+		clock:                  clock,
+		name:                   name,
+		upperBoundSnapshotFile: upperBoundSnapshotFile,
+		flushChannel:           make(chan any, 1000), // TODO before merge: this should be configurable!
+		metrics:                metrics,
+	}
 }
 
 // enqueue sends work to be handled on the flush loop. Will return an error if the DB is panicking.
@@ -75,16 +113,35 @@ func (f *flushLoop) run() {
 // the seal is finished and a new mutable segment has been created. This means that no future flush requests will be
 // sent to the segment that is being sealed, since only the control loop can schedule work for the flush loop.
 func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
+
+	// Flush the keymap manager.
+	var keymapFlushErr error
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		keymapFlushErr = f.keymapManager.Flush()
+	}()
+
+	// Simultaneously with flushing the keymap manager, seal the current segment.
 	durableKeys, err := req.segmentToSeal.Seal(req.now)
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to seal segment %s: %w", req.segmentToSeal.String(), err))
 		return
 	}
 
-	// Flush the keys that are now durable in the segment.
-	err = f.diskTable.writeKeysToKeymap(durableKeys)
+	// Inform the unflushed data cache that the segment data is now durable on disk, allowing the cache
+	// to asyncronously evict entries that are safe to evict.
+	err = f.unflushedDataCache.ReportFlushedSegment(durableKeys)
 	if err != nil {
-		f.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
+		f.errorMonitor.Panic(fmt.Errorf("failed to report flushed segment: %w", err))
+		return
+	}
+
+	// Wait for keymap flush to complete.
+	wg.Wait()
+	if keymapFlushErr != nil {
+		f.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", keymapFlushErr))
 		return
 	}
 
@@ -114,9 +171,36 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		segmentFlushStart = f.clock()
 	}
 
-	durableKeys, err := req.flushWaitFunction()
+	// Flush the keymap manager.
+	var keymapFlushErr error
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		keymapFlushErr = f.keymapManager.Flush()
+	}()
+
+	// Simultaneously with flushing the keymap manager, flush the segment.
+	flushWaitFunction, err := req.segmentToFlush.Flush()
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush mutable segment: %w", err))
+		return
+	}
+	durableKeys, err := flushWaitFunction()
+	if err != nil {
+		f.errorMonitor.Panic(fmt.Errorf("failed to flush mutable segment: %w", err))
+		return
+	}
+	err = f.unflushedDataCache.ReportFlushedSegment(durableKeys) // TODO before merge: should we push reporting down into the segment?
+	if err != nil {
+		f.errorMonitor.Panic(fmt.Errorf("failed to report flushed segment: %w", err))
+		return
+	}
+
+	// Wait for keymap flush to complete.
+	wg.Wait()
+	if keymapFlushErr != nil {
+		f.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", keymapFlushErr))
 		return
 	}
 
@@ -124,12 +208,6 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		segmentFlushEnd := f.clock()
 		delta := segmentFlushEnd.Sub(segmentFlushStart)
 		f.metrics.ReportSegmentFlushLatency(f.name, delta)
-	}
-
-	err = f.diskTable.writeKeysToKeymap(durableKeys)
-	if err != nil {
-		f.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
-		return
 	}
 
 	req.responseChan <- struct{}{}

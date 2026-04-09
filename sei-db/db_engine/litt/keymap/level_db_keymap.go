@@ -102,7 +102,7 @@ func newLevelDBKeymap(
 	return kmap, requiresReload, nil
 }
 
-func (l *LevelDBKeymap) Put(keys []*types.ScopedKey) error {
+func (l *LevelDBKeymap) Put(keys []types.ScopedKey) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -165,7 +165,7 @@ func (l *LevelDBKeymap) Get(key []byte) (address types.Address, exists bool, err
 	return address, true, nil
 }
 
-func (l *LevelDBKeymap) Delete(keys []*types.ScopedKey) error {
+func (l *LevelDBKeymap) Delete(keys []types.ScopedKey) error {
 	batch := new(leveldb.Batch)
 	for _, key := range keys {
 		batch.Delete(key.Key)

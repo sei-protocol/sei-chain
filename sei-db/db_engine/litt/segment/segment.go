@@ -11,6 +11,7 @@ import (
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -71,6 +72,9 @@ type Segment struct {
 	// the channel when the segment is fully deleted.
 	deletionChannel chan struct{}
 
+	// keymapManager is the manager for the keymap.
+	keymapManager *keymap.KeymapManager
+
 	// reservationCount is the number of reservations on this segment. The segment will not be deleted until this count
 	// reaches zero.
 	reservationCount atomic.Int32
@@ -99,6 +103,7 @@ type Segment struct {
 func CreateSegment(
 	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
+	keymapManager *keymap.KeymapManager,
 	index uint32,
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
@@ -153,6 +158,7 @@ func CreateSegment(
 		logger:              logger,
 		errorMonitor:        errorMonitor,
 		index:               index,
+		keymapManager:       keymapManager,
 		metadata:            metadata,
 		keys:                keys,
 		shards:              shards,
@@ -259,10 +265,10 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	}
 
 	// keys with values that are not present in the value files
-	goodKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
+	goodKeys := make([]types.ScopedKey, 0, len(scopedKeys))
 
 	// keys with values that weren't flushed out to the value files before the DB crashed
-	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
+	badKeys := make([]types.ScopedKey, 0, len(scopedKeys))
 
 	for _, scopedKey := range scopedKeys {
 		shard := scopedKey.Address.Shard()
@@ -436,7 +442,7 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
 	}
 
-	// Build a contiguous slice of all keys (primary + secondary) and send as a single batch.
+	// Generate the keys + addresses to send to the keymap and key file.
 	totalKeys := 1 + len(data.SecondaryKeys)
 	keyBatch := make([]types.ScopedKey, totalKeys)
 
@@ -449,6 +455,12 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 			Key:     secondaryKey.Key,
 			Address: types.NewAddress(s.index, firstByteIndex+secondaryKey.Offset, shard, secondaryKey.Length),
 		}
+	}
+
+	err = s.keymapManager.WriteKeys(keyBatch)
+	if err != nil {
+		return 0, 0,
+			fmt.Errorf("failed to send keys to keymap manager: %v", err)
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyBatch)
@@ -479,7 +491,7 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 }
 
 // GetKeys returns all keys in the data segment. Only permitted to be called after the segment has been sealed.
-func (s *Segment) GetKeys() ([]*types.ScopedKey, error) {
+func (s *Segment) GetKeys() ([]types.ScopedKey, error) {
 	if !s.metadata.sealed {
 		return nil, fmt.Errorf("segment is not sealed, cannot read keys")
 	}
@@ -493,7 +505,7 @@ func (s *Segment) GetKeys() ([]*types.ScopedKey, error) {
 
 // FlushWaitFunction is a function that waits for a flush operation to complete. It returns the addresses of the data
 // that was flushed, or an error if the flush operation failed.
-type FlushWaitFunction func() ([]*types.ScopedKey, error)
+type FlushWaitFunction func() ([]types.ScopedKey, error) // TODO before merge: perhaps this indirection is unecessary now?
 
 // Flush schedules a flush operation. Flush operations are performed serially in the order they are scheduled.
 // This method returns a function that, when called, will block until the flush operation is complete. The function
@@ -529,7 +541,7 @@ func (s *Segment) flush(seal bool) (FlushWaitFunction, error) {
 		return nil, fmt.Errorf("failed to send flush request to key file: %w", err)
 	}
 
-	return func() ([]*types.ScopedKey, error) {
+	return func() ([]types.ScopedKey, error) {
 		// Wait for each shard to finish flushing.
 		for i := range s.shardChannels {
 			_, err := util.Await(s.errorMonitor, shardResponseChannels[i])
@@ -590,7 +602,7 @@ func (s *Segment) IsSnapshot() (bool, error) {
 
 // Seal flushes all data to disk and finalizes the metadata. Returns addresses that became durable as a result of
 // this method call. After this method is called, no more data can be written to this segment.
-func (s *Segment) Seal(now time.Time) ([]*types.ScopedKey, error) {
+func (s *Segment) Seal(now time.Time) ([]types.ScopedKey, error) {
 	flushWaitFunction, err := s.flush(true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to flush segment: %w", err)
@@ -748,7 +760,7 @@ func (s *Segment) handleShardWrite(shard uint8, data *valueToWrite) {
 }
 
 // handleKeyFileWrite writes a key to the key file.
-func (s *Segment) handleKeyFileWrite(data *types.ScopedKey) {
+func (s *Segment) handleKeyFileWrite(data types.ScopedKey) {
 	err := s.keys.write(data)
 	if err != nil {
 		s.errorMonitor.Panic(fmt.Errorf("failed to write key to key file: %w", err))
@@ -756,7 +768,7 @@ func (s *Segment) handleKeyFileWrite(data *types.ScopedKey) {
 }
 
 // handleKeyFileBatchWrite writes a batch of keys to the key file in a single I/O operation.
-func (s *Segment) handleKeyFileBatchWrite(batch []*types.ScopedKey) {
+func (s *Segment) handleKeyFileBatchWrite(batch []types.ScopedKey) {
 	err := s.keys.writeBatch(batch)
 	if err != nil {
 		s.errorMonitor.Panic(fmt.Errorf("failed to write key batch to key file: %w", err))
@@ -764,7 +776,7 @@ func (s *Segment) handleKeyFileBatchWrite(batch []*types.ScopedKey) {
 }
 
 // handleKeyFileFlushRequest handles a request to flush the key file to disk.
-func (s *Segment) handleKeyFileFlushRequest(request *keyFileFlushRequest, unflushedKeys []*types.ScopedKey) {
+func (s *Segment) handleKeyFileFlushRequest(request *keyFileFlushRequest, unflushedKeys []types.ScopedKey) {
 	if request.seal {
 		err := s.keys.seal()
 		if err != nil {
@@ -836,13 +848,13 @@ type keyFileFlushRequest struct {
 // keyFileFlushResponse is a message sent from the key file control loop to the caller of Flush to indicate that the
 // key file has been flushed.
 type keyFileFlushResponse struct {
-	addresses []*types.ScopedKey
+	addresses []types.ScopedKey
 }
 
 // keyFileControlLoop is the main loop for performing modifications to the key file. This goroutine is responsible
 // for writing key-address pairs to the key file.
 func (s *Segment) keyFileControlLoop() {
-	unflushedKeys := make([]*types.ScopedKey, 0, unflushedKeysInitialCapacity)
+	unflushedKeys := make([]types.ScopedKey, 0, unflushedKeysInitialCapacity)
 
 	for {
 		select {
@@ -859,24 +871,17 @@ func (s *Segment) keyFileControlLoop() {
 				if len(unflushedKeys) > nextCap {
 					nextCap = len(unflushedKeys)
 				}
-				unflushedKeys = make([]*types.ScopedKey, 0, nextCap)
+				unflushedKeys = make([]types.ScopedKey, 0, nextCap)
 
 				if flushRequest.seal {
 					return
 				}
 
 			} else if batch, ok := operation.([]types.ScopedKey); ok {
-				// Convert the contiguous value slice to a pointer slice for downstream consumers
-				// that expect []*types.ScopedKey. We take addresses into the backing array, so
-				// no extra heap allocations per element.
-				ptrs := make([]*types.ScopedKey, len(batch))
-				for i := range batch {
-					ptrs[i] = &batch[i]
-				}
-				s.handleKeyFileBatchWrite(ptrs)
-				unflushedKeys = append(unflushedKeys, ptrs...)
+				s.handleKeyFileBatchWrite(batch)
+				unflushedKeys = append(unflushedKeys, batch...)
 
-			} else if data, ok := operation.(*types.ScopedKey); ok {
+			} else if data, ok := operation.(types.ScopedKey); ok {
 				s.handleKeyFileWrite(data)
 				unflushedKeys = append(unflushedKeys, data)
 

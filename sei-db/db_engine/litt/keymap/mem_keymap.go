@@ -48,7 +48,7 @@ func NewMemKeymap(
 	}, true, nil
 }
 
-func (m *memKeymap) Put(keys []*types.ScopedKey) error {
+func (m *memKeymap) Put(keys []types.ScopedKey) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -68,7 +68,7 @@ func (m *memKeymap) Put(keys []*types.ScopedKey) error {
 		}
 
 		m.data[stringKey] = &memKeymapEntry{
-			scopedKey: k,
+			scopedKey: &k,
 			prevKey:   prevKey,
 		}
 		prevKey = k.Key
@@ -93,7 +93,7 @@ func (m *memKeymap) Get(key []byte) (address types.Address, exists bool, err err
 	return entry.scopedKey.Address, true, nil
 }
 
-func (m *memKeymap) Delete(keys []*types.ScopedKey) error {
+func (m *memKeymap) Delete(keys []types.ScopedKey) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 

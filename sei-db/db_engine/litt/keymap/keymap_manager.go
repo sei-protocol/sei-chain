@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -22,14 +23,14 @@ type KeymapManager struct {
 	// Work for the keymap manager loop is sent to this channel.
 	workChan chan any
 
-	// Once the keymap manager makes keys durable in the keymap, it passes those keys to this channel
-	// (possibly in batches).
-	durableKeyChan chan<- []*types.ScopedKey
-
 	// The loop accumulates consecutive write requests into a single keymap.Put() call.
 	// Once the accumulated key count reaches this threshold, the batch is flushed to the keymap
 	// before draining further messages.
 	targetWriteBatchSize int
+
+	// Holds data that hasn't yet been flushed fully to disk. Getting flushed to the keymap is a requirement
+	// for being evicted from this cache, so we need to inform it when keys are flushed to the keymap.
+	unflushedDataCache *unflushed.UnflushedDataCache
 
 	// Set to true when the loop should stop after the current iteration.
 	stopped bool
@@ -40,7 +41,7 @@ func NewKeymapManager(
 	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
 	keymap Keymap,
-	durableKeyChan chan<- []*types.ScopedKey,
+	unflushedDataCache *unflushed.UnflushedDataCache,
 	workChanSize int,
 	targetWriteBatchSize int,
 ) *KeymapManager {
@@ -49,8 +50,8 @@ func NewKeymapManager(
 		errorMonitor:         errorMonitor,
 		keymap:               keymap,
 		workChan:             make(chan any, workChanSize),
-		durableKeyChan:       durableKeyChan,
 		targetWriteBatchSize: targetWriteBatchSize,
+		unflushedDataCache:   unflushedDataCache,
 	}
 	go km.run()
 	return km
@@ -59,7 +60,7 @@ func NewKeymapManager(
 // WriteKeys enqueues a batch of keys to be written to the keymap. This method is non-blocking as
 // long as there is space in the work channel. Keys may not be visible to LookupAddress() until
 // after a Flush() completes.
-func (k *KeymapManager) WriteKeys(keys []*types.ScopedKey) error {
+func (k *KeymapManager) WriteKeys(keys []types.ScopedKey) error {
 	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerWriteRequest{keys: keys})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue write request: %w", err)
@@ -69,7 +70,7 @@ func (k *KeymapManager) WriteKeys(keys []*types.ScopedKey) error {
 
 // DeleteKeys enqueues a batch of keys to be deleted from the keymap. This method is non-blocking
 // as long as there is space in the work channel.
-func (k *KeymapManager) DeleteKeys(keys []*types.ScopedKey) error {
+func (k *KeymapManager) DeleteKeys(keys []types.ScopedKey) error {
 	err := util.Send(k.errorMonitor, k.workChan, &keymapManagerDeleteRequest{keys: keys})
 	if err != nil {
 		return fmt.Errorf("failed to enqueue delete request: %w", err)
@@ -167,17 +168,16 @@ func (k *KeymapManager) drainAndWrite(first *keymapManagerWriteRequest) {
 
 // flushWriteBatch writes a combined batch of keys to the keymap and sends them to the
 // durable key channel.
-func (k *KeymapManager) flushWriteBatch(batch []*types.ScopedKey) {
+func (k *KeymapManager) flushWriteBatch(batch []types.ScopedKey) {
 	err := k.keymap.Put(batch)
 	if err != nil {
 		k.errorMonitor.Panic(fmt.Errorf("failed to write keys to keymap: %w", err))
 		return
 	}
 
-	select {
-	case k.durableKeyChan <- batch:
-	case <-k.errorMonitor.ImmediateShutdownRequired():
-		return
+	err = k.unflushedDataCache.ReportFlushedKeys(batch)
+	if err != nil {
+		k.errorMonitor.Panic(fmt.Errorf("failed to report flushed keys: %w", err))
 	}
 }
 
