@@ -321,26 +321,67 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context) (uint64, bool, error
 	return uint64(max.Int64), true, nil
 }
 
-// GetReceiptByTxHash queries for a receipt by transaction hash.
+// GetReceiptByTxHash queries for a receipt by transaction hash across all
+// closed parquet files (full scan).
 func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
-	// Hold pruneMu first to prevent file deletion, then snapshot the list.
+	return r.getReceiptByTxHashFromFiles(ctx, txHash, nil)
+}
+
+// GetReceiptByTxHashInBlock narrows the search to the parquet file that
+// should contain blockNumber, falling back to a full scan on miss.
+func (r *Reader) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*ReceiptResult, error) {
+	candidateFile := r.fileForBlock(blockNumber)
+	if candidateFile != "" {
+		result, err := r.getReceiptByTxHashFromFiles(ctx, txHash, []string{candidateFile})
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			return result, nil
+		}
+	}
+	return r.getReceiptByTxHashFromFiles(ctx, txHash, nil)
+}
+
+// fileForBlock returns the receipt parquet file path that should contain
+// blockNumber, using the sorted tracked file list. Returns "" if no
+// candidate is found.
+func (r *Reader) fileForBlock(blockNumber uint64) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var best string
+	for _, f := range r.closedReceiptFiles {
+		start := ExtractBlockNumber(f)
+		if start <= blockNumber {
+			best = f
+		} else {
+			break
+		}
+	}
+	return best
+}
+
+func (r *Reader) getReceiptByTxHashFromFiles(ctx context.Context, txHash common.Hash, files []string) (*ReceiptResult, error) {
 	r.pruneMu.RLock()
 	defer r.pruneMu.RUnlock()
 
-	r.mu.RLock()
-	closedFiles := make([]string, len(r.closedReceiptFiles))
-	copy(closedFiles, r.closedReceiptFiles)
-	r.mu.RUnlock()
+	if files == nil {
+		r.mu.RLock()
+		files = make([]string, len(r.closedReceiptFiles))
+		copy(files, r.closedReceiptFiles)
+		r.mu.RUnlock()
+	}
 
-	if len(closedFiles) == 0 {
+	if len(files) == 0 {
 		return nil, nil
 	}
 
 	var parquetFiles string
-	if len(closedFiles) == 1 {
-		parquetFiles = quoteSQLString(closedFiles[0])
+	if len(files) == 1 {
+		parquetFiles = quoteSQLString(files[0])
 	} else {
-		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(closedFiles))
+		parquetFiles = fmt.Sprintf("[%s]", joinQuoted(files))
 	}
 
 	// #nosec G201 -- parquetFiles derived from local file paths

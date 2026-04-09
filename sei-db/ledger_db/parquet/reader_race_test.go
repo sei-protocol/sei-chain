@@ -82,10 +82,10 @@ func TestConcurrentReadsAndPrune(t *testing.T) {
 	}
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:          dir,
-		MaxBlocksPerFile:     500,
-		KeepRecent:           600,
-		DisableTxIndexLookup: true,
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		KeepRecent:       600,
+		TxIndexBackend:   "none",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -135,9 +135,9 @@ func TestOnFileRotationNotBlockedByPruneMu(t *testing.T) {
 	require.NoError(t, createTestReceiptFile(dir, 0, 1))
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:          dir,
-		MaxBlocksPerFile:     500,
-		DisableTxIndexLookup: true,
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		TxIndexBackend:   "none",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -170,10 +170,10 @@ func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 	}
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:          dir,
-		MaxBlocksPerFile:     500,
-		KeepRecent:           1000,
-		DisableTxIndexLookup: true,
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		KeepRecent:       1000,
+		TxIndexBackend:   "none",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })

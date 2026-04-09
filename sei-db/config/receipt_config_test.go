@@ -21,3 +21,21 @@ func TestReadReceiptConfigRejectsMisnamedBackendKey(t *testing.T) {
 	require.ErrorContains(t, err, "receipt-store.backend")
 	require.ErrorContains(t, err, "receipt-store.rs-backend")
 }
+
+func TestReadReceiptConfigTxIndexBackendOverride(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.tx-index-backend": "",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "", cfg.TxIndexBackend)
+}
+
+func TestReadReceiptConfigPreservesUnknownTxIndexBackend(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.tx-index-backend": "rocksdb",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "rocksdb", cfg.TxIndexBackend)
+}

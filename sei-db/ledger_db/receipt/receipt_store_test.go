@@ -79,6 +79,18 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
+
+	cfg.TxIndexBackend = "rocksdb"
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.ErrorContains(t, err, "unsupported receipt tx index backend")
+	require.Nil(t, store)
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {
