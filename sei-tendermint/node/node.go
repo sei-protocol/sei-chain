@@ -189,14 +189,24 @@ func makeNode(
 			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
 			makeCloser(closers))
 	}
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)), cfg, app, genDoc, dbProvider)
+	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		node.NodeInfo,
+		nodeKey,
+		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		cfg,
+		mp,
+		app,
+		genDoc,
+		dbProvider,
+	)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
-	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	mpReactor, err := mempoolreactor.NewReactor(mp, router)
 	if err != nil {
 		return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)

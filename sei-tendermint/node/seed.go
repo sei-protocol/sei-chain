@@ -70,7 +70,17 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, utils.None[atypes.SecretKey](), cfg, nil, genDoc, dbProvider)
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		func() *types.NodeInfo { return &nodeInfo },
+		nodeKey,
+		utils.None[atypes.SecretKey](),
+		cfg,
+		nil,
+		nil,
+		genDoc,
+		dbProvider,
+	)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
