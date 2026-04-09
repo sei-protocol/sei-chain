@@ -57,6 +57,7 @@ type LittDBMetrics struct {
 
 	controlLoopPhaseTimer   *sharedmetrics.PhaseTimer
 	keymapManagerPhaseTimer *sharedmetrics.PhaseTimer
+	flushLoopPhaseTimer     *sharedmetrics.PhaseTimer
 
 	*channelObserver
 }
@@ -195,6 +196,7 @@ func NewLittDBMetrics() *LittDBMetrics {
 
 	controlLoopPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_control_loop")
 	keymapManagerPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_keymap_manager")
+	flushLoopPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_flush_loop")
 
 	return &LittDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
@@ -222,6 +224,7 @@ func NewLittDBMetrics() *LittDBMetrics {
 		readCacheMetrics:         readCacheMetrics,
 		controlLoopPhaseTimer:    controlLoopPhaseTimer,
 		keymapManagerPhaseTimer:  keymapManagerPhaseTimer,
+		flushLoopPhaseTimer:      flushLoopPhaseTimer,
 		channelObserver:          newChannelObserver(meter),
 	}
 }
@@ -394,5 +397,18 @@ func (m *LittDBMetrics) SetControlLoopPhase(phase string) {
 		m.controlLoopPhaseTimer.Reset()
 	} else {
 		m.controlLoopPhaseTimer.SetPhase(phase)
+	}
+}
+
+// SetFlushLoopPhase transitions the flush loop phase timer to the given phase.
+// Passing an empty string resets the phase timer.
+func (m *LittDBMetrics) SetFlushLoopPhase(phase string) {
+	if m == nil {
+		return
+	}
+	if phase == "" {
+		m.flushLoopPhaseTimer.Reset()
+	} else {
+		m.flushLoopPhaseTimer.SetPhase(phase)
 	}
 }

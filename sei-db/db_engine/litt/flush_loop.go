@@ -86,8 +86,10 @@ func (f *flushLoop) enqueue(request flushLoopMessage) error {
 // control loop.
 func (f *flushLoop) run() {
 	for {
+		f.metrics.SetFlushLoopPhase("idle")
 		select {
 		case <-f.errorMonitor.ImmediateShutdownRequired():
+			f.metrics.SetFlushLoopPhase("")
 			f.logger.Info("context done, shutting down disk table flush loop")
 			return
 		case message := <-f.flushChannel:
@@ -96,6 +98,7 @@ func (f *flushLoop) run() {
 			} else if req, ok := message.(*flushLoopSealRequest); ok {
 				f.handleSealRequest(req)
 			} else if req, ok := message.(*flushLoopShutdownRequest); ok {
+				f.metrics.SetFlushLoopPhase("")
 				req.shutdownCompleteChan <- struct{}{}
 				return
 			} else {
@@ -116,6 +119,7 @@ func (f *flushLoop) run() {
 func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 
 	// Flush the keymap manager.
+	f.metrics.SetFlushLoopPhase("seal/keymap_flush+segment_seal")
 	var keymapFlushErr error
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -133,6 +137,7 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 
 	// Inform the unflushed data cache that the segment data is now durable on disk, allowing the cache
 	// to asyncronously evict entries that are safe to evict.
+	f.metrics.SetFlushLoopPhase("seal/report_flushed")
 	err = f.unflushedDataCache.ReportFlushedSegment(durableKeys)
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to report flushed segment: %w", err))
@@ -140,6 +145,7 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 	}
 
 	// Wait for keymap flush to complete.
+	f.metrics.SetFlushLoopPhase("seal/wait_keymap_flush")
 	wg.Wait()
 	if keymapFlushErr != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", keymapFlushErr))
@@ -151,6 +157,7 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 	// Snapshotting can wait until after we have sent a response. No need for the Flush() caller to wait for
 	// snapshotting. Flush() only cares about the data's crash durability, and is completely independent of
 	// snapshotting.
+	f.metrics.SetFlushLoopPhase("seal/snapshot")
 	err = req.segmentToSeal.Snapshot()
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to snapshot segment %s: %w", req.segmentToSeal.String(), err))
@@ -159,6 +166,7 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 
 	// Update the boundary file. The consumer of the snapshot uses this information to determine when segments
 	// are fully copied to the snapshot directory.
+	f.metrics.SetFlushLoopPhase("seal/update_boundary")
 	err = f.upperBoundSnapshotFile.Update(req.segmentToSeal.SegmentIndex())
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to update upper bound snapshot file: %w", err))
@@ -173,6 +181,7 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 	}
 
 	// Flush the keymap manager.
+	f.metrics.SetFlushLoopPhase("flush/keymap_flush+segment_flush")
 	var keymapFlushErr error
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -187,11 +196,13 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush mutable segment: %w", err))
 		return
 	}
+	f.metrics.SetFlushLoopPhase("flush/wait_segment_flush")
 	durableKeys, err := flushWaitFunction()
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush mutable segment: %w", err))
 		return
 	}
+	f.metrics.SetFlushLoopPhase("flush/report_flushed")
 	err = f.unflushedDataCache.ReportFlushedSegment(durableKeys) // TODO before merge: should we push reporting down into the segment?
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to report flushed segment: %w", err))
@@ -199,6 +210,7 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 	}
 
 	// Wait for keymap flush to complete.
+	f.metrics.SetFlushLoopPhase("flush/wait_keymap_flush")
 	wg.Wait()
 	if keymapFlushErr != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", keymapFlushErr))
