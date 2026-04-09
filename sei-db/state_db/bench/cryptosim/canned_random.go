@@ -91,6 +91,9 @@ func (cr *CannedRandom) Bytes(count int) []byte {
 
 // Returns a slice of random bytes from a given seed. Bytes are deterministic given the same seed.
 //
+// Unlike most CannedRandom methods, SeededBytes is safe for concurrent use: it only reads
+// from the immutable buffer and does not advance the internal index.
+//
 // Returned slice is NOT safe to modify. If modification is required, the caller should make a copy of the slice.
 func (cr *CannedRandom) SeededBytes(count int, seed int64) []byte {
 	if count < 0 {
