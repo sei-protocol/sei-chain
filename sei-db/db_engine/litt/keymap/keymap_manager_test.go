@@ -32,7 +32,7 @@ func newTestKeymapManagerWithBatchSize(
 	logger := test.GetLogger()
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
-	kmap, _, err := NewMemKeymap(logger, "", false)
+	kmap, _, err := NewMemKeymap(logger, "", false, nil)
 	require.NoError(t, err)
 
 	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
@@ -194,7 +194,7 @@ func TestErrorMonitorPanic(t *testing.T) {
 	logger := test.GetLogger()
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
-	kmap, _, err := NewMemKeymap(logger, "", false)
+	kmap, _, err := NewMemKeymap(logger, "", false, nil)
 	require.NoError(t, err)
 
 	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
@@ -271,7 +271,7 @@ func TestWriteBatching(t *testing.T) {
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
-	inner, _, err := NewMemKeymap(logger, "", false)
+	inner, _, err := NewMemKeymap(logger, "", false, nil)
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 
@@ -304,7 +304,7 @@ func TestWriteBatchingRespectsTargetSize(t *testing.T) {
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
-	inner, _, err := NewMemKeymap(logger, "", false)
+	inner, _, err := NewMemKeymap(logger, "", false, nil)
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 

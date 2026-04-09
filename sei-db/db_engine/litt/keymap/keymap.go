@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
@@ -85,7 +86,12 @@ type KeymapReverseIterator interface {
 }
 
 // BuildKeymap is a function that builds a Keymap.
-type BuildKeymap func(logger *slog.Logger, keymapPath string, doubleWriteProtection bool) (Keymap, bool, error)
+type BuildKeymap func(
+	logger *slog.Logger,
+	keymapPath string,
+	doubleWriteProtection bool,
+	m *metrics.LittDBMetrics,
+) (Keymap, bool, error)
 
 // emptyReverseIterator is a KeymapReverseIterator that immediately reports exhaustion.
 // Returned when a keymap has no entries to iterate.

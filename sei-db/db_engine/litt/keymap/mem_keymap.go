@@ -6,6 +6,7 @@ import (
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -39,6 +40,7 @@ func NewMemKeymap(
 	logger *slog.Logger,
 	_ string,
 	doubleWriteProtection bool,
+	_ *metrics.LittDBMetrics,
 ) (kmap Keymap, requiresReload bool, err error) {
 
 	return &memKeymap{

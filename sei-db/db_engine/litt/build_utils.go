@@ -30,7 +30,7 @@ func buildTable(
 	}
 
 	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := keymap.OpenOrCreate(
-		logger, config.KeymapType, config.Paths, name, config.DoubleWriteProtection)
+		logger, config.KeymapType, config.Paths, name, config.DoubleWriteProtection, m)
 	if err != nil {
 		return nil, fmt.Errorf("error creating keymap: %w", err)
 	}

@@ -21,7 +21,7 @@ func newTestKeymapManager(t *testing.T) *keymap.KeymapManager {
 	logger := test.GetLogger()
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
-	kmap, _, err := keymap.NewMemKeymap(logger, "", false)
+	kmap, _, err := keymap.NewMemKeymap(logger, "", false, nil)
 	require.NoError(t, err)
 	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })

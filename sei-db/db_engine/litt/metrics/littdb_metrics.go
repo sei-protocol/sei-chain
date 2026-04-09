@@ -48,7 +48,11 @@ type LittDBMetrics struct {
 	writeCacheMetrics *cache.CacheMetrics
 	readCacheMetrics  *cache.CacheMetrics
 
-	controlLoopPhaseTimer *sharedmetrics.PhaseTimer
+	keymapBatchCount metric.Int64Counter
+	keymapBatchSize  metric.Float64Histogram
+
+	controlLoopPhaseTimer   *sharedmetrics.PhaseTimer
+	keymapManagerPhaseTimer *sharedmetrics.PhaseTimer
 
 	*channelObserver
 }
@@ -149,10 +153,24 @@ func NewLittDBMetrics() *LittDBMetrics {
 		latencyOpts,
 	)
 
+	keymapBatchCount, _ := meter.Int64Counter(
+		"litt_keymap_batch_count",
+		metric.WithDescription("Number of batches committed to the keymap"),
+		metric.WithUnit("{count}"),
+	)
+	keymapBatchSize, _ := meter.Float64Histogram(
+		"litt_keymap_batch_size",
+		metric.WithDescription("Number of keys per keymap batch"),
+		metric.WithUnit("{keys}"),
+		metric.WithExplicitBucketBoundaries(
+			1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 50000, 100000),
+	)
+
 	writeCacheMetrics := cache.NewCacheMetrics(meter, "chunk_write")
 	readCacheMetrics := cache.NewCacheMetrics(meter, "chunk_read")
 
 	controlLoopPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_control_loop")
+	keymapManagerPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_keymap_manager")
 
 	return &LittDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
@@ -171,9 +189,12 @@ func NewLittDBMetrics() *LittDBMetrics {
 		segmentFlushLatency:      segmentFlushLatency,
 		keymapFlushLatency:       keymapFlushLatency,
 		garbageCollectionLatency: garbageCollectionLatency,
+		keymapBatchCount:         keymapBatchCount,
+		keymapBatchSize:          keymapBatchSize,
 		writeCacheMetrics:        writeCacheMetrics,
 		readCacheMetrics:         readCacheMetrics,
 		controlLoopPhaseTimer:    controlLoopPhaseTimer,
+		keymapManagerPhaseTimer:  keymapManagerPhaseTimer,
 		channelObserver:          newChannelObserver(meter),
 	}
 }
@@ -283,6 +304,17 @@ func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 	m.garbageCollectionLatency.Record(context.Background(), latency.Seconds(), attrs)
 }
 
+// ReportKeymapBatch reports that a batch of the given size was committed to the keymap.
+func (m *LittDBMetrics) ReportKeymapBatch(tableName string, batchSize int) {
+	if m == nil {
+		return
+	}
+	ctx := context.Background()
+	attrs := metric.WithAttributes(attribute.String("table", tableName))
+	m.keymapBatchCount.Add(ctx, 1, attrs)
+	m.keymapBatchSize.Record(ctx, float64(batchSize), attrs)
+}
+
 func (m *LittDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {
 	if m == nil {
 		return nil
@@ -295,6 +327,19 @@ func (m *LittDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
 		return nil
 	}
 	return m.readCacheMetrics
+}
+
+// SetKeymapManagerPhase transitions the keymap manager phase timer to the given phase.
+// Passing an empty string resets the phase timer.
+func (m *LittDBMetrics) SetKeymapManagerPhase(phase string) {
+	if m == nil {
+		return
+	}
+	if phase == "" {
+		m.keymapManagerPhaseTimer.Reset()
+	} else {
+		m.keymapManagerPhaseTimer.SetPhase(phase)
+	}
 }
 
 // SetControlLoopPhase transitions the control loop phase timer to the given phase.

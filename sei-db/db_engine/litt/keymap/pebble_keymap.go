@@ -11,6 +11,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -27,6 +28,8 @@ type PebbleKeymap struct {
 	alive                 atomic.Bool
 	syncWrites            bool
 
+	m *metrics.LittDBMetrics
+
 	// writeLock serializes Put calls to maintain linked-list consistency across batches.
 	writeLock sync.Mutex
 	lastKey   []byte
@@ -39,8 +42,9 @@ func NewPebbleKeymap(
 	logger *slog.Logger,
 	keymapPath string,
 	doubleWriteProtection bool,
+	m *metrics.LittDBMetrics,
 ) (kmap Keymap, requiresReload bool, err error) {
-	return newPebbleKeymap(logger, keymapPath, doubleWriteProtection, true)
+	return newPebbleKeymap(logger, keymapPath, doubleWriteProtection, true, m)
 }
 
 // NewUnsafePebbleKeymap creates a new PebbleKeymap instance without sync writes. This makes it faster,
@@ -49,8 +53,9 @@ func NewUnsafePebbleKeymap(
 	logger *slog.Logger,
 	keymapPath string,
 	doubleWriteProtection bool,
+	m *metrics.LittDBMetrics,
 ) (kmap Keymap, requiresReload bool, err error) {
-	return newPebbleKeymap(logger, keymapPath, doubleWriteProtection, false)
+	return newPebbleKeymap(logger, keymapPath, doubleWriteProtection, false, m)
 }
 
 func newPebbleKeymap(
@@ -58,6 +63,7 @@ func newPebbleKeymap(
 	keymapPath string,
 	doubleWriteProtection bool,
 	syncWrites bool,
+	m *metrics.LittDBMetrics,
 ) (kmap *PebbleKeymap, requiresReload bool, err error) {
 
 	exists, err := util.Exists(keymapPath)
@@ -118,6 +124,7 @@ func newPebbleKeymap(
 		keymapPath:            keymapPath,
 		doubleWriteProtection: doubleWriteProtection,
 		syncWrites:            syncWrites,
+		m:                     m,
 	}
 	kmap.alive.Store(true)
 
@@ -139,10 +146,12 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 		return nil
 	}
 
+	p.m.SetKeymapManagerPhase("put/lock")
 	p.writeLock.Lock()
 	defer p.writeLock.Unlock()
 
 	if p.doubleWriteProtection {
+		p.m.SetKeymapManagerPhase("put/double_write_check")
 		for _, k := range keys {
 			_, ok, err := p.Get(k.Key)
 			if err != nil {
@@ -154,6 +163,7 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 		}
 	}
 
+	p.m.SetKeymapManagerPhase("put/build_batch")
 	batch := p.db.NewBatch()
 	defer func() { _ = batch.Close() }()
 
@@ -171,6 +181,7 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 		return fmt.Errorf("failed to set latest key metadata: %w", err)
 	}
 
+	p.m.SetKeymapManagerPhase("put/commit")
 	if err := batch.Commit(pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to commit batch to PebbleDB: %w", err)
 	}

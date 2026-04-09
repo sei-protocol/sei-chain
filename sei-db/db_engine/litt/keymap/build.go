@@ -7,6 +7,7 @@ import (
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -75,6 +76,7 @@ func OpenOrCreate(
 	paths []string,
 	tableName string,
 	doubleWriteProtection bool,
+	m *metrics.LittDBMetrics,
 ) (kmap Keymap, keymapPath string, keymapTypeFile *KeymapTypeFile, requiresReload bool, err error) {
 
 	builderForConfiguredType, ok := keymapBuilders[keymapType]
@@ -147,7 +149,7 @@ func OpenOrCreate(
 	}
 
 	keymapDataDirectory := path.Join(keymapDirectory, KeymapDataDirectoryName)
-	kmap, requiresReload, err = builderForConfiguredType(logger, keymapDataDirectory, doubleWriteProtection)
+	kmap, requiresReload, err = builderForConfiguredType(logger, keymapDataDirectory, doubleWriteProtection, m)
 	if err != nil {
 		return nil, "", nil, false,
 			fmt.Errorf("error building keymap: %w", err)

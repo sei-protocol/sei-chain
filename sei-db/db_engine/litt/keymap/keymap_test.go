@@ -24,7 +24,7 @@ var builders = []keymapBuilder{
 type keymapBuilder func(logger *slog.Logger, path string) (Keymap, error)
 
 func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
-	kmap, _, err := NewMemKeymap(logger, path, true)
+	kmap, _, err := NewMemKeymap(logger, path, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
 }
 
 func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
-	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true)
+	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
 }
 
 func buildPebbleKeymap(logger *slog.Logger, path string) (Keymap, error) {
-	kmap, _, err := NewUnsafePebbleKeymap(logger, path, true)
+	kmap, _, err := NewUnsafePebbleKeymap(logger, path, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +377,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 	t.Run("LevelDB", func(t *testing.T) {
 		dbDir := path.Join(t.TempDir(), "keymap")
 
-		kmap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, false)
+		kmap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		batch1 := []types.ScopedKey{
@@ -388,7 +388,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		require.NoError(t, kmap.Stop())
 
 		// Reopen and write more
-		kmap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, false)
+		kmap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		batch2 := []types.ScopedKey{
@@ -427,7 +427,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 	t.Run("Pebble", func(t *testing.T) {
 		dbDir := path.Join(t.TempDir(), "keymap")
 
-		kmap, _, err := NewPebbleKeymap(logger, dbDir, false)
+		kmap, _, err := NewPebbleKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		batch1 := []types.ScopedKey{
@@ -438,7 +438,7 @@ func TestReverseIteratorAcrossRestart(t *testing.T) {
 		require.NoError(t, kmap.Stop())
 
 		// Reopen and write more
-		kmap, _, err = NewPebbleKeymap(logger, dbDir, false)
+		kmap, _, err = NewPebbleKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		batch2 := []types.ScopedKey{
@@ -490,7 +490,7 @@ func TestBackwardCompatLegacyValues(t *testing.T) {
 		require.NoError(t, db.Put([]byte("legacy-key"), legacyValue, nil))
 		require.NoError(t, db.Close())
 
-		kmap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, false)
+		kmap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		gotAddr, exists, err := kmap.Get([]byte("legacy-key"))
@@ -520,7 +520,7 @@ func TestBackwardCompatLegacyValues(t *testing.T) {
 		require.NoError(t, db.Set([]byte("legacy-key"), legacyValue, pebble.Sync))
 		require.NoError(t, db.Close())
 
-		kmap, _, err := NewUnsafePebbleKeymap(logger, dbDir, false)
+		kmap, _, err := NewUnsafePebbleKeymap(logger, dbDir, false, nil)
 		require.NoError(t, err)
 
 		gotAddr, exists, err := kmap.Get([]byte("legacy-key"))
@@ -547,7 +547,7 @@ func TestRestart(t *testing.T) {
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")
 
-	keymap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, true, nil)
 	require.NoError(t, err)
 
 	expected := make(map[string]types.Address)
@@ -617,7 +617,7 @@ func TestRestart(t *testing.T) {
 	err = keymap.Stop()
 	require.NoError(t, err)
 
-	keymap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, true, nil)
 	require.NoError(t, err)
 
 	// Expected data should be present

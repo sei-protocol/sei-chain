@@ -33,6 +33,10 @@ type KeymapManager struct {
 	// for being evicted from this cache, so we need to inform it when keys are flushed to the keymap.
 	unflushedDataCache *unflushed.UnflushedDataCache
 
+	// Metrics for the database.
+	m         *metrics.LittDBMetrics
+	tableName string
+
 	// Set to true when the loop should stop after the current iteration.
 	stopped bool
 }
@@ -55,6 +59,8 @@ func NewKeymapManager(
 		workChan:             make(chan any, workChanSize),
 		targetWriteBatchSize: targetWriteBatchSize,
 		unflushedDataCache:   unflushedDataCache,
+		m:                    m,
+		tableName:            tableName,
 	}
 	m.RegisterChannel(tableName+"/keymap_manager", func() int { return len(km.workChan) })
 	go km.run()
@@ -127,8 +133,10 @@ func (k *KeymapManager) Stop() error {
 // is only handled after all previously enqueued write requests have been completed.
 func (k *KeymapManager) run() {
 	for !k.stopped {
+		k.m.SetKeymapManagerPhase("idle")
 		select {
 		case <-k.errorMonitor.ImmediateShutdownRequired():
+			k.m.SetKeymapManagerPhase("")
 			k.logger.Info("shutting down keymap manager loop due to error monitor")
 			return
 		case message := <-k.workChan:
@@ -139,6 +147,7 @@ func (k *KeymapManager) run() {
 			}
 		}
 	}
+	k.m.SetKeymapManagerPhase("")
 }
 
 // drainAndWrite accumulates the initial write request plus any consecutive write requests
@@ -147,6 +156,7 @@ func (k *KeymapManager) run() {
 // encountered while draining, the accumulated writes are flushed first, then the non-write
 // message is handled.
 func (k *KeymapManager) drainAndWrite(first *keymapManagerWriteRequest) {
+	k.m.SetKeymapManagerPhase("drain")
 	batch := first.keys
 	batchSize := len(batch)
 
@@ -173,12 +183,15 @@ func (k *KeymapManager) drainAndWrite(first *keymapManagerWriteRequest) {
 // flushWriteBatch writes a combined batch of keys to the keymap and sends them to the
 // durable key channel.
 func (k *KeymapManager) flushWriteBatch(batch []types.ScopedKey) {
+	k.m.SetKeymapManagerPhase("put")
 	err := k.keymap.Put(batch)
 	if err != nil {
 		k.errorMonitor.Panic(fmt.Errorf("failed to write keys to keymap: %w", err))
 		return
 	}
+	k.m.ReportKeymapBatch(k.tableName, len(batch))
 
+	k.m.SetKeymapManagerPhase("report_flushed")
 	err = k.unflushedDataCache.ReportFlushedKeys(batch)
 	if err != nil {
 		k.errorMonitor.Panic(fmt.Errorf("failed to report flushed keys: %w", err))
@@ -188,11 +201,13 @@ func (k *KeymapManager) flushWriteBatch(batch []types.ScopedKey) {
 // handleNonWriteMessage dispatches a message that is not a write request.
 func (k *KeymapManager) handleNonWriteMessage(message any) {
 	if req, ok := message.(*keymapManagerDeleteRequest); ok {
+		k.m.SetKeymapManagerPhase("delete")
 		err := k.keymap.Delete(req.keys)
 		if err != nil {
 			k.errorMonitor.Panic(fmt.Errorf("failed to delete keys from keymap: %w", err))
 		}
 	} else if req, ok := message.(*keymapManagerFlushRequest); ok {
+		k.m.SetKeymapManagerPhase("flush")
 		err := k.keymap.Flush()
 		if err != nil {
 			k.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", err))
@@ -200,6 +215,7 @@ func (k *KeymapManager) handleNonWriteMessage(message any) {
 		}
 		req.responseChan <- struct{}{}
 	} else if req, ok := message.(*keymapManagerShutdownRequest); ok {
+		k.m.SetKeymapManagerPhase("shutdown")
 		err := k.keymap.Flush()
 		if err != nil {
 			k.errorMonitor.Panic(fmt.Errorf("failed to flush keymap on shutdown: %w", err))

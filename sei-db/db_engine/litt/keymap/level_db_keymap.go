@@ -9,6 +9,7 @@ import (
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -41,8 +42,9 @@ var _ BuildKeymap = NewLevelDBKeymap
 func NewLevelDBKeymap(
 	logger *slog.Logger,
 	keymapPath string,
-	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
-
+	doubleWriteProtection bool,
+	_ *metrics.LittDBMetrics,
+) (kmap Keymap, requiresReload bool, err error) {
 	return newLevelDBKeymap(logger, keymapPath, doubleWriteProtection, true)
 }
 
@@ -51,8 +53,9 @@ func NewLevelDBKeymap(
 func NewUnsafeLevelDBKeymap(
 	logger *slog.Logger,
 	keymapPath string,
-	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
-
+	doubleWriteProtection bool,
+	_ *metrics.LittDBMetrics,
+) (kmap Keymap, requiresReload bool, err error) {
 	return newLevelDBKeymap(logger, keymapPath, doubleWriteProtection, false)
 }
 
