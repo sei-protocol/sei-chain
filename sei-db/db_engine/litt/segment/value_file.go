@@ -88,7 +88,7 @@ func createValueFile(
 	}
 
 	values.file = file
-	values.writer = bufio.NewWriter(file)
+	values.writer = bufio.NewWriterSize(file, 64*1024*1024) // TODO this should be configurable
 
 	return values, nil
 }
