@@ -18,7 +18,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 // errTxInCache is returned to the client if we saw tx earlier.
 var errTxInCache = errors.New("tx already exists in cache")
@@ -213,7 +216,7 @@ func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex
 // NextGossipTx returns the next valid transaction to gossip. A caller must wait
 // for WaitForNextTx to signal a transaction is available to gossip first. It is
 // thread-safe.
-func (txmp *TxMempool) NextGossipTx() *GossipTx { return newGossipTx(txmp.gossipIndex.Front()) }
+func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
 
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.

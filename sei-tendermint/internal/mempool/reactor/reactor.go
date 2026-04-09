@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
@@ -260,7 +261,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
-	var nextGossipTx *mempool.GossipTx
+	var nextGossipTx *clist.CElement
 
 	defer func() {
 		r.mtx.Lock()
@@ -292,15 +293,17 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			}
 		}
 
-		if ok := r.mempool.TxStore().TxHasPeer(nextGossipTx.Key(), peerMempoolID); !ok {
+		memTx := nextGossipTx.Value.(*mempool.WrappedTx)
+
+		if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
 			r.channel.Send(&pb.Message{
 				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{nextGossipTx.Tx()}},
+					Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
 				},
 			}, peerID)
 			logger.Debug(
 				"gossiped tx to peer",
-				"tx", nextGossipTx.Tx().Hash(),
+				"tx", memTx.Tx().Hash(),
 				"peer", peerID,
 			)
 		}

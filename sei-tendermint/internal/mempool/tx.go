@@ -85,6 +85,10 @@ func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
 	return wtx.evmNonce < tx.evmNonce
 }
 
+func (wtx *WrappedTx) Tx() types.Tx { return wtx.tx }
+
+func (wtx *WrappedTx) Key() types.TxKey { return wtx.hash }
+
 func (wtx *WrappedTx) Size() int {
 	return len(wtx.tx)
 }
