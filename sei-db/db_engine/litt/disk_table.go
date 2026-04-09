@@ -191,8 +191,8 @@ func newDiskTable(
 		errorMonitor,
 		kmap,
 		unflushedDataCache,
-		tableFlushChannelCapacity, // TODO explicit settings!
-		keymapReloadBatchSize,
+		1024, // TODO explicit settings!
+		1024 * 100,
 		m,
 		name,
 	)
