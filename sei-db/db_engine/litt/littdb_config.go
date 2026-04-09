@@ -10,7 +10,6 @@ import (
 	"log/slog"
 
 	"github.com/docker/go-units"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -120,20 +119,13 @@ type Config struct {
 	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and export them to prometheus. By default, this is false.
+	// If enabled, a background goroutine periodically collects table-level gauge metrics
+	// (size, key count). Recording on the hot path (reads, writes, flushes) is always active;
+	// the OTel MeterProvider determines whether data is actually exported.
 	MetricsEnabled bool
 
-	// The namespace to use for metrics. If empty, the default namespace "litt" is used.
-	MetricsNamespace string
-
-	// The prometheus registry to use for metrics. If nil and metrics are enabled, a new registry is created.
-	MetricsRegistry *prometheus.Registry
-
-	// The port to use for the metrics server. Ignored if MetricsEnabled is false or MetricsRegistry is not nil.
-	// The default is 9101.
-	MetricsPort int
-
-	// The interval at which various DB metrics are updated. The default is 1 second.
+	// The interval at which table-level gauge metrics are updated. The default is 1 second.
+	// Ignored when MetricsEnabled is false.
 	MetricsUpdateInterval time.Duration
 
 	// A function that is called if the database experiences a non-recoverable error (e.g. data corruption,
@@ -203,8 +195,6 @@ func DefaultConfigNoPaths() *Config {
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,
-		MetricsNamespace:         "litt",
-		MetricsPort:              9101,
 		MetricsUpdateInterval:    time.Second,
 		PurgeLocks:               false,
 	}
@@ -274,7 +264,7 @@ func (c *Config) SanityCheck() error {
 	if c.SaltShaker == nil {
 		return fmt.Errorf("salt shaker cannot be nil")
 	}
-	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
+	if c.MetricsEnabled && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")
 	}
 

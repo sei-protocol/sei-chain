@@ -300,7 +300,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "rate(litt_bytes_written[$__rate_interval])",
+          "expr": "rate(litt_bytes_written_bytes_total[$__rate_interval])",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "legendFormat": "{{table}}",
@@ -407,7 +407,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "rate(litt_keys_written[$__rate_interval])",
+          "expr": "rate(litt_keys_written_total[$__rate_interval])",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "legendFormat": "__auto",
@@ -503,7 +503,7 @@
         {
           "disableTextWrap": false,
           "editorMode": "builder",
-          "expr": "rate(litt_flush_count[$__rate_interval])",
+          "expr": "rate(litt_flush_count_total[$__rate_interval])",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "legendFormat": "__auto",
@@ -571,7 +571,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -598,32 +598,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "litt_write_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, rate(litt_write_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "avg(litt_write_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.9, rate(litt_write_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_write_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_write_latency_seconds_sum[$__rate_interval]) / rate(litt_write_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Write Latency",
@@ -685,7 +685,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -712,32 +712,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_flush_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_flush_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_flush_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Flush Latency",
@@ -799,7 +799,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -826,32 +826,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_segment_flush_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_segment_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_segment_flush_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_segment_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_segment_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_segment_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_segment_flush_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Segment Flush Latency",
@@ -913,7 +913,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -940,32 +940,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_keymap_flush_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_keymap_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_keymap_flush_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_keymap_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_keymap_flush_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_keymap_flush_latency_seconds_sum[$__rate_interval]) / rate(litt_keymap_flush_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Keymap Flush Latency",
@@ -1027,7 +1027,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -1054,32 +1054,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_garbage_collection_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_gc_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_garbage_collection_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_gc_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_gc_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_gc_latency_seconds_sum[$__rate_interval]) / rate(litt_gc_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "GC Latency",
@@ -1169,7 +1169,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(litt_bytes_read[$__rate_interval])",
+          "expr": "rate(litt_bytes_read_bytes_total[$__rate_interval])",
           "legendFormat": "{{table}}",
           "range": true,
           "refId": "A"
@@ -1262,7 +1262,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(litt_keys_read[$__rate_interval])",
+          "expr": "rate(litt_keys_read_total[$__rate_interval])",
           "legendFormat": "{{table}}",
           "range": true,
           "refId": "A"
@@ -1327,7 +1327,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -1354,32 +1354,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_read_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_read_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_read_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_read_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_read_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_read_latency_seconds_sum[$__rate_interval]) / rate(litt_read_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Read Latency",
@@ -1469,7 +1469,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(litt_cache_hits[$__rate_interval])",
+          "expr": "rate(litt_cache_hits_total[$__rate_interval])",
           "legendFormat": "{{table}}",
           "range": true,
           "refId": "A"
@@ -1562,7 +1562,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(litt_cache_misses[$__rate_interval])",
+          "expr": "rate(litt_cache_misses_total[$__rate_interval])",
           "legendFormat": "{{table}}",
           "range": true,
           "refId": "A"
@@ -1627,7 +1627,7 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -1654,32 +1654,32 @@
       "pluginVersion": "12.0.1",
       "targets": [
         {
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "litt_cache_miss_latency_ms",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "legendFormat": "{{quantile}}",
+          "expr": "histogram_quantile(0.5, rate(litt_cache_miss_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p50",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "denye6lsft2bka"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(litt_cache_miss_latency_ms)",
-          "fullMetaSearch": false,
-          "hide": false,
-          "includeNullMetadata": true,
-          "instant": false,
-          "legendFormat": "average",
+          "expr": "histogram_quantile(0.9, rate(litt_cache_miss_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p90",
           "range": true,
-          "refId": "B",
-          "useBackend": false
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, rate(litt_cache_miss_latency_seconds_bucket[$__rate_interval]))",
+          "legendFormat": "p99",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(litt_cache_miss_latency_seconds_sum[$__rate_interval]) / rate(litt_cache_miss_latency_seconds_count[$__rate_interval])",
+          "legendFormat": "avg",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Cache Miss Latency",

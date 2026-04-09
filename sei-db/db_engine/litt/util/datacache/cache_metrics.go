@@ -1,72 +1,57 @@
 package cache
 
 import (
+	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+	"go.opentelemetry.io/otel/metric"
+
+	sharedmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
-// CacheMetrics is a struct that holds metrics for a cache. A nil CacheMetrics instance acts as a no-op.
+// CacheMetrics records OTel metrics for a LittDB FIFO cache. A nil receiver is a no-op,
+// allowing callers to record unconditionally regardless of whether metrics are configured.
 type CacheMetrics struct {
-	keyCount        *prometheus.GaugeVec
-	weight          *prometheus.GaugeVec
-	keysAdded       *prometheus.CounterVec
-	weightAdded     *prometheus.CounterVec
-	evictionLatency *prometheus.SummaryVec
+	keyCount        metric.Int64Gauge
+	weight          metric.Int64Gauge
+	keysAdded       metric.Int64Counter
+	weightAdded     metric.Int64Counter
+	evictionLatency metric.Float64Histogram
 }
 
-// NewCacheMetrics creates a new CacheMetrics instance. If the registry is nil, it returns nil.
-// The cacheName does not need to include the suffix "_cache" as this is added automatically.
-func NewCacheMetrics(registry *prometheus.Registry, namespace string, cacheName string) *CacheMetrics {
-	if registry == nil {
+// NewCacheMetrics creates a CacheMetrics that records via the supplied OTel meter.
+// cacheName is embedded in the instrument name (e.g. "chunk_write" →
+// "litt_chunk_write_cache_key_count"). If meter is nil, returns nil.
+func NewCacheMetrics(meter metric.Meter, cacheName string) *CacheMetrics {
+	if meter == nil {
 		return nil
 	}
 
-	evictionLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace: namespace,
-			Name:      cacheName + "_cache_eviction_latency_ms",
-			Help:      "Reports on the eviction latency of the cache.",
-		},
-		[]string{},
+	keyCount, _ := meter.Int64Gauge(
+		"litt_"+cacheName+"_cache_key_count",
+		metric.WithDescription("Current number of keys in the cache"),
+		metric.WithUnit("{count}"),
 	)
-
-	keyCount := promauto.With(registry).NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      cacheName + "_cache_key_count",
-			Help:      "Reports on the number of keys in the cache",
-		},
-		[]string{},
+	weight, _ := meter.Int64Gauge(
+		"litt_"+cacheName+"_cache_weight",
+		metric.WithDescription("Current total weight of cache entries"),
+		metric.WithUnit("By"),
 	)
-
-	weight := promauto.With(registry).NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      cacheName + "_cache_weight",
-			Help:      "Reports on the weight of the cache",
-		},
-		[]string{},
+	keysAdded, _ := meter.Int64Counter(
+		"litt_"+cacheName+"_cache_keys_added",
+		metric.WithDescription("Number of keys added to the cache"),
+		metric.WithUnit("{count}"),
 	)
-
-	keysAdded := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      cacheName + "_cache_keys_added",
-			Help:      "Reports on the number of keys added to the cache",
-		},
-		[]string{},
+	weightAdded, _ := meter.Int64Counter(
+		"litt_"+cacheName+"_cache_weight_added",
+		metric.WithDescription("Total weight of entries added to the cache"),
+		metric.WithUnit("By"),
 	)
-
-	weightAdded := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      cacheName + "_cache_weight_added",
-			Help:      "Reports on the weight of the entries added to the cache",
-		},
-		[]string{},
+	evictionLatency, _ := meter.Float64Histogram(
+		"litt_"+cacheName+"_cache_eviction_latency",
+		metric.WithDescription("Age of entries at eviction time"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(sharedmetrics.LatencyBuckets...),
 	)
 
 	return &CacheMetrics{
@@ -78,31 +63,27 @@ func NewCacheMetrics(registry *prometheus.Registry, namespace string, cacheName 
 	}
 }
 
-// reportInsertion is used to report an entry being inserted into the cache.
 func (m *CacheMetrics) reportInsertion(weight uint64) {
 	if m == nil {
 		return
 	}
-
-	m.keysAdded.WithLabelValues().Inc()
-	m.weightAdded.WithLabelValues().Add(float64(weight))
+	ctx := context.Background()
+	m.keysAdded.Add(ctx, 1)
+	m.weightAdded.Add(ctx, int64(weight)) //nolint:gosec
 }
 
-// reportEviction is used to report an entry being evicted from the cache.
 func (m *CacheMetrics) reportEviction(age time.Duration) {
 	if m == nil {
 		return
 	}
-
-	m.evictionLatency.WithLabelValues().Observe(util.ToMilliseconds(age))
+	m.evictionLatency.Record(context.Background(), age.Seconds())
 }
 
-// reportCurrentSize is used to report the current size/weight of the cache.
 func (m *CacheMetrics) reportCurrentSize(size int, weight uint64) {
 	if m == nil {
 		return
 	}
-
-	m.keyCount.WithLabelValues().Set(float64(size))
-	m.weight.WithLabelValues().Set(float64(weight))
+	ctx := context.Background()
+	m.keyCount.Record(ctx, int64(size)) //nolint:gosec
+	m.weight.Record(ctx, int64(weight)) //nolint:gosec
 }

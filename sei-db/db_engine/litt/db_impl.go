@@ -3,7 +3,6 @@ package litt
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,9 +31,6 @@ type db struct {
 
 	// Metrics for the database.
 	metrics *littDBMetrics
-
-	// The HTTP server for metrics. nil if metrics are disabled or if an external party is managing the server.
-	metricsServer *http.Server
 
 	// A function that releases file locks.
 	releaseLocks func()
@@ -91,11 +87,7 @@ func NewDB(config *Config) (DB, error) {
 		return nil, fmt.Errorf("error acquiring locks on paths %v: %w", config.Paths, err)
 	}
 
-	var dbMetrics *littDBMetrics
-	var metricsServer *http.Server
-	if config.MetricsEnabled {
-		dbMetrics, metricsServer = buildMetrics(config, config.Logger)
-	}
+	dbMetrics := newLittDBMetrics()
 
 	if config.SnapshotDirectory != "" {
 		config.Logger.Info(fmt.Sprintf("LittDB rolling snapshots enabled, snapshot data will be stored in %s",
@@ -103,13 +95,12 @@ func NewDB(config *Config) (DB, error) {
 	}
 
 	database := &db{
-		ctx:           config.CTX,
-		config:        config,
-		logger:        config.Logger,
-		tables:        make(map[string]ManagedTable),
-		metrics:       dbMetrics,
-		metricsServer: metricsServer,
-		releaseLocks:  releaseLocks,
+		ctx:          config.CTX,
+		config:       config,
+		logger:       config.Logger,
+		tables:       make(map[string]ManagedTable),
+		metrics:      dbMetrics,
+		releaseLocks: releaseLocks,
 	}
 
 	if config.MetricsEnabled {
@@ -241,17 +232,8 @@ func (d *db) Destroy() error {
 	return nil
 }
 
-// gatherMetrics is a method that periodically collects metrics.
+// gatherMetrics periodically snapshots table-level gauge metrics (size, key count).
 func (d *db) gatherMetrics(interval time.Duration) {
-	if d.metricsServer != nil {
-		defer func() {
-			err := d.metricsServer.Close()
-			if err != nil {
-				d.logger.Error(fmt.Sprintf("error closing metrics server: %v", err))
-			}
-		}()
-	}
-
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
