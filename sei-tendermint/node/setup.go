@@ -295,7 +295,6 @@ func buildGigaConfig(
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		},
 		TxMempool: txMempool,
-		App:       appClient,
 		GenDoc:    genDoc,
 	}, nil
 }

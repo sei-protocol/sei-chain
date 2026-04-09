@@ -163,6 +163,8 @@ func NewTxMempool(
 
 func (txmp *TxMempool) Config() *config.MempoolConfig { return txmp.config }
 
+func (txmp *TxMempool) App() abci.Application { return txmp.app }
+
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
@@ -501,6 +503,14 @@ func (txmp *TxMempool) Flush() {
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
+	txs, _ := txmp.ReapMaxTxsBytesMaxGas(-1, maxBytes, maxGasWanted, maxGasEstimated)
+	return txs
+}
+
+// ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
+// byte, and gas constraints together with the total estimated gas for the
+// returned transactions. A maxTxs value below zero disables the tx count limit.
+func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, uint64) {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 
@@ -514,7 +524,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 	encounteredGasUnfit := false
 	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
 		// do not reap anything if threshold is not met
-		return []types.Tx{}
+		return []types.Tx{}, 0
 	}
 	totalTxs := txmp.priorityIndex.NumTxs()
 	evmTxs := make([]types.Tx, 0, totalTxs)
@@ -566,10 +576,25 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
 		}
+		if maxTxs >= 0 && numTxs >= maxTxs {
+			return false
+		}
 		return true
 	})
 
-	return append(evmTxs, nonEvmTxs...)
+	return append(evmTxs, nonEvmTxs...), uint64(totalGasEstimated)
+}
+
+// RemoveTxs removes the provided transactions from the mempool if present.
+func (txmp *TxMempool) RemoveTxs(txs types.Txs) {
+	txmp.Lock()
+	defer txmp.Unlock()
+
+	for _, tx := range txs {
+		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
+			txmp.removeTx(wtx, false, true, true)
+		}
+	}
 }
 
 // ReapMaxTxs returns a list of transactions within the provided number of

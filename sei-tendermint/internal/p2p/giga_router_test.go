@@ -14,12 +14,13 @@ import (
 	"golang.org/x/time/rate"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -75,6 +76,15 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 		}, nil
 	}
 	panic("unreachable")
+}
+
+func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+	return &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			Code:      abci.CodeTypeOK,
+			GasWanted: 1,
+		},
+	}, nil
 }
 
 func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -199,6 +209,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
+			txMempool := mempool.NewTxMempool(config.TestMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -228,8 +239,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							BlockInterval:    100 * time.Millisecond,
 							AllowEmptyBlocks: false,
 						},
-						App:    app,
-						GenDoc: genDoc,
+						TxMempool: txMempool,
+						GenDoc:    genDoc,
 					}),
 				},
 			)
@@ -245,17 +256,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				giga, ok := router.giga.Get()
-				if !ok {
-					panic("giga router not set up")
-				}
 				for _, payload := range txs {
-					tx := &apb.Transaction{
-						Payload: payload,
-						GasUsed: txGasUsed,
-					}
-					if err := giga.PushToMempool(ctx, tx); err != nil {
-						return fmt.Errorf("PushToMempool(): %w", err)
+					if err := txMempool.CheckTx(ctx, payload, nil, mempool.TxInfo{}); err != nil {
+						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}
 				return nil

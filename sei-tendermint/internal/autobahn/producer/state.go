@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"golang.org/x/time/rate"
@@ -32,19 +32,18 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	cfg *Config
-	// channel of transactions to build the next block from.
-	mempool chan *pb.Transaction
+	cfg       *Config
+	txMempool *mempool.TxMempool
 	// consensus state to which published blocks will be reported.
 	consensus *consensus.State
 }
 
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
-func NewState(cfg *Config, consensus *consensus.State) *State {
+func NewState(cfg *Config, txMempool *mempool.TxMempool, consensus *consensus.State) *State {
 	return &State{
 		cfg:       cfg,
-		mempool:   make(chan *pb.Transaction, cfg.MempoolSize),
+		txMempool: txMempool,
 		consensus: consensus,
 	}
 }
@@ -54,21 +53,29 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 func (s *State) makePayload(ctx context.Context) *types.Payload {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.BlockInterval)
 	defer cancel()
-	maxTxs := s.cfg.maxTxsPerBlock()
-	var totalGas uint64
-	var txs [][]byte
-	for totalGas < s.cfg.MaxGasPerBlock && uint64(len(txs)) < maxTxs {
-		tx, err := utils.Recv(ctx, s.mempool)
-		if err != nil {
-			break
+
+	if s.txMempool.NumTxsNotPending() == 0 {
+		select {
+		case <-ctx.Done():
+		case <-s.txMempool.TxsAvailable():
 		}
-		txs = append(txs, tx.Payload)
-		totalGas += tx.GasUsed
+	}
+
+	txs, totalGas := s.txMempool.ReapMaxTxsBytesMaxGas(
+		int(s.cfg.maxTxsPerBlock()), // nolint:gosec // config values fit into int on supported platforms.
+		-1,
+		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
+		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
+	)
+	s.txMempool.RemoveTxs(txs)
+	payloadTxs := make([][]byte, 0, len(txs))
+	for _, tx := range txs {
+		payloadTxs = append(payloadTxs, tx)
 	}
 	return types.PayloadBuilder{
 		CreatedAt: time.Now(),
 		TotalGas:  totalGas,
-		Txs:       txs,
+		Txs:       payloadTxs,
 	}.Build()
 }
 
@@ -84,11 +91,6 @@ func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 			return payload, nil
 		}
 	}
-}
-
-// PushToMempool pushes the transaction to the mempool.
-func (s *State) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
-	return utils.Send(ctx, s.mempool, tx)
 }
 
 // Run runs the background tasks of the producer state.

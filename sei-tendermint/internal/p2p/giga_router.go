@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -39,7 +38,6 @@ type GigaRouterConfig struct {
 	Consensus      *consensus.Config
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
-	App            abci.Application
 	GenDoc         *types.GenesisDoc
 }
 
@@ -52,10 +50,6 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
-}
-
-func (r *GigaRouter) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
-	return r.producer.PushToMempool(ctx, tx)
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
@@ -83,7 +77,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState)
+	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
 	return &GigaRouter{
 		cfg:       cfg,
 		key:       key,
@@ -97,7 +91,9 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
-	info, err := r.cfg.App.Info(ctx, &version.RequestInfo)
+	app := r.cfg.TxMempool.App()
+
+	info, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("App.Info(): %w", err)
 	}
@@ -107,7 +103,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
-		if _, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
 		var ok bool
@@ -131,7 +127,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 
 		hash := b.Header.Hash()
 		var proposerAddress types.Address
-		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
+		if vals := app.GetValidators(); len(vals) > 0 {
 			// Deterministically select a proposer from the app's validator committee.
 			// We need it so that app does not emit error logs.
 			proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -141,7 +137,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 			}
 			proposerAddress = key.Address()
 		}
-		resp, err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+		resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 			Txs: b.Payload.Txs(),
 			// Empty DecidedLastCommit does not indicate missing votes.
 			DecidedLastCommit: abci.CommitInfo{},
@@ -165,9 +161,26 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if err := r.data.PushAppHash(ctx, n, resp.AppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 		}
-		commitResp, err := r.cfg.App.Commit(ctx)
+		commitResp, err := app.Commit(ctx)
 		if err != nil {
 			return fmt.Errorf("r.cfg.App.Commit(): %w", err)
+		}
+		blockTxs := make(types.Txs, len(b.Payload.Txs()))
+		for i, tx := range b.Payload.Txs() {
+			blockTxs[i] = tx
+		}
+		r.cfg.TxMempool.Lock()
+		err = r.cfg.TxMempool.Update(
+			ctx,
+			int64(n), // nolint:gosec // autobahn block numbers fit in int64.
+			blockTxs,
+			resp.TxResults,
+			mempool.NopTxConstraintsFetcher,
+			true,
+		)
+		r.cfg.TxMempool.Unlock()
+		if err != nil {
+			return fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", n, err)
 		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
