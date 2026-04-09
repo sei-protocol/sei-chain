@@ -63,7 +63,7 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 
 	txs, totalGas := s.txMempool.ReapMaxTxsBytesMaxGas(
 		int(s.cfg.maxTxsPerBlock()), // nolint:gosec // config values fit into int on supported platforms.
-		-1,
+		utils.Max[int64](),
 		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
 		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
 	)

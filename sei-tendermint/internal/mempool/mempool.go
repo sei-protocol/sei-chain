@@ -493,7 +493,7 @@ func (txmp *TxMempool) Flush() {
 // and gas constraints. The returned list starts with EVM transactions (in priority order),
 // followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
-//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit. Can be set to -1 to be ignored.
+//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
 //  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
 //     Can be set to -1 to be ignored.
 //  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
@@ -503,14 +503,31 @@ func (txmp *TxMempool) Flush() {
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
-	txs, _ := txmp.ReapMaxTxsBytesMaxGas(-1, maxBytes, maxGasWanted, maxGasEstimated)
+	txs, _ := txmp.ReapMaxTxsBytesMaxGas(utils.Max[int](), maxBytes, maxGasWanted, maxGasEstimated)
 	return txs
 }
 
 // ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
 // byte, and gas constraints together with the total estimated gas for the
-// returned transactions. A maxTxs value below zero disables the tx count limit.
+// returned transactions.
+//
+// NOTE: Gas limits are enforced using int64 running totals. If those totals
+// overflow, gas limit enforcement no longer works correctly. This preserves the
+// historical behavior for backward compatibility.
 func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, uint64) {
+	if maxTxs < 0 {
+		maxTxs = utils.Max[int]()
+	}
+	if maxBytes < 0 {
+		maxBytes = utils.Max[int64]()
+	}
+	if maxGasWanted < 0 {
+		maxGasWanted = utils.Max[int64]()
+	}
+	if maxGasEstimated < 0 {
+		maxGasEstimated = utils.Max[int64]()
+	}
+
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 
@@ -533,7 +550,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
 		// bytes limit is a hard stop
-		if maxBytes > -1 && totalSize+size > maxBytes {
+		if totalSize+size > maxBytes {
 			return false
 		}
 
@@ -550,8 +567,8 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		prospectiveGasWanted := totalGasWanted + wtx.gasWanted
 		prospectiveGasEstimated := totalGasEstimated + txGasEstimate
 
-		maxGasWantedExceeded := maxGasWanted > -1 && prospectiveGasWanted > maxGasWanted
-		maxGasEstimatedExceeded := maxGasEstimated > -1 && prospectiveGasEstimated > maxGasEstimated
+		maxGasWantedExceeded := prospectiveGasWanted > maxGasWanted
+		maxGasEstimatedExceeded := prospectiveGasEstimated > maxGasEstimated
 
 		if maxGasWantedExceeded || maxGasEstimatedExceeded {
 			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
@@ -576,7 +593,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
 		}
-		if maxTxs >= 0 && numTxs >= maxTxs {
+		if numTxs >= maxTxs {
 			return false
 		}
 		return true
