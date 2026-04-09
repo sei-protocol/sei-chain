@@ -659,6 +659,10 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
+
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility

@@ -29,6 +29,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.4
 sei-chain
+* [#3211](https://github.com/sei-protocol/sei-chain/pull/3211) Backport `release/v6.4`: Unify EVM SS into single DB with store key prefixes
+* [#3201](https://github.com/sei-protocol/sei-chain/pull/3201) Backport `release/v6.4`: feat(mempool): only allow one retry for failed txs
+* [#3199](https://github.com/sei-protocol/sei-chain/pull/3199) Add v154 wasmvm library compatibility documentation
+* [#3196](https://github.com/sei-protocol/sei-chain/pull/3196) Backport `release/v6.4`: Fix changelog generator
 * [#3193](https://github.com/sei-protocol/sei-chain/pull/3193) Backport `release/v6.4`: hit ledger cache first then duckdb
 * [#3190](https://github.com/sei-protocol/sei-chain/pull/3190) Backport `release/v6.4`: Debug Trace Speedup
 * [#3189](https://github.com/sei-protocol/sei-chain/pull/3189) Backport `release/v6.4`: Make profiled block tracing opt-in by default
@@ -36,6 +40,7 @@ sei-chain
 * [#3186](https://github.com/sei-protocol/sei-chain/pull/3186) Backport `release/v6.4`: Guard LastCommitID with rootmulti read lock
 * [#3177](https://github.com/sei-protocol/sei-chain/pull/3177) Backport `release/v6.4`: Fix gzip double-close in EVM JSON-RPC responses
 * [#3173](https://github.com/sei-protocol/sei-chain/pull/3173) Backport `release/v6.4`: Fix gzip Content-Length parsing for flushed HTTP RPC responses
+* [#3169](https://github.com/sei-protocol/sei-chain/pull/3169) Cut `v6.4.0` tag atop head of `release/v6.4` branch
 * [#3168](https://github.com/sei-protocol/sei-chain/pull/3168) Backport `release/v6.4`: Update v6.4 changelog in prep for cutting tag
 * [#3166](https://github.com/sei-protocol/sei-chain/pull/3166) Backport `release/v6.4`: fix: sei legacy http batch
 * [#3161](https://github.com/sei-protocol/sei-chain/pull/3161) Backport `release/v6.4`: Add warning message for IAVL deprecation

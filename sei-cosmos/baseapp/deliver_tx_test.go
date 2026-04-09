@@ -639,6 +639,23 @@ func TestRunInvalidTransaction(t *testing.T) {
 	}
 }
 
+func TestRunTxDecodeError(t *testing.T) {
+	app := setupBaseApp(t)
+
+	header := tmproto.Header{Height: 1}
+	app.setDeliverState(header)
+
+	// Consume some gas on the block-level meter to simulate prior operations
+	ctx := app.deliverState.ctx
+	ctx.GasMeter().ConsumeGas(5000, "simulated prior gas")
+
+	// A decode failure should not report block-level gas as its own
+	gInfo, _, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
+	require.Error(t, err)
+	require.Equal(t, uint64(0), gInfo.GasUsed)
+	require.Equal(t, uint64(0), gInfo.GasWanted)
+}
+
 // Test that transactions exceeding gas limits fail
 func TestTxGasLimits(t *testing.T) {
 	gasGranted := uint64(10)

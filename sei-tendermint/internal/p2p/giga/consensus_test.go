@@ -57,7 +57,7 @@ func TestConsensusClientServer(t *testing.T) {
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := n.data.PushAppHash(idx, p.AppHash()); err != nil {
+				if err := n.data.PushAppHash(ctx, idx, p.AppHash()); err != nil {
 					return fmt.Errorf("ds.PushAppProposal(): %w", err)
 				}
 			}

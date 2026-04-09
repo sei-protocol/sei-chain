@@ -61,6 +61,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return "" // empty means use default
 	case FlagEVMSSReadMode:
 		return "" // empty means use default
+	case FlagEVMSSSeparateDBs:
+		return defaultSSConfig.SeparateEVMSubDBs
 	}
 	return nil
 }
@@ -96,6 +98,24 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
 	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}
+
+func TestParseSSConfigs_EVMFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:            true,
+		FlagEVMSSDirectory:      "/tmp/evm-ss",
+		FlagEVMSSWriteMode:      string(config.SplitWrite),
+		FlagEVMSSReadMode:       string(config.SplitRead),
+		FlagEVMSSSeparateDBs:    true,
+		FlagSSAsyncWriterBuffer: 0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
+	assert.Equal(t, config.SplitWrite, ssConfig.WriteMode)
+	assert.Equal(t, config.SplitRead, ssConfig.ReadMode)
+	assert.True(t, ssConfig.SeparateEVMSubDBs)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
