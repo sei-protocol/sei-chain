@@ -286,8 +286,14 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 		}
 
 		if shardSize > uint64(c.targetFileSize) || keyCount >= c.maxKeyCount || keyFileSize >= c.targetKeyFileSize {
+			reason := "shard_size"
+			if keyCount >= c.maxKeyCount {
+				reason = "key_count"
+			} else if keyFileSize >= c.targetKeyFileSize {
+				reason = "key_file_size"
+			}
 			c.metrics.SetControlLoopPhase("write/expand_segments")
-			err = c.expandSegments()
+			err = c.expandSegments(reason)
 			if err != nil {
 				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 				return
@@ -300,7 +306,8 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 }
 
 // expandSegments seals the latest segment and creates a new mutable segment.
-func (c *controlLoop) expandSegments() error {
+// reason describes why the expansion is happening (e.g. "shard_size", "key_count", "sharding_factor").
+func (c *controlLoop) expandSegments(reason string) error {
 	now := c.clock()
 
 	// Seal the previous segment.
@@ -324,7 +331,9 @@ func (c *controlLoop) expandSegments() error {
 	}
 
 	// Record the size of the segment.
-	c.immutableSegmentSize += c.segments[c.highestSegmentIndex].Size()
+	sealedSeg := c.segments[c.highestSegmentIndex]
+	c.immutableSegmentSize += sealedSeg.Size()
+	c.metrics.ReportSegmentSealed(c.name, sealedSeg.Size(), sealedSeg.KeyCount(), reason)
 
 	// Create a new segment.
 	salt := [16]byte{}
@@ -391,7 +400,7 @@ func (c *controlLoop) handleControlLoopSetShardingFactorRequest(req *controlLoop
 	}
 
 	// This seals the current mutable segment and creates a new one. The new segment will have the new sharding factor.
-	err = c.expandSegments()
+	err = c.expandSegments("sharding_factor")
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 		return

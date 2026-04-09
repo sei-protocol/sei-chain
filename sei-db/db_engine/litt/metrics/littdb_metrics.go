@@ -51,6 +51,10 @@ type LittDBMetrics struct {
 	keymapBatchCount metric.Int64Counter
 	keymapBatchSize  metric.Float64Histogram
 
+	segmentSealCount     metric.Int64Counter
+	segmentSealSizeBytes metric.Float64Histogram
+	segmentSealKeyCount  metric.Float64Histogram
+
 	controlLoopPhaseTimer   *sharedmetrics.PhaseTimer
 	keymapManagerPhaseTimer *sharedmetrics.PhaseTimer
 
@@ -166,6 +170,26 @@ func NewLittDBMetrics() *LittDBMetrics {
 			1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 50000, 100000),
 	)
 
+	segmentSealCount, _ := meter.Int64Counter(
+		"litt_segment_seal_count",
+		metric.WithDescription("Number of segments sealed"),
+		metric.WithUnit("{count}"),
+	)
+	segmentSealSizeBytes, _ := meter.Float64Histogram(
+		"litt_segment_seal_size",
+		metric.WithDescription("Size of segments at seal time"),
+		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(
+			1<<20, 4<<20, 16<<20, 64<<20, 256<<20, 1<<30, 4<<30),
+	)
+	segmentSealKeyCount, _ := meter.Float64Histogram(
+		"litt_segment_seal_keys",
+		metric.WithDescription("Number of keys in segments at seal time"),
+		metric.WithUnit("{keys}"),
+		metric.WithExplicitBucketBoundaries(
+			100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000),
+	)
+
 	writeCacheMetrics := cache.NewCacheMetrics(meter, "chunk_write")
 	readCacheMetrics := cache.NewCacheMetrics(meter, "chunk_read")
 
@@ -191,6 +215,9 @@ func NewLittDBMetrics() *LittDBMetrics {
 		garbageCollectionLatency: garbageCollectionLatency,
 		keymapBatchCount:         keymapBatchCount,
 		keymapBatchSize:          keymapBatchSize,
+		segmentSealCount:         segmentSealCount,
+		segmentSealSizeBytes:     segmentSealSizeBytes,
+		segmentSealKeyCount:      segmentSealKeyCount,
 		writeCacheMetrics:        writeCacheMetrics,
 		readCacheMetrics:         readCacheMetrics,
 		controlLoopPhaseTimer:    controlLoopPhaseTimer,
@@ -313,6 +340,21 @@ func (m *LittDBMetrics) ReportKeymapBatch(tableName string, batchSize int) {
 	attrs := metric.WithAttributes(attribute.String("table", tableName))
 	m.keymapBatchCount.Add(ctx, 1, attrs)
 	m.keymapBatchSize.Record(ctx, float64(batchSize), attrs)
+}
+
+// ReportSegmentSealed reports that a segment was sealed with the given size, key count, and reason.
+func (m *LittDBMetrics) ReportSegmentSealed(tableName string, sizeBytes uint64, keyCount uint32, reason string) {
+	if m == nil {
+		return
+	}
+	ctx := context.Background()
+	tableAttr := metric.WithAttributes(attribute.String("table", tableName))
+	m.segmentSealSizeBytes.Record(ctx, float64(sizeBytes), tableAttr)
+	m.segmentSealKeyCount.Record(ctx, float64(keyCount), tableAttr)
+	m.segmentSealCount.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("table", tableName),
+		attribute.String("reason", reason),
+	))
 }
 
 func (m *LittDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {

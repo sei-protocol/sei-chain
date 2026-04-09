@@ -22,7 +22,7 @@ import (
 const unflushedKeysInitialCapacity = 128
 
 // shardControlChannelCapacity is the capacity of the channel used to send messages to the shard control loop.
-const shardControlChannelCapacity = 32
+const shardControlChannelCapacity = 8 // TODO bubble this up to a config value
 
 // Segment is a chunk of data stored on disk. All data in a particular data segment is expired at the same time.
 //
