@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
@@ -82,7 +83,7 @@ type diskTable struct {
 	flushLoop *flushLoop
 
 	// Encapsulates metrics for the database.
-	metrics *littDBMetrics
+	metrics *metrics.LittDBMetrics
 
 	// Set to true when the table is closed. This is used to prevent double closing.
 	closed atomic.Bool
@@ -106,7 +107,7 @@ func newDiskTable(
 	keymapTypeFile *keymap.KeymapTypeFile,
 	roots []string,
 	reloadKeymap bool,
-	metrics *littDBMetrics) (ManagedTable, error) {
+	m *metrics.LittDBMetrics) (ManagedTable, error) {
 
 	if config.GCPeriod <= 0 {
 		return nil, errors.New("garbage collection period must be greater than 0")
@@ -181,6 +182,8 @@ func newDiskTable(
 		config.Logger,
 		errorMonitor,
 		tableFlushChannelCapacity, // TODO explicit setting for this!
+		m,
+		name,
 	)
 
 	keymapManager := keymap.NewKeymapManager(
@@ -190,6 +193,8 @@ func newDiskTable(
 		unflushedDataCache,
 		tableFlushChannelCapacity, // TODO explicit settings!
 		keymapReloadBatchSize,
+		m,
+		name,
 	)
 
 	table := &diskTable{ // TODO before merge: create a constructor
@@ -205,10 +210,11 @@ func newDiskTable(
 		keymapTypeFile:     keymapTypeFile,
 		keymapManager:      keymapManager,
 		unflushedDataCache: unflushedDataCache,
-		metrics:            metrics,
+		metrics:            m,
 		fsync:              config.Fsync,
 	}
 	table.flushCoordinator = newFlushCoordinator(errorMonitor, table.flushInternal, config.MinimumFlushInterval)
+	m.RegisterChannel(name+"/flush_coordinator", func() int { return len(table.flushCoordinator.requestChan) })
 
 	snapshottingEnabled := config.SnapshotDirectory != ""
 
@@ -261,7 +267,9 @@ func newDiskTable(
 		snapshottingEnabled,
 		metadata.GetShardingFactor(),
 		salt,
-		config.Fsync)
+		config.Fsync,
+		m,
+		name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
 	}
@@ -304,9 +312,10 @@ func newDiskTable(
 		config.Clock,
 		name,
 		upperBoundSnapshotFile,
-		metrics,
+		m,
 	)
 	table.flushLoop = fLoop
+	m.RegisterChannel(name+"/flush_loop", func() int { return len(fLoop.flushChannel) })
 	go fLoop.run()
 
 	// Start the control loop.
@@ -329,7 +338,7 @@ func newDiskTable(
 		saltShaker:              tableSaltShaker,
 		metadata:                metadata,
 		fsync:                   config.Fsync,
-		metrics:                 metrics,
+		metrics:                 m,
 		name:                    name,
 		gcBatchSize:             config.GCBatchSize,
 		keymap:                  kmap,
@@ -340,6 +349,7 @@ func newDiskTable(
 	}
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
+	m.RegisterChannel(name+"/controller", func() int { return len(cLoop.controllerChannel) })
 	cLoop.updateCurrentSize()
 	go cLoop.run()
 

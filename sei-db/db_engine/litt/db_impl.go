@@ -9,6 +9,7 @@ import (
 
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -30,7 +31,7 @@ type db struct {
 	stopped atomic.Bool
 
 	// Metrics for the database.
-	metrics *littDBMetrics
+	metrics *metrics.LittDBMetrics
 
 	// A function that releases file locks.
 	releaseLocks func()
@@ -87,7 +88,7 @@ func NewDB(config *Config) (DB, error) {
 		return nil, fmt.Errorf("error acquiring locks on paths %v: %w", config.Paths, err)
 	}
 
-	dbMetrics := newLittDBMetrics()
+	dbMetrics := metrics.NewLittDBMetrics()
 
 	if config.SnapshotDirectory != "" {
 		config.Logger.Info(fmt.Sprintf("LittDB rolling snapshots enabled, snapshot data will be stored in %s",
@@ -243,13 +244,13 @@ func (d *db) gatherMetrics(interval time.Duration) {
 			return
 		case <-ticker.C:
 			d.lock.Lock()
-			tablesCopy := make(map[string]ManagedTable, len(d.tables))
-			for name, table := range d.tables {
-				tablesCopy[name] = table
+			tables := make([]metrics.TableInfo, 0, len(d.tables))
+			for _, table := range d.tables {
+				tables = append(tables, table)
 			}
 			d.lock.Unlock()
 
-			d.metrics.CollectPeriodicMetrics(tablesCopy)
+			d.metrics.CollectPeriodicMetrics(tables)
 		}
 	}
 }

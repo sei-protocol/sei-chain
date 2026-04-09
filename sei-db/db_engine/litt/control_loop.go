@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -92,7 +93,7 @@ type controlLoop struct {
 	stopped atomic.Bool
 
 	// Encapsulates metrics for the database.
-	metrics *littDBMetrics
+	metrics *metrics.LittDBMetrics
 
 	// The table's name.
 	name string
@@ -332,7 +333,9 @@ func (c *controlLoop) expandSegments() error {
 		c.snapshottingEnabled,
 		c.metadata.GetShardingFactor(),
 		salt,
-		c.fsync)
+		c.fsync,
+		c.metrics,
+		c.name)
 	if err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -109,7 +110,9 @@ func CreateSegment(
 	snapshottingEnabled bool,
 	shardingFactor uint8,
 	salt [16]byte,
-	fsync bool) (*Segment, error) {
+	fsync bool,
+	m *metrics.LittDBMetrics,
+	tableName string) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
 		return nil, errors.New("no segment paths provided")
@@ -174,6 +177,15 @@ func CreateSegment(
 	// Segments are returned with an initial reference count of 1, as the caller of the constructor is considered to
 	// have a reference to the segment.
 	segment.reservationCount.Store(1)
+
+	// Register channel observers for this segment.
+	segPrefix := fmt.Sprintf("%s/segment/%d", tableName, index)
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
+		ch := shardChannels[shard]
+		m.RegisterChannel(fmt.Sprintf("%s/shard/%d", segPrefix, shard), func() int { return len(ch) })
+	}
+	kfCh := keyFileChannel
+	m.RegisterChannel(segPrefix+"/key_file", func() int { return len(kfCh) })
 
 	// Start up the control loops.
 	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {

@@ -35,9 +35,9 @@ func newTestKeymapManagerWithBatchSize(
 	kmap, _, err := NewMemKeymap(logger, "", false)
 	require.NoError(t, err)
 
-	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })
-	km := NewKeymapManager(logger, errorMonitor, kmap, cache, workChanSize, targetWriteBatchSize)
+	km := NewKeymapManager(logger, errorMonitor, kmap, cache, workChanSize, targetWriteBatchSize, nil, "test")
 	return km
 }
 
@@ -197,9 +197,9 @@ func TestErrorMonitorPanic(t *testing.T) {
 	kmap, _, err := NewMemKeymap(logger, "", false)
 	require.NoError(t, err)
 
-	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })
-	km := NewKeymapManager(logger, errorMonitor, kmap, cache, 16, defaultTargetWriteBatchSize)
+	km := NewKeymapManager(logger, errorMonitor, kmap, cache, 16, defaultTargetWriteBatchSize, nil, "test")
 
 	// Panic cancels the context, which causes ImmediateShutdownRequired to fire.
 	errorMonitor.Panic(fmt.Errorf("test error"))
@@ -275,9 +275,9 @@ func TestWriteBatching(t *testing.T) {
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 
-	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })
-	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 100)
+	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 100, nil, "test")
 
 	for i := 0; i < 50; i++ {
 		require.NoError(t, km.WriteKeys(makeKeys(fmt.Sprintf("key-%d", i))))
@@ -308,9 +308,9 @@ func TestWriteBatchingRespectsTargetSize(t *testing.T) {
 	require.NoError(t, err)
 	counting := &countingKeymap{inner: inner}
 
-	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })
-	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 5)
+	km := NewKeymapManager(logger, errorMonitor, counting, cache, 128, 5, nil, "test")
 
 	// Enqueue 20 write requests of 1 key each.
 	for i := 0; i < 20; i++ {

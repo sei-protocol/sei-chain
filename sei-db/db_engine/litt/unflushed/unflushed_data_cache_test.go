@@ -15,7 +15,7 @@ func newTestCache(t *testing.T) *UnflushedDataCache {
 	logger := test.GetLogger()
 	ctx := context.Background()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
-	return NewUnflushedDataCache(logger, errorMonitor, 64)
+	return NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 }
 
 func makeScopedKeys(keyStrings ...string) []types.ScopedKey {

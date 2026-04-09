@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
@@ -20,7 +21,7 @@ type cachedTable struct {
 	// This cache holds values that were recently read from the base table.
 	readCache cache.Cache[string, []byte]
 	// Metrics for the table.
-	metrics *littDBMetrics
+	metrics *metrics.LittDBMetrics
 }
 
 // newCachedTable creates wrapper around a table that caches recently written and read values.
@@ -28,13 +29,13 @@ func newCachedTable(
 	base ManagedTable,
 	writeCache cache.Cache[string, []byte],
 	readCache cache.Cache[string, []byte],
-	metrics *littDBMetrics,
+	m *metrics.LittDBMetrics,
 ) ManagedTable {
 	return &cachedTable{
 		base:       base,
 		writeCache: writeCache,
 		readCache:  readCache,
-		metrics:    metrics,
+		metrics:    m,
 	}
 }
 

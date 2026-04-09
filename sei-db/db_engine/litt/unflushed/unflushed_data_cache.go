@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -37,6 +38,8 @@ func NewUnflushedDataCache(
 	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
 	workChanSize int,
+	m *metrics.LittDBMetrics,
+	tableName string,
 ) *UnflushedDataCache {
 	u := &UnflushedDataCache{
 		logger:          logger,
@@ -46,6 +49,7 @@ func NewUnflushedDataCache(
 		flushedKeys:     util.NewRandomAccessDeque[string](64),
 		flushedSegments: util.NewRandomAccessDeque[string](64),
 	}
+	m.RegisterChannel(tableName+"/unflushed_cache", func() int { return len(u.workChan) })
 	go u.run()
 	return u
 }

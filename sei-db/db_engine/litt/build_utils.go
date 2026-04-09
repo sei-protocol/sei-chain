@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	cache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util/datacache"
 )
@@ -20,7 +21,7 @@ func buildTable(
 	config *Config,
 	logger *slog.Logger,
 	name string,
-	metrics *littDBMetrics) (ManagedTable, error) {
+	m *metrics.LittDBMetrics) (ManagedTable, error) {
 
 	var table ManagedTable
 
@@ -42,19 +43,19 @@ func buildTable(
 		keymapTypeFile,
 		config.Paths,
 		requiresReload,
-		metrics)
+		m)
 
 	if err != nil {
 		return nil, fmt.Errorf("error creating table: %w", err)
 	}
 
-	writeCache := cache.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
+	writeCache := cache.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, m.GetWriteCacheMetrics())
 	writeCache = cache.NewThreadSafeCache(writeCache)
 
-	readCache := cache.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
+	readCache := cache.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, m.GetReadCacheMetrics())
 	readCache = cache.NewThreadSafeCache(readCache)
 
-	cachedTable := newCachedTable(table, writeCache, readCache, metrics)
+	cachedTable := newCachedTable(table, writeCache, readCache, m)
 
 	return cachedTable, nil
 }

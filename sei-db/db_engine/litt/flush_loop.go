@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -35,7 +36,7 @@ type flushLoop struct {
 	flushChannel chan any
 
 	// metrics encapsulates metrics for the DB.
-	metrics *littDBMetrics
+	metrics *metrics.LittDBMetrics
 
 	// provides the current time
 	clock func() time.Time
@@ -58,7 +59,7 @@ func NewFlushLoop(
 	clock func() time.Time,
 	name string,
 	upperBoundSnapshotFile *BoundaryFile,
-	metrics *littDBMetrics,
+	m *metrics.LittDBMetrics,
 ) *flushLoop {
 	return &flushLoop{
 		logger:                 logger,
@@ -70,7 +71,7 @@ func NewFlushLoop(
 		name:                   name,
 		upperBoundSnapshotFile: upperBoundSnapshotFile,
 		flushChannel:           make(chan any, 1000), // TODO before merge: this should be configurable!
-		metrics:                metrics,
+		metrics:                m,
 	}
 }
 

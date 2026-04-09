@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/unflushed"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -44,6 +45,8 @@ func NewKeymapManager(
 	unflushedDataCache *unflushed.UnflushedDataCache,
 	workChanSize int,
 	targetWriteBatchSize int,
+	m *metrics.LittDBMetrics,
+	tableName string,
 ) *KeymapManager {
 	km := &KeymapManager{
 		logger:               logger,
@@ -53,6 +56,7 @@ func NewKeymapManager(
 		targetWriteBatchSize: targetWriteBatchSize,
 		unflushedDataCache:   unflushedDataCache,
 	}
+	m.RegisterChannel(tableName+"/keymap_manager", func() int { return len(km.workChan) })
 	go km.run()
 	return km
 }

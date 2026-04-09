@@ -23,9 +23,9 @@ func newTestKeymapManager(t *testing.T) *keymap.KeymapManager {
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 	kmap, _, err := keymap.NewMemKeymap(logger, "", false)
 	require.NoError(t, err)
-	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64)
+	cache := unflushed.NewUnflushedDataCache(logger, errorMonitor, 64, nil, "test")
 	t.Cleanup(func() { cache.Stop() })
-	return keymap.NewKeymapManager(logger, errorMonitor, kmap, cache, 1024, 1024)
+	return keymap.NewKeymapManager(logger, errorMonitor, kmap, cache, 1024, 1024, nil, "test")
 }
 
 // countFilesInDirectory returns the number of files in the given directory.
@@ -75,7 +75,9 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		false,
 		1,
 		salt,
-		false)
+		false,
+		nil,
+		"test")
 
 	require.NoError(t, err)
 
@@ -227,7 +229,9 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		false,
 		shardCount,
 		salt,
-		false)
+		false,
+		nil,
+		"test")
 
 	require.NoError(t, err)
 
@@ -388,7 +392,9 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		false,
 		shardCount,
 		salt,
-		false)
+		false,
+		nil,
+		"test")
 
 	require.NoError(t, err)
 
@@ -500,7 +506,9 @@ func TestGetFilePaths(t *testing.T) {
 		false,
 		shardingFactor,
 		([16]byte)(salt),
-		false)
+		false,
+		nil,
+		"test")
 	require.NoError(t, err)
 
 	files := segment.GetFilePaths()
