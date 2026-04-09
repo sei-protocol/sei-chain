@@ -178,14 +178,15 @@ func CreateSegment(
 	// have a reference to the segment.
 	segment.reservationCount.Store(1)
 
-	// Register channel observers for this segment.
-	segPrefix := fmt.Sprintf("%s/segment/%d", tableName, index)
+	// Register channel observers. Names are stable per-table (no segment index)
+	// so that when a new mutable segment replaces the old one, the upsert
+	// semantics of RegisterChannel swap the closure to the new channel.
 	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		ch := shardChannels[shard]
-		m.RegisterChannel(fmt.Sprintf("%s/shard/%d", segPrefix, shard), func() int { return len(ch) })
+		m.RegisterChannel(fmt.Sprintf("%s/segment/shard/%d", tableName, shard), func() int { return len(ch) })
 	}
 	kfCh := keyFileChannel
-	m.RegisterChannel(segPrefix+"/key_file", func() int { return len(kfCh) })
+	m.RegisterChannel(tableName+"/segment/key_file", func() int { return len(kfCh) })
 
 	// Start up the control loops.
 	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
