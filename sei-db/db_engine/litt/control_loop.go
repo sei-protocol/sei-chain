@@ -127,22 +127,32 @@ func (c *controlLoop) run() {
 	ticker := time.NewTicker(c.garbageCollectionPeriod)
 	defer ticker.Stop()
 
+	phaseTimer := c.metrics.GetControlLoopPhaseTimer()
+
 	for {
+		phaseTimer.SetPhase("idle")
 		select {
 		case <-c.errorMonitor.ImmediateShutdownRequired():
+			phaseTimer.Reset()
 			c.diskTable.logger.Info("context done, shutting down disk table control loop")
 			return
 		case message := <-c.controllerChannel:
 			if req, ok := message.(*controlLoopWriteRequest); ok {
+				phaseTimer.SetPhase("write")
 				c.handleWriteRequest(req)
 			} else if req, ok := message.(*controlLoopFlushRequest); ok {
+				phaseTimer.SetPhase("flush")
 				c.handleFlushRequest(req)
 			} else if req, ok := message.(*controlLoopSetShardingFactorRequest); ok {
+				phaseTimer.SetPhase("set_sharding_factor")
 				c.handleControlLoopSetShardingFactorRequest(req)
 			} else if req, ok := message.(*controlLoopShutdownRequest); ok {
+				phaseTimer.SetPhase("shutdown")
 				c.handleShutdownRequest(req)
+				phaseTimer.Reset()
 				return
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
+				phaseTimer.SetPhase("gc")
 				c.doGarbageCollection()
 				req.completionChan <- struct{}{}
 			} else {
@@ -150,6 +160,7 @@ func (c *controlLoop) run() {
 				return
 			}
 		case <-ticker.C:
+			phaseTimer.SetPhase("gc")
 			c.doGarbageCollection()
 		}
 	}

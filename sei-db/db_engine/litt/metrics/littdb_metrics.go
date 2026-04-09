@@ -48,6 +48,8 @@ type LittDBMetrics struct {
 	writeCacheMetrics *cache.CacheMetrics
 	readCacheMetrics  *cache.CacheMetrics
 
+	controlLoopPhaseTimer *sharedmetrics.PhaseTimer
+
 	*channelObserver
 }
 
@@ -150,6 +152,8 @@ func NewLittDBMetrics() *LittDBMetrics {
 	writeCacheMetrics := cache.NewCacheMetrics(meter, "chunk_write")
 	readCacheMetrics := cache.NewCacheMetrics(meter, "chunk_read")
 
+	controlLoopPhaseTimer := sharedmetrics.NewPhaseTimer(meter, "litt_control_loop")
+
 	return &LittDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
 		tableKeyCount:            tableKeyCount,
@@ -169,6 +173,7 @@ func NewLittDBMetrics() *LittDBMetrics {
 		garbageCollectionLatency: garbageCollectionLatency,
 		writeCacheMetrics:        writeCacheMetrics,
 		readCacheMetrics:         readCacheMetrics,
+		controlLoopPhaseTimer:    controlLoopPhaseTimer,
 		channelObserver:          newChannelObserver(meter),
 	}
 }
@@ -290,4 +295,11 @@ func (m *LittDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
 		return nil
 	}
 	return m.readCacheMetrics
+}
+
+func (m *LittDBMetrics) GetControlLoopPhaseTimer() *sharedmetrics.PhaseTimer {
+	if m == nil {
+		return nil
+	}
+	return m.controlLoopPhaseTimer
 }
