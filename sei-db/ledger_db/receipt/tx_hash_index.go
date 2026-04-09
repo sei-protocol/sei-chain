@@ -116,12 +116,16 @@ func (idx *PebbleTxHashIndex) GetBlockNumber(_ context.Context, txHash common.Ha
 	return decodeBlockNumber(val), true, nil
 }
 
-func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, txHashes []common.Hash) error {
+func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, txHashes []common.Hash) (err error) {
 	if len(txHashes) == 0 {
 		return nil
 	}
 	batch := idx.db.NewBatch()
-	defer batch.Close()
+	defer func() {
+		if closeErr := batch.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	blockVal := encodeBlockNumber(blockNumber)
 	for _, txHash := range txHashes {
@@ -135,7 +139,7 @@ func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, 
 	return batch.Commit(dbtypes.WriteOptions{Sync: true})
 }
 
-func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64) error {
+func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64) (err error) {
 	lowerBound := makeBlockPrefixKey(0)
 	upperBound := makeBlockPrefixKey(blockNumber)
 
@@ -148,7 +152,11 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 	}
 
 	batch := idx.db.NewBatch()
-	defer batch.Close()
+	defer func() {
+		if closeErr := batch.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	const maxBatchSize = 10000
 	count := 0
