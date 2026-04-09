@@ -237,7 +237,10 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 }
 
 func TestStoreEarliestVersion(t *testing.T) {
-	store, err := NewStore(StoreConfig{DBDirectory: t.TempDir()})
+	store, err := NewStore(StoreConfig{
+		DBDirectory:          t.TempDir(),
+		DisableTxIndexLookup: true,
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
