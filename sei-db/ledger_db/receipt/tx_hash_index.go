@@ -1,0 +1,253 @@
+package receipt
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+)
+
+// TxHashIndex maps transaction hashes to the block number that contains them.
+// Implementations must be safe for concurrent use.
+type TxHashIndex interface {
+	// GetBlockNumber returns the block number for a given tx hash.
+	// Returns (0, false, nil) when the hash is not indexed.
+	GetBlockNumber(ctx context.Context, txHash common.Hash) (blockNumber uint64, ok bool, err error)
+
+	// IndexBlock associates every tx hash in the slice with blockNumber.
+	IndexBlock(ctx context.Context, blockNumber uint64, txHashes []common.Hash) error
+
+	// PruneBefore removes all index entries for blocks strictly below blockNumber.
+	PruneBefore(ctx context.Context, blockNumber uint64) error
+
+	Close() error
+}
+
+// Key layout for the Pebble-backed index:
+//
+//	Primary:  'h' + txHash (32 bytes)  -> blockNumber (8 bytes big-endian)
+//	Reverse:  'b' + blockNumber (8 BE) + txHash (32 bytes) -> empty
+//
+// The reverse mapping lets PruneBefore delete old entries efficiently
+// using a range scan on the 'b' prefix.
+const (
+	txHashPrefix = 'h'
+	blockPrefix  = 'b'
+	txHashLen    = 32
+	blockNumLen  = 8
+)
+
+func makeTxHashKey(txHash common.Hash) []byte {
+	key := make([]byte, 1+txHashLen)
+	key[0] = txHashPrefix
+	copy(key[1:], txHash[:])
+	return key
+}
+
+func makeBlockPrefixKey(blockNumber uint64) []byte {
+	key := make([]byte, 1+blockNumLen)
+	key[0] = blockPrefix
+	binary.BigEndian.PutUint64(key[1:], blockNumber)
+	return key
+}
+
+func makeBlockTxKey(blockNumber uint64, txHash common.Hash) []byte {
+	key := make([]byte, 1+blockNumLen+txHashLen)
+	key[0] = blockPrefix
+	binary.BigEndian.PutUint64(key[1:], blockNumber)
+	copy(key[1+blockNumLen:], txHash[:])
+	return key
+}
+
+func encodeBlockNumber(blockNumber uint64) []byte {
+	buf := make([]byte, blockNumLen)
+	binary.BigEndian.PutUint64(buf, blockNumber)
+	return buf
+}
+
+func decodeBlockNumber(b []byte) uint64 {
+	return binary.BigEndian.Uint64(b)
+}
+
+// PebbleTxHashIndex is the first concrete implementation of TxHashIndex,
+// backed by the shared sei-db Pebble KV wrapper.
+type PebbleTxHashIndex struct {
+	db        dbtypes.KeyValueDB
+	closeOnce sync.Once
+}
+
+var _ TxHashIndex = (*PebbleTxHashIndex)(nil)
+
+// NewPebbleTxHashIndex opens (or creates) a Pebble-backed tx hash index
+// in the given directory.
+func NewPebbleTxHashIndex(dir string) (*PebbleTxHashIndex, error) {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create tx hash index directory: %w", err)
+	}
+	cfg := pebbledb.DefaultConfig()
+	cfg.DataDir = dir
+	db, err := pebbledb.Open(context.Background(), &cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open tx hash index pebble db: %w", err)
+	}
+	return &PebbleTxHashIndex{db: db}, nil
+}
+
+func (idx *PebbleTxHashIndex) GetBlockNumber(_ context.Context, txHash common.Hash) (uint64, bool, error) {
+	val, err := idx.db.Get(makeTxHashKey(txHash))
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if len(val) < blockNumLen {
+		return 0, false, fmt.Errorf("corrupt tx hash index entry: expected %d bytes, got %d", blockNumLen, len(val))
+	}
+	return decodeBlockNumber(val), true, nil
+}
+
+func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, txHashes []common.Hash) error {
+	if len(txHashes) == 0 {
+		return nil
+	}
+	batch := idx.db.NewBatch()
+	defer batch.Close()
+
+	blockVal := encodeBlockNumber(blockNumber)
+	for _, txHash := range txHashes {
+		if err := batch.Set(makeTxHashKey(txHash), blockVal); err != nil {
+			return err
+		}
+		if err := batch.Set(makeBlockTxKey(blockNumber, txHash), nil); err != nil {
+			return err
+		}
+	}
+	return batch.Commit(dbtypes.WriteOptions{Sync: true})
+}
+
+func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64) error {
+	lowerBound := makeBlockPrefixKey(0)
+	upperBound := makeBlockPrefixKey(blockNumber)
+
+	iter, err := idx.db.NewIter(&dbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+	})
+	if err != nil {
+		return err
+	}
+
+	batch := idx.db.NewBatch()
+	defer batch.Close()
+
+	const maxBatchSize = 10000
+	count := 0
+
+	for ok := iter.First(); ok; ok = iter.Next() {
+		key := bytes.Clone(iter.Key())
+		if len(key) == 1+blockNumLen+txHashLen && key[0] == blockPrefix {
+			var txHash common.Hash
+			copy(txHash[:], key[1+blockNumLen:])
+			if err := batch.Delete(makeTxHashKey(txHash)); err != nil {
+				return err
+			}
+		}
+		if err := batch.Delete(key); err != nil {
+			return err
+		}
+		count++
+		if count >= maxBatchSize {
+			if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+				return err
+			}
+			batch.Reset()
+			count = 0
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return err
+	}
+	if err := iter.Close(); err != nil {
+		return err
+	}
+	if count > 0 {
+		return batch.Commit(dbtypes.WriteOptions{})
+	}
+	return nil
+}
+
+func (idx *PebbleTxHashIndex) Close() error {
+	var err error
+	idx.closeOnce.Do(func() {
+		err = idx.db.Close()
+	})
+	return err
+}
+
+// txHashIndexPruner runs periodic pruning on a TxHashIndex, aligned with
+// parquet file pruning. It is started by the parquet receipt store when the
+// tx hash index is enabled.
+type txHashIndexPruner struct {
+	index    TxHashIndex
+	interval time.Duration
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	// latestBlock is called to determine the latest block for prune calculations.
+	latestBlock func() int64
+	keepRecent  int64
+}
+
+func newTxHashIndexPruner(index TxHashIndex, keepRecent, pruneIntervalSec int64, latestBlock func() int64) *txHashIndexPruner {
+	return &txHashIndexPruner{
+		index:       index,
+		interval:    time.Duration(pruneIntervalSec) * time.Second,
+		stopCh:      make(chan struct{}),
+		latestBlock: latestBlock,
+		keepRecent:  keepRecent,
+	}
+}
+
+func (p *txHashIndexPruner) Start() {
+	if p.keepRecent <= 0 || p.interval <= 0 {
+		return
+	}
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		for {
+			latest := p.latestBlock()
+			pruneBefore := latest - p.keepRecent
+			if pruneBefore > 0 {
+				if err := p.index.PruneBefore(context.Background(), uint64(pruneBefore)); err != nil {
+					logger.Error("failed to prune tx hash index", "err", err)
+				}
+			}
+			select {
+			case <-p.stopCh:
+				return
+			case <-time.After(p.interval):
+			}
+		}
+	}()
+}
+
+func (p *txHashIndexPruner) Stop() {
+	close(p.stopCh)
+	p.wg.Wait()
+}
+
+// TxHashIndexDir returns the canonical subdirectory name for the Pebble
+// tx-hash index within a receipt store DB directory.
+func TxHashIndexDir(receiptDBDir string) string {
+	return filepath.Join(receiptDBDir, "tx-hash-index")
+}
