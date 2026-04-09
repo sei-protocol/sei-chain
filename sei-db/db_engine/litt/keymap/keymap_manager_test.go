@@ -384,6 +384,10 @@ func (c *countingKeymap) Destroy() error {
 	return c.inner.Destroy()
 }
 
+func (c *countingKeymap) Flush() error {
+	return c.inner.Flush()
+}
+
 func (c *countingKeymap) ReverseIterator() (KeymapReverseIterator, error) {
 	return c.inner.ReverseIterator()
 }

@@ -171,12 +171,7 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 		return fmt.Errorf("failed to set latest key metadata: %w", err)
 	}
 
-	writeOpts := pebble.NoSync
-	if p.syncWrites {
-		writeOpts = pebble.Sync
-	}
-
-	if err := batch.Commit(writeOpts); err != nil {
+	if err := batch.Commit(pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to commit batch to PebbleDB: %w", err)
 	}
 
@@ -218,6 +213,18 @@ func (p *PebbleKeymap) Delete(keys []types.ScopedKey) error {
 		return fmt.Errorf("failed to commit delete batch to PebbleDB: %w", err)
 	}
 
+	return nil
+}
+
+func (p *PebbleKeymap) Flush() error {
+	if !p.syncWrites {
+		return nil
+	}
+	batch := p.db.NewBatch()
+	defer func() { _ = batch.Close() }()
+	if err := batch.Commit(pebble.Sync); err != nil {
+		return fmt.Errorf("failed to sync PebbleDB WAL: %w", err)
+	}
 	return nil
 }
 

@@ -184,7 +184,7 @@ func (m *LittDBMetrics) RegisterChannel(name string, sizeFunc func() int) {
 	if m == nil {
 		return
 	}
-	m.channelObserver.register(name, sizeFunc)
+	m.register(name, sizeFunc)
 }
 
 // CollectPeriodicMetrics snapshots table sizes, key counts, and channel
@@ -199,7 +199,7 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables []TableInfo) {
 		m.tableSizeInBytes.Record(ctx, int64(table.Size()), attrs)  //nolint:gosec
 		m.tableKeyCount.Record(ctx, int64(table.KeyCount()), attrs) //nolint:gosec
 	}
-	m.channelObserver.collectOnce()
+	m.collectOnce()
 }
 
 // ReportReadOperation reports the results of a read operation.

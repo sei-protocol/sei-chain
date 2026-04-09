@@ -193,8 +193,18 @@ func (k *KeymapManager) handleNonWriteMessage(message any) {
 			k.errorMonitor.Panic(fmt.Errorf("failed to delete keys from keymap: %w", err))
 		}
 	} else if req, ok := message.(*keymapManagerFlushRequest); ok {
+		err := k.keymap.Flush()
+		if err != nil {
+			k.errorMonitor.Panic(fmt.Errorf("failed to flush keymap: %w", err))
+			return
+		}
 		req.responseChan <- struct{}{}
 	} else if req, ok := message.(*keymapManagerShutdownRequest); ok {
+		err := k.keymap.Flush()
+		if err != nil {
+			k.errorMonitor.Panic(fmt.Errorf("failed to flush keymap on shutdown: %w", err))
+			return
+		}
 		req.responseChan <- struct{}{}
 		k.stopped = true
 	} else {

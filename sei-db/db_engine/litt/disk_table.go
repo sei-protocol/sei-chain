@@ -192,7 +192,7 @@ func newDiskTable(
 		kmap,
 		unflushedDataCache,
 		1024, // TODO explicit settings!
-		1024 * 100,
+		1024*100,
 		m,
 		name,
 	)

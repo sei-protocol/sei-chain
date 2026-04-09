@@ -179,6 +179,10 @@ func (l *LevelDBKeymap) Delete(keys []types.ScopedKey) error {
 	return nil
 }
 
+func (l *LevelDBKeymap) Flush() error {
+	return nil
+}
+
 func (l *LevelDBKeymap) Stop() error {
 	alive := l.alive.Swap(false)
 	if !alive {

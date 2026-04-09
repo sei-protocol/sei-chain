@@ -104,6 +104,10 @@ func (m *memKeymap) Delete(keys []types.ScopedKey) error {
 	return nil
 }
 
+func (m *memKeymap) Flush() error {
+	return nil
+}
+
 func (m *memKeymap) Stop() error {
 	return nil
 }

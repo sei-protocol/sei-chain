@@ -46,6 +46,9 @@ type Keymap interface {
 	// This includes the byte slices containing the keys.
 	Delete(keys []types.ScopedKey) error
 
+	// Flush ensures that all data previously written via Put() is durable on disk.
+	Flush() error
+
 	// Stop stops the keymap.
 	Stop() error
 
