@@ -7,6 +7,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -57,7 +58,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		return value, value != nil
 
 	case evm.EVMKeyLegacy:
-		value, err := s.getLegacyValue(keyBytes)
+		value, err := s.getLegacyValue(evm.EVMStoreKey, keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get legacy key %x: %v", key, err))
 		}
@@ -195,40 +196,41 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // Internal Getters (used by ApplyChangeSets for LtHash computation)
 // =============================================================================
 
+// readFromDB checks pending writes first, then falls back to a DB read.
+// Returns (zero, nil) when the key is not found.
+func readFromDB[T vtype.VType](
+	physKey []byte,
+	pendingWrites map[string]T,
+	db seidbtypes.KeyValueDB,
+	deserialize func([]byte) (T, error),
+	dbName string,
+) (T, error) {
+	if v, ok := pendingWrites[string(physKey)]; ok {
+		return v, nil
+	}
+	raw, err := db.Get(physKey)
+	if err != nil {
+		var zero T
+		if errorutils.IsNotFound(err) {
+			return zero, nil
+		}
+		return zero, fmt.Errorf("%s I/O error for key %x: %w", dbName, physKey, err)
+	}
+	return deserialize(raw)
+}
+
 func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {
-	addr, ok := AddressFromBytes(keyBytes)
-	if !ok {
+	if len(keyBytes) != AddressLen {
 		return nil, nil
 	}
-
-	if accountValue, found := s.accountWrites[string(addr[:])]; found {
-		return accountValue, nil
-	}
-
-	encoded, err := s.accountDB.Get(AccountKey(addr))
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("accountDB I/O error for key %x: %w", addr, err)
-	}
-	return vtype.DeserializeAccountData(encoded)
+	return readFromDB(EVMPhysicalKey(EVMKeyAccount, keyBytes), s.accountWrites, s.accountDB, vtype.DeserializeAccountData, "accountDB")
 }
 
 func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error) {
-	pendingWrite, hasPending := s.storageWrites[string(keyBytes)]
-	if hasPending {
-		return pendingWrite, nil
+	if len(keyBytes) != AddressLen+SlotLen {
+		return nil, nil
 	}
-
-	value, err := s.storageDB.Get(keyBytes)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("storageDB I/O error for key %x: %w", keyBytes, err)
-	}
-	return vtype.DeserializeStorageData(value)
+	return readFromDB(EVMPhysicalKey(evm.EVMKeyStorage, keyBytes), s.storageWrites, s.storageDB, vtype.DeserializeStorageData, "storageDB")
 }
 
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
@@ -243,19 +245,10 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
-	pendingWrite, hasPending := s.codeWrites[string(keyBytes)]
-	if hasPending {
-		return pendingWrite, nil
+	if len(keyBytes) != AddressLen {
+		return nil, nil
 	}
-
-	value, err := s.codeDB.Get(keyBytes)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("codeDB I/O error for key %x: %w", keyBytes, err)
-	}
-	return vtype.DeserializeCodeData(value)
+	return readFromDB(EVMPhysicalKey(evm.EVMKeyCode, keyBytes), s.codeWrites, s.codeDB, vtype.DeserializeCodeData, "codeDB")
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
@@ -269,24 +262,12 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 	return cd.GetBytecode(), nil
 }
 
-func (s *CommitStore) getLegacyData(keyBytes []byte) (*vtype.LegacyData, error) {
-	pendingWrite, hasPending := s.legacyWrites[string(keyBytes)]
-	if hasPending {
-		return pendingWrite, nil
-	}
-
-	value, err := s.legacyDB.Get(keyBytes)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("legacyDB I/O error for key %x: %w", keyBytes, err)
-	}
-	return vtype.DeserializeLegacyData(value)
+func (s *CommitStore) getLegacyData(moduleName string, keyBytes []byte) (*vtype.LegacyData, error) {
+	return readFromDB(ModulePhysicalKey(moduleName, keyBytes), s.legacyWrites, s.legacyDB, vtype.DeserializeLegacyData, "legacyDB")
 }
 
-func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
-	ld, err := s.getLegacyData(key)
+func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, error) {
+	ld, err := s.getLegacyData(moduleName, key)
 	if err != nil {
 		return nil, err
 	}

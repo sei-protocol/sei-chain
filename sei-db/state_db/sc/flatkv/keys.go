@@ -3,6 +3,7 @@ package flatkv
 import (
 	"bytes"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -29,6 +30,20 @@ var (
 func isMetaKey(key []byte) bool {
 	return bytes.HasPrefix(key, metaKeyPrefixBytes)
 }
+
+// EVMKeyAccount is the canonical EVMKeyKind for the merged account row in
+// accountDB. FlatKV merges nonce (0x0a), codehash (0x08), and future balance
+// into one physical row. The nonce prefix byte (0x0a) is reused as the
+// canonical type byte so the physical key is "evm/" + 0x0a + addr.
+//
+// Physical key prefix mapping (all DBs):
+//
+//	Kind            Prefix  DB         Physical Key
+//	EVMKeyStorage   0x03    storageDB  "evm/" + 0x03 + addr||slot
+//	EVMKeyAccount   0x0a    accountDB  "evm/" + 0x0a + addr  (merges nonce, codehash, balance)
+//	EVMKeyCode      0x07    codeDB     "evm/" + 0x07 + addr
+//	EVMKeyLegacy    (orig)  legacyDB   "evm/" + original_key  OR  "module/" + cosmos_key
+const EVMKeyAccount = evm.EVMKeyNonce
 
 const (
 	AddressLen = 20
@@ -83,6 +98,60 @@ func SlotFromBytes(b []byte) (Slot, bool) {
 	var s Slot
 	copy(s[:], b)
 	return s, true
+}
+
+// =============================================================================
+// Module Prefix Helpers (physical key namespacing for all DBs)
+// =============================================================================
+
+// ModulePhysicalKey returns "moduleName/" + key.
+// All four data DBs (account, code, storage, legacy) use this format so keys
+// remain unique and LtHash-stable when DBs are merged in the future.
+func ModulePhysicalKey(moduleName string, key []byte) []byte {
+	n := len(moduleName)
+	result := make([]byte, n+1+len(key))
+	copy(result, moduleName)
+	result[n] = '/'
+	copy(result[n+1:], key)
+	return result
+}
+
+// StripModulePrefix splits a module-prefixed physical key into its module name
+// and original key. Returns ok=false if no "/" separator is found.
+func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, ok bool) {
+	mod, rest, found := bytes.Cut(physicalKey, []byte{'/'})
+	if !found {
+		return "", nil, false
+	}
+	return string(mod), rest, true
+}
+
+// EVMPhysicalKey returns the physical DB key for an EVM key kind.
+// Format: "evm/" + type_prefix_byte + stripped_key.
+// For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
+// because these fields are merged into one physical row.
+func EVMPhysicalKey(kind evm.EVMKeyKind, strippedKey []byte) []byte {
+	canonicalKind := kind
+	if kind == evm.EVMKeyCodeHash {
+		canonicalKind = EVMKeyAccount
+	}
+	memiavlKey := evm.BuildMemIAVLEVMKey(canonicalKind, strippedKey)
+	if memiavlKey == nil {
+		return nil
+	}
+	return ModulePhysicalKey(evm.EVMStoreKey, memiavlKey)
+}
+
+// StripEVMPhysicalKey extracts the EVM key kind and stripped key from a
+// physical DB key. This is the inverse of EVMPhysicalKey for export paths.
+// For account keys the returned kind is EVMKeyAccount (evm.EVMKeyNonce).
+func StripEVMPhysicalKey(physicalKey []byte) (kind evm.EVMKeyKind, strippedKey []byte, ok bool) {
+	_, memiavlKey, found := StripModulePrefix(physicalKey)
+	if !found {
+		return evm.EVMKeyEmpty, nil, false
+	}
+	kind, strippedKey = evm.ParseEVMKey(memiavlKey)
+	return kind, strippedKey, kind != evm.EVMKeyEmpty
 }
 
 // PrefixEnd returns the exclusive upper bound for prefix iteration (or nil).

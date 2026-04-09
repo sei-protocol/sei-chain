@@ -29,23 +29,24 @@ var (
 )
 
 // newDBIterator creates a new dbIterator for the given key kind.
+// start/end are external memiavl keys; they are converted to physical keys
+// for the underlying DB iterator.
 func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) Iterator {
-	// Convert external bounds to internal bounds
-	var internalStart, internalEnd []byte
-	startMatches := start == nil // nil start means unbounded
-	endMatches := end == nil     // nil end means unbounded
+	var physStart, physEnd []byte
+	startMatches := start == nil
+	endMatches := end == nil
 
 	if start != nil {
 		parsedKind, keyBytes := evm.ParseEVMKey(start)
 		if parsedKind == kind {
-			internalStart = keyBytes
+			physStart = EVMPhysicalKey(kind, keyBytes)
 			startMatches = true
 		}
 	}
 	if end != nil {
 		parsedKind, keyBytes := evm.ParseEVMKey(end)
 		if parsedKind == kind {
-			internalEnd = keyBytes
+			physEnd = EVMPhysicalKey(kind, keyBytes)
 			endMatches = true
 		}
 	}
@@ -55,8 +56,8 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 	}
 
 	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: internalStart,
-		UpperBound: internalEnd,
+		LowerBound: physStart,
+		UpperBound: physEnd,
 	})
 	if err != nil {
 		return &emptyIterator{err: err}
@@ -71,12 +72,15 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 }
 
 // newDBPrefixIterator creates a new dbIterator for prefix scanning.
-func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, internalPrefix []byte, externalPrefix []byte) Iterator {
-	internalEnd := PrefixEnd(internalPrefix)
+// strippedPrefix is the stripped key prefix (e.g. addr for storage);
+// it is converted to a physical key prefix for the DB.
+func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, strippedPrefix []byte, externalPrefix []byte) Iterator {
+	physPrefix := EVMPhysicalKey(kind, strippedPrefix)
+	physEnd := PrefixEnd(physPrefix)
 
 	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: internalPrefix,
-		UpperBound: internalEnd,
+		LowerBound: physPrefix,
+		UpperBound: physEnd,
 	})
 	if err != nil {
 		return &emptyIterator{err: err}
@@ -145,13 +149,13 @@ func (it *dbIterator) SeekGE(key []byte) bool {
 		return false
 	}
 
-	kind, internalKey := evm.ParseEVMKey(key)
+	kind, strippedKey := evm.ParseEVMKey(key)
 	if kind != it.kind {
 		it.err = fmt.Errorf("key type mismatch: expected %d, got %d", it.kind, kind)
 		return false
 	}
 
-	if !it.iter.SeekGE(internalKey) {
+	if !it.iter.SeekGE(EVMPhysicalKey(kind, strippedKey)) {
 		return false
 	}
 	it.skipMetaForward()
@@ -163,13 +167,13 @@ func (it *dbIterator) SeekLT(key []byte) bool {
 		return false
 	}
 
-	kind, internalKey := evm.ParseEVMKey(key)
+	kind, strippedKey := evm.ParseEVMKey(key)
 	if kind != it.kind {
 		it.err = fmt.Errorf("key type mismatch: expected %d, got %d", it.kind, kind)
 		return false
 	}
 
-	if !it.iter.SeekLT(internalKey) {
+	if !it.iter.SeekLT(EVMPhysicalKey(kind, strippedKey)) {
 		return false
 	}
 	it.skipMetaBackward()
@@ -219,7 +223,7 @@ func (it *dbIterator) Key() []byte {
 	if !it.Valid() {
 		return nil
 	}
-	// Return internal key format (without memiavl prefix)
+	// Returns raw physical key ("evm/" + type_prefix + stripped_key).
 	return it.iter.Key()
 }
 

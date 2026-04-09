@@ -43,6 +43,16 @@ func memiavlStorageKey(addr Address, slot Slot) []byte {
 	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal)
 }
 
+// accountPhysKey returns the physical DB key for an account address.
+func accountPhysKey(addr Address) []byte {
+	return EVMPhysicalKey(EVMKeyAccount, addr[:])
+}
+
+// storagePhysKey returns the physical DB key for a storage slot.
+func storagePhysKey(addr Address, slot Slot) []byte {
+	return EVMPhysicalKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+}
+
 // padLeft32 returns a 32-byte big-endian value with the given bytes right-aligned.
 func padLeft32(val ...byte) []byte {
 	var b [32]byte

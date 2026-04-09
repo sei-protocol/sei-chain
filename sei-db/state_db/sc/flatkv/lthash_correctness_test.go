@@ -943,7 +943,7 @@ func TestLtHashAccountRowDelete(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically absent")
 }
 
@@ -988,7 +988,7 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 	_, found = s.Get(chKey)
 	require.False(t, found, "codehash should be zero (EOA)")
 
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	ad, err := vtype.DeserializeAccountData(raw)
 	require.NoError(t, err)
@@ -1015,7 +1015,7 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err, "row should still exist after partial delete")
 	ad, err := vtype.DeserializeAccountData(raw)
 	require.NoError(t, err)
@@ -1053,7 +1053,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw := s.accountWrites[string(addr[:])]
+	paw := s.accountWrites[string(accountPhysKey(addr))]
 	require.NotNil(t, paw)
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
@@ -1104,7 +1104,7 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
 
 	// Verify isDelete is set
-	paw := s.accountWrites[string(addr[:])]
+	paw := s.accountWrites[string(accountPhysKey(addr))]
 	require.NotNil(t, paw)
 	require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
 }
@@ -1131,7 +1131,7 @@ func TestLtHashAccountWriteZeroGC(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be GC'd after write-zero")
 }
 
@@ -1162,7 +1162,7 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 			commitAndCheck(t, s)
 			verifyLtHashAtHeight(t, s, 2)
 
-			_, err := s.accountDB.Get(AccountKey(addr))
+			_, err := s.accountDB.Get(accountPhysKey(addr))
 			require.Error(t, err, "row should be GC'd regardless of order")
 		})
 	}

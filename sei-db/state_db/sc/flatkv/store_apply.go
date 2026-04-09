@@ -10,6 +10,7 @@ import (
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
+// Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	if s.readOnly {
 		return errReadOnly
@@ -19,10 +20,38 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := sortChangeSets(changeSets)
+
+	evmChangeSets := make([]*proto.NamedChangeSet, 0, len(changeSets))
+	nonEVMByModule := make(map[string]map[string][]byte)
+	for _, cs := range changeSets {
+		if cs.Name == evm.EVMStoreKey {
+			evmChangeSets = append(evmChangeSets, cs)
+		} else {
+			if cs.Changeset.Pairs == nil {
+				continue
+			}
+			modMap, ok := nonEVMByModule[cs.Name]
+			if !ok {
+				modMap = make(map[string][]byte, len(cs.Changeset.Pairs))
+				nonEVMByModule[cs.Name] = modMap
+			}
+			for _, pair := range cs.Changeset.Pairs {
+				if pair.Delete {
+					modMap[string(pair.Key)] = nil
+				} else {
+					modMap[string(pair.Key)] = pair.Value
+				}
+			}
+		}
+	}
+
+	changesByType, err := sortChangeSets(evmChangeSets)
 	if err != nil {
 		return err
 	}
+
+	prefixModuleKeys(changesByType, nonEVMByModule)
+
 	blockHeight := s.committedVersion + 1
 
 	////////////////////
@@ -118,19 +147,16 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	return nil
 }
 
-// Store a map of writes into a map of pending writes.
-func storeWrites[T vtype.VType](
-	// the map that is accumulating writes
-	pendingWrites map[string]T,
-	// new writes that need to be applied to the pendingWrites map
-	newValues map[string]T,
-) {
+func storeWrites[T vtype.VType](pendingWrites map[string]T, newValues map[string]T) {
 	for keyStr, newValue := range newValues {
 		pendingWrites[keyStr] = newValue
 	}
 }
 
-// Sort the change sets by type. Returns an error if any key is empty.
+// sortChangeSets classifies EVM changeset pairs by key kind.
+// Map keys are memiavl keys (type prefix preserved); codehash keys are
+// canonicalized to the nonce prefix (0x0a) for account merging.
+// After this, prefixModuleKeys converts all map keys to physical format.
 func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
@@ -140,15 +166,19 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[
 		}
 		for _, pair := range cs.Changeset.Pairs {
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
+
 			if kind == evm.EVMKeyEmpty {
 				return nil, fmt.Errorf("flatkv: empty key in changeset")
 			}
 
-			keyStr := string(keyBytes)
+			keyStr := string(pair.Key)
+			if kind == evm.EVMKeyCodeHash {
+				keyStr = string(evm.BuildMemIAVLEVMKey(EVMKeyAccount, keyBytes))
+			}
 
 			kindMap, ok := result[kind]
 			if !ok {
-				kindMap = make(map[string][]byte)
+				kindMap = make(map[string][]byte, len(cs.Changeset.Pairs))
 				result[kind] = kindMap
 			}
 
@@ -163,12 +193,41 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[
 	return result, nil
 }
 
+// prefixModuleKeys prepends "module/" to every key for physical DB namespacing.
+// EVM keys get "evm/" prepended (same layout as ModulePhysicalKey).
+// Non-EVM cosmos keys are merged into the legacy map with their own module prefix.
+func prefixModuleKeys(
+	changesByType map[evm.EVMKeyKind]map[string][]byte,
+	nonEVMByModule map[string]map[string][]byte,
+) {
+	evmPrefix := evm.EVMStoreKey + "/"
+	for kind, m := range changesByType {
+		prefixed := make(map[string][]byte, len(m))
+		for key, val := range m {
+			prefixed[evmPrefix+key] = val
+		}
+		changesByType[kind] = prefixed
+	}
+
+	legacyMap := changesByType[evm.EVMKeyLegacy]
+	if len(nonEVMByModule) > 0 && legacyMap == nil {
+		legacyMap = make(map[string][]byte)
+		changesByType[evm.EVMKeyLegacy] = legacyMap
+	}
+	for module, pairs := range nonEVMByModule {
+		modPrefix := module + "/"
+		for rawKey, val := range pairs {
+			legacyMap[modPrefix+rawKey] = val
+		}
+	}
+}
+
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.
 func processStorageChanges(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.StorageData, error) {
-	result := make(map[string]*vtype.StorageData)
+	result := make(map[string]*vtype.StorageData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
@@ -191,7 +250,7 @@ func processCodeChanges(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.CodeData, error) {
-	result := make(map[string]*vtype.CodeData)
+	result := make(map[string]*vtype.CodeData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
@@ -206,12 +265,11 @@ func processCodeChanges(
 
 // Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
 func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.LegacyData, error) {
-	result := make(map[string]*vtype.LegacyData)
+	result := make(map[string]*vtype.LegacyData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			// Deletion is equivalent to setting the legacy value to a zero value
-			result[keyStr] = vtype.NewLegacyData().SetValue(nil)
+			result[keyStr] = vtype.NewLegacyData().MarkDeleted()
 		} else {
 			result[keyStr] = vtype.NewLegacyData().SetValue(rawChange)
 		}
@@ -219,7 +277,6 @@ func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.Legac
 	return result, nil
 }
 
-// Gather LtHash pairs for a DB.
 func gatherLTHashPairs[T vtype.VType](
 	newValues map[string]T,
 	oldValues map[string]T,
@@ -228,7 +285,7 @@ func gatherLTHashPairs[T vtype.VType](
 	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
 
 	for keyStr, newValue := range newValues {
-		var oldValue = oldValues[keyStr]
+		oldValue := oldValues[keyStr]
 
 		var newBytes []byte
 		if !newValue.IsDelete() {
@@ -258,8 +315,7 @@ func mergeAccountUpdates(
 	balanceChanges map[string][]byte,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
-	// PendingAccountWrite objects are well behaved when nil, no need to bootstrap map entries.
-	updates := make(map[string]*vtype.PendingAccountWrite)
+	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
 
 	for key, nonceChange := range nonceChanges {
 		if nonceChange == nil {
@@ -313,7 +369,7 @@ func deriveNewAccountValues(
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
 ) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData)
+	result := make(map[string]*vtype.AccountData, len(pendingWrites))
 
 	for addrStr, pendingWrite := range pendingWrites {
 		oldValue := oldValues[addrStr]

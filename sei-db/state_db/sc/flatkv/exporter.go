@@ -166,6 +166,11 @@ func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*type
 }
 
 func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	_, addr, ok := StripEVMPhysicalKey(key)
+	if !ok {
+		return nil, fmt.Errorf("corrupt account physical key: %x", key)
+	}
+
 	ad, err := vtype.DeserializeAccountData(value)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt account entry key=%x: %w", key, err)
@@ -173,7 +178,7 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 
 	var nodes []*types.SnapshotNode
 
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, key)
+	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr)
 	nonceValue := make([]byte, vtype.NonceLen)
 	binary.BigEndian.PutUint64(nonceValue, ad.GetNonce())
 	nodes = append(nodes, &types.SnapshotNode{
@@ -186,7 +191,7 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 	codeHash := ad.GetCodeHash()
 	var zeroHash vtype.CodeHash
 	if codeHash != nil && *codeHash != zeroHash {
-		codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, key)
+		codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr)
 		codeHashValue := make([]byte, vtype.CodeHashLen)
 		copy(codeHashValue, codeHash[:])
 		nodes = append(nodes, &types.SnapshotNode{
@@ -201,11 +206,16 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 }
 
 func (e *KVExporter) codeToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	_, addr, ok := StripEVMPhysicalKey(key)
+	if !ok {
+		return nil, fmt.Errorf("corrupt code physical key: %x", key)
+	}
+
 	codeData, err := vtype.DeserializeCodeData(value)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt code entry key=%x: %w", key, err)
 	}
-	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, key)
+	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr)
 	return []*types.SnapshotNode{{
 		Key:     memiavlKey,
 		Value:   codeData.GetBytecode(),
@@ -215,11 +225,16 @@ func (e *KVExporter) codeToNodes(key, value []byte) ([]*types.SnapshotNode, erro
 }
 
 func (e *KVExporter) storageToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	_, strippedKey, ok := StripEVMPhysicalKey(key)
+	if !ok {
+		return nil, fmt.Errorf("corrupt storage physical key: %x", key)
+	}
+
 	storageData, err := vtype.DeserializeStorageData(value)
 	if err != nil {
 		return nil, fmt.Errorf("corrupt storage entry key=%x: %w", key, err)
 	}
-	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, key)
+	memiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, strippedKey)
 	return []*types.SnapshotNode{{
 		Key:     memiavlKey,
 		Value:   storageData.GetValue()[:],
@@ -229,12 +244,21 @@ func (e *KVExporter) storageToNodes(key, value []byte) ([]*types.SnapshotNode, e
 }
 
 func (e *KVExporter) legacyToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
+	moduleName, originalKey, ok := StripModulePrefix(key)
+	if !ok {
+		return nil, fmt.Errorf("legacy key missing module prefix: %x", key)
+	}
+
 	legacyData, err := vtype.DeserializeLegacyData(value)
 	if err != nil {
-		return nil, fmt.Errorf("corrupt legacy entry key=%x: %w", key, err)
+		return nil, fmt.Errorf("corrupt legacy entry module=%s key=%x: %w", moduleName, originalKey, err)
 	}
+
+	// Emit the original key (without module prefix). The importer feeds nodes
+	// back through ApplyChangeSets which re-applies the prefix via
+	// prefixModuleKeys, avoiding double-prefixing.
 	return []*types.SnapshotNode{{
-		Key:     key,
+		Key:     originalKey,
 		Value:   legacyData.GetValue(),
 		Version: e.version,
 		Height:  0,

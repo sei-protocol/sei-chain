@@ -237,7 +237,7 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 	slot := Slot{0xBB}
 	value := padLeft32(0xCC)
 	memiavlKey := memiavlStorageKey(addr, slot)
-	internalKey := StorageKey(addr, slot) // addr(20) || slot(32)
+	physKey := storagePhysKey(addr, slot)
 
 	cs := makeChangeSet(memiavlKey, value, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -249,7 +249,7 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 
 	require.True(t, iter.First())
 	require.True(t, iter.Valid())
-	require.Equal(t, internalKey, iter.Key()) // internal key format
+	require.Equal(t, physKey, iter.Key()) // physical key format
 	require.Equal(t, value, iter.Value())
 
 	// Only one key
@@ -688,7 +688,7 @@ func TestGetAccountAfterPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be gone after delete")
 
 	// Account row should still exist (EOA encoding)
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	expectedEOALen := vtype.VersionLength + vtype.BlockHeightLength + vtype.BalanceLength + vtype.NonceLength
 	require.Equal(t, expectedEOALen, len(raw))
@@ -847,7 +847,7 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	defer iter.Close()
 	require.True(t, iter.First(), "iterator should see committed entry")
 	require.True(t, iter.Valid())
-	require.Equal(t, StorageKey(addr, slot), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
 }
 
 func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
@@ -905,7 +905,7 @@ func TestIteratorLast(t *testing.T) {
 
 	require.True(t, iter.Last(), "Last() should succeed")
 	require.True(t, iter.Valid())
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 }
 
 func TestIteratorSeekGE(t *testing.T) {
@@ -927,12 +927,12 @@ func TestIteratorSeekGE(t *testing.T) {
 	// SeekGE to a key between 0x20 and 0x30 → should land on 0x30
 	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x25)))
 	require.True(t, iter.SeekGE(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	// SeekGE to exact key 0x30 → should land on 0x30
 	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
 	require.True(t, iter.SeekGE(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	// SeekGE past all keys → invalid
 	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0xFF)))
@@ -958,7 +958,7 @@ func TestIteratorSeekLT(t *testing.T) {
 	// SeekLT(0x30) → should land on 0x20
 	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
 	require.True(t, iter.SeekLT(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x20)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), iter.Key())
 
 	// SeekLT before first key → invalid
 	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x10)))
@@ -982,13 +982,13 @@ func TestIteratorPrev(t *testing.T) {
 	defer iter.Close()
 
 	require.True(t, iter.Last())
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	require.True(t, iter.Prev())
-	require.Equal(t, StorageKey(addr, slotN(0x20)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), iter.Key())
 
 	require.True(t, iter.Prev())
-	require.Equal(t, StorageKey(addr, slotN(0x10)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x10)), iter.Key())
 
 	require.False(t, iter.Prev(), "Prev past first should be invalid")
 }
@@ -1079,8 +1079,8 @@ func TestIteratorRangeBounds(t *testing.T) {
 	}
 
 	require.Len(t, keys, 2, "range [0x20, 0x40) should see 0x20 and 0x30")
-	require.Equal(t, StorageKey(addr, slotN(0x20)), keys[0])
-	require.Equal(t, StorageKey(addr, slotN(0x30)), keys[1])
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), keys[0])
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), keys[1])
 }
 
 func TestIteratorHalfOpenStart(t *testing.T) {

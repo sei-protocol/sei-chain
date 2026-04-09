@@ -277,7 +277,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify storage is deleted
-	_, err := s.storageDB.Get(StorageKey(addr, slot))
+	_, err := s.storageDB.Get(storagePhysKey(addr, slot))
 	require.Error(t, err, "storage should be deleted")
 
 	// Nonce was the only account field written (no codehash). After delete,
@@ -328,8 +328,8 @@ func TestAccountValueStorage(t *testing.T) {
 	// Commit
 	commitAndCheck(t, s)
 
-	// Verify AccountValue is stored in accountDB with addr as key
-	stored, err := s.accountDB.Get(addr[:])
+	// Verify AccountValue is stored in accountDB with physical key
+	stored, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 
@@ -760,7 +760,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 
 	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
 
-	accountWrite := s.accountWrites[string(addr[:])]
+	accountWrite := s.accountWrites[string(accountPhysKey(addr))]
 	require.NotNil(t, accountWrite)
 	require.Equal(t, uint64(10), accountWrite.GetNonce())
 	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
@@ -934,7 +934,7 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 	_, found = s.Get(codeKey)
 	require.False(t, found, "code should be physically deleted")
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically deleted when all fields are zero")
 }
 
@@ -1235,7 +1235,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	raw1, err := s.accountDB.Get(AccountKey(addr))
+	raw1, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	ad1, err := vtype.DeserializeAccountData(raw1)
 	require.NoError(t, err)
@@ -1248,7 +1248,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	raw2, err := s.accountDB.Get(AccountKey(addr))
+	raw2, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	ad2, err := vtype.DeserializeAccountData(raw2)
 	require.NoError(t, err)
@@ -1261,7 +1261,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
-	raw3, err := s.accountDB.Get(AccountKey(addr))
+	raw3, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	ad3, err := vtype.DeserializeAccountData(raw3)
 	require.NoError(t, err)
@@ -1292,7 +1292,7 @@ func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically deleted")
 
 	nonceVal, found := s.Get(nonceKey)
@@ -1322,7 +1322,7 @@ func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err, "accountDB row should still exist after partial delete")
 	require.NotNil(t, raw)
 
@@ -1348,7 +1348,7 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "row should be deleted after all-zero")
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1356,7 +1356,7 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err, "row should be recreated")
 	require.NotNil(t, raw)
 
@@ -1391,7 +1391,7 @@ func TestAccountRowGCOnWriteZero(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	_, err := s.accountDB.Get(AccountKey(addr))
+	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be GC'd when write-zero makes account empty")
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
@@ -1427,7 +1427,7 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 			commitAndCheck(t, s)
 
-			_, err := s.accountDB.Get(AccountKey(addr))
+			_, err := s.accountDB.Get(accountPhysKey(addr))
 			require.Error(t, err, "accountDB row should be GC'd regardless of operation order")
 		})
 	}
@@ -1518,8 +1518,6 @@ func TestApplyChangeSetsNonEVMModuleRoutesToLegacy(t *testing.T) {
 
 	hashBefore := s.RootHash()
 
-	// ParseEVMKey routes any non-empty key that doesn't match a known prefix
-	// to EVMKeyLegacy. The module Name field is NOT used as a filter.
 	cs := &proto.NamedChangeSet{
 		Name: "bank",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -1527,11 +1525,21 @@ func TestApplyChangeSetsNonEVMModuleRoutesToLegacy(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	// The key is treated as a legacy EVM key, so hash changes.
 	require.NotEqual(t, hashBefore, s.RootHash(), "legacy-routed key changes hash")
 	require.Len(t, s.legacyWrites, 1)
 	require.Len(t, s.storageWrites, 0)
 	require.Len(t, s.pendingChangeSets, 1)
+
+	// Physical key in legacyWrites should be module-prefixed: "bank/some-bank-key"
+	physKey := string(ModulePhysicalKey("bank", []byte("some-bank-key")))
+	_, found := s.legacyWrites[physKey]
+	require.True(t, found, "legacyWrites should contain module-prefixed key %q", physKey)
+
+	// Persist and verify round-trip via raw legacyDB lookup
+	commitAndCheck(t, s)
+	raw, err := s.legacyDB.Get([]byte(physKey))
+	require.NoError(t, err)
+	require.NotNil(t, raw, "legacyDB should persist module-prefixed key")
 }
 
 func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
@@ -1564,6 +1572,12 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	val, found := s.Get(storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x42), val)
+
+	// Bank key should be in legacyWrites with module prefix.
+	bankPhysKey := string(ModulePhysicalKey("bank", []byte("bank-key")))
+	_, found = s.legacyWrites[bankPhysKey]
+	require.True(t, found, "bank key should be in legacyWrites with module prefix")
+	require.Len(t, s.legacyWrites, 1)
 }
 
 func TestApplyChangeSetsEmptyPairsVsNilPairs(t *testing.T) {

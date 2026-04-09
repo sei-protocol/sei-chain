@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -36,16 +37,23 @@ func (s *CommitStore) Commit() (int64, error) {
 		return 0, fmt.Errorf("db commit: %w", err)
 	}
 
-	// Step 3: Update in-memory committed state
-	s.phaseTimer.SetPhase("commit_update_lt_hash")
-	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
-
-	// Step 4: Persist global metadata to metadata DB (always every block)
+	// Step 3: Persist global metadata to metadata DB.
+	// This must succeed before we update in-memory state; otherwise a
+	// metadataDB write failure would leave committedVersion advanced while
+	// the caller sees an error, making the store's internal state
+	// inconsistent. Per-DB data is already committed (Step 2) and the WAL
+	// (Step 1) is the source of truth, so a restart will self-heal via
+	// catchup even if we fail here.
 	s.phaseTimer.SetPhase("commit_write_metadata")
-	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
+	committedLtHash := s.workingLtHash.Clone()
+	if err := s.commitGlobalMetadata(version, committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
+
+	// Step 4: Update in-memory committed state (only after metadata persisted)
+	s.phaseTimer.SetPhase("commit_update_lt_hash")
+	s.committedVersion = version
+	s.committedLtHash = committedLtHash
 
 	// Step 5: Clear pending buffers
 	s.phaseTimer.SetPhase("commit_clear_pending_writes")
@@ -90,7 +98,6 @@ func (s *CommitStore) flushAllDBs() error {
 	return nil
 }
 
-// clearPendingWrites clears all pending write buffers
 func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*vtype.AccountData)
 	s.codeWrites = make(map[string]*vtype.CodeData)
@@ -111,55 +118,40 @@ func (s *CommitStore) commitBatches(version int64) error {
 		batch types.Batch
 	}
 	var pending []pendingCommit
-
-	// Commit to accountDB
-	// accountDB uses AccountValue structure: key=addr(20), value=balance(32)||nonce(8)||codehash(32)
-	if len(s.accountWrites) > 0 || version > s.localMeta[accountDBDir].CommittedVersion {
-		s.phaseTimer.SetPhase("commit_account_db_prepare")
-		batch := s.accountDB.NewBatch()
-		defer func() { _ = batch.Close() }()
-
-		for keyStr, accountWrite := range s.accountWrites {
-			key := []byte(keyStr)
-			if accountWrite.IsDelete() {
-				if err := batch.Delete(key); err != nil {
-					return fmt.Errorf("accountDB delete: %w", err)
-				}
-			} else {
-				if err := batch.Set(key, accountWrite.Serialize()); err != nil {
-					return fmt.Errorf("accountDB set: %w", err)
-				}
-			}
+	defer func() {
+		for _, p := range pending {
+			_ = p.batch.Close()
 		}
+	}()
 
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[accountDBDir]); err != nil {
-			return fmt.Errorf("accountDB local meta: %w", err)
+	specs := []struct {
+		dbDir string
+		phase string
+		prep  func() (types.Batch, error)
+	}{
+		{accountDBDir, "commit_account_db_prepare", func() (types.Batch, error) {
+			return prepareBatch(s.accountDB, s.accountWrites, version, s.localMeta[accountDBDir], s.perDBWorkingLtHash[accountDBDir], "accountDB")
+		}},
+		{codeDBDir, "commit_code_db_prepare", func() (types.Batch, error) {
+			return prepareBatch(s.codeDB, s.codeWrites, version, s.localMeta[codeDBDir], s.perDBWorkingLtHash[codeDBDir], "codeDB")
+		}},
+		{storageDBDir, "commit_storage_db_prepare", func() (types.Batch, error) {
+			return prepareBatch(s.storageDB, s.storageWrites, version, s.localMeta[storageDBDir], s.perDBWorkingLtHash[storageDBDir], "storageDB")
+		}},
+		{legacyDBDir, "commit_legacy_db_prepare", func() (types.Batch, error) {
+			return prepareBatch(s.legacyDB, s.legacyWrites, version, s.localMeta[legacyDBDir], s.perDBWorkingLtHash[legacyDBDir], "legacyDB")
+		}},
+	}
+
+	for _, spec := range specs {
+		s.phaseTimer.SetPhase(spec.phase)
+		batch, err := spec.prep()
+		if err != nil {
+			return fmt.Errorf("%s commit: %w", spec.dbDir, err)
 		}
-		pending = append(pending, pendingCommit{accountDBDir, batch})
-	}
-
-	batch, err := s.prepareBatchCodeDB(version)
-	if err != nil {
-		return fmt.Errorf("codeDB commit: %w", err)
-	}
-	if batch != nil {
-		pending = append(pending, pendingCommit{codeDBDir, batch})
-	}
-
-	batch, err = s.prepareBatchStorageDB(version)
-	if err != nil {
-		return fmt.Errorf("storageDB commit: %w", err)
-	}
-	if batch != nil {
-		pending = append(pending, pendingCommit{storageDBDir, batch})
-	}
-
-	batch, err = s.prepareBatchLegacyDB(version)
-	if err != nil {
-		return fmt.Errorf("legacyDB commit: %w", err)
-	}
-	if batch != nil {
-		pending = append(pending, pendingCommit{legacyDBDir, batch})
+		if batch != nil {
+			pending = append(pending, pendingCommit{spec.dbDir, batch})
+		}
 	}
 
 	if len(pending) == 0 {
@@ -195,110 +187,91 @@ func (s *CommitStore) commitBatches(version int64) error {
 	return nil
 }
 
-// Prepare a batch of writes for the codeDB.
-func (s *CommitStore) prepareBatchCodeDB(version int64) (types.Batch, error) {
-	if len(s.codeWrites) == 0 && version <= s.localMeta[codeDBDir].CommittedVersion {
+func prepareBatch[T vtype.VType](
+	db types.KeyValueDB,
+	writes map[string]T,
+	version int64,
+	localMeta *LocalMeta,
+	ltHash *lthash.LtHash,
+	dbName string,
+) (types.Batch, error) {
+	if len(writes) == 0 && version <= localMeta.CommittedVersion {
 		return nil, nil
 	}
 
-	s.phaseTimer.SetPhase("commit_code_db_prepare")
-
-	batch := s.codeDB.NewBatch()
-
-	for keyStr, cw := range s.codeWrites {
+	batch := db.NewBatch()
+	for keyStr, w := range writes {
 		key := []byte(keyStr)
-		if cw.IsDelete() {
+		if w.IsDelete() {
 			if err := batch.Delete(key); err != nil {
 				_ = batch.Close()
-				return nil, fmt.Errorf("codeDB delete: %w", err)
+				return nil, fmt.Errorf("%s delete: %w", dbName, err)
 			}
 		} else {
-			if err := batch.Set(key, cw.Serialize()); err != nil {
+			if err := batch.Set(key, w.Serialize()); err != nil {
 				_ = batch.Close()
-				return nil, fmt.Errorf("codeDB set: %w", err)
+				return nil, fmt.Errorf("%s set: %w", dbName, err)
 			}
 		}
 	}
 
-	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[codeDBDir]); err != nil {
+	if err := writeLocalMetaToBatch(batch, version, ltHash); err != nil {
 		_ = batch.Close()
-		return nil, fmt.Errorf("codeDB local meta: %w", err)
+		return nil, fmt.Errorf("%s local meta: %w", dbName, err)
 	}
-
 	return batch, nil
 }
 
-// Prepare a batch of writes for the storageDB.
-func (s *CommitStore) prepareBatchStorageDB(version int64) (types.Batch, error) {
-	if len(s.storageWrites) == 0 && version <= s.localMeta[storageDBDir].CommittedVersion {
-		return nil, nil
+// collectPendingReads partitions keys from changeMaps into those already
+// buffered in pendingWrites (copied to old) and those needing a DB read
+// (returned as a BatchGetResult map).
+func collectPendingReads[T vtype.VType](
+	pendingWrites map[string]T,
+	old map[string]T,
+	changeMaps ...map[string][]byte,
+) map[string]types.BatchGetResult {
+	totalKeys := 0
+	for _, changes := range changeMaps {
+		totalKeys += len(changes)
 	}
-
-	s.phaseTimer.SetPhase("commit_storage_db_prepare")
-
-	batch := s.storageDB.NewBatch()
-
-	for keyStr, sw := range s.storageWrites {
-		key := []byte(keyStr)
-		if sw.IsDelete() {
-			if err := batch.Delete(key); err != nil {
-				_ = batch.Close()
-				return nil, fmt.Errorf("storageDB delete: %w", err)
-			}
-		} else {
-			if err := batch.Set(key, sw.Serialize()); err != nil {
-				_ = batch.Close()
-				return nil, fmt.Errorf("storageDB set: %w", err)
+	batch := make(map[string]types.BatchGetResult, totalKeys)
+	for _, changes := range changeMaps {
+		for key := range changes {
+			if v, ok := pendingWrites[key]; ok {
+				old[key] = v
+			} else {
+				batch[key] = types.BatchGetResult{}
 			}
 		}
 	}
-
-	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[storageDBDir]); err != nil {
-		_ = batch.Close()
-		return nil, fmt.Errorf("storageDB local meta: %w", err)
-	}
-
-	return batch, nil
+	return batch
 }
 
-// Prepare a batch of writes for the legacyDB.
-func (s *CommitStore) prepareBatchLegacyDB(version int64) (types.Batch, error) {
-	if len(s.legacyWrites) == 0 && version <= s.localMeta[legacyDBDir].CommittedVersion {
-		return nil, nil
-	}
-
-	s.phaseTimer.SetPhase("commit_legacy_db_prepare")
-
-	batch := s.legacyDB.NewBatch()
-
-	for keyStr, lw := range s.legacyWrites {
-		key := []byte(keyStr)
-		if lw.IsDelete() {
-			if err := batch.Delete(key); err != nil {
-				_ = batch.Close()
-				return nil, fmt.Errorf("legacyDB delete: %w", err)
+// deserializeBatchResults converts raw BatchGetResults into typed values.
+func deserializeBatchResults[T vtype.VType](
+	batch map[string]types.BatchGetResult,
+	old map[string]T,
+	deserialize func([]byte) (T, error),
+	dbName string,
+) error {
+	for k, v := range batch {
+		if v.Error != nil {
+			return fmt.Errorf("%s batch read error for key %x: %w", dbName, k, v.Error)
+		}
+		if v.IsFound() {
+			val, err := deserialize(v.Value)
+			if err != nil {
+				return fmt.Errorf("failed to deserialize %s data: %w", dbName, err)
 			}
-		} else {
-			if err := batch.Set(key, lw.Serialize()); err != nil {
-				_ = batch.Close()
-				return nil, fmt.Errorf("legacyDB set: %w", err)
-			}
+			old[k] = val
 		}
 	}
-
-	if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[legacyDBDir]); err != nil {
-		_ = batch.Close()
-		return nil, fmt.Errorf("legacyDB local meta: %w", err)
-	}
-
-	return batch, nil
+	return nil
 }
 
-// batchReadOldValues scans all changeset pairs and returns one result map per
-// DB containing the "old value" for each key. Keys that already have uncommitted
-// pending writes (from a prior ApplyChangeSets call in the same block) are
-// resolved from those pending writes directly and excluded from the DB batch
-// read, avoiding unnecessary I/O and cache pollution.
+// batchReadOldValues returns the prior value for every key in changesByType.
+// Pending writes are resolved from memory; the rest are batch-read from disk
+// in parallel.
 func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[string][]byte) (
 	storageOld map[string]*vtype.StorageData,
 	accountOld map[string]*vtype.AccountData,
@@ -306,159 +279,56 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 	legacyOld map[string]*vtype.LegacyData,
 	err error,
 ) {
-	storageOld = make(map[string]*vtype.StorageData)
-	accountOld = make(map[string]*vtype.AccountData)
-	codeOld = make(map[string]*vtype.CodeData)
-	legacyOld = make(map[string]*vtype.LegacyData)
+	storageOld = make(map[string]*vtype.StorageData, len(changesByType[evm.EVMKeyStorage]))
+	accountOld = make(map[string]*vtype.AccountData, len(changesByType[evm.EVMKeyNonce])+len(changesByType[evm.EVMKeyCodeHash]))
+	codeOld = make(map[string]*vtype.CodeData, len(changesByType[evm.EVMKeyCode]))
+	legacyOld = make(map[string]*vtype.LegacyData, len(changesByType[evm.EVMKeyLegacy]))
 
-	// Issue reads to each DB if we don't already have the old value in memory.
+	storageBatch := collectPendingReads(s.storageWrites, storageOld, changesByType[evm.EVMKeyStorage])
+	// TODO: add balance changeMap when balance key is supported.
+	accountBatch := collectPendingReads(s.accountWrites, accountOld, changesByType[evm.EVMKeyNonce], changesByType[evm.EVMKeyCodeHash])
+	codeBatch := collectPendingReads(s.codeWrites, codeOld, changesByType[evm.EVMKeyCode])
+	legacyBatch := collectPendingReads(s.legacyWrites, legacyOld, changesByType[evm.EVMKeyLegacy])
+
+	type readJob struct {
+		batch map[string]types.BatchGetResult
+		db    types.KeyValueDB
+	}
+	jobs := [4]readJob{
+		{storageBatch, s.storageDB},
+		{accountBatch, s.accountDB},
+		{codeBatch, s.codeDB},
+		{legacyBatch, s.legacyDB},
+	}
+	readErrs := make([]error, 4)
 	var wg sync.WaitGroup
-	var storageErr, accountErr, codeErr, legacyErr error
-
-	// EVM storage
-	storageBatch := make(map[string]types.BatchGetResult)
-	for key := range changesByType[evm.EVMKeyStorage] {
-		if _, ok := s.storageWrites[key]; ok {
-			// We've got the old value in the pending writes buffer.
-			storageOld[key] = s.storageWrites[key]
-		} else {
-			// Schedule a read for this key.
-			storageBatch[key] = types.BatchGetResult{}
+	for i := range jobs {
+		job := jobs[i]
+		if len(job.batch) > 0 {
+			wg.Add(1)
+			s.miscPool.Submit(func() {
+				defer wg.Done()
+				readErrs[i] = job.db.BatchGet(job.batch)
+			})
 		}
 	}
-	if len(storageBatch) > 0 {
-		wg.Add(1)
-		s.miscPool.Submit(func() {
-			defer wg.Done()
-			storageErr = s.storageDB.BatchGet(storageBatch)
-		})
-	}
-
-	// Accounts
-	accountBatch := make(map[string]types.BatchGetResult)
-	for key := range changesByType[evm.EVMKeyNonce] {
-		if _, ok := s.accountWrites[key]; ok {
-			// We've got the old value in the pending writes buffer.
-			accountOld[key] = s.accountWrites[key]
-		} else {
-			// Schedule a read for this key.
-			accountBatch[key] = types.BatchGetResult{}
-		}
-	}
-	for key := range changesByType[evm.EVMKeyCodeHash] {
-		if _, ok := s.accountWrites[key]; ok {
-			// We've got the old value in the pending writes buffer.
-			accountOld[key] = s.accountWrites[key]
-		} else {
-			// Schedule a read for this key.
-			accountBatch[key] = types.BatchGetResult{}
-		}
-	}
-	// TODO: when we eventually add a balance key, we will need to add it to the accountBatch map here.
-	if len(accountBatch) > 0 {
-		wg.Add(1)
-		s.miscPool.Submit(func() {
-			defer wg.Done()
-			accountErr = s.accountDB.BatchGet(accountBatch)
-		})
-	}
-
-	// EVM bytecode
-	codeBatch := make(map[string]types.BatchGetResult)
-	for key := range changesByType[evm.EVMKeyCode] {
-		if _, ok := s.codeWrites[key]; ok {
-			// We've got the old value in the pending writes buffer.
-			codeOld[key] = s.codeWrites[key]
-		} else {
-			// Schedule a read for this key.
-			codeBatch[key] = types.BatchGetResult{}
-		}
-	}
-	if len(codeBatch) > 0 {
-		wg.Add(1)
-		s.miscPool.Submit(func() {
-			defer wg.Done()
-			codeErr = s.codeDB.BatchGet(codeBatch)
-		})
-	}
-
-	// Legacy data
-	legacyBatch := make(map[string]types.BatchGetResult)
-	for key := range changesByType[evm.EVMKeyLegacy] {
-		if _, ok := s.legacyWrites[key]; ok {
-			// We've got the old value in the pending writes buffer.
-			legacyOld[key] = s.legacyWrites[key]
-		} else {
-			// Schedule a read for this key.
-			legacyBatch[key] = types.BatchGetResult{}
-		}
-	}
-	if len(legacyBatch) > 0 {
-		wg.Add(1)
-		s.miscPool.Submit(func() {
-			defer wg.Done()
-			legacyErr = s.legacyDB.BatchGet(legacyBatch)
-		})
-	}
-
-	// Wait for all reads to complete.
 	wg.Wait()
-	if err = errors.Join(storageErr, accountErr, codeErr, legacyErr); err != nil {
+
+	if err = errors.Join(readErrs...); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to batch read old values: %w", err)
 	}
 
-	// Merge DB results into the result maps.
-
-	// Storage
-	for k, v := range storageBatch {
-		if v.Error != nil {
-			return nil, nil, nil, nil, fmt.Errorf("storageDB batch read error for key %x: %w", k, v.Error)
-		}
-		if v.IsFound() {
-			storageOld[k], err = vtype.DeserializeStorageData(v.Value)
-			if err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("failed to deserialize storage data: %w", err)
-			}
-		}
+	if err = deserializeBatchResults(storageBatch, storageOld, vtype.DeserializeStorageData, "storageDB"); err != nil {
+		return nil, nil, nil, nil, err
 	}
-
-	// Accounts
-	for k, v := range accountBatch {
-		if v.Error != nil {
-			return nil, nil, nil, nil, fmt.Errorf("accountDB batch read error for key %x: %w", k, v.Error)
-		}
-		if v.IsFound() {
-			accountOld[k], err = vtype.DeserializeAccountData(v.Value)
-			if err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("failed to deserialize account data: %w", err)
-			}
-		}
+	if err = deserializeBatchResults(accountBatch, accountOld, vtype.DeserializeAccountData, "accountDB"); err != nil {
+		return nil, nil, nil, nil, err
 	}
-
-	// EVM bytecode
-	for k, v := range codeBatch {
-		if v.Error != nil {
-			return nil, nil, nil, nil, fmt.Errorf("codeDB batch read error for key %x: %w", k, v.Error)
-		}
-		if v.IsFound() {
-			codeOld[k], err = vtype.DeserializeCodeData(v.Value)
-			if err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("failed to deserialize code data: %w", err)
-			}
-		}
+	if err = deserializeBatchResults(codeBatch, codeOld, vtype.DeserializeCodeData, "codeDB"); err != nil {
+		return nil, nil, nil, nil, err
 	}
-
-	// Legacy data
-	for k, v := range legacyBatch {
-		if v.Error != nil {
-			return nil, nil, nil, nil, fmt.Errorf("legacyDB batch read error for key %x: %w", k, v.Error)
-		}
-		if v.IsFound() {
-			legacyOld[k], err = vtype.DeserializeLegacyData(v.Value)
-			if err != nil {
-				return nil, nil, nil, nil, fmt.Errorf("failed to deserialize legacy data: %w", err)
-			}
-		}
+	if err = deserializeBatchResults(legacyBatch, legacyOld, vtype.DeserializeLegacyData, "legacyDB"); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	return storageOld, accountOld, codeOld, legacyOld, nil

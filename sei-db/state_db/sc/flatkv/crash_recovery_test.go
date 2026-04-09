@@ -234,7 +234,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 
 	// Corrupt the account value in the DB with invalid-length data.
 	batch := s.accountDB.NewBatch()
-	require.NoError(t, batch.Set(AccountKey(addr), []byte{0xDE, 0xAD}))
+	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 

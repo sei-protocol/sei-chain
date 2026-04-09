@@ -27,7 +27,8 @@ type Store interface {
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are ignored. Call Commit to persist.
+	// Non-EVM modules are routed into legacy storage under their module prefix.
+	// Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes and advances the version.
