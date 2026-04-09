@@ -24,6 +24,7 @@ func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreK
 		DBDirectory:          cfg.DBDirectory,
 		KeepRecent:           int64(cfg.KeepRecent),
 		PruneIntervalSeconds: int64(cfg.PruneIntervalSeconds),
+		DisableTxIndexLookup: cfg.DisableTxIndexLookup,
 	}
 
 	store, err := parquet.NewStore(storeCfg)
@@ -90,6 +91,9 @@ func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*
 		return receipt, nil
 	}
 
+	if s.storeKey == nil {
+		return nil, ErrNotFound
+	}
 	store := ctx.KVStore(s.storeKey)
 	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
