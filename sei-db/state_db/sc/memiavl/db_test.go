@@ -897,6 +897,69 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestApplyChangeSetMergesWALEntries verifies that multiple ApplyChangeSet calls
+// for the same store merge into a single WAL entry rather than appending duplicates.
+// This prevents a state divergence on WAL replay where Catchup would treat each
+// entry as a separate version bump.
+func TestApplyChangeSetMergesWALEntries(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:  3,
+			AsyncCommitBuffer: 10,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"store1", "store2"},
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	// First call for store1
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Second call for store1 — should merge, not create a duplicate WAL entry
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key2"), Value: []byte("val2")},
+		},
+	})
+	require.NoError(t, err)
+
+	// One call for store2
+	err = db.ApplyChangeSet("store2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key3"), Value: []byte("val3")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify: pendingLogEntry should have exactly 2 entries (one per store),
+	// NOT 3 (which would happen if ApplyChangeSet blindly appended).
+	require.Equal(t, 2, len(db.pendingLogEntry.Changesets),
+		"WAL should have exactly one entry per store, got %d", len(db.pendingLogEntry.Changesets))
+
+	// Verify store1's entry has both pairs merged
+	var store1Entry *proto.NamedChangeSet
+	for _, cs := range db.pendingLogEntry.Changesets {
+		if cs.Name == "store1" {
+			store1Entry = cs
+			break
+		}
+	}
+	require.NotNil(t, store1Entry, "store1 entry should exist in WAL")
+	require.Equal(t, 2, len(store1Entry.Changeset.Pairs),
+		"store1 should have 2 merged pairs, got %d", len(store1Entry.Changeset.Pairs))
+
+	// Commit and verify it succeeds
+	_, err = db.Commit()
+	require.NoError(t, err)
+}
+
 func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 	// Create a DB with some data first
 	dir := t.TempDir()
