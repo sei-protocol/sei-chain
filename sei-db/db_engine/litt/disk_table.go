@@ -181,7 +181,7 @@ func newDiskTable(
 	unflushedDataCache := unflushed.NewUnflushedDataCache(
 		config.Logger,
 		errorMonitor,
-		tableFlushChannelCapacity, // TODO explicit setting for this!
+		128, // TODO explicit setting for this!
 		m,
 		name,
 	)
