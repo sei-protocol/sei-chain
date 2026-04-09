@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -196,9 +197,9 @@ func makeNode(
 			makeCloser(closers))
 	}
 	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
-	mpReactor, err := mempool.NewReactor(mp, router)
+	mpReactor, err := mempoolreactor.NewReactor(mp, router)
 	if err != nil {
-		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+		return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
 	}
 	node.router = router
 	node.rpcEnv.Router = router

@@ -1,4 +1,4 @@
-package mempool
+package reactor
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -23,6 +23,8 @@ var (
 	_ service.Service = (*Reactor)(nil)
 )
 
+const MempoolChannel p2p.ChannelID = 0x30
+
 // Reactor implements a service that contains mempool of txs that are broadcasted
 // amongst peers. It maintains a map from peer ID to counter, to prevent gossiping
 // txs to the peers you received it from.
@@ -30,7 +32,7 @@ type Reactor struct {
 	service.BaseService
 
 	cfg     *config.MempoolConfig
-	mempool *TxMempool
+	mempool *mempool.TxMempool
 	ids     *IDs
 
 	router *p2p.Router
@@ -44,13 +46,13 @@ type Reactor struct {
 }
 
 // NewReactor returns a reference to a new reactor.
-func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(txmp.config))
+func NewReactor(txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(txmp.Config()))
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		cfg:                 txmp.config,
+		cfg:                 txmp.Config(),
 		mempool:             txmp,
 		ids:                 NewMempoolIDs(),
 		router:              router,
@@ -65,8 +67,8 @@ func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
 
 func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
 
-// getChannelDescriptor produces an instance of a descriptor for this
-// package's required channels.
+// GetChannelDescriptor produces an instance of a descriptor for this package's
+// required channels.
 func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor[*pb.Message] {
 	largestTx := make([]byte, cfg.MaxTxBytes)
 	batchMsg := &pb.Message{
@@ -85,10 +87,10 @@ func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor[*pb.M
 	}
 }
 
-// OnStart starts separate go routines for each p2p Channel and listens for
+// OnStart starts separate goroutines for each p2p channel and listens for
 // envelopes on each. In addition, it also listens for peer updates and handles
 // messages on that p2p channel accordingly. The caller must be sure to execute
-// OnStop to ensure the outbound p2p Channels are closed.
+// OnStop to ensure the outbound p2p channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
 	if !r.cfg.Broadcast {
 		logger.Info("tx broadcasting is disabled")
@@ -119,7 +121,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		}
 		protoTxs := msg.Txs.GetTxs()
 
-		txInfo := TxInfo{SenderID: r.ids.GetForPeer(m.From)}
+		txInfo := mempool.TxInfo{SenderID: r.ids.GetForPeer(m.From)}
 		if len(m.From) != 0 {
 			txInfo.SenderNodeID = m.From
 		}
@@ -127,21 +129,10 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		for _, tx := range protoTxs {
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
-				if errors.Is(err, errTxInCache) {
-					// if the tx is in the cache,
-					// then we've been gossiped a
-					// Tx that we've already
-					// got. Gossip should be
-					// smarter, but it's not a
-					// problem.
+				if mempool.IsTxInCacheError(err) {
 					continue
 				}
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					// Do not propagate context
-					// cancellation errors, but do
-					// not continue to check
-					// transactions from this
-					// message if we are shutting down.
 					return nil
 				}
 
@@ -160,7 +151,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 }
 
 func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
-	if !r.cfg.CheckTxErrorBlacklistEnabled || !errors.Is(err, errTxTooLarge) {
+	if !r.cfg.CheckTxErrorBlacklistEnabled || !mempool.IsTxTooLargeError(err) {
 		return
 	}
 	for counts := range r.failedCheckTxCounts.Lock() {
@@ -174,7 +165,7 @@ func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
 	}
 }
 
-// handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
+// handleMessage handles an envelope sent from a peer on a specific p2p channel.
 // It will handle errors and any possible panics gracefully. A caller can handle
 // any error returned by sending a PeerError on the respective channel.
 func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
@@ -194,7 +185,7 @@ func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message])
 }
 
 // processMempoolCh implements a blocking event loop where we listen for p2p
-// Envelope messages from the mempoolCh.
+// envelope messages from the mempool channel.
 func (r *Reactor) processMempoolCh(ctx context.Context) {
 	<-r.readyToStart
 	for {
@@ -225,26 +216,17 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			counts[peerUpdate.NodeID] = 0
 		}
 
-		// Do not allow starting new tx broadcast loops after reactor shutdown
-		// has been initiated. This can happen after we've manually closed all
-		// peer broadcast, but the router still sends in-flight peer updates.
 		if !r.IsRunning() {
 			return
 		}
 
 		if r.cfg.Broadcast {
-			// Check if we've already started a goroutine for this peer, if not we create
-			// a new done channel so we can explicitly close the goroutine if the peer
-			// is later removed, we increment the waitgroup so the reactor can stop
-			// safely, and finally start the goroutine to broadcast txs to that peer.
-			_, ok := r.peerRoutines[peerUpdate.NodeID]
-			if !ok {
+			if _, ok := r.peerRoutines[peerUpdate.NodeID]; !ok {
 				pctx, pcancel := context.WithCancel(ctx)
 				r.peerRoutines[peerUpdate.NodeID] = pcancel
 
 				r.ids.ReserveForPeer(peerUpdate.NodeID)
 
-				// start a broadcast routine ensuring all txs are forwarded to the peer
 				go r.broadcastTxRoutine(pctx, peerUpdate.NodeID)
 			}
 		}
@@ -255,10 +237,6 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			delete(counts, peerUpdate.NodeID)
 		}
 
-		// Check if we've started a tx broadcasting goroutine for this peer.
-		// If we have, we signal to terminate the goroutine via the channel's closure.
-		// This will internally decrement the peer waitgroup and remove the peer
-		// from the map of peer tx broadcasting goroutines.
 		closer, ok := r.peerRoutines[peerUpdate.NodeID]
 		if ok {
 			closer()
@@ -266,9 +244,9 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 	}
 }
 
-// processPeerUpdates initiates a blocking process where we listen for and handle
-// PeerUpdate messages. When the reactor is stopped, we will catch the signal and
-// close the p2p PeerUpdatesCh gracefully.
+// processPeerUpdates initiates a blocking process where we listen for and
+// handle PeerUpdate messages. When the reactor is stopped, we will catch the
+// signal and close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
 	recv := r.router.Subscribe()
 	for {
@@ -282,9 +260,8 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
-	var nextGossipTx *clist.CElement
+	var nextGossipTx *mempool.GossipTx
 
-	// remove the peer ID from the map of routines and mark the waitgroup as done
 	defer func() {
 		r.mtx.Lock()
 		delete(r.peerRoutines, peerID)
@@ -304,31 +281,26 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			return
 		}
 
-		// This happens because the CElement we were looking at got garbage
-		// collected (removed). That is, .NextWait() returned nil. Go ahead and
-		// start from the beginning.
 		if nextGossipTx == nil {
 			select {
 			case <-ctx.Done():
 				return
-			case <-r.mempool.WaitForNextTx(): // wait until a tx is available
+			case <-r.mempool.WaitForNextTx():
 				if nextGossipTx = r.mempool.NextGossipTx(); nextGossipTx == nil {
 					continue
 				}
 			}
 		}
 
-		memTx := nextGossipTx.Value.(*WrappedTx)
-
-		// NOTE: Transaction batching was disabled due to:
-		// https://github.com/tendermint/tendermint/issues/5796
-		if ok := r.mempool.txStore.TxHasPeer(memTx.hash, peerMempoolID); !ok {
-			// Send the mempool tx to the corresponding peer. Note, the peer may be
-			// behind and thus would not be able to process the mempool tx correctly.
-			r.channel.Send(&pb.Message{Sum: &pb.Message_Txs{Txs: &pb.Txs{Txs: [][]byte{memTx.tx}}}}, peerID)
+		if ok := r.mempool.TxStore().TxHasPeer(nextGossipTx.Key(), peerMempoolID); !ok {
+			r.channel.Send(&pb.Message{
+				Sum: &pb.Message_Txs{
+					Txs: &pb.Txs{Txs: [][]byte{nextGossipTx.Tx()}},
+				},
+			}, peerID)
 			logger.Debug(
 				"gossiped tx to peer",
-				"tx", memTx.tx.Hash(),
+				"tx", nextGossipTx.Tx().Hash(),
 				"peer", peerID,
 			)
 		}

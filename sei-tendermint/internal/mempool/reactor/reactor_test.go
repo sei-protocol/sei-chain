@@ -1,8 +1,9 @@
-package mempool
+package reactor
 
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"runtime"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -24,14 +26,60 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+type testTx struct {
+	tx types.Tx
+}
+
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
 
 	reactors map[types.NodeID]*Reactor
-	mempools map[types.NodeID]*TxMempool
+	mempools map[types.NodeID]*mempool.TxMempool
 	kvstores map[types.NodeID]*kvstore.Application
 
 	nodes []types.NodeID
+}
+
+func setupMempool(t testing.TB, app abci.Application, cacheSize int, txConstraintsFetcher mempool.TxConstraintsFetcher) *mempool.TxMempool {
+	t.Helper()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
+	require.NoError(t, err)
+	cfg.Mempool.CacheSize = cacheSize
+	cfg.Mempool.DropUtilisationThreshold = 0.0
+
+	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
+
+	return mempool.NewTxMempool(cfg.Mempool, app, mempool.NopMetrics(), txConstraintsFetcher)
+}
+
+func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs int, peerID uint16) []testTx {
+	t.Helper()
+
+	txs := make([]testTx, numTxs)
+	txInfo := mempool.TxInfo{SenderID: peerID}
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := range numTxs {
+		prefix := make([]byte, 20)
+		_, err := rng.Read(prefix)
+		require.NoError(t, err)
+
+		txs[i] = testTx{
+			tx: []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, i+1000)),
+		}
+		require.NoError(t, txmp.CheckTx(ctx, txs[i].tx, nil, txInfo))
+	}
+
+	return txs
+}
+
+func convertTex(in []testTx) types.Txs {
+	out := make([]types.Tx, len(in))
+	for i := range in {
+		out[i] = in[i].tx
+	}
+	return out
 }
 
 func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTestSuite {
@@ -44,7 +92,7 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 	rts := &reactorTestSuite{
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		reactors: make(map[types.NodeID]*Reactor, numNodes),
-		mempools: make(map[types.NodeID]*TxMempool, numNodes),
+		mempools: make(map[types.NodeID]*mempool.TxMempool, numNodes),
 		kvstores: make(map[types.NodeID]*kvstore.Application, numNodes),
 	}
 
@@ -53,10 +101,10 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
-		mempool := setup(t, app, 0, NopTxConstraintsFetcher)
-		rts.mempools[nodeID] = mempool
+		txmp := setupMempool(t, app, 0, mempool.NopTxConstraintsFetcher)
+		rts.mempools[nodeID] = txmp
 
-		reactor, err := NewReactor(mempool, node.Router)
+		reactor, err := NewReactor(txmp, node.Router)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
@@ -78,19 +126,18 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 	return rts
 }
 
-func setupReactorForTest(t *testing.T, txConstraintsFetcher TxConstraintsFetcher) (*Reactor, *TxMempool) {
+func setupReactorForTest(t *testing.T, txConstraintsFetcher mempool.TxConstraintsFetcher) (*Reactor, *mempool.TxMempool) {
 	t.Helper()
 
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
+	cfg := config.TestConfig()
+	cfg.SetRoot(t.TempDir())
 	cfg.Mempool.DropUtilisationThreshold = 0.0
 	cfg.Mempool.Broadcast = false
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	node := network.Nodes()[0]
 
-	txmp := NewTxMempool(cfg.Mempool, kvstore.NewApplication(), NopMetrics(), txConstraintsFetcher)
+	txmp := mempool.NewTxMempool(cfg.Mempool, kvstore.NewApplication(), mempool.NopMetrics(), txConstraintsFetcher)
 	reactor, err := NewReactor(txmp, node.Router)
 	require.NoError(t, err)
 	reactor.MarkReadyToStart()
@@ -109,8 +156,6 @@ func (rts *reactorTestSuite) start(t *testing.T) {
 func (rts *reactorTestSuite) waitForTxns(t *testing.T, txs []types.Tx, ids ...types.NodeID) {
 	t.Helper()
 
-	// ensure that the transactions get fully broadcast to the
-	// rest of the network
 	wg := &sync.WaitGroup{}
 	for name, pool := range rts.mempools {
 		if !p2p.NodeInSlice(name, ids) {
@@ -121,7 +166,7 @@ func (rts *reactorTestSuite) waitForTxns(t *testing.T, txs []types.Tx, ids ...ty
 		}
 
 		wg.Add(1)
-		go func(name types.NodeID, pool *TxMempool) {
+		go func(name types.NodeID, pool *mempool.TxMempool) {
 			defer wg.Done()
 			require.Eventually(t, func() bool { return len(txs) == pool.Size() },
 				time.Minute,
@@ -131,6 +176,16 @@ func (rts *reactorTestSuite) waitForTxns(t *testing.T, txs []types.Tx, ids ...ty
 		}(name, pool)
 	}
 	wg.Wait()
+}
+
+func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[int] {
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		if count, ok := counts[nodeID]; ok {
+			return utils.Some(count)
+		}
+		return utils.None[int]()
+	}
+	panic("unreachable")
 }
 
 func TestReactorBroadcastTxs(t *testing.T) {
@@ -144,25 +199,12 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	primary := rts.nodes[0]
 	secondaries := rts.nodes[1:]
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, UnknownPeerID)
+	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, mempool.UnknownPeerID)
 
 	require.Equal(t, numTxs, rts.reactors[primary].mempool.Size())
 
 	rts.start(t)
-
-	// Wait till all secondary suites (reactor) received all mempool txs from the
-	// primary suite (node).
 	rts.waitForTxns(t, convertTex(txs), secondaries...)
-}
-
-func peerFailedCheckTxCount(reactor *Reactor, nodeID types.NodeID) utils.Option[int] {
-	for counts := range reactor.failedCheckTxCounts.Lock() {
-		if count, ok := counts[nodeID]; ok {
-			return utils.Some(count)
-		}
-		return utils.None[int]()
-	}
-	panic("unreachable")
 }
 
 func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
@@ -179,12 +221,17 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 	receiverReactor := rts.reactors[receiver]
 	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
 	receiverReactor.cfg.CheckTxErrorThreshold = 2
-	receiverReactor.mempool.txConstraintsFetcher = TxConstraintsFetcher(func() (TxConstraints, error) {
-		return TxConstraints{
-			MaxDataBytes: 10,
-			MaxGas:       -1,
-		}, nil
-	})
+	receiverReactor.mempool = mempool.NewTxMempool(
+		receiverReactor.cfg,
+		kvstore.NewApplication(),
+		mempool.NopMetrics(),
+		mempool.TxConstraintsFetcher(func() (mempool.TxConstraints, error) {
+			return mempool.TxConstraints{
+				MaxDataBytes: 10,
+				MaxGas:       -1,
+			}, nil
+		}),
+	)
 	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
 
 	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
@@ -197,8 +244,7 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 			},
 		}
 	}
-	// The network connection can be established before the reactor processes the
-	// async PeerStatusUp update that initializes the sender's failure count, so we need to wait.
+
 	require.Eventually(t, func() bool {
 		return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
 	}, time.Second, 50*time.Millisecond)
@@ -223,8 +269,8 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 	reactor, _ := setupReactorForTest(
 		t,
-		func() (TxConstraints, error) {
-			return TxConstraints{
+		func() (mempool.TxConstraints, error) {
+			return mempool.TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
 			}, nil
@@ -264,8 +310,8 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 	reactor, _ := setupReactorForTest(
 		t,
-		func() (TxConstraints, error) {
-			return TxConstraints{
+		func() (mempool.TxConstraints, error) {
+			return mempool.TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
 			}, nil
@@ -294,11 +340,9 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
 }
 
-// regression test for https://github.com/tendermint/tendermint/issues/5408
 func TestReactorConcurrency(t *testing.T) {
 	numTxs := 10
 	numNodes := 2
-
 	ctx := t.Context()
 
 	rts := setupReactors(ctx, t, numNodes)
@@ -311,41 +355,36 @@ func TestReactorConcurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < runtime.NumCPU()*2; i++ {
+	for range runtime.NumCPU() * 2 {
 		wg.Add(2)
 
-		// 1. submit a bunch of txs
-		// 2. update the whole mempool
-
-		txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, UnknownPeerID)
+		txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, mempool.UnknownPeerID)
 		go func() {
 			defer wg.Done()
 
-			mempool := rts.mempools[primary]
+			txmp := rts.mempools[primary]
 
-			mempool.Lock()
-			defer mempool.Unlock()
+			txmp.Lock()
+			defer txmp.Unlock()
 
 			deliverTxResponses := make([]*abci.ExecTxResult, len(txs))
 			for i := range txs {
 				deliverTxResponses[i] = &abci.ExecTxResult{Code: 0}
 			}
 
-			require.NoError(t, mempool.Update(ctx, 1, convertTex(txs), deliverTxResponses, mempool.txConstraintsFetcher, true))
+			require.NoError(t, txmp.Update(ctx, 1, convertTex(txs), deliverTxResponses, mempool.NopTxConstraintsFetcher, true))
 		}()
 
-		// 1. submit a bunch of txs
-		// 2. update none
-		_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs, UnknownPeerID)
+		_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs, mempool.UnknownPeerID)
 		go func() {
 			defer wg.Done()
 
-			mempool := rts.mempools[secondary]
+			txmp := rts.mempools[secondary]
 
-			mempool.Lock()
-			defer mempool.Unlock()
+			txmp.Lock()
+			defer txmp.Unlock()
 
-			err := mempool.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.txConstraintsFetcher, true)
+			err := txmp.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.NopTxConstraintsFetcher, true)
 			require.NoError(t, err)
 		}()
 	}
@@ -356,7 +395,6 @@ func TestReactorConcurrency(t *testing.T) {
 func TestReactorNoBroadcastToSender(t *testing.T) {
 	numTxs := 1000
 	numNodes := 2
-
 	ctx := t.Context()
 
 	rts := setupReactors(ctx, t, numNodes)
@@ -369,7 +407,6 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 	_ = checkTxs(ctx, t, rts.mempools[primary], numTxs, peerID)
 
 	rts.start(t)
-
 	time.Sleep(100 * time.Millisecond)
 
 	require.Eventually(t, func() bool {
@@ -380,7 +417,6 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 func TestReactor_MaxTxBytes(t *testing.T) {
 	numNodes := 2
 	cfg := config.TestConfig()
-
 	ctx := t.Context()
 
 	rts := setupReactors(ctx, t, numNodes)
@@ -389,16 +425,12 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
 
-	// Broadcast a tx, which has the max size and ensure it's received by the
-	// second reactor.
 	tx1 := tmrand.Bytes(cfg.Mempool.MaxTxBytes)
 	err := rts.reactors[primary].mempool.CheckTx(
 		ctx,
 		tx1,
 		nil,
-		TxInfo{
-			SenderID: UnknownPeerID,
-		},
+		mempool.TxInfo{SenderID: mempool.UnknownPeerID},
 	)
 	require.NoError(t, err)
 
@@ -407,25 +439,20 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	rts.reactors[primary].mempool.Flush()
 	rts.reactors[secondary].mempool.Flush()
 
-	// broadcast a tx, which is beyond the max size and ensure it's not sent
 	tx2 := tmrand.Bytes(cfg.Mempool.MaxTxBytes + 1)
-	err = rts.mempools[primary].CheckTx(ctx, tx2, nil, TxInfo{SenderID: UnknownPeerID})
+	err = rts.mempools[primary].CheckTx(ctx, tx2, nil, mempool.TxInfo{SenderID: mempool.UnknownPeerID})
 	require.Error(t, err)
 }
 
 func TestDontExhaustMaxActiveIDs(t *testing.T) {
 	t.Skip("this test fails, but the property it tests is not very useful")
-	// we're creating a single node network, but not starting the
-	// network.
 
 	ctx := t.Context()
-
 	rts := setupReactors(ctx, t, 1)
 	t.Cleanup(leaktest.Check(t))
 
 	nodeID := rts.nodes[0]
 
-	// ensure the reactor does not panic (i.e. exhaust active IDs)
 	for range MaxActiveIDs + 1 {
 		privKey := ed25519.GenerateSecretKey()
 		peerID := types.NodeIDFromPubKey(privKey.Public())
@@ -441,7 +468,6 @@ func TestMempoolIDsPanicsIfNodeRequestsOvermaxActiveIDs(t *testing.T) {
 		t.Skip("skipping test in short mode")
 	}
 
-	// 0 is already reserved for UnknownPeerID
 	ids := NewMempoolIDs()
 
 	for i := range MaxActiveIDs - 1 {
@@ -471,11 +497,9 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	secondary := rts.nodes[1]
 
 	rts.start(t)
-
-	// disconnect peer
 	rts.network.Remove(t, secondary)
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4, UnknownPeerID)
+	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4, mempool.UnknownPeerID)
 	require.Equal(t, 4, len(txs))
 	require.Equal(t, 4, rts.mempools[primary].Size())
 	require.Equal(t, 0, rts.mempools[secondary].Size())

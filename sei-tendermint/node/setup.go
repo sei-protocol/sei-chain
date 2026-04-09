@@ -21,7 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
@@ -446,7 +446,7 @@ func makeNodeInfo(
 			byte(consensus.DataChannel),
 			byte(consensus.VoteChannel),
 			byte(consensus.VoteSetBitsChannel),
-			byte(mempool.MempoolChannel),
+			byte(mempoolreactor.MempoolChannel),
 			byte(evidence.EvidenceChannel),
 			byte(statesync.SnapshotChannel),
 			byte(statesync.ChunkChannel),

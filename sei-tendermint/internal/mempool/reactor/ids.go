@@ -1,37 +1,36 @@
-package mempool
+package reactor
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+const MaxActiveIDs = math.MaxUint16
 
 type IDs struct {
 	mtx       sync.RWMutex
 	peerMap   map[types.NodeID]uint16
-	nextID    uint16              // assumes that a node will never have over 65536 active peers
-	activeIDs map[uint16]struct{} // used to check if a given peerID key is used
+	nextID    uint16
+	activeIDs map[uint16]struct{}
 }
 
 func NewMempoolIDs() *IDs {
 	return &IDs{
-		peerMap: make(map[types.NodeID]uint16),
-
-		// reserve UnknownPeerID for mempoolReactor.BroadcastTx
-		activeIDs: map[uint16]struct{}{UnknownPeerID: {}},
+		peerMap:   make(map[types.NodeID]uint16),
+		activeIDs: map[uint16]struct{}{mempool.UnknownPeerID: {}},
 		nextID:    1,
 	}
 }
 
-// ReserveForPeer searches for the next unused ID and assigns it to the provided
-// peer.
 func (ids *IDs) ReserveForPeer(peerID types.NodeID) {
 	ids.mtx.Lock()
 	defer ids.mtx.Unlock()
 
 	if _, ok := ids.peerMap[peerID]; ok {
-		// the peer has been reserved
 		return
 	}
 
@@ -40,7 +39,6 @@ func (ids *IDs) ReserveForPeer(peerID types.NodeID) {
 	ids.activeIDs[curID] = struct{}{}
 }
 
-// Reclaim returns the ID reserved for the peer back to unused pool.
 func (ids *IDs) Reclaim(peerID types.NodeID) {
 	ids.mtx.Lock()
 	defer ids.mtx.Unlock()
@@ -55,7 +53,6 @@ func (ids *IDs) Reclaim(peerID types.NodeID) {
 	}
 }
 
-// GetForPeer returns an ID reserved for the peer.
 func (ids *IDs) GetForPeer(peerID types.NodeID) uint16 {
 	ids.mtx.RLock()
 	defer ids.mtx.RUnlock()
@@ -63,8 +60,6 @@ func (ids *IDs) GetForPeer(peerID types.NodeID) uint16 {
 	return ids.peerMap[peerID]
 }
 
-// nextPeerID returns the next unused peer ID to use. We assume that the mutex
-// is already held.
 func (ids *IDs) nextPeerID() uint16 {
 	if len(ids.activeIDs) == MaxActiveIDs {
 		panic(fmt.Sprintf("node has maximum %d active IDs and wanted to get one more", MaxActiveIDs))

@@ -158,6 +158,8 @@ func NewTxMempool(
 	return txmp
 }
 
+func (txmp *TxMempool) Config() *config.MempoolConfig { return txmp.config }
+
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
@@ -211,13 +213,17 @@ func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex
 // NextGossipTx returns the next valid transaction to gossip. A caller must wait
 // for WaitForNextTx to signal a transaction is available to gossip first. It is
 // thread-safe.
-func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
+func (txmp *TxMempool) NextGossipTx() *GossipTx { return newGossipTx(txmp.gossipIndex.Front()) }
 
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.
 func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 	return txmp.txsAvailable
 }
+
+func IsTxInCacheError(err error) bool { return errors.Is(err, errTxInCache) }
+
+func IsTxTooLargeError(err error) bool { return errors.Is(err, errTxTooLarge) }
 
 func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 	constraints, err := txmp.txConstraintsFetcher()
