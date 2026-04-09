@@ -191,7 +191,7 @@ func newDiskTable(
 		errorMonitor,
 		kmap,
 		unflushedDataCache,
-		1024, // TODO explicit settings!
+		8, // TODO explicit settings!
 		1024*100,
 		m,
 		name,
