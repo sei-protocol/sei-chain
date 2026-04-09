@@ -669,8 +669,10 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 					return err
 				}
 			}
-			// Compute the next pruning time.
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first < inner.nextAppProposal }); err != nil {
+			// Wait for at least 2 entries before retrying. Without +1,
+			// the loop would spin when only one entry remains (kept by
+			// the +1 guard above).
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first+1 < inner.nextAppProposal }); err != nil {
 				return err
 			}
 			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
