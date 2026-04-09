@@ -15,11 +15,8 @@ import (
 func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
 	if !IsSupportedKeyType(kind) {
-		if s.config.StrictKeyTypeCheck {
-			return nil, false, fmt.Errorf("unsupported key type: %v", kind)
-		}
-		logger.Warn("unsupported key type in Get", "kind", kind)
-		return nil, false, nil
+		// Only possible if a new type is added to evm.ParseEVMKey() without updating code to handle that type.
+		return nil, false, fmt.Errorf("unsupported key type: %v", kind)
 	}
 
 	switch kind {
@@ -76,11 +73,8 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool, error) {
 func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
 	if !IsSupportedKeyType(kind) {
-		if s.config.StrictKeyTypeCheck {
-			return -1, false, fmt.Errorf("unsupported key type: %v", kind)
-		}
-		logger.Warn("unsupported key type in GetBlockHeightModified", "kind", kind)
-		return -1, false, nil
+		// Only possible if a new type is added to evm.ParseEVMKey() without updating code to handle that type.
+		return -1, false, fmt.Errorf("unsupported key type: %v", kind)
 	}
 
 	switch kind {
@@ -114,7 +108,7 @@ func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 		}
 		return cd.GetBlockHeight(), true, nil
 	default:
-		return -1, false, fmt.Errorf("unsupported key type: %v", kind)
+		return -1, false, fmt.Errorf("block height modified not tracked for key type: %v", kind)
 	}
 }
 

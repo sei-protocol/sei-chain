@@ -43,6 +43,5 @@ func DefaultTestConfig(t *testing.T) *Config {
 		ReaderThreadsPerCore:   2.0,
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
-		StrictKeyTypeCheck:     true,
 	}
 }

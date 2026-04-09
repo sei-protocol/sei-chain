@@ -713,7 +713,6 @@ func TestGetUnsupportedKeyType_Strict(t *testing.T) {
 
 func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cfg.StrictKeyTypeCheck = false
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 

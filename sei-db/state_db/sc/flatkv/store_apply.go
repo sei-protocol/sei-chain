@@ -19,9 +19,8 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 
-	changesByType, err := sortChangeSets(changeSets, s.config.StrictKeyTypeCheck)
+	changesByType, err := sortChangeSets(changeSets)
 	if err != nil {
 		return fmt.Errorf("failed to sort change sets: %w", err)
 	}
@@ -73,7 +72,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	storeWrites(s.codeWrites, codeChanges)
 
 	// Gather legacy pairs
-	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy], blockHeight)
+	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy])
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
@@ -110,6 +109,13 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	}
 	s.workingLtHash = globalHash
 
+	//////////////
+	// Finalize //
+	//////////////
+
+	// Now that we've made it through the batch without errors, we can add the change sets to the pending change sets.
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+
 	s.phaseTimer.SetPhase("apply_change_done")
 	return nil
 }
@@ -126,12 +132,8 @@ func storeWrites[T vtype.VType](
 	}
 }
 
-// Sort the change sets by type.
-func sortChangeSets(
-	changeSets []*proto.NamedChangeSet,
-	// If true, returns an error if an unsupported key type is encountered.
-	strict bool,
-) (map[evm.EVMKeyKind]map[string][]byte, error) {
+// Sort the change sets by type. This method only returns an error if
+func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
 	for _, cs := range changeSets {
@@ -139,15 +141,13 @@ func sortChangeSets(
 			continue
 		}
 		for _, pair := range cs.Changeset.Pairs {
+
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 
+			// evm.ParseEVMKey() should return a valid key type 100% of the time, unless we add a new key but
+			// forget to update IsSupportedKeyType() and associated code. This is a sanity check.
 			if !IsSupportedKeyType(kind) {
-				if strict {
-					return nil, fmt.Errorf("unsupported key type: %v", kind)
-				} else {
-					logger.Warn("unsupported key type in ApplyChangeSets", "kind", kind)
-					continue
-				}
+				return nil, fmt.Errorf("unsupported key type: %v", kind)
 			}
 
 			keyStr := string(keyBytes)
@@ -211,10 +211,7 @@ func processCodeChanges(
 }
 
 // Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
-func processLegacyChanges(
-	rawChanges map[string][]byte,
-	blockHeight int64,
-) (map[string]*vtype.LegacyData, error) {
+func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.LegacyData, error) {
 	result := make(map[string]*vtype.LegacyData)
 
 	for keyStr, rawChange := range rawChanges {
