@@ -230,9 +230,8 @@ type BaseConfig struct {
 	// Mechanism to connect to the ABCI application: socket | grpc
 	ABCI string `mapstructure:"abci"`
 
-	// If true, query the ABCI app on connecting to a new peer
-	// so the app can decide if we should keep the connection or not
-	FilterPeers bool `mapstructure:"filter-peers"` // false
+	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
+	FilterPeers bool `mapstructure:"filter-peers"`
 
 	Other map[string]interface{} `mapstructure:",remain"`
 }
@@ -248,7 +247,6 @@ func DefaultBaseConfig() BaseConfig {
 		ABCI:        "socket",
 		LogLevel:    DefaultLogLevel,
 		LogFormat:   "text",
-		FilterPeers: false,
 		DBBackend:   "goleveldb",
 		DBPath:      "data",
 	}

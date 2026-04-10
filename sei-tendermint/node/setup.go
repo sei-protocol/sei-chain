@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -340,7 +339,8 @@ func createRouter(
 	if err != nil {
 		return nil, closer, err
 	}
-	options := getRouterConfig(cfg, appClient)
+
+	options := &p2p.RouterOptions{}
 	options.Endpoint = ep
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
