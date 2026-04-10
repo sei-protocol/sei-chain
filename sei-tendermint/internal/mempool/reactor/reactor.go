@@ -130,7 +130,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		for _, tx := range protoTxs {
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
-				if mempool.IsTxInCacheError(err) {
+				if errors.Is(err, mempool.ErrTxInCache) {
 					continue
 				}
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -152,7 +152,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 }
 
 func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
-	if !r.cfg.CheckTxErrorBlacklistEnabled || !mempool.IsTxTooLargeError(err) {
+	if !r.cfg.CheckTxErrorBlacklistEnabled || !errors.Is(err, mempool.ErrTxTooLarge) {
 		return
 	}
 	for counts := range r.failedCheckTxCounts.Lock() {

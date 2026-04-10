@@ -23,11 +23,11 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
-// errTxInCache is returned to the client if we saw tx earlier.
-var errTxInCache = errors.New("tx already exists in cache")
+// ErrTxInCache is returned to the client if we saw tx earlier.
+var ErrTxInCache = errors.New("tx already exists in cache")
 
-// errTxTooLarge defines an error when a transaction is too big to be sent to peers.
-var errTxTooLarge = errors.New("tx too large")
+// ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
+var ErrTxTooLarge = errors.New("tx too large")
 
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
 // collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
@@ -226,10 +226,6 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 	return txmp.txsAvailable
 }
 
-func IsTxInCacheError(err error) bool { return errors.Is(err, errTxInCache) }
-
-func IsTxTooLargeError(err error) bool { return errors.Is(err, errTxTooLarge) }
-
 func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
@@ -280,14 +276,14 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return fmt.Errorf("%w: max size is %d, but got %d", errTxTooLarge, txmp.config.MaxTxBytes, txSize)
+		return fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
 	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
-		return fmt.Errorf("%w: tx size is too big: %d, max: %d", errTxTooLarge, txSize, constraints.MaxDataBytes)
+		return fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -316,7 +312,7 @@ func (txmp *TxMempool) CheckTx(
 	// check if we've seen this transaction and error if we have.
 	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
-		return errTxInCache
+		return ErrTxInCache
 	}
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 

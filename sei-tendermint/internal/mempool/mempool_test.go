@@ -1112,7 +1112,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 
 	// Second failure: tx should remain in cache — CheckTx should reject it
 	err := txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
-	require.Equal(t, errTxInCache, err)
+	require.Equal(t, ErrTxInCache, err)
 	require.Equal(t, 0, txmp.Size())
 
 	// A different tx (different hash) should still be admitted
