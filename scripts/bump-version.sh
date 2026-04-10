@@ -38,7 +38,7 @@ echo "Old tag: $OLD_TAG"
 echo "New tag: $NEW_TAG"
 echo "Version folder: $TAG_FOLDER"
 
-./scripts/generate-all-precompiles-setup.sh "$NEW_TAG"
+go run ./cmd/gensetup
 
 # --- Check if anything in precompiles/ changed since old tag ---
 any_change=false
