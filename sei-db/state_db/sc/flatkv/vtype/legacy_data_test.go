@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func TestLegacySerializationGoldenFile_V0(t *testing.T) {
 
 	want, err := os.ReadFile(golden)
 	require.NoError(t, err)
-	wantBytes, err := hex.DecodeString(string(want))
+	wantBytes, err := hex.DecodeString(strings.TrimSpace(string(want)))
 	require.NoError(t, err)
 	require.Equal(t, wantBytes, serialized, "serialization differs from golden file")
 
