@@ -83,7 +83,7 @@ func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
 //
 //	Case  Blocks    QCs       Scenario                          Action
 //	1     empty     empty     Fresh start                       no-op
-//	2     [a,b]     empty     QCs lost (corruption)             Reset blocks to fb
+//	2     [a,b]     empty     QCs lost (corruption)             error (statesync needed)
 //	3     empty     [X,Y)     Blocks lost (crash)               Prefix: fast-forward blocks.next to X
 //	4     [a,b]     [X,Y)     Normal (a=X, b<Y)                 no-op
 //	5     [a,b]     [X,Y)     Prune crash: blocks ahead (a>X)   Prefix: truncate QCs to a
@@ -92,14 +92,13 @@ func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
 //	8     [a,b]     [X,Y)     QCs ahead (normal, b<Y)           Tail: no-op (blocks catch up)
 func (dw *DataWAL) reconcile(committee *types.Committee) error {
 	fb := committee.FirstBlock()
-	// Fix tail first: when QCs are empty (corruption), reset blocks
-	// before prefix gets a chance to fast-forward cursors to stale values.
+	// Fix tail: remove blocks past QC range.
 	qcNext := dw.CommitQCs.Next()
-	if qcNext == fb {
-		if err := dw.Blocks.Reset(fb); err != nil {
-			return err
-		}
-	} else if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
+	if qcNext == fb && dw.Blocks.Next() > fb {
+		// Blocks exist but QCs WAL is empty — data is corrupted.
+		return fmt.Errorf("corrupted WAL: blocks exist but QCs WAL is empty; statesync required to recover")
+	}
+	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
 		return fmt.Errorf("truncate blocks tail: %w", err)
 	}
 	// Fix prefix: align both WALs to the later start.
