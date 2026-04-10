@@ -466,7 +466,7 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
 
 	// Write only storage keys: other DBs' per-DB LtHash should remain zero.
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -488,7 +488,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 	addr := addrN(0x02)
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
 
-	cs := makeChangeSet(key, []byte{0x22}, false)
+	cs := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -528,7 +528,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 
 	// Operation 1: Add storage key.
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(storageKey, []byte{0x33}, false)
+	cs := makeChangeSet(storageKey, padLeft32(0x33), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after storage add")
@@ -557,7 +557,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	verifySumInvariant("after code add")
 
 	// Operation 4: Update storage.
-	cs4 := makeChangeSet(storageKey, []byte{0x44}, false)
+	cs4 := makeChangeSet(storageKey, padLeft32(0x44), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs4}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after storage update")
