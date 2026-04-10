@@ -91,7 +91,9 @@ func main() {
 	// Dedup on rerun: if NEW_TAG is already the last line in app/tags, remove it.
 	dedup(tagFile, newTag)
 
-	tagFolder := strings.ReplaceAll(newTag, ".", "")
+	// Folder/package name: append .0 to get vMajor.Minor.0, then remove dots.
+	// This keeps sorting consistent with existing folders (v630, v640, v700).
+	tagFolder := strings.ReplaceAll(newTag+".0", ".", "")
 
 	// --- Validate tag folder produces a legal Go package name ---
 	if !isValidGoIdent(tagFolder) {

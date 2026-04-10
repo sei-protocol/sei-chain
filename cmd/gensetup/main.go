@@ -83,7 +83,7 @@ func main() {
 		for _, v := range versions[:len(versions)-1] {
 			legacy = append(legacy, LegacyVersion{
 				Tag:    v,
-				Folder: strings.ReplaceAll(v, ".", ""),
+				Folder: versionFolder(v),
 			})
 		}
 
@@ -111,6 +111,17 @@ func readVersions(path string) ([]string, error) {
 		}
 	}
 	return versions, scanner.Err()
+}
+
+// versionFolder converts a version tag to a folder/package name by removing
+// dots. Two-part versions (v7.0) are padded to three-part (v7.0.0) first so
+// that folder names sort consistently with existing ones (v630, v640, v700).
+func versionFolder(v string) string {
+	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+	if len(parts) == 2 {
+		v = v + ".0"
+	}
+	return strings.ReplaceAll(v, ".", "")
 }
 
 func generateSetup(tmpl *template.Template, moduleDir, moduleName string, legacy []LegacyVersion) error {
