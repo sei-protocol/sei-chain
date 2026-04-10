@@ -289,19 +289,18 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 	}
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = true
-	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
-		NodeID: "sender",
-		Status: p2p.PeerStatusUp,
-	})
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		counts["sender"] = 0
+	}
 	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(reactor, "sender"))
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
 	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
 
-	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
-		NodeID: "sender",
-		Status: p2p.PeerStatusDown,
-	})
+	reactor.ids.Reclaim("sender")
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		delete(counts, "sender")
+	}
 
 	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
 	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "other"))
@@ -327,14 +326,11 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 	}
 
 	reactor.cfg.CheckTxErrorBlacklistEnabled = true
-	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
-		NodeID: "sender",
-		Status: p2p.PeerStatusUp,
-	})
-	reactor.processPeerUpdate(t.Context(), p2p.PeerUpdate{
-		NodeID: "sender",
-		Status: p2p.PeerStatusDown,
-	})
+	for counts := range reactor.failedCheckTxCounts.Lock() {
+		counts["sender"] = 0
+		delete(counts, "sender")
+	}
+	reactor.ids.Reclaim("sender")
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
 	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
@@ -456,10 +452,7 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 	for range MaxActiveIDs + 1 {
 		privKey := ed25519.GenerateSecretKey()
 		peerID := types.NodeIDFromPubKey(privKey.Public())
-		rts.reactors[nodeID].processPeerUpdate(ctx, p2p.PeerUpdate{
-			Status: p2p.PeerStatusUp,
-			NodeID: peerID,
-		})
+		rts.reactors[nodeID].ids.ReserveForPeer(peerID)
 	}
 }
 

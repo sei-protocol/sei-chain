@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
@@ -13,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -38,8 +38,6 @@ type Reactor struct {
 
 	router *p2p.Router
 
-	mtx                 sync.Mutex
-	peerRoutines        map[types.NodeID]context.CancelFunc
 	failedCheckTxCounts utils.Mutex[map[types.NodeID]int]
 
 	channel      *p2p.Channel[*pb.Message]
@@ -58,7 +56,6 @@ func NewReactor(txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
 		ids:                 NewMempoolIDs(),
 		router:              router,
 		channel:             channel,
-		peerRoutines:        map[types.NodeID]context.CancelFunc{},
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
 		readyToStart:        make(chan struct{}, 1),
 	}
@@ -206,72 +203,46 @@ func (r *Reactor) processMempoolCh(ctx context.Context) {
 	}
 }
 
-// processPeerUpdate processes a PeerUpdate. For added peers, PeerStatusUp, we
-// check if the reactor is running and if we've already started a tx broadcasting
-// goroutine or not. If not, we start one for the newly added peer. For down or
-// removed peers, we remove the peer from the mempool peer ID set and signal to
-// stop the tx broadcasting goroutine.
-func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
-	logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
-
-	r.mtx.Lock()
-	defer r.mtx.Unlock()
-
-	switch peerUpdate.Status {
-	case p2p.PeerStatusUp:
-		for counts := range r.failedCheckTxCounts.Lock() {
-			counts[peerUpdate.NodeID] = 0
-		}
-
-		// Do not allow starting new tx broadcast loops after reactor shutdown
-		// has been initiated. This can happen after we've manually closed all
-		// peer broadcast, but the router still sends in-flight peer updates.
-		if !r.IsRunning() {
-			return
-		}
-
-		if r.cfg.Broadcast {
-			// Check if we've already started a goroutine for this peer. If not,
-			// create one and reserve the peer's mempool ID.
-			if _, ok := r.peerRoutines[peerUpdate.NodeID]; !ok {
-				pctx, pcancel := context.WithCancel(ctx)
-				r.peerRoutines[peerUpdate.NodeID] = pcancel
-
-				r.ids.ReserveForPeer(peerUpdate.NodeID)
-
-				// Start a broadcast routine ensuring all txs are forwarded to
-				// the peer.
-				go r.broadcastTxRoutine(pctx, peerUpdate.NodeID)
-			}
-		}
-
-	case p2p.PeerStatusDown:
-		r.ids.Reclaim(peerUpdate.NodeID)
-		for counts := range r.failedCheckTxCounts.Lock() {
-			delete(counts, peerUpdate.NodeID)
-		}
-
-		// Check if we've started a tx broadcasting goroutine for this peer.
-		// If so, signal it to terminate.
-		closer, ok := r.peerRoutines[peerUpdate.NodeID]
-		if ok {
-			closer()
-		}
-	}
-}
-
 // processPeerUpdates initiates a blocking process where we listen for and
 // handle PeerUpdate messages. When the reactor is stopped, we will catch the
 // signal and close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	recv := r.router.Subscribe()
-	for {
-		update, err := recv.Recv(ctx)
-		if err != nil {
-			return
-		}
-		r.processPeerUpdate(ctx, update)
+func (r *Reactor) processPeerUpdates(ctx context.Context) error {
+	if !r.cfg.Broadcast {
+		return nil
 	}
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		recv := r.router.Subscribe()
+		peerRoutines := map[types.NodeID]context.CancelFunc{}
+		for {
+			update, err := recv.Recv(ctx)
+			if err != nil {
+				return err
+			}
+			logger.Debug("received peer update", "peer", update.NodeID, "status", update.Status)
+
+			switch update.Status {
+			case p2p.PeerStatusUp:
+				for counts := range r.failedCheckTxCounts.Lock() {
+					counts[update.NodeID] = 0
+				}
+				pctx, pcancel := context.WithCancel(ctx)
+				peerRoutines[update.NodeID] = pcancel
+				r.ids.ReserveForPeer(update.NodeID)
+				s.Spawn(func() error {
+					r.broadcastTxRoutine(pctx, update.NodeID)
+					return nil
+				})
+
+			case p2p.PeerStatusDown:
+				r.ids.Reclaim(update.NodeID)
+				for counts := range r.failedCheckTxCounts.Lock() {
+					delete(counts, update.NodeID)
+				}
+				peerRoutines[update.NodeID]()
+				delete(peerRoutines, update.NodeID)
+			}
+		}
+	})
 }
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
@@ -279,10 +250,6 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	var nextGossipTx *clist.CElement
 
 	defer func() {
-		r.mtx.Lock()
-		delete(r.peerRoutines, peerID)
-		r.mtx.Unlock()
-
 		if e := recover(); e != nil {
 			logger.Error(
 				"recovering from broadcasting mempool loop",
