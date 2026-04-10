@@ -735,7 +735,8 @@ func (d *Dec) Unmarshal(data []byte) error {
 		return fmt.Errorf("decimal string too long: got %d, max 100", len(data))
 	}
 	if len(data) == 0 {
-		d = nil
+		// Use ZeroDec, not Dec{}: a nil *big.Int breaks Equal, arithmetic, etc.
+		*d = ZeroDec()
 		return nil
 	}
 

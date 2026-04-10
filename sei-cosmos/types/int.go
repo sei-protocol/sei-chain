@@ -407,7 +407,7 @@ func (i *Int) Unmarshal(data []byte) error {
 		return fmt.Errorf("integer string too long: got %d, max 100", len(data))
 	}
 	if len(data) == 0 {
-		i = nil
+		*i = ZeroInt()
 		return nil
 	}
 
