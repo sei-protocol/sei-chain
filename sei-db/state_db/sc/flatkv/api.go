@@ -33,8 +33,12 @@ type Store interface {
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
-	// Get returns the value for the x/evm memiavl key, or (nil, false) if not found.
-	Get(key []byte) ([]byte, bool)
+	// Get returns the value for the x/evm memiavl key. If not found, returns (nil, false).
+	Get(key []byte) (value []byte, found bool)
+
+	// GetBlockHeightModified returns the block height at which the key was last modified.
+	// If not found, returns (-1, false, nil).
+	GetBlockHeightModified(key []byte) (int64, bool, error)
 
 	// Has reports whether the x/evm memiavl key exists.
 	Has(key []byte) bool

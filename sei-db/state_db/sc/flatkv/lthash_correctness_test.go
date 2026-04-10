@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +55,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 // ---------- helpers to build memiavl-format changeset pairs ----------
 
 func nonceBytes(n uint64) []byte {
-	b := make([]byte, NonceLen)
+	b := make([]byte, vtype.NonceLen)
 	binary.BigEndian.PutUint64(b, n)
 	return b
 }
@@ -71,8 +72,8 @@ func slotN(n byte) Slot {
 	return s
 }
 
-func codeHashN(n byte) CodeHash {
-	var h CodeHash
+func codeHashN(n byte) vtype.CodeHash {
+	var h vtype.CodeHash
 	for i := range h {
 		h[i] = n
 	}
@@ -86,7 +87,7 @@ func noncePair(addr Address, nonce uint64) *proto.KVPair {
 	}
 }
 
-func codeHashPair(addr Address, ch CodeHash) *proto.KVPair {
+func codeHashPair(addr Address, ch vtype.CodeHash) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Value: ch[:],
@@ -110,7 +111,7 @@ func codeDeletePair(addr Address) *proto.KVPair {
 func storagePair(addr Address, slot Slot, val []byte) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
-		Value: val,
+		Value: padLeft32(val...),
 	}
 }
 
@@ -770,7 +771,7 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	val, found := s.Get(key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, val)
+	require.Equal(t, padLeft32(0x33), val)
 }
 
 // TestLtHashCrossApplyCodeOverwrite verifies that overwriting the same code
@@ -915,7 +916,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
 	storageVal, found := s.Get(storageKey)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, storageVal)
+	require.Equal(t, padLeft32(0x33), storageVal)
 
 	legacyVal, found := s.Get(legacyKey)
 	require.True(t, found)
@@ -989,7 +990,11 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 
 	raw, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueEOALen, len(raw), "row should be 40-byte EOA encoding")
+	ad, err := vtype.DeserializeAccountData(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(99), ad.GetNonce())
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero (EOA)")
 }
 
 func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
@@ -1012,7 +1017,11 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 
 	raw, err := s.accountDB.Get(AccountKey(addr))
 	require.NoError(t, err, "row should still exist after partial delete")
-	require.Equal(t, accountValueEOALen, len(raw), "should shrink to EOA encoding")
+	ad, err := vtype.DeserializeAccountData(raw)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), ad.GetNonce(), "nonce should be preserved")
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
 }
 
 // TestAccountPendingReadPartialDelete verifies that the isDelete guard in
@@ -1046,7 +1055,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 
 	paw := s.accountWrites[string(addr[:])]
 	require.NotNil(t, paw)
-	require.False(t, paw.isDelete, "row should NOT be marked for deletion (partial delete)")
+	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
 
 // TestAccountRowDeleteGetBeforeCommit verifies the core behavioral change:
@@ -1089,13 +1098,15 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	require.False(t, found, "codehash should not be found after pending full-delete")
 	require.Nil(t, chVal)
 
-	require.False(t, s.Has(nonceKey), "Has(nonce) should be false after pending full-delete")
-	require.False(t, s.Has(chKey), "Has(codehash) should be false after pending full-delete")
+	hasNonce := s.Has(nonceKey)
+	require.False(t, hasNonce, "Has(nonce) should be false after pending full-delete")
+	hasCodeHash := s.Has(chKey)
+	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
 
 	// Verify isDelete is set
 	paw := s.accountWrites[string(addr[:])]
 	require.NotNil(t, paw)
-	require.True(t, paw.isDelete, "row should be marked for deletion (all fields zero)")
+	require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
 }
 
 // TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a
@@ -1277,22 +1288,27 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Build state across multiple blocks
+	// Build state in a single block so that all rows share the same block
+	// height. The importer commits everything at a single version, so block
+	// heights must match for the LtHash round-trip to be identical.
+	var evmPairs []*proto.KVPair
+	var legacyCS []*proto.NamedChangeSet
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
+		evmPairs = append(evmPairs,
+			noncePair(addr, uint64(i)*10),
+			codeHashPair(addr, codeHashN(i)),
+			codePair(addr, []byte{0x60, 0x80, i}),
+			storagePair(addr, slotN(i), []byte{i, 0xBB}),
+		)
 		legacyKey := append([]byte{0x09}, addr[:]...)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-			namedCS(
-				noncePair(addr, uint64(i)*10),
-				codeHashPair(addr, codeHashN(i)),
-				codePair(addr, []byte{0x60, 0x80, i}),
-				storagePair(addr, slotN(i), []byte{i, 0xBB}),
-			),
-			makeChangeSet(legacyKey, []byte{i, 0xCC}, false),
-		}))
-		commitAndCheck(t, s)
+		legacyCS = append(legacyCS, makeChangeSet(legacyKey, []byte{i, 0xCC}, false))
 	}
-	verifyLtHashAtHeight(t, s, 5)
+	allCS := append([]*proto.NamedChangeSet{namedCS(evmPairs...)}, legacyCS...)
+	require.NoError(t, s.ApplyChangeSets(allCS))
+	commitAndCheck(t, s)
+
+	verifyLtHashAtHeight(t, s, 1)
 	srcHash := s.RootHash()
 
 	// Export
@@ -1314,7 +1330,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 
 	// Import into fresh store
 	s2 := setupTestStore(t)
-	imp, err := s2.Importer(5)
+	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
 	for _, n := range nodes {
@@ -1322,10 +1338,10 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(5), s2.Version())
+	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, srcHash, s2.RootHash(),
 		"imported store RootHash should match source")
-	verifyLtHashAtHeight(t, s2, 5)
+	verifyLtHashAtHeight(t, s2, 1)
 	require.NoError(t, s2.Close())
 }
 

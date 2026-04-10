@@ -221,22 +221,6 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	app.anteHandler = ah
 }
 
-func (app *BaseApp) SetAddrPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetAddrPeerFilter() on sealed BaseApp")
-	}
-
-	app.addrPeerFilter = pf
-}
-
-func (app *BaseApp) SetIDPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetIDPeerFilter() on sealed BaseApp")
-	}
-
-	app.idPeerFilter = pf
-}
-
 func (app *BaseApp) SetFauxMerkleMode() {
 	if app.sealed {
 		panic("SetFauxMerkleMode() on sealed BaseApp")
