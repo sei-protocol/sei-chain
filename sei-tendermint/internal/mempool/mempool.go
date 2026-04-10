@@ -57,7 +57,7 @@ type TxMempool struct {
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
-	notifiedTxsAvailable bool
+	notifiedTxsAvailable atomic.Bool
 
 	// height defines the last block height process during Update()
 	height int64
@@ -657,7 +657,7 @@ func (txmp *TxMempool) Update(
 	recheck bool,
 ) error {
 	txmp.height = blockHeight
-	txmp.notifiedTxsAvailable = false
+	txmp.notifiedTxsAvailable.Store(false)
 	txmp.txConstraintsFetcher = txConstraintsFetcher
 
 	for i, tx := range blockTxs {
@@ -1130,11 +1130,10 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 }
 
 func (txmp *TxMempool) notifyTxsAvailable() {
-	if txmp.NumTxsNotPending() == 0 || txmp.notifiedTxsAvailable {
+	if txmp.NumTxsNotPending() == 0 || txmp.notifiedTxsAvailable.Swap(true) {
 		return
 	}
 	// channel cap is 1, so this will send once
-	txmp.notifiedTxsAvailable = true
 	select {
 	case txmp.txsAvailable <- struct{}{}:
 	default:
