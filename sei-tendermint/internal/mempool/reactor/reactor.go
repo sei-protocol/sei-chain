@@ -95,7 +95,6 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	}
 	r.SpawnCritical("processMempoolCh", r.processMempoolCh)
 	r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
-	r.SpawnCritical("mempool", r.mempool.Run)
 	return nil
 }
 
@@ -256,8 +255,8 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	}()
 
 	var err error
-	nextGossipTx,err = r.mempool.WaitForNextTx(ctx)
-	if err!=nil {
+	nextGossipTx, err = r.mempool.WaitForNextTx(ctx)
+	if err != nil {
 		return
 	}
 	for ctx.Err() == nil {
@@ -276,7 +275,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			)
 		}
 
-		if _,_,err := utils.RecvOrClosed(ctx,nextGossipTx.NextWaitChan()); err!=nil {
+		if _, _, err := utils.RecvOrClosed(ctx, nextGossipTx.NextWaitChan()); err != nil {
 			return
 		}
 		nextGossipTx = nextGossipTx.Next()

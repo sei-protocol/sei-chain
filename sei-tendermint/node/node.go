@@ -67,6 +67,7 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
+	mempool        *mempool.TxMempool
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
 	services       []service.Service
@@ -208,6 +209,7 @@ func makeNode(
 			makeCloser(closers))
 	}
 	node.router = router
+	node.mempool = mp
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
 
@@ -492,6 +494,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 	n.rpcEnv.IsListening = true
+	n.SpawnCritical("mempool", n.mempool.Run)
 
 	for _, reactor := range n.services {
 		if err := reactor.Start(ctx); err != nil {

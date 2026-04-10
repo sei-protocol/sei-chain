@@ -211,13 +211,13 @@ func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeByt
 
 func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
 
-// WaitForNextTx waits until the next transaction is available for gossip. 
-// Returns the next valid transaction to gossip. 
-func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement,error) {
-	if _,_,err := utils.RecvOrClosed(ctx,txmp.gossipIndex.WaitChan()); err!=nil {
-		return nil,err
+// WaitForNextTx waits until the next transaction is available for gossip.
+// Returns the next valid transaction to gossip.
+func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement, error) {
+	if _, _, err := utils.RecvOrClosed(ctx, txmp.gossipIndex.WaitChan()); err != nil {
+		return nil, err
 	}
-	return txmp.gossipIndex.Front(),nil
+	return txmp.gossipIndex.Front(), nil
 }
 
 // TxsAvailable returns a channel which fires once for every height, and only
