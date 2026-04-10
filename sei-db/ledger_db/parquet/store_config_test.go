@@ -63,7 +63,7 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 	require.Equal(t, defaultBlockFlushInterval, store.config.BlockFlushInterval)
 	require.Equal(t, defaultMaxBlocksPerFile, store.config.MaxBlocksPerFile)
 	require.Equal(t, defaultMaxBlocksPerFile, store.CacheRotateInterval())
-	require.Equal(t, "pebble", store.config.TxIndexBackend)
+	require.Equal(t, "pebbledb", store.config.TxIndexBackend)
 }
 
 func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
@@ -84,7 +84,7 @@ func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
 func TestNewStoreSucceedsWithTxIndexLookupEnabled(t *testing.T) {
 	store, err := NewStore(StoreConfig{
 		DBDirectory:    t.TempDir(),
-		TxIndexBackend: "pebble",
+		TxIndexBackend: "pebbledb",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, store)

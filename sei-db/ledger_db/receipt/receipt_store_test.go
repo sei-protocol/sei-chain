@@ -89,8 +89,9 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 
 	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(cfg, storeKey)
-	require.ErrorContains(t, err, "unsupported receipt tx index backend")
-	require.Nil(t, store)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {

@@ -23,17 +23,15 @@ const (
 	flagRSTxIndexBackend       = "receipt-store.tx-index-backend"
 
 	ReceiptTxIndexBackendNone   = ""
-	ReceiptTxIndexBackendPebble = "pebble"
+	ReceiptTxIndexBackendPebble = "pebbledb"
 )
 
 func NormalizeReceiptTxIndexBackend(backend string) string {
 	switch strings.ToLower(strings.TrimSpace(backend)) {
-	case "", "none", "disabled":
-		return ReceiptTxIndexBackendNone
-	case "pebble", "pebbledb":
+	case "pebbledb":
 		return ReceiptTxIndexBackendPebble
 	default:
-		return strings.ToLower(strings.TrimSpace(backend))
+		return ReceiptTxIndexBackendNone
 	}
 }
 
@@ -65,7 +63,7 @@ type ReceiptStoreConfig struct {
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
 	// TxIndexBackend selects the tx-hash index implementation used by the
-	// parquet receipt store. Set to "pebble" (the default) to maintain a
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
 	// Pebble-backed tx_hash -> block_number index alongside parquet files so
 	// receipt-by-hash lookups can target a single file instead of scanning all
 	// files. Set to "" to disable the index and fall back to a full DuckDB scan.

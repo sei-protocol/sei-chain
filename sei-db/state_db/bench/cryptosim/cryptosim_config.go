@@ -205,7 +205,7 @@ type CryptoSimConfig struct {
 	ReceiptReadMode string
 
 	// ReceiptTxIndexBackend selects the tx-hash index implementation for the
-	// parquet receipt store. Set to "pebble" (the default) to maintain a
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
 	// Pebble-backed tx_hash -> block_number index so receipt-by-hash lookups
 	// target a single parquet file instead of scanning all files. Set to ""
 	// to disable the index and fall back to full DuckDB scans.

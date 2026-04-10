@@ -31,11 +31,20 @@ func TestReadReceiptConfigTxIndexBackendOverride(t *testing.T) {
 	require.Equal(t, "", cfg.TxIndexBackend)
 }
 
-func TestReadReceiptConfigPreservesUnknownTxIndexBackend(t *testing.T) {
+func TestReadReceiptConfigAcceptsPebbleDBTxIndexBackend(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.tx-index-backend": "pebbledb",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, ReceiptTxIndexBackendPebble, cfg.TxIndexBackend)
+}
+
+func TestReadReceiptConfigUnknownTxIndexBackendDefaultsToNone(t *testing.T) {
 	cfg, err := ReadReceiptConfig(mapAppOpts{
 		"receipt-store.tx-index-backend": "rocksdb",
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "rocksdb", cfg.TxIndexBackend)
+	require.Equal(t, ReceiptTxIndexBackendNone, cfg.TxIndexBackend)
 }

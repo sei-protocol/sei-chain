@@ -162,7 +162,7 @@ keep-recent = {{ .ReceiptStore.KeepRecent }}
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 
 # TxIndexBackend selects the tx-hash index implementation for parquet receipts.
-# Set to "pebble" to enable the index, or "" to disable it.
+# Set to "pebbledb" to enable the index, or "" to disable it.
 # Ignored unless rs-backend = "parquet".
 tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
