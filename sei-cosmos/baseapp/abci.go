@@ -938,6 +938,20 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 	app.prepareProcessProposalState(req.Hash)
 
+	// Snapshot a clean context for read-only validation (e.g. gas checks).
+	// Branch from the source store (cms or deliverState) rather than from
+	// processProposalState, so that speculative writes from the optimistic
+	// goroutine are not visible.
+	var cleanMS sdk.CacheMultiStore
+	if app.deliverState != nil {
+		// Block 1: deliverState has InitChain genesis writes not yet committed
+		cleanMS = app.deliverState.ms.CacheMultiStore()
+	} else {
+		// Blocks 2+: committed root store has everything
+		cleanMS = app.cms.CacheMultiStore()
+	}
+	app.processProposalCleanCtx = app.processProposalState.Context().WithMultiStore(cleanMS)
+
 	defer func() {
 		if err := recover(); err != nil {
 			logger.Error(
