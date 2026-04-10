@@ -384,6 +384,9 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue
 		}
+		if filter.FromBlock != nil && startBlock+r.maxBlocksPerFile <= *filter.FromBlock {
+			continue
+		}
 		files = append(files, f)
 	}
 	if len(files) == 0 {

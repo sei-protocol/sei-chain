@@ -61,7 +61,7 @@ func newStreamState(id streamID, kind StreamKind) *streamState {
 func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if inner.send.remoteOpened {
-			return fmt.Errorf("already opened")
+			return errAlreadyOpened
 		}
 		// Do not allow remote open before we connect.
 		if s.id.isConnect() && !inner.recv.opened {
@@ -77,7 +77,7 @@ func (s *streamState) RemoteOpen(maxMsgSize uint64) error {
 func (s *streamState) RemoteClose() error {
 	for inner, ctrl := range s.inner.Lock() {
 		if inner.closed.remote {
-			return fmt.Errorf("already closed")
+			return errAlreadyClosed
 		}
 		inner.closed.remote = true
 		ctrl.Updated()

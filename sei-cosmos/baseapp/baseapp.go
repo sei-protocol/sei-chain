@@ -97,7 +97,6 @@ type BaseApp struct {
 
 	appStore
 	baseappVersions
-	peerFilters
 	snapshotData
 	abciData
 	moduleRouter
@@ -106,10 +105,11 @@ type BaseApp struct {
 	//
 	// checkState is set on InitChain and reset on Commit
 	// deliverState is set on InitChain and BeginBlock and set to nil on Commit
-	checkState           *state // for CheckTx
-	deliverState         *state // for DeliverTx
-	processProposalState *state
-	stateToCommit        *state
+	checkState              *state // for CheckTx
+	deliverState            *state // for DeliverTx
+	processProposalState    *state
+	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
+	stateToCommit           *state
 
 	// paramStore is used to query for ABCI consensus parameters from an
 	// application parameter store.
@@ -597,6 +597,14 @@ func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 
+// GetProcessProposalCleanContext returns a context snapshotted at the start of
+// ProcessProposal, before the handler runs. It has the correct store state,
+// consensus params, and header, but is immune to speculative writes from
+// optimistic processing.
+func (app *BaseApp) GetProcessProposalCleanContext() sdk.Context {
+	return app.processProposalCleanCtx
+}
+
 func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {
 	app.processProposalState.SetContext(app.processProposalState.Context().
 		WithHeaderHash(headerHash).
@@ -841,11 +849,15 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	ms := ctx.MultiStore()
 
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()

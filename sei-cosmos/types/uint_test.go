@@ -278,6 +278,16 @@ func (s *uintTestSuite) TestRelativePow() {
 	}
 }
 
+func (s *uintTestSuite) TestUintUnmarshalEmptyResetsReceiver() {
+	u := sdk.NewUint(42)
+	s.Require().NoError((&u).Unmarshal(nil))
+	s.Require().True(u.Equal(sdk.ZeroUint()), "nil protobuf bytes should reset Uint to zero")
+
+	u = sdk.NewUint(7)
+	s.Require().NoError((&u).Unmarshal([]byte{}))
+	s.Require().True(u.Equal(sdk.ZeroUint()), "empty protobuf bytes should reset Uint to zero")
+}
+
 func minuint(i1, i2 uint64) uint64 {
 	if i1 < i2 {
 		return i1
