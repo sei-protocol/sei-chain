@@ -19,12 +19,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-
-	changesByType, err := sortChangeSets(changeSets)
-	if err != nil {
-		return fmt.Errorf("failed to sort change sets: %w", err)
-	}
-
+	changesByType := sortChangeSets(changeSets)
 	blockHeight := s.committedVersion + 1
 
 	////////////////////
@@ -132,8 +127,8 @@ func storeWrites[T vtype.VType](
 	}
 }
 
-// Sort the change sets by type. This method only returns an error if
-func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
+// Sort the change sets by type.
+func sortChangeSets(changeSets []*proto.NamedChangeSet) map[evm.EVMKeyKind]map[string][]byte {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
 	for _, cs := range changeSets {
@@ -141,14 +136,7 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[
 			continue
 		}
 		for _, pair := range cs.Changeset.Pairs {
-
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-
-			// evm.ParseEVMKey() should return a valid key type 100% of the time, unless we add a new key but
-			// forget to update IsSupportedKeyType() and associated code. This is a sanity check.
-			if !IsSupportedKeyType(kind) {
-				return nil, fmt.Errorf("unsupported key type: %v", kind)
-			}
 
 			keyStr := string(keyBytes)
 
@@ -166,7 +154,7 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.

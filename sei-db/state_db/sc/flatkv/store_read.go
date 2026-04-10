@@ -15,11 +15,11 @@ import (
 // Panics on I/O errors or unsupported key types.
 func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 	kind, keyBytes := evm.ParseEVMKey(key)
-	if !IsSupportedKeyType(kind) {
-		panic(fmt.Sprintf("flatkv: unsupported key type: %v", kind))
-	}
 
 	switch kind {
+	case evm.EVMKeyEmpty:
+		// An empty key is always not found.
+		return nil, false
 	case evm.EVMKeyStorage:
 		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
@@ -64,7 +64,7 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 		return value, value != nil
 
 	default:
-		return nil, false
+		panic(fmt.Sprintf("flatkv: Get unsupported key type: %v", kind))
 	}
 }
 
@@ -72,10 +72,6 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 	kind, keyBytes := evm.ParseEVMKey(key)
-	if !IsSupportedKeyType(kind) {
-		// Only possible if a new type is added to evm.ParseEVMKey() without updating code to handle that type.
-		return -1, false, fmt.Errorf("unsupported key type: %v", kind)
-	}
 
 	switch kind {
 	case evm.EVMKeyStorage:
