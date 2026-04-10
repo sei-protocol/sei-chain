@@ -1,10 +1,14 @@
 // Archives current precompile code into legacy/ folders and updates version
 // tracking files. This replaces the old scripts/bump-version.sh.
 //
+// Upgrade names use vMajor.Minor format (e.g. v7.0, v7.1, v8.0).
+// The tool normalizes to vMajor.Minor.0 for storage in app/tags, versions
+// files, and legacy directory names to preserve semver sort compatibility.
+//
 // Usage:
 //
-//	go run ./cmd/bump-version <NEW_TAG> --modules bank,wasmd,...
-//	go run ./cmd/bump-version <NEW_TAG> --all
+//	go run ./cmd/bump-version <UPGRADE_NAME> --modules bank,wasmd,...
+//	go run ./cmd/bump-version <UPGRADE_NAME> --all
 //
 // After running this, execute `go generate ./...` to regenerate setup.go files.
 package main
@@ -38,10 +42,10 @@ var (
 func main() {
 	args := parseArgs()
 
-	// --- Validate the new tag ---
-	if !semver.IsValid(args.newTag) {
-		fatalf("%q is not a valid semver tag (expected format: vX.Y.Z)", args.newTag)
-	}
+	// --- Validate and normalize the upgrade name ---
+	// Upgrade names are vMajor.Minor (e.g. v7.0). Reject vMajor.Minor.Patch.
+	// Normalize to vMajor.Minor.0 for storage.
+	newTag := sanitizeUpgradeName(args.newTag)
 
 	// --- Validate tag file exists ---
 	if _, err := os.Stat(tagFile); os.IsNotExist(err) {
@@ -58,12 +62,12 @@ func main() {
 
 	// Detect rerun: the tag is already the last line (from a previous run).
 	// This must be checked before dedup mutates any files.
-	rerun := len(existingTags) > 0 && existingTags[len(existingTags)-1] == args.newTag
+	rerun := len(existingTags) > 0 && existingTags[len(existingTags)-1] == newTag
 
 	// Check if the tag already exists anywhere in app/tags (not just the last line).
 	// The last-line case is a rerun and is handled by dedup below.
-	if pos := indexOf(existingTags, args.newTag); pos != -1 && pos != len(existingTags)-1 {
-		fatalf("%s already exists in %s at line %d (not a rerun — this tag was already released)", args.newTag, tagFile, pos+1)
+	if pos := indexOf(existingTags, newTag); pos != -1 && pos != len(existingTags)-1 {
+		fatalf("%s already exists in %s at line %d (not a rerun — this tag was already released)", newTag, tagFile, pos+1)
 	}
 
 	// Warn if the new tag sorts before the latest tag — this is almost certainly wrong.
@@ -72,22 +76,22 @@ func main() {
 	if rerun && len(existingTags) >= 2 {
 		compareTarget = findLatestSemver(existingTags[:len(existingTags)-1])
 	}
-	if compareTarget != "" && !rerun && semver.Compare(args.newTag, compareTarget) < 0 {
-		fatalf("%s is older than the current latest upgrade %s; upgrade names must advance forward", args.newTag, compareTarget)
+	if compareTarget != "" && !rerun && semver.Compare(newTag, compareTarget) < 0 {
+		fatalf("%s is older than the current latest upgrade %s; upgrade names must advance forward", newTag, compareTarget)
 	}
 
 	if rerun {
-		fmt.Printf("rerun detected: %s is already the last entry in %s, re-archiving\n", args.newTag, tagFile)
+		fmt.Printf("rerun detected: %s is already the last entry in %s, re-archiving\n", newTag, tagFile)
 	}
 
 	// Dedup on rerun: if NEW_TAG is already the last line in app/tags, remove it.
-	dedup(tagFile, args.newTag)
+	dedup(tagFile, newTag)
 
-	tagFolder := strings.ReplaceAll(args.newTag, ".", "")
+	tagFolder := strings.ReplaceAll(newTag, ".", "")
 
 	// --- Validate tag folder produces a legal Go package name ---
 	if !isValidGoIdent(tagFolder) {
-		fatalf("tag %q produces folder name %q which is not a valid Go identifier; use a clean vX.Y.Z tag", args.newTag, tagFolder)
+		fatalf("tag %q produces folder name %q which is not a valid Go identifier; use a clean vX.Y.Z tag", newTag, tagFolder)
 	}
 
 	legacyCommonImport := `"` + modulePath + `/precompiles/common/legacy/` + tagFolder + `"`
@@ -109,12 +113,12 @@ func main() {
 		}
 		legacyDir := filepath.Join(moduleDir, "legacy", tagFolder)
 		if dirExists(legacyDir) && !rerun {
-			fatalf("legacy directory %s already exists but %s is not the last entry in %s/versions — refusing to overwrite a previous archive", legacyDir, args.newTag, moduleDir)
+			fatalf("legacy directory %s already exists but %s is not the last entry in %s/versions — refusing to overwrite a previous archive", legacyDir, newTag, moduleDir)
 		}
 		// Check if the tag is already buried in the module's versions file
 		if versions, _ := readNonEmptyLines(filepath.Join(moduleDir, "versions")); len(versions) > 0 {
-			if pos := indexOf(versions, args.newTag); pos != -1 && pos != len(versions)-1 {
-				fatalf("%s already exists in %s/versions at line %d (not a rerun — this version was already archived)", args.newTag, moduleDir, pos+1)
+			if pos := indexOf(versions, newTag); pos != -1 && pos != len(versions)-1 {
+				fatalf("%s already exists in %s/versions at line %d (not a rerun — this version was already archived)", newTag, moduleDir, pos+1)
 			}
 		}
 	}
@@ -126,7 +130,7 @@ func main() {
 	}
 
 	// --- All checks passed, proceed ---
-	fmt.Printf("new tag: %s\n", args.newTag)
+	fmt.Printf("new tag: %s\n", newTag)
 	fmt.Printf("version folder: %s\n", tagFolder)
 	fmt.Printf("latest existing: %s\n", latestTag)
 	fmt.Printf("modules: %s\n", strings.Join(modules, ", "))
@@ -138,12 +142,12 @@ func main() {
 	// Archive each module
 	for _, mod := range modules {
 		moduleDir := filepath.Join(precompilesDir, mod)
-		archiveModule(moduleDir, mod, args.newTag, tagFolder, legacyCommonImport)
+		archiveModule(moduleDir, mod, newTag, tagFolder, legacyCommonImport)
 	}
 
 	// Append new tag to app/tags
-	appendLine(tagFile, args.newTag)
-	fmt.Printf("appended %s to %s\n", args.newTag, tagFile)
+	appendLine(tagFile, newTag)
+	fmt.Printf("appended %s to %s\n", newTag, tagFile)
 
 	fmt.Println("\nnext step: run `go generate ./...` to regenerate setup.go files")
 }
@@ -198,6 +202,31 @@ func usage() {
 }
 
 // --- Validation helpers ---
+
+// vMajorMinorRe matches vMajor.Minor (e.g. v7.0, v12.3).
+var vMajorMinorRe = regexp.MustCompile(`^v\d+\.\d+$`)
+
+// vMajorMinorPatchRe matches vMajor.Minor.Patch (e.g. v7.0.0, v7.0.1).
+var vMajorMinorPatchRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// sanitizeUpgradeName validates and normalizes an upgrade name.
+//
+// Accepted input: vMajor.Minor (e.g. v7.0) — normalized to vMajor.Minor.0.
+// Rejected input: vMajor.Minor.Patch — upgrade names should be vMajor.Minor,
+// the tool appends .0 automatically.
+func sanitizeUpgradeName(input string) string {
+	if vMajorMinorRe.MatchString(input) {
+		normalized := input + ".0"
+		fmt.Printf("upgrade name: %s -> %s (normalized)\n", input, normalized)
+		return normalized
+	}
+	if vMajorMinorPatchRe.MatchString(input) {
+		fatalf("upgrade name %q looks like vMajor.Minor.Patch; upgrade names should be vMajor.Minor (e.g. %s) — the tool appends .0 automatically",
+			input, semver.MajorMinor(input))
+	}
+	fatalf("upgrade name %q is not valid; expected vMajor.Minor (e.g. v7.0, v7.1)", input)
+	return "" // unreachable
+}
 
 // findLatestSemver returns the highest valid semver tag from the list,
 // or "" if none are valid.
