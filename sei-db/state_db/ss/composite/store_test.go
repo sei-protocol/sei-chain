@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/stretchr/testify/require"
 )
@@ -1493,6 +1494,20 @@ func feedNodes(ch chan<- types.SnapshotNode, nodes []types.SnapshotNode) {
 	close(ch)
 }
 
+func mustSSCodeHash(t *testing.T, value []byte) *vtype.CodeHash {
+	t.Helper()
+	parsed, err := vtype.ParseCodeHash(value)
+	require.NoError(t, err)
+	return parsed
+}
+
+func mustSSStorageValue(t *testing.T, value []byte) *[32]byte {
+	t.Helper()
+	parsed, err := vtype.ParseStorageValue(value)
+	require.NoError(t, err)
+	return parsed
+}
+
 func TestImport_OnlyEvmModule(t *testing.T) {
 	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
 		t.Run("WriteMode="+string(mode), func(t *testing.T) {
@@ -1574,6 +1589,112 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 				evmVal2, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("flatkv_key_2"))
 				require.NoError(t, err)
 				require.Equal(t, []byte("fv_2"), evmVal2)
+			}
+		})
+	}
+}
+
+func TestImport_RawFlatKVModules(t *testing.T) {
+	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
+		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			addr := make([]byte, 20)
+			addr[0] = 0xAA
+			slot := make([]byte, 32)
+			slot[0] = 0xBB
+
+			nonceValue := []byte{0, 0, 0, 0, 0, 0, 0, 7}
+			codeHashValue := make([]byte, vtype.CodeHashLen)
+			codeHashValue[31] = 0xCC
+			codeValue := []byte{0x60, 0x80, 0x52}
+			storageValue := make([]byte, 32)
+			storageValue[31] = 0xDD
+			legacyKey := append([]byte{0x09}, addr...)
+			legacyValue := []byte{0x00, 0x20}
+
+			accountData := vtype.NewAccountData().
+				SetBlockHeight(11).
+				SetNonce(7).
+				SetCodeHash(mustSSCodeHash(t, codeHashValue))
+			codeData := vtype.NewCodeData().
+				SetBlockHeight(11).
+				SetBytecode(codeValue)
+			storageData := vtype.NewStorageData().
+				SetBlockHeight(11).
+				SetValue(mustSSStorageValue(t, storageValue))
+			legacyData := vtype.NewLegacyData().
+				SetValue(legacyValue)
+
+			ch := make(chan types.SnapshotNode, 10)
+			nodes := []types.SnapshotNode{
+				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("7000")},
+				{StoreKey: commonevm.EVMFlatKVAccountStoreKey, Key: addr, Value: accountData.Serialize()},
+				{StoreKey: commonevm.EVMFlatKVCodeStoreKey, Key: addr, Value: codeData.Serialize()},
+				{StoreKey: commonevm.EVMFlatKVStorageStoreKey, Key: append(append([]byte(nil), addr...), slot...), Value: storageData.Serialize()},
+				{StoreKey: commonevm.EVMFlatKVLegacyStoreKey, Key: legacyKey, Value: legacyData.Serialize()},
+			}
+			go feedNodes(ch, nodes)
+
+			err := store.Import(1, ch)
+			require.NoError(t, err)
+
+			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("7000"), bankVal)
+
+			nonceKey := append([]byte{0x0a}, addr...)
+			codeHashKey := append([]byte{0x08}, addr...)
+			codeKey := append([]byte{0x07}, addr...)
+			storageKey := append([]byte{0x03}, append(append([]byte(nil), addr...), slot...)...)
+
+			if mode == config.SplitWrite {
+				cosmosNonce, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, nonceKey)
+				require.NoError(t, err)
+				require.Nil(t, cosmosNonce)
+			} else {
+				cosmosNonce, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, nonceKey)
+				require.NoError(t, err)
+				require.Equal(t, nonceValue, cosmosNonce)
+
+				cosmosCodeHash, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, codeHashKey)
+				require.NoError(t, err)
+				require.Equal(t, codeHashValue, cosmosCodeHash)
+
+				cosmosCode, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, codeKey)
+				require.NoError(t, err)
+				require.Equal(t, codeValue, cosmosCode)
+
+				cosmosStorage, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, storageKey)
+				require.NoError(t, err)
+				require.Equal(t, storageValue, cosmosStorage)
+
+				cosmosLegacy, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, legacyKey)
+				require.NoError(t, err)
+				require.Equal(t, legacyValue, cosmosLegacy)
+			}
+
+			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+				evmNonce, err := store.evmStore.Get(evm.EVMStoreKey, 1, nonceKey)
+				require.NoError(t, err)
+				require.Equal(t, nonceValue, evmNonce)
+
+				evmCodeHash, err := store.evmStore.Get(evm.EVMStoreKey, 1, codeHashKey)
+				require.NoError(t, err)
+				require.Equal(t, codeHashValue, evmCodeHash)
+
+				evmCode, err := store.evmStore.Get(evm.EVMStoreKey, 1, codeKey)
+				require.NoError(t, err)
+				require.Equal(t, codeValue, evmCode)
+
+				evmStorage, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
+				require.NoError(t, err)
+				require.Equal(t, storageValue, evmStorage)
+
+				evmLegacy, err := store.evmStore.Get(evm.EVMStoreKey, 1, legacyKey)
+				require.NoError(t, err)
+				require.Equal(t, legacyValue, evmLegacy)
 			}
 		})
 	}

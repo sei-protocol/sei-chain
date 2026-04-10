@@ -18,6 +18,13 @@ const EVMStoreKey = "evm"
 // layers need to recognise this name and treat it as EVM data.
 const EVMFlatKVStoreKey = "evm_flatkv"
 
+const (
+	EVMFlatKVAccountStoreKey = "evm_flatkv_account"
+	EVMFlatKVCodeStoreKey    = "evm_flatkv_code"
+	EVMFlatKVStorageStoreKey = "evm_flatkv_storage"
+	EVMFlatKVLegacyStoreKey  = "evm_flatkv_legacy"
+)
+
 // EVM key prefixes — mirrored from x/evm/types/keys.go.
 // These are immutable on-disk format markers; changing them would break
 // all existing state, so duplicating here is safe and avoids pulling in the
@@ -134,4 +141,24 @@ func InternalKeyLen(kind EVMKeyKind) int {
 	default:
 		return 0
 	}
+}
+
+func FlatKVStoreKeyKind(storeKey string) (EVMKeyKind, bool) {
+	switch storeKey {
+	case EVMFlatKVAccountStoreKey:
+		return EVMKeyNonce, true
+	case EVMFlatKVCodeStoreKey:
+		return EVMKeyCode, true
+	case EVMFlatKVStorageStoreKey:
+		return EVMKeyStorage, true
+	case EVMFlatKVLegacyStoreKey:
+		return EVMKeyLegacy, true
+	default:
+		return EVMKeyEmpty, false
+	}
+}
+
+func IsFlatKVStoreKey(storeKey string) bool {
+	_, ok := FlatKVStoreKeyKind(storeKey)
+	return ok
 }

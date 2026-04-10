@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -258,32 +260,101 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
-func normalizeSnapshotNode(node types.SnapshotNode) types.SnapshotNode {
+func normalizeSnapshotNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	if node.StoreKey == commonevm.EVMFlatKVStoreKey {
 		node.StoreKey = evm.EVMStoreKey
+		return []types.SnapshotNode{node}, nil
 	}
-	return node
+	if !commonevm.IsFlatKVStoreKey(node.StoreKey) {
+		return []types.SnapshotNode{node}, nil
+	}
+
+	switch node.StoreKey {
+	case commonevm.EVMFlatKVAccountStoreKey:
+		return normalizeFlatKVAccountNode(node)
+	case commonevm.EVMFlatKVCodeStoreKey:
+		return normalizeFlatKVCodeNode(node)
+	case commonevm.EVMFlatKVStorageStoreKey:
+		return normalizeFlatKVStorageNode(node)
+	case commonevm.EVMFlatKVLegacyStoreKey:
+		return normalizeFlatKVLegacyNode(node)
+	default:
+		return nil, fmt.Errorf("unsupported flatkv snapshot module: %s", node.StoreKey)
+	}
+}
+
+func normalizeFlatKVAccountNode(node types.SnapshotNode) ([]types.SnapshotNode, error) {
+	accountData, err := vtype.DeserializeAccountData(node.Value)
+	if err != nil {
+		return nil, fmt.Errorf("deserialize flatkv account value: %w", err)
+	}
+
+	nonceValue := make([]byte, vtype.NonceLen)
+	binary.BigEndian.PutUint64(nonceValue, accountData.GetNonce())
+	nodes := []types.SnapshotNode{{
+		StoreKey: evm.EVMStoreKey,
+		Key:      commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyNonce, node.Key),
+		Value:    nonceValue,
+	}}
+
+	codeHash := accountData.GetCodeHash()
+	var zeroHash vtype.CodeHash
+	if codeHash != nil && *codeHash != zeroHash {
+		nodes = append(nodes, types.SnapshotNode{
+			StoreKey: evm.EVMStoreKey,
+			Key:      commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyCodeHash, node.Key),
+			Value:    append([]byte(nil), codeHash[:]...),
+		})
+	}
+
+	return nodes, nil
+}
+
+func normalizeFlatKVCodeNode(node types.SnapshotNode) ([]types.SnapshotNode, error) {
+	codeData, err := vtype.DeserializeCodeData(node.Value)
+	if err != nil {
+		return nil, fmt.Errorf("deserialize flatkv code value: %w", err)
+	}
+	return []types.SnapshotNode{{
+		StoreKey: evm.EVMStoreKey,
+		Key:      commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyCode, node.Key),
+		Value:    append([]byte(nil), codeData.GetBytecode()...),
+	}}, nil
+}
+
+func normalizeFlatKVStorageNode(node types.SnapshotNode) ([]types.SnapshotNode, error) {
+	storageData, err := vtype.DeserializeStorageData(node.Value)
+	if err != nil {
+		return nil, fmt.Errorf("deserialize flatkv storage value: %w", err)
+	}
+	return []types.SnapshotNode{{
+		StoreKey: evm.EVMStoreKey,
+		Key:      commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyStorage, node.Key),
+		Value:    append([]byte(nil), storageData.GetValue()[:]...),
+	}}, nil
+}
+
+func normalizeFlatKVLegacyNode(node types.SnapshotNode) ([]types.SnapshotNode, error) {
+	legacyData, err := vtype.DeserializeLegacyData(node.Value)
+	if err != nil {
+		return nil, fmt.Errorf("deserialize flatkv legacy value: %w", err)
+	}
+	return []types.SnapshotNode{{
+		StoreKey: evm.EVMStoreKey,
+		Key:      append([]byte(nil), node.Key...),
+		Value:    legacyData.GetValue(),
+	}}, nil
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		// Normalize evm_flatkv → evm so downstream routing and storage work
-		// correctly regardless of whether the snapshot was exported with the
-		// FlatKV module or only the legacy evm module.
-		normalized := make(chan types.SnapshotNode, cap(ch))
-		go func() {
-			defer close(normalized)
-			for node := range ch {
-				normalized <- normalizeSnapshotNode(node)
-			}
-		}()
-		return s.cosmosStore.Import(version, normalized)
-	}
-
 	splitWrite := s.config.WriteMode == config.SplitWrite
+	importToEVM := s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
-	evmCh := make(chan types.SnapshotNode, 100)
+	var evmCh chan types.SnapshotNode
+	if importToEVM {
+		evmCh = make(chan types.SnapshotNode, 100)
+	}
 	importErrCh := make(chan error, 2)
 
 	var wg sync.WaitGroup
@@ -292,7 +363,9 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 	closeImportChans := func() {
 		closeOnce.Do(func() {
 			close(cosmosCh)
-			close(evmCh)
+			if evmCh != nil {
+				close(evmCh)
+			}
 		})
 	}
 
@@ -304,13 +377,15 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		}
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := s.evmStore.Import(version, evmCh); err != nil {
-			importErrCh <- err
-		}
-	}()
+	if importToEVM {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.evmStore.Import(version, evmCh); err != nil {
+				importErrCh <- err
+			}
+		}()
+	}
 
 	var importErr error
 	drainImportErr := func() {
@@ -345,21 +420,27 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 	}
 
 	for node := range ch {
-		node = normalizeSnapshotNode(node)
+		normalizedNodes, err := normalizeSnapshotNodes(node)
+		if err != nil && importErr == nil {
+			importErr = err
+			closeImportChans()
+		}
 		drainImportErr()
 		if importErr != nil {
 			continue
 		}
 
-		isEVM := node.StoreKey == evm.EVMStoreKey
-		if !isEVM || !splitWrite {
-			if err := sendNode(cosmosCh, node); err != nil {
-				continue
+		for _, normalizedNode := range normalizedNodes {
+			isEVM := normalizedNode.StoreKey == evm.EVMStoreKey
+			if !isEVM || !splitWrite || !importToEVM {
+				if err := sendNode(cosmosCh, normalizedNode); err != nil {
+					continue
+				}
 			}
-		}
-		if isEVM {
-			if err := sendNode(evmCh, node); err != nil {
-				continue
+			if isEVM && importToEVM {
+				if err := sendNode(evmCh, normalizedNode); err != nil {
+					continue
+				}
 			}
 		}
 	}
