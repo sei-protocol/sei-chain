@@ -19,7 +19,10 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType := sortChangeSets(changeSets)
+	changesByType, err := sortChangeSets(changeSets)
+	if err != nil {
+		return err
+	}
 	blockHeight := s.committedVersion + 1
 
 	////////////////////
@@ -127,8 +130,8 @@ func storeWrites[T vtype.VType](
 	}
 }
 
-// Sort the change sets by type.
-func sortChangeSets(changeSets []*proto.NamedChangeSet) map[evm.EVMKeyKind]map[string][]byte {
+// Sort the change sets by type. Returns an error if any key is empty.
+func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
 
 	for _, cs := range changeSets {
@@ -137,6 +140,9 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) map[evm.EVMKeyKind]map[s
 		}
 		for _, pair := range cs.Changeset.Pairs {
 			kind, keyBytes := evm.ParseEVMKey(pair.Key)
+			if kind == evm.EVMKeyEmpty {
+				return nil, fmt.Errorf("flatkv: empty key in changeset")
+			}
 
 			keyStr := string(keyBytes)
 
@@ -154,7 +160,7 @@ func sortChangeSets(changeSets []*proto.NamedChangeSet) map[evm.EVMKeyKind]map[s
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.

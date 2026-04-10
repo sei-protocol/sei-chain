@@ -555,8 +555,8 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Nil and empty keys map to EVMKeyEmpty/EVMKeyUnknown, which is
-	// unsupported and panics under StrictKeyTypeCheck.
+	// Nil and empty keys map to EVMKeyEmpty, which returns (nil, false)
+	// without panicking.
 	for _, tc := range []struct {
 		name string
 		key  []byte
@@ -565,8 +565,11 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 		{"empty key", []byte{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Panics(t, func() { s.Get(tc.key) })
-			require.Panics(t, func() { s.Has(tc.key) })
+			val, found := s.Get(tc.key)
+			require.False(t, found)
+			require.Nil(t, val)
+			found = s.Has(tc.key)
+			require.False(t, found)
 		})
 	}
 
@@ -1333,26 +1336,34 @@ func TestGetNilKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	require.Panics(t, func() { s.Get(nil) })
+	val, found := s.Get(nil)
+	require.False(t, found)
+	require.Nil(t, val)
 }
 
 func TestGetEmptyKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	require.Panics(t, func() { s.Get([]byte{}) })
+	val, found := s.Get([]byte{})
+	require.False(t, found)
+	require.Nil(t, val)
 }
 
 func TestHasNilKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	require.Panics(t, func() { s.Has(nil) })
+
+	found := s.Has(nil)
+	require.False(t, found)
 }
 
 func TestHasEmptyKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	require.Panics(t, func() { s.Has([]byte{}) })
+
+	found := s.Has([]byte{})
+	require.False(t, found)
 }
 
 func TestHasForAllKeyTypes(t *testing.T) {

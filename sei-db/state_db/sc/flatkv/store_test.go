@@ -701,7 +701,9 @@ func TestGetUnsupportedKeyType_Strict(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	require.Panics(t, func() { s.Get([]byte{}) })
+	val, found := s.Get([]byte{})
+	require.False(t, found)
+	require.Nil(t, val)
 }
 
 func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
@@ -709,7 +711,9 @@ func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
-	require.Panics(t, func() { s.Get([]byte{}) })
+	val, found := s.Get([]byte{})
+	require.False(t, found)
+	require.Nil(t, val)
 }
 
 // =============================================================================
