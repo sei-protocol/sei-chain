@@ -760,7 +760,7 @@ func TestProtocol_AcceptDoubleOpen(t *testing.T) {
 		err := mux.Run(ctx, c2)
 		t.Logf("mux terminated: %v", err)
 		if !errors.Is(err, errAlreadyOpened) {
-			return fmt.Errorf("err = %v, want %v", err, errTooManyMsgs)
+			return fmt.Errorf("err = %v, want %v", err, errAlreadyOpened)
 		}
 		return nil
 	})
