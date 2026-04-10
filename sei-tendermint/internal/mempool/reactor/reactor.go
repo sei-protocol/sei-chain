@@ -93,12 +93,8 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	if !r.cfg.Broadcast {
 		logger.Info("tx broadcasting is disabled")
 	}
-
-	if r.channel == nil {
-		return errors.New("mempool channel is not set")
-	}
-	go r.processMempoolCh(ctx)
-	go r.processPeerUpdates(ctx)
+	r.SpawnCritical("processMempoolCh", r.processMempoolCh)
+	r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
 	r.SpawnCritical("mempool", r.mempool.Run)
 	return nil
 }
@@ -190,12 +186,12 @@ func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message])
 
 // processMempoolCh implements a blocking event loop where we listen for p2p
 // envelope messages from the mempool channel.
-func (r *Reactor) processMempoolCh(ctx context.Context) {
+func (r *Reactor) processMempoolCh(ctx context.Context) error {
 	<-r.readyToStart
 	for {
 		m, err := r.channel.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleMessage(ctx, m); err != nil {
 			r.router.Evict(m.From, fmt.Errorf("mempool: %w", err))
@@ -259,22 +255,12 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		}
 	}()
 
-	for {
-		if !r.IsRunning() || ctx.Err() != nil {
-			return
-		}
-
-		if nextGossipTx == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-r.mempool.WaitForNextTx():
-				if nextGossipTx = r.mempool.NextGossipTx(); nextGossipTx == nil {
-					continue
-				}
-			}
-		}
-
+	var err error
+	nextGossipTx,err = r.mempool.WaitForNextTx(ctx)
+	if err!=nil {
+		return
+	}
+	for ctx.Err() == nil {
 		memTx := nextGossipTx.Value.(*mempool.WrappedTx)
 
 		if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
@@ -290,11 +276,9 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			)
 		}
 
-		select {
-		case <-nextGossipTx.NextWaitChan():
-			nextGossipTx = nextGossipTx.Next()
-		case <-ctx.Done():
+		if _,_,err := utils.RecvOrClosed(ctx,nextGossipTx.NextWaitChan()); err!=nil {
 			return
 		}
+		nextGossipTx = nextGossipTx.Next()
 	}
 }

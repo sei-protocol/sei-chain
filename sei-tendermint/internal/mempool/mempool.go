@@ -211,14 +211,14 @@ func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeByt
 
 func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
 
-// WaitForNextTx returns a blocking channel that will be closed when the next
-// valid transaction is available to gossip. It is thread-safe.
-func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex.WaitChan() }
-
-// NextGossipTx returns the next valid transaction to gossip. A caller must wait
-// for WaitForNextTx to signal a transaction is available to gossip first. It is
-// thread-safe.
-func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
+// WaitForNextTx waits until the next transaction is available for gossip. 
+// Returns the next valid transaction to gossip. 
+func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement,error) {
+	if _,_,err := utils.RecvOrClosed(ctx,txmp.gossipIndex.WaitChan()); err!=nil {
+		return nil,err
+	}
+	return txmp.gossipIndex.Front(),nil
+}
 
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.
