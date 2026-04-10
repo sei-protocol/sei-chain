@@ -2,8 +2,8 @@
 // tracking files. This replaces the old scripts/bump-version.sh.
 //
 // Upgrade names use vMajor.Minor format (e.g. v7.0, v7.1, v8.0).
-// The tool normalizes to vMajor.Minor.0 for storage in app/tags, versions
-// files, and legacy directory names to preserve semver sort compatibility.
+// If vMajor.Minor.Patch is given, the patch is dropped with a warning.
+// Precompile legacy folders use the dots-removed form (v7.0 -> v70).
 //
 // Usage:
 //
@@ -64,10 +64,14 @@ func main() {
 	// This must be checked before dedup mutates any files.
 	rerun := len(existingTags) > 0 && existingTags[len(existingTags)-1] == newTag
 
-	// Check if the tag already exists anywhere in app/tags (not just the last line).
-	// The last-line case is a rerun and is handled by dedup below.
-	if pos := indexOf(existingTags, newTag); pos != -1 && pos != len(existingTags)-1 {
-		fatalf("%s already exists in %s at line %d (not a rerun — this tag was already released)", newTag, tagFile, pos+1)
+	// Check if the tag (or a semver-equivalent like v6.4.0 for v6.4) already
+	// exists anywhere in app/tags. The last-line exact match is a rerun.
+	if pos, match := semverIndexOf(existingTags, newTag); pos != -1 {
+		if pos == len(existingTags)-1 && match == newTag {
+			// exact last-line match — this is a rerun, handled by dedup below
+		} else {
+			fatalf("%s (semver-equal to %s) already exists in %s at line %d", newTag, match, tagFile, pos+1)
+		}
 	}
 
 	// Warn if the new tag sorts before the latest tag — this is almost certainly wrong.
@@ -117,8 +121,8 @@ func main() {
 		}
 		// Check if the tag is already buried in the module's versions file
 		if versions, _ := readNonEmptyLines(filepath.Join(moduleDir, "versions")); len(versions) > 0 {
-			if pos := indexOf(versions, newTag); pos != -1 && pos != len(versions)-1 {
-				fatalf("%s already exists in %s/versions at line %d (not a rerun — this version was already archived)", newTag, moduleDir, pos+1)
+			if pos, match := semverIndexOf(versions, newTag); pos != -1 && !(pos == len(versions)-1 && match == newTag) {
+				fatalf("%s (semver-equal to %s) already exists in %s/versions at line %d", newTag, match, moduleDir, pos+1)
 			}
 		}
 	}
@@ -209,20 +213,19 @@ var vMajorMinorRe = regexp.MustCompile(`^v\d+\.\d+$`)
 // vMajorMinorPatchRe matches vMajor.Minor.Patch (e.g. v7.0.0, v7.0.1).
 var vMajorMinorPatchRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
-// sanitizeUpgradeName validates and normalizes an upgrade name.
+// sanitizeUpgradeName validates and normalizes an upgrade name to vMajor.Minor.
 //
-// Accepted input: vMajor.Minor (e.g. v7.0) — normalized to vMajor.Minor.0.
-// Rejected input: vMajor.Minor.Patch — upgrade names should be vMajor.Minor,
-// the tool appends .0 automatically.
+// Accepted: vMajor.Minor (e.g. v7.0) — used as-is.
+// Accepted with warning: vMajor.Minor.Patch (e.g. v7.0.1) — patch is dropped.
+// Rejected: anything else.
 func sanitizeUpgradeName(input string) string {
 	if vMajorMinorRe.MatchString(input) {
-		normalized := input + ".0"
-		fmt.Printf("upgrade name: %s -> %s (normalized)\n", input, normalized)
-		return normalized
+		return input
 	}
 	if vMajorMinorPatchRe.MatchString(input) {
-		fatalf("upgrade name %q looks like vMajor.Minor.Patch; upgrade names should be vMajor.Minor (e.g. %s) — the tool appends .0 automatically",
-			input, semver.MajorMinor(input))
+		normalized := semver.MajorMinor(input)
+		fmt.Fprintf(os.Stderr, "WARNING: dropping patch from %s — upgrade names are vMajor.Minor; using %s\n", input, normalized)
+		return normalized
 	}
 	fatalf("upgrade name %q is not valid; expected vMajor.Minor (e.g. v7.0, v7.1)", input)
 	return "" // unreachable
@@ -240,13 +243,16 @@ func findLatestSemver(tags []string) string {
 	return latest
 }
 
-func indexOf(lines []string, value string) int {
+// semverIndexOf finds the first entry in lines that is semver-equal to value.
+// Returns (position, matched_string) or (-1, "") if not found.
+// This catches cross-format matches like v7.0 matching v7.0.0.
+func semverIndexOf(lines []string, value string) (int, string) {
 	for i, l := range lines {
-		if l == value {
-			return i
+		if semver.Compare(l, value) == 0 {
+			return i, l
 		}
 	}
-	return -1
+	return -1, ""
 }
 
 func dirExists(path string) bool {
