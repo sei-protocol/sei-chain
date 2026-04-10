@@ -279,5 +279,8 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			return
 		}
 		nextGossipTx = nextGossipTx.Next()
+		if nextGossipTx == nil {
+			return
+		}
 	}
 }
