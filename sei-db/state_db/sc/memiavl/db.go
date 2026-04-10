@@ -411,6 +411,10 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 }
 
 // ApplyChangeSet wraps MultiTree.ApplyChangeSet to add a lock.
+// It merges the changeset into any existing pending entry for the same store,
+// rather than blindly appending, to ensure at most one WAL entry per store per
+// block. Without this, WAL replay (Catchup) would treat duplicate entries as
+// separate versions, causing a state divergence.
 func (db *DB) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 	if len(changeSet.Pairs) == 0 {
 		return nil
@@ -423,9 +427,8 @@ func (db *DB) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 		return errReadOnly
 	}
 
-	db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, &proto.NamedChangeSet{
-		Name:      name,
-		Changeset: changeSet,
+	db.mergePendingChangesets([]*proto.NamedChangeSet{
+		{Name: name, Changeset: changeSet},
 	})
 	return db.MultiTree.ApplyChangeSet(name, changeSet)
 }

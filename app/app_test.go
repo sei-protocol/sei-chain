@@ -187,9 +187,16 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
-	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+	deliverCtx := ap.GetContextForDeliverTx([]byte{})
+	ap.StoreConsensusParams(deliverCtx, &types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},
 	})
+	ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	})
+	ap.SetDeliverStateToCommit()
+	ap.Commit(context.Background())
+
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(10)
@@ -197,9 +204,9 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	badProposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, emptyTx},
-		Header: &types.Header{ChainID: "sei-test", Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 2},
 	}
-	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
+	res, err := ap.ProcessProposal(context.Background(), &badProposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
@@ -311,12 +318,21 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 			ap := testWrapper.App
-			ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+			// Commit block 1 with custom consensus params so they're in the
+			// committed root store for ProcessProposal at height 2 to read.
+			cp := &types.ConsensusParams{
 				Block: &types.BlockParams{
 					MaxGas:       tc.maxBlockGas,
 					MaxGasWanted: tc.maxBlockGasWanted,
 				},
+			}
+			deliverCtx := ap.GetContextForDeliverTx([]byte{})
+			ap.StoreConsensusParams(deliverCtx, cp)
+			ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+				Header: &types.Header{ChainID: "sei-test", Height: 1},
 			})
+			ap.SetDeliverStateToCommit()
+			ap.Commit(context.Background())
 
 			var txs [][]byte
 			for _, tx := range tc.txs {
@@ -358,9 +374,9 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			proposal := abci.RequestProcessProposal{
 				Txs:    txs,
-				Header: &types.Header{ChainID: "sei-test", Height: 1},
+				Header: &types.Header{ChainID: "sei-test", Height: 2},
 			}
-			res, err := ap.ProcessProposalHandler(ctx, &proposal)
+			res, err := ap.ProcessProposal(context.Background(), &proposal)
 			require.Nil(t, err)
 			require.Equal(t, tc.expectedStatus, res.Status)
 		})
@@ -373,9 +389,16 @@ func TestOverflowGas(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
-	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+	deliverCtx := ap.GetContextForDeliverTx([]byte{})
+	ap.StoreConsensusParams(deliverCtx, &types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: math.MaxInt64},
 	})
+	ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	})
+	ap.SetDeliverStateToCommit()
+	ap.Commit(context.Background())
+
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(uint64(math.MaxInt64))
@@ -387,9 +410,9 @@ func TestOverflowGas(t *testing.T) {
 
 	proposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, secondTx},
-		Header: &types.Header{ChainID: "sei-test", Height: 1},
+		Header: &types.Header{ChainID: "sei-test", Height: 2},
 	}
-	res, err := ap.ProcessProposalHandler(ctx, &proposal)
+	res, err := ap.ProcessProposal(context.Background(), &proposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
