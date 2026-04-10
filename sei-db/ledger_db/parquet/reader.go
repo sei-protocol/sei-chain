@@ -330,15 +330,24 @@ func (r *Reader) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*R
 // GetReceiptByTxHashInBlock narrows the search to the parquet file that
 // should contain blockNumber, falling back to a full scan on miss.
 func (r *Reader) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*ReceiptResult, error) {
+	// Hold pruneMu across candidate selection and the targeted query so a
+	// concurrent prune cannot delete the file between fileForBlock and the
+	// DuckDB read (see getReceiptByTxHashFromFilesLocked).
+	r.pruneMu.RLock()
 	candidateFile := r.fileForBlock(blockNumber)
+
+	var result *ReceiptResult
+	var err error
 	if candidateFile != "" {
-		result, err := r.getReceiptByTxHashFromFiles(ctx, txHash, []string{candidateFile})
-		if err != nil {
-			return nil, err
-		}
-		if result != nil {
-			return result, nil
-		}
+		result, err = r.getReceiptByTxHashFromFilesLocked(ctx, txHash, []string{candidateFile})
+	}
+	r.pruneMu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+	if result != nil {
+		return result, nil
 	}
 	return r.getReceiptByTxHashFromFiles(ctx, txHash, nil)
 }
@@ -365,7 +374,12 @@ func (r *Reader) fileForBlock(blockNumber uint64) string {
 func (r *Reader) getReceiptByTxHashFromFiles(ctx context.Context, txHash common.Hash, files []string) (*ReceiptResult, error) {
 	r.pruneMu.RLock()
 	defer r.pruneMu.RUnlock()
+	return r.getReceiptByTxHashFromFilesLocked(ctx, txHash, files)
+}
 
+// getReceiptByTxHashFromFilesLocked runs the receipt query. The caller must
+// hold r.pruneMu.RLock (or otherwise ensure listed files are not deleted).
+func (r *Reader) getReceiptByTxHashFromFilesLocked(ctx context.Context, txHash common.Hash, files []string) (*ReceiptResult, error) {
 	if files == nil {
 		r.mu.RLock()
 		files = make([]string, len(r.closedReceiptFiles))

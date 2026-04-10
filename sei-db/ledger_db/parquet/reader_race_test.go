@@ -126,6 +126,56 @@ func TestConcurrentReadsAndPrune(t *testing.T) {
 	require.NoError(t, g.Wait())
 }
 
+// TestConcurrentTargetedReadsAndPrune exercises GetReceiptByTxHashInBlock
+// (single-file candidate path) concurrently with pruning. Without holding
+// pruneMu across fileForBlock and the targeted query, a prune could delete
+// the candidate file between those steps and DuckDB would error.
+func TestConcurrentTargetedReadsAndPrune(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, start := range []uint64{0, 500, 1000} {
+		require.NoError(t, createTestReceiptFile(dir, start, 500))
+	}
+
+	store, err := NewStore(StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		KeepRecent:       600,
+		TxIndexBackend:   "none",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	txHash := common.BigToHash(new(big.Int).SetUint64(250))
+
+	result, err := store.GetReceiptByTxHashInBlock(ctx, txHash, 250)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	const numReaders = 32
+	const readsPerReader = 100
+
+	g, _ := errgroup.WithContext(ctx)
+	for i := 0; i < numReaders; i++ {
+		g.Go(func() error {
+			for j := 0; j < readsPerReader; j++ {
+				if _, err := store.GetReceiptByTxHashInBlock(ctx, txHash, 250); err != nil {
+					return fmt.Errorf("GetReceiptByTxHashInBlock(250): %w", err)
+				}
+			}
+			return nil
+		})
+	}
+
+	g.Go(func() error {
+		store.PruneOldFiles(600)
+		return nil
+	})
+
+	require.NoError(t, g.Wait())
+}
+
 // TestOnFileRotationNotBlockedByPruneMu verifies the structural property
 // that OnFileRotation only acquires mu (the file-list lock), never pruneMu
 // (the file-lifetime lock). We hold pruneMu.RLock to simulate in-flight
