@@ -287,6 +287,8 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
 		app,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// Make EvidencePool
@@ -382,6 +384,8 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
 		app,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// fill the mempool with one txs just below the maximum size
@@ -445,6 +449,8 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
 		app,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// fill the mempool with one txs just below the maximum size

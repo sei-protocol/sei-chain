@@ -35,10 +35,6 @@ type Reactor struct {
 
 	router *p2p.Router
 
-	// observePanic is a function for observing panics that were recovered in methods on
-	// Reactor. observePanic is called with the recovered value.
-	observePanic func(any)
-
 	mtx                 sync.Mutex
 	peerRoutines        map[types.NodeID]context.CancelFunc
 	failedCheckTxCounts utils.Mutex[map[types.NodeID]int]
@@ -48,24 +44,19 @@ type Reactor struct {
 }
 
 // NewReactor returns a reference to a new reactor.
-func NewReactor(
-	cfg *config.MempoolConfig,
-	txmp *TxMempool,
-	router *p2p.Router,
-) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
+func NewReactor(txmp *TxMempool, router *p2p.Router) (*Reactor, error) {
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(txmp.config))
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		cfg:                 cfg,
+		cfg:                 txmp.config,
 		mempool:             txmp,
 		ids:                 NewMempoolIDs(),
 		router:              router,
 		channel:             channel,
-		peerRoutines:        make(map[types.NodeID]context.CancelFunc),
+		peerRoutines:        map[types.NodeID]context.CancelFunc{},
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
-		observePanic:        defaultObservePanic,
 		readyToStart:        make(chan struct{}, 1),
 	}
 	r.BaseService = *service.NewBaseService("Mempool", r)
@@ -73,8 +64,6 @@ func NewReactor(
 }
 
 func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
-
-func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
@@ -138,7 +127,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		for _, tx := range protoTxs {
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
-				if errors.Is(err, types.ErrTxInCache) {
+				if errors.Is(err, errTxInCache) {
 					// if the tx is in the cache,
 					// then we've been gossiped a
 					// Tx that we've already
@@ -171,10 +160,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 }
 
 func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
-	if !r.cfg.CheckTxErrorBlacklistEnabled {
-		return
-	}
-	if !utils.ErrorAs[types.ErrTxTooLarge](err).IsPresent() && !utils.ErrorAs[types.ErrPreCheck](err).IsPresent() {
+	if !r.cfg.CheckTxErrorBlacklistEnabled || !errors.Is(err, errTxTooLarge) {
 		return
 	}
 	for counts := range r.failedCheckTxCounts.Lock() {
@@ -194,7 +180,6 @@ func (r *Reactor) accountFailedCheckTx(nodeID types.NodeID, err error) {
 func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			r.observePanic(e)
 			err = fmt.Errorf("panic in processing message: %v", e)
 			logger.Error(
 				"recovering from processing message panic",
@@ -306,7 +291,6 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		r.mtx.Unlock()
 
 		if e := recover(); e != nil {
-			r.observePanic(e)
 			logger.Error(
 				"recovering from broadcasting mempool loop",
 				"err", e,

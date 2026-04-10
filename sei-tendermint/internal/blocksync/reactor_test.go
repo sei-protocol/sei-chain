@@ -93,7 +93,7 @@ func makeReactor(
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(config.TestMempoolConfig(), app)
+	mp := mempool.NewTxMempool(config.TestMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
