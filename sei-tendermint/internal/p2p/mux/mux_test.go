@@ -653,7 +653,7 @@ func TestProtocol_OpenWithoutKind(t *testing.T) {
 		err := mux.Run(ctx, c2)
 		t.Logf("mux terminated: %v", err)
 		if !errors.Is(err, errUnknownStream) {
-			return fmt.Errorf("err = %v, want %v", err, errTooManyAccepts)
+			return fmt.Errorf("err = %v, want %v", err, errUnknownStream)
 		}
 		return nil
 	})
