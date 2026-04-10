@@ -48,7 +48,8 @@ const (
 	EVMKeyCodeHash                   // Stripped key: 20-byte address
 	EVMKeyCode                       // Stripped key: 20-byte address
 	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
-	EVMKeyLegacy                     // Full original key preserved (address mappings, codesize, etc.)
+	// TODO: rename this to MiscKey, it's a catch-all that gets potentially non-evm data
+	EVMKeyLegacy // Full original key preserved (address mappings, codesize, etc.)
 )
 
 // EVMKeyUnknown is an alias for EVMKeyEmpty, used by FlatKV to test for

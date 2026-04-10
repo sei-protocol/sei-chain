@@ -1,9 +1,7 @@
 package p2p
 
 import (
-	"context"
 	"fmt"
-	"net/netip"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -62,21 +60,6 @@ type RouterOptions struct {
 	// IncomingConnectionWindow describes how often an IP address
 	// can attempt to create a new connection. Defaults to 100ms.
 	IncomingConnectionWindow utils.Option[time.Duration]
-
-	// FilterPeerByIP is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the remote IP of the incoming connection the port number as
-	// arguments. Functions should return an error to reject the
-	// peer.
-	FilterPeerByIP utils.Option[func(context.Context, netip.AddrPort) error]
-
-	// FilterPeerByID is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the NodeID of the node before completing the connection,
-	// but this occurs after the handshake is complete. Filter by
-	// IP address to filter before the handshake. Functions should
-	// return an error to reject the peer.
-	FilterPeerByID utils.Option[func(context.Context, types.NodeID) error]
 
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
@@ -187,18 +170,4 @@ func (o *RouterOptions) incomingConnectionWindow() time.Duration {
 
 func (o *RouterOptions) maxIncomingConnectionAttempts() uint {
 	return o.MaxIncomingConnectionAttempts.Or(100)
-}
-
-func (o *RouterOptions) filterPeerByIP(ctx context.Context, addrPort netip.AddrPort) error {
-	if f, ok := o.FilterPeerByIP.Get(); ok {
-		return f(ctx, addrPort)
-	}
-	return nil
-}
-
-func (o *RouterOptions) filterPeerByID(ctx context.Context, id types.NodeID) error {
-	if f, ok := o.FilterPeerByID.Get(); ok {
-		return f(ctx, id)
-	}
-	return nil
 }

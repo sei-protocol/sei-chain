@@ -27,18 +27,27 @@ func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
 func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
 func (f *failingEVMStore) Get([]byte) ([]byte, bool)                     { return nil, false }
-func (f *failingEVMStore) Has([]byte) bool                               { return false }
-func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator          { return nil }
-func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator       { return nil }
-func (f *failingEVMStore) RootHash() []byte                              { return nil }
-func (f *failingEVMStore) Version() int64                                { return 0 }
-func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
-func (f *failingEVMStore) Rollback(int64) error                          { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
-func (f *failingEVMStore) Close() error                                  { return nil }
+func (f *failingEVMStore) GetBlockHeightModified([]byte) (int64, bool, error) {
+	return -1, false, nil
+}
+func (f *failingEVMStore) Has([]byte) bool                         { return false }
+func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator    { return nil }
+func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator { return nil }
+func (f *failingEVMStore) RootHash() []byte                        { return nil }
+func (f *failingEVMStore) Version() int64                          { return 0 }
+func (f *failingEVMStore) WriteSnapshot(string) error              { return nil }
+func (f *failingEVMStore) Rollback(int64) error                    { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)  { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error)  { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer      { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte               { return nil }
+func (f *failingEVMStore) Close() error                            { return nil }
+
+func padLeft32(val ...byte) []byte {
+	var b [32]byte
+	copy(b[32-len(val):], val)
+	return b[:]
+}
 
 func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
@@ -201,7 +210,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: evmStorageKey, Value: []byte{round}},
+						{Key: evmStorageKey, Value: padLeft32(round)},
 					},
 				},
 			},
@@ -509,7 +518,7 @@ func TestExportImportSplitWrite(t *testing.T) {
 	slot := flatkv.Slot{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
 		flatkv.StorageKey(addr, slot))
-	storageVal := []byte{0x42}
+	storageVal := padLeft32(0x42)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 10}
@@ -699,7 +708,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},
@@ -766,7 +775,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: []byte("bal"), Value: []byte{i}},
 			}}},
 			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: storageKey, Value: []byte{i}},
+				{Key: storageKey, Value: padLeft32(i)},
 			}}},
 		}))
 		_, err = cs.Commit()
@@ -796,13 +805,13 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	// Continue committing new blocks on top of the reconciled state.
 	// Version 3 is re-created with new data (0xA3 instead of 0x03).
 	for i := byte(0); i < 3; i++ {
-		v := []byte{0xA0 + i + 3}
+		v := 0xA0 + i + 3
 		require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
 			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: []byte("bal"), Value: v},
+				{Key: []byte("bal"), Value: []byte{v}},
 			}}},
 			{Name: EVMStoreName, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: storageKey, Value: v},
+				{Key: storageKey, Value: padLeft32(v)},
 			}}},
 		}))
 		ver, err := cs2.Commit()
@@ -829,7 +838,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 
 	got, found := cs3.evmCommitter.Get(storageKey)
 	require.True(t, found)
-	require.Equal(t, []byte{0xA5}, got)
+	require.Equal(t, padLeft32(0xA5), got)
 }
 
 func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
@@ -860,7 +869,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 				Name: EVMStoreName,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte{i}},
+						{Key: storageKey, Value: padLeft32(i)},
 					},
 				},
 			},

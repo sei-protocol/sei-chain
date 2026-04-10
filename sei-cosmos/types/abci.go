@@ -17,9 +17,6 @@ type MidBlocker func(ctx Context, height int64) []abci.Event
 // e.g. BFT timestamps rather than block height for any periodic EndBlock logic
 type EndBlocker func(ctx Context, req abci.RequestEndBlock) abci.ResponseEndBlock
 
-// PeerFilter responds to p2p filtering queries from Tendermint
-type PeerFilter func(info string) abci.ResponseQuery
-
 type ProcessProposalHandler func(ctx Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
 
 type FinalizeBlocker func(ctx Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)

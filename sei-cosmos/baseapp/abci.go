@@ -412,9 +412,6 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	case "store":
 		resp = handleQueryStore(app, path, *req)
 
-	case "p2p":
-		resp = handleQueryP2P(app, path)
-
 	case "custom":
 		resp = handleQueryCustom(app, path, *req)
 	default:

@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
-	"net/netip"
 	"strings"
 	"time"
 
@@ -716,45 +715,4 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	}
 
 	return state, nil
-}
-
-func getRouterConfig(conf *config.Config, appClient utils.Option[abci.Application]) *p2p.RouterOptions {
-	opts := p2p.RouterOptions{}
-
-	if conf.FilterPeers {
-		appClient, ok := appClient.Get()
-		if !ok {
-			return &opts
-		}
-		opts.FilterPeerByID = utils.Some(func(ctx context.Context, id types.NodeID) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/id/%s", id),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-		opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addrPort netip.AddrPort) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/addr/%v", addrPort),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-	}
-
-	return &opts
 }

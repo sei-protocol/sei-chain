@@ -197,9 +197,6 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 				release := sync.OnceFunc(func() { sem.Release(1) })
 				defer release()
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					if err := r.options.filterPeerByIP(ctx, addr); err != nil {
-						return fmt.Errorf("peer filtered by IP: %w", err)
-					}
 					if err := connTracker.AddConn(addr); err != nil {
 						return fmt.Errorf("rate limiting incoming: %w", err)
 					}
@@ -233,10 +230,6 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
-					}
-					peerID := hConn.msg.NodeAuth.Key().NodeID()
-					if err := r.options.filterPeerByID(ctx, peerID); err != nil {
-						return fmt.Errorf("peer filtered by ID (%v): %w", peerID, err)
 					}
 					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 					if err != nil {
