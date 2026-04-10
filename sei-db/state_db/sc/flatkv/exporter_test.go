@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -51,8 +52,8 @@ func TestExporterStorageKeys(t *testing.T) {
 	addr := Address{0xAA}
 	slot1 := Slot{0x01}
 	slot2 := Slot{0x02}
-	val1 := []byte{0x11}
-	val2 := []byte{0x22}
+	val1 := padLeft32(0x11)
+	val2 := padLeft32(0x22)
 
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot1))
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
@@ -88,7 +89,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 42}
 
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -159,13 +160,13 @@ func TestExporterRoundTrip(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80}
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -273,7 +274,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	slot := Slot{0xEE}
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	storageVal := []byte{0xFF}
+	storageVal := padLeft32(0xFF)
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
@@ -371,14 +372,14 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrStale[:])
 
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
-	codeHashVal := make([]byte, CodeHashLen)
+	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 	codeVal := []byte{0x60, 0x80}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: storageA, Value: []byte{0x0A}},
-			{Key: storageStale, Value: []byte{0x0C}},
+			{Key: storageA, Value: padLeft32(0x0A)},
+			{Key: storageStale, Value: padLeft32(0x0C)},
 			{Key: nonceA, Value: nonceVal},
 			{Key: nonceStale, Value: nonceVal},
 			{Key: codeHashB, Value: codeHashVal},
@@ -391,8 +392,9 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	staleKeys := [][]byte{storageStale, nonceStale, codeHashStale, codeStale}
 
+	var found bool
 	for _, k := range staleKeys {
-		_, found := s.Get(k)
+		_, found = s.Get(k)
 		require.True(t, found, "pre-import: key should exist")
 	}
 
@@ -400,9 +402,9 @@ func TestImportPurgesStaleData(t *testing.T) {
 	src := setupTestStore(t)
 	defer src.Close()
 
-	newStorageVal := []byte{0xA1}
+	newStorageVal := padLeft32(0xA1)
 	newNonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 5}
-	newCodeHashVal := make([]byte, CodeHashLen)
+	newCodeHashVal := make([]byte, vtype.CodeHashLen)
 	newCodeHashVal[31] = 0xCD
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
@@ -439,7 +441,8 @@ func TestImportPurgesStaleData(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	// --- Phase 4: verify stale keys are gone across all DB types ---
-	got, found := s.Get(storageA)
+	var got []byte
+	got, found = s.Get(storageA)
 	require.True(t, found, "storage key A should exist")
 	require.Equal(t, newStorageVal, got)
 
@@ -515,7 +518,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 
 	cs := makeChangeSet(
 		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		[]byte{0x11}, false,
+		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -546,7 +549,7 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 	// Non-leaf nodes (Height != 0) are silently skipped.
 	imp.AddNode(&types.SnapshotNode{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		Value:  []byte{0x11},
+		Value:  padLeft32(0x11),
 		Height: 1, // non-leaf
 	})
 
@@ -620,7 +623,7 @@ func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 	// Add a valid storage node first.
 	imp.AddNode(&types.SnapshotNode{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		Value: []byte{0x11},
+		Value: padLeft32(0x11),
 	})
 
 	// Add a node with a nonce key but invalid nonce value length.
@@ -651,21 +654,21 @@ func TestImporterDoubleImport(t *testing.T) {
 	require.NoError(t, err)
 	imp1.AddNode(&types.SnapshotNode{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		Value: []byte{0x11},
+		Value: padLeft32(0x11),
 	})
 	require.NoError(t, imp1.Close())
 
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01)))
 	val, found := s.Get(key1)
 	require.True(t, found)
-	require.Equal(t, []byte{0x11}, val)
+	require.Equal(t, padLeft32(0x11), val)
 
 	// Second import: should wipe prior state (resetForImport).
 	imp2, err := s.Importer(2)
 	require.NoError(t, err)
 	imp2.AddNode(&types.SnapshotNode{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x02))),
-		Value: []byte{0x22},
+		Value: padLeft32(0x22),
 	})
 	require.NoError(t, imp2.Close())
 
@@ -678,7 +681,7 @@ func TestImporterDoubleImport(t *testing.T) {
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x02)))
 	val, found = s.Get(key2)
 	require.True(t, found)
-	require.Equal(t, []byte{0x22}, val)
+	require.Equal(t, padLeft32(0x22), val)
 	require.NoError(t, s.Close())
 }
 
@@ -692,17 +695,17 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
 
 	// v1: write 0x11
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// v2: write 0x22
-	cs2 := makeChangeSet(key, []byte{0x22}, false)
+	cs2 := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// v3: write 0x33
-	cs3 := makeChangeSet(key, []byte{0x33}, false)
+	cs3 := makeChangeSet(key, padLeft32(0x33), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
@@ -726,38 +729,41 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 	require.NoError(t, exp.Close())
 
 	require.Len(t, storageNodes, 1)
-	require.Equal(t, []byte{0x11}, storageNodes[0].Value, "historical export should have v1 value")
+	require.Equal(t, padLeft32(0x11), storageNodes[0].Value, "historical export should have v1 value")
 }
 
 func TestExportImportLargerDataset(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cfg.SnapshotInterval = 5
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
-	// Write multiple key types across multiple addresses.
+	// Write multiple key types across multiple addresses in a single block
+	// so that all rows share the same block height. The importer commits
+	// everything at a single version, so block heights must match for the
+	// LtHash round-trip to be identical.
+	var allPairs []*proto.KVPair
 	for i := byte(1); i <= 10; i++ {
 		addr := addrN(i)
-		pairs := []*proto.KVPair{
+		allPairs = append(allPairs,
 			noncePair(addr, uint64(i)),
-			{
+			&proto.KVPair{
 				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(i))),
-				Value: []byte{i, i, i},
+				Value: padLeft32(i, i, i),
 			},
-		}
+		)
 		if i%3 == 0 {
-			pairs = append(pairs,
+			allPairs = append(allPairs,
 				codeHashPair(addr, codeHashN(i)),
 				codePair(addr, []byte{0x60, i}),
 			)
 		}
-		cs := &proto.NamedChangeSet{
-			Name:      "evm",
-			Changeset: proto.ChangeSet{Pairs: pairs},
-		}
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		commitAndCheck(t, s)
 	}
+	cs := &proto.NamedChangeSet{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: allPairs},
+	}
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
 	originalHash := s.RootHash()
 
 	// Export.
@@ -776,14 +782,14 @@ func TestExportImportLargerDataset(t *testing.T) {
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	imp, err := s2.Importer(10)
+	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
 	require.NoError(t, imp.Close())
 
-	require.Equal(t, int64(10), s2.Version())
+	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, originalHash, s2.RootHash(), "imported store should have identical RootHash")
 	require.NoError(t, s2.Close())
 }

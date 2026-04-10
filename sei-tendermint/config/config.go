@@ -230,27 +230,25 @@ type BaseConfig struct {
 	// Mechanism to connect to the ABCI application: socket | grpc
 	ABCI string `mapstructure:"abci"`
 
-	// If true, query the ABCI app on connecting to a new peer
-	// so the app can decide if we should keep the connection or not
-	FilterPeers bool `mapstructure:"filter-peers"` // false
+	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
+	FilterPeers bool `mapstructure:"filter-peers"`
 
-	Other map[string]interface{} `mapstructure:",remain"`
+	Other map[string]any `mapstructure:",remain"`
 }
 
 // DefaultBaseConfig returns a default base configuration for a Tendermint node
 func DefaultBaseConfig() BaseConfig {
 	return BaseConfig{
-		Genesis:     defaultGenesisJSONPath,
-		NodeKey:     defaultNodeKeyPath,
-		Mode:        defaultMode,
-		Moniker:     defaultMoniker,
-		ProxyApp:    "tcp://127.0.0.1:26658",
-		ABCI:        "socket",
-		LogLevel:    DefaultLogLevel,
-		LogFormat:   "text",
-		FilterPeers: false,
-		DBBackend:   "goleveldb",
-		DBPath:      "data",
+		Genesis:   defaultGenesisJSONPath,
+		NodeKey:   defaultNodeKeyPath,
+		Mode:      defaultMode,
+		Moniker:   defaultMoniker,
+		ProxyApp:  "tcp://127.0.0.1:26658",
+		ABCI:      "socket",
+		LogLevel:  DefaultLogLevel,
+		LogFormat: "text",
+		DBBackend: "goleveldb",
+		DBPath:    "data",
 	}
 }
 
@@ -1146,14 +1144,14 @@ type ConsensusConfig struct {
 	// been included and provide a helpful error message.
 	// These fields should be completely removed in v0.37.
 	// See: https://github.com/tendermint/tendermint/issues/8188
-	DeprecatedTimeoutPropose        *interface{} `mapstructure:"timeout-propose"`
-	DeprecatedTimeoutProposeDelta   *interface{} `mapstructure:"timeout-propose-delta"`
-	DeprecatedTimeoutPrevote        *interface{} `mapstructure:"timeout-prevote"`
-	DeprecatedTimeoutPrevoteDelta   *interface{} `mapstructure:"timeout-prevote-delta"`
-	DeprecatedTimeoutPrecommit      *interface{} `mapstructure:"timeout-precommit"`
-	DeprecatedTimeoutPrecommitDelta *interface{} `mapstructure:"timeout-precommit-delta"`
-	DeprecatedTimeoutCommit         *interface{} `mapstructure:"timeout-commit"`
-	DeprecatedSkipTimeoutCommit     *interface{} `mapstructure:"skip-timeout-commit"`
+	DeprecatedTimeoutPropose        *any `mapstructure:"timeout-propose"`
+	DeprecatedTimeoutProposeDelta   *any `mapstructure:"timeout-propose-delta"`
+	DeprecatedTimeoutPrevote        *any `mapstructure:"timeout-prevote"`
+	DeprecatedTimeoutPrevoteDelta   *any `mapstructure:"timeout-prevote-delta"`
+	DeprecatedTimeoutPrecommit      *any `mapstructure:"timeout-precommit"`
+	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
+	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
+	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service

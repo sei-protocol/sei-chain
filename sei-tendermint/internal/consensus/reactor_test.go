@@ -275,11 +275,9 @@ func TestReactorWithEvidence(t *testing.T) {
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool,
 			proxyAppConnMem,
+			mempool.NopMetrics(),
+			mempool.NopTxConstraintsFetcher,
 		)
-
-		if thisConfig.Consensus.WaitForTxs() {
-			mempool.EnableTxsAvailable()
-		}
 
 		// mock the evidence pool
 		// everyone includes evidence of another double signing

@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
-	"net/netip"
 	"strings"
 	"time"
 
@@ -195,14 +194,14 @@ func makeNode(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
+	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mpReactor, err := mempool.NewReactor(mp, router)
+	if err != nil {
+		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+	}
 	node.router = router
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
-
-	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -692,41 +691,4 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	}
 
 	return state, nil
-}
-
-func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
-	opts := p2p.RouterOptions{}
-
-	if conf.FilterPeers && appClient != nil {
-		opts.FilterPeerByID = utils.Some(func(ctx context.Context, id types.NodeID) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/id/%s", id),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-		opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addrPort netip.AddrPort) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/addr/%v", addrPort),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-	}
-
-	return &opts
 }

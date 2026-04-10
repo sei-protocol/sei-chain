@@ -135,7 +135,7 @@ func NewHandshaker(
 }
 
 func newReplayTxMempool(appClient abci.Application) *mempool.TxMempool {
-	return mempool.NewTxMempool(config.DefaultMempoolConfig(), appClient)
+	return mempool.NewTxMempool(config.DefaultMempoolConfig(), appClient, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // NBlocks returns the number of blocks applied to the state.

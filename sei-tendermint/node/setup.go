@@ -148,34 +148,6 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	return ok && bytes.Equal(k.Address(), addr)
 }
 
-func createMempoolReactor(
-	cfg *config.Config,
-	appClient abci.Application,
-	store sm.Store,
-	memplMetrics *mempool.Metrics,
-	router *p2p.Router,
-) (*mempool.Reactor, *mempool.TxMempool, error) {
-
-	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		appClient,
-		mempool.WithMetrics(memplMetrics),
-		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
-		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
-	)
-
-	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)
-	if err != nil {
-		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
-	}
-
-	if cfg.Consensus.WaitForTxs() {
-		mp.EnableTxsAvailable()
-	}
-
-	return reactor, mp, nil
-}
-
 func createEvidenceReactor(
 	cfg *config.Config,
 	dbProvider config.DBProvider,
@@ -331,7 +303,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	appClient abci.Application,
+	app abci.Application,
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -339,25 +311,6 @@ func createRouter(
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, err
-	}
-	options := getRouterConfig(cfg, appClient)
-	options.Endpoint = ep
-	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
-	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
-	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
-	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
-	options.PexOnHandshake = cfg.P2P.PexReactor
-	options.Connection = conn.DefaultMConnConfig()
-	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
-	options.Connection.SendRate = cfg.P2P.SendRate
-	options.Connection.RecvRate = cfg.P2P.RecvRate
-	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	if addr := cfg.P2P.ExternalAddress; addr != "" {
-		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
-		if err != nil {
-			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
-		}
-		options.SelfAddress = utils.Some(nodeAddr)
 	}
 	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
@@ -380,10 +333,31 @@ func createRouter(
 	// TODO(gprusak): eventually we should migrate configs to specify
 	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
 	maxInbound := maxConns - maxOutbound
-	options.MaxOutbound = utils.Some(maxOutbound)
-	options.MaxConcurrentAccepts = utils.Some(maxInbound)
-	options.MaxInbound = utils.Some(maxInbound)
-	options.PrivatePeers = privatePeerIDs
+	connection := conn.DefaultMConnConfig()
+	connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
+	connection.SendRate = cfg.P2P.SendRate
+	connection.RecvRate = cfg.P2P.RecvRate
+	connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+	options := &p2p.RouterOptions{
+		Endpoint:                      ep,
+		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
+		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
+		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
+		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
+		PexOnHandshake:                cfg.P2P.PexReactor,
+		PrivatePeers:                  privatePeerIDs,
+		MaxInbound:                    utils.Some(maxInbound),
+		MaxOutbound:                   utils.Some(maxOutbound),
+		MaxConcurrentAccepts:          utils.Some(maxInbound),
+		Connection:                    connection,
+	}
+	if addr := cfg.P2P.ExternalAddress; addr != "" {
+		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
+		if err != nil {
+			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+		}
+		options.SelfAddress = utils.Some(nodeAddr)
+	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
@@ -420,7 +394,7 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, appClient, genDoc)
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}

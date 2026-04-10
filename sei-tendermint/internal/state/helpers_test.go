@@ -236,7 +236,7 @@ func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
 
 	cfg := config.TestMempoolConfig()
 
-	return mempool.NewTxMempool(cfg, app)
+	return mempool.NewTxMempool(cfg, app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // used for testing by state store

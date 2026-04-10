@@ -183,7 +183,8 @@ func (u *Uint) Unmarshal(data []byte) error {
 		return fmt.Errorf("unsigned integer string too long: got %d, max 100", len(data))
 	}
 	if len(data) == 0 {
-		u = nil
+		// Use ZeroUint, not Uint{}: a nil *big.Int breaks String(), BigInt(), etc.
+		*u = ZeroUint()
 		return nil
 	}
 
