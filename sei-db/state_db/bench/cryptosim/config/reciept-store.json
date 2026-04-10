@@ -1,5 +1,5 @@
 {
-    "Comment": "For receipt-read-focused benchmarking against the parquet receipt store with tx-index lookup disabled. Log-filter reads are disabled to avoid competing with receipt reads.",
+    "Comment": "For receipt-read-focused benchmarking against the parquet receipt store with the Pebble tx-hash index enabled. Log-filter reads are disabled to avoid competing with receipt reads.",
     "DisableTransactionExecution": true,
     "DataDir": "data",
     "LogDir": "logs",
@@ -10,7 +10,7 @@
     "ReceiptReadConcurrency": 16,
     "ReceiptReadsPerSecond": 500000,
     "ReceiptReadMode": "duckdb",
-    "DisableReceiptTxIndexLookup": true,
+    "ReceiptTxIndexBackend": "pebbledb",
     "ReceiptKeepRecent": 100000,
     "ReceiptPruneIntervalSeconds": 60,
     "ReceiptLogFilterReadConcurrency": 0,

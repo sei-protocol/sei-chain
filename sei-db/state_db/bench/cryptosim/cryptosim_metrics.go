@@ -285,7 +285,6 @@ func NewCryptosimMetrics(
 		dbCommitsTotal:                 dbCommitsTotal,
 		dataDirSizeBytes:               dataDirSizeBytes,
 		dataDirAvailableBytes:          dataDirAvailableBytes,
-		logDirSizeBytes:                logDirSizeBytes,
 		processReadBytesTotal:          processReadBytesTotal,
 		processWriteBytesTotal:         processWriteBytesTotal,
 		processReadCountTotal:          processReadCountTotal,

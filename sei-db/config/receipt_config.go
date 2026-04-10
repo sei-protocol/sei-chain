@@ -20,7 +20,20 @@ const (
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSKeepRecent           = "receipt-store.keep-recent"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
+	flagRSTxIndexBackend       = "receipt-store.tx-index-backend"
+
+	ReceiptTxIndexBackendNone   = ""
+	ReceiptTxIndexBackendPebble = "pebbledb"
 )
+
+func NormalizeReceiptTxIndexBackend(backend string) string {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "pebbledb":
+		return ReceiptTxIndexBackendPebble
+	default:
+		return ReceiptTxIndexBackendNone
+	}
+}
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
@@ -49,10 +62,13 @@ type ReceiptStoreConfig struct {
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
-	// DisableTxIndexLookup must remain true. The tx_hash -> block_number lookup
-	// implementation is intentionally unsupported; setting this to false will
-	// panic during parquet store initialization.
-	DisableTxIndexLookup bool `mapstructure:"disable-tx-index-lookup"`
+	// TxIndexBackend selects the tx-hash index implementation used by the
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
+	// Pebble-backed tx_hash -> block_number index alongside parquet files so
+	// receipt-by-hash lookups can target a single file instead of scanning all
+	// files. Set to "" to disable the index and fall back to a full DuckDB scan.
+	// Ignored when the receipt backend is not parquet.
+	TxIndexBackend string `mapstructure:"tx-index-backend"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig
@@ -62,7 +78,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
-		DisableTxIndexLookup: true,
+		TxIndexBackend:       ReceiptTxIndexBackendPebble,
 	}
 }
 
@@ -112,6 +128,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.PruneIntervalSeconds = pruneIntervalSeconds
+	}
+	if v := opts.Get(flagRSTxIndexBackend); v != nil {
+		txIndexBackend, err := cast.ToStringE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.TxIndexBackend = NormalizeReceiptTxIndexBackend(txIndexBackend)
 	}
 	return cfg, nil
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
@@ -173,10 +174,12 @@ type CryptoSimConfig struct {
 	// Required when ReceiptReadConcurrency > 0.
 	ReceiptReadMode string
 
-	// Must remain true. The parquet tx_hash -> block_number lookup path is
-	// intentionally unsupported; setting this to false will panic during receipt
-	// store initialization.
-	DisableReceiptTxIndexLookup bool
+	// ReceiptTxIndexBackend selects the tx-hash index implementation for the
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
+	// Pebble-backed tx_hash -> block_number index so receipt-by-hash lookups
+	// target a single parquet file instead of scanning all files. Set to ""
+	// to disable the index and fall back to full DuckDB scans.
+	ReceiptTxIndexBackend string
 
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
 	// These goroutines are independent from the receipt reader goroutines.
@@ -257,7 +260,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadConcurrency:            0,
 		ReceiptReadsPerSecond:             100,
 		ReceiptReadMode:                   receiptReadModeCache,
-		DisableReceiptTxIndexLookup:       true,
+		ReceiptTxIndexBackend:             config.ReceiptTxIndexBackendPebble,
 		ReceiptLogFilterReadConcurrency:   0,
 		ReceiptLogFilterReadsPerSecond:    100,
 		ReceiptLogFilterReadMode:          receiptReadModeCache,

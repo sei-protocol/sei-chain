@@ -174,6 +174,11 @@ keep-recent = {{ .ReceiptStore.KeepRecent }}
 # PruneIntervalSeconds defines the interval in seconds to trigger pruning.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
+
+# TxIndexBackend selects the tx-hash index implementation for parquet receipts.
+# Set to "pebbledb" to enable the index, or "" to disable it.
+# Ignored unless rs-backend = "parquet".
+tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
