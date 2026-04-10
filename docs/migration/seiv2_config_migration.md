@@ -102,11 +102,6 @@ node-key-file = "config/node_key.json"
 # Mechanism to connect to the ABCI application: socket | grpc
 abci = "socket"
 
-# If true, query the ABCI app on connecting to a new peer
-# so the app can decide if we should keep the connection or not
-filter-peers = false
-
-
 #######################################################
 ###       Priv Validator Configuration              ###
 #######################################################
