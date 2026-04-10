@@ -189,6 +189,7 @@ func makeNode(
 			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
 			makeCloser(closers))
 	}
+	gigaEnabled := cfg.AutobahnConfigFile != ""
 	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
@@ -196,8 +197,7 @@ func makeNode(
 		nodeKey,
 		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
 		cfg,
-		mp,
-		app,
+		utils.Some(mp),
 		genDoc,
 		dbProvider,
 	)
@@ -207,13 +207,18 @@ func makeNode(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
-	mpReactor, err := mempoolreactor.NewReactor(mp, router)
-	if err != nil {
-		return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
-	}
 	node.router = router
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
+
+	if !gigaEnabled {
+		mpReactor, err := mempoolreactor.NewReactor(mp, router)
+		if err != nil {
+			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		}
+		mpReactor.MarkReadyToStart()
+		node.services = append(node.services, mpReactor)
+	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -225,10 +230,7 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	mpReactor.MarkReadyToStart()
-
 	node.rpcEnv.Mempool = mp
-	node.services = append(node.services, mpReactor)
 
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
@@ -251,6 +253,10 @@ func makeNode(
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
+	if gigaEnabled {
+		stateSync = false
+		blockSync = false
+	}
 	waitSync := stateSync || blockSync
 
 	csState, err := consensus.NewState(
@@ -270,20 +276,23 @@ func makeNode(
 	}
 	node.rpcEnv.ConsensusState = csState
 
-	csReactor, err := consensus.NewReactor(
-		csState,
-		node.router,
-		eventBus,
-		waitSync,
-		nodeMetrics.consensus,
-		cfg,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
-	}
+	var csReactor *consensus.Reactor
+	if !gigaEnabled {
+		csReactor, err = consensus.NewReactor(
+			csState,
+			node.router,
+			eventBus,
+			waitSync,
+			nodeMetrics.consensus,
+			cfg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
+		}
 
-	node.services = append(node.services, csReactor)
-	node.rpcEnv.ConsensusReactor = csReactor
+		node.services = append(node.services, csReactor)
+		node.rpcEnv.ConsensusReactor = csReactor
+	}
 
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
@@ -343,29 +352,30 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	ssReactor, err := statesync.NewReactor(
-		genDoc.ChainID,
-		genDoc.InitialHeight,
-		*cfg.StateSync,
-		app,
-		node.router,
-		stateStore,
-		blockStore,
-		cfg.StateSync.TempDir,
-		nodeMetrics.statesync,
-		eventBus,
-		// the post-sync operation
-		postSyncHook,
-		stateSync,
-		restartEvent,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
-	}
-
 	node.shouldHandshake = !stateSync
-	node.services = append(node.services, ssReactor)
+	if !gigaEnabled {
+		ssReactor, err := statesync.NewReactor(
+			genDoc.ChainID,
+			genDoc.InitialHeight,
+			*cfg.StateSync,
+			app,
+			node.router,
+			stateStore,
+			blockStore,
+			cfg.StateSync.TempDir,
+			nodeMetrics.statesync,
+			eventBus,
+			// the post-sync operation
+			postSyncHook,
+			stateSync,
+			restartEvent,
+			cfg.SelfRemediation,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
+		}
+		node.services = append(node.services, ssReactor)
+	}
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
@@ -705,10 +715,14 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	return state, nil
 }
 
-func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
+func getRouterConfig(conf *config.Config, appClient utils.Option[abci.Application]) *p2p.RouterOptions {
 	opts := p2p.RouterOptions{}
 
-	if conf.FilterPeers && appClient != nil {
+	if conf.FilterPeers {
+		appClient, ok := appClient.Get()
+		if !ok {
+			return &opts
+		}
 		opts.FilterPeerByID = utils.Some(func(ctx context.Context, id types.NodeID) error {
 			res, err := appClient.Query(ctx, &abci.RequestQuery{
 				Path: fmt.Sprintf("/p2p/filter/id/%s", id),

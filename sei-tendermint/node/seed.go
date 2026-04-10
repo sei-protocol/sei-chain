@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
@@ -76,8 +77,7 @@ func makeSeedNode(
 		nodeKey,
 		utils.None[atypes.SecretKey](),
 		cfg,
-		nil,
-		nil,
+		utils.None[*mempool.TxMempool](),
 		genDoc,
 		dbProvider,
 	)

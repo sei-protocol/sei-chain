@@ -232,13 +232,12 @@ func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, app, and genesis doc.
+// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
 func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
-	appClient abci.Application,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
 	if autobahnConfigFile == "" {
@@ -305,8 +304,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	txMempool *mempool.TxMempool,
-	app abci.Application,
+	txMempool utils.Option[*mempool.TxMempool],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -315,7 +313,11 @@ func createRouter(
 	if err != nil {
 		return nil, closer, err
 	}
-	options := getRouterConfig(cfg, app)
+	appClient := utils.None[abci.Application]()
+	if mp, ok := txMempool.Get(); ok {
+		appClient = utils.Some(mp.App())
+	}
+	options := getRouterConfig(cfg, appClient)
 	options.Endpoint = ep
 	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
 	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
@@ -395,7 +397,11 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, txMempool, app, genDoc)
+		mp, ok := txMempool.Get()
+		if !ok {
+			return nil, closer, errors.New("autobahn requires a tx mempool")
+		}
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
