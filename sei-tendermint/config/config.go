@@ -234,7 +234,7 @@ type BaseConfig struct {
 	// so the app can decide if we should keep the connection or not
 	FilterPeers bool `mapstructure:"filter-peers"` // false
 
-	Other map[string]interface{} `mapstructure:",remain"`
+	Other map[string]any `mapstructure:",remain"`
 }
 
 // DefaultBaseConfig returns a default base configuration for a Tendermint node
@@ -1146,14 +1146,14 @@ type ConsensusConfig struct {
 	// been included and provide a helpful error message.
 	// These fields should be completely removed in v0.37.
 	// See: https://github.com/tendermint/tendermint/issues/8188
-	DeprecatedTimeoutPropose        *interface{} `mapstructure:"timeout-propose"`
-	DeprecatedTimeoutProposeDelta   *interface{} `mapstructure:"timeout-propose-delta"`
-	DeprecatedTimeoutPrevote        *interface{} `mapstructure:"timeout-prevote"`
-	DeprecatedTimeoutPrevoteDelta   *interface{} `mapstructure:"timeout-prevote-delta"`
-	DeprecatedTimeoutPrecommit      *interface{} `mapstructure:"timeout-precommit"`
-	DeprecatedTimeoutPrecommitDelta *interface{} `mapstructure:"timeout-precommit-delta"`
-	DeprecatedTimeoutCommit         *interface{} `mapstructure:"timeout-commit"`
-	DeprecatedSkipTimeoutCommit     *interface{} `mapstructure:"skip-timeout-commit"`
+	DeprecatedTimeoutPropose        *any `mapstructure:"timeout-propose"`
+	DeprecatedTimeoutProposeDelta   *any `mapstructure:"timeout-propose-delta"`
+	DeprecatedTimeoutPrevote        *any `mapstructure:"timeout-prevote"`
+	DeprecatedTimeoutPrevoteDelta   *any `mapstructure:"timeout-prevote-delta"`
+	DeprecatedTimeoutPrecommit      *any `mapstructure:"timeout-precommit"`
+	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
+	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
+	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service
