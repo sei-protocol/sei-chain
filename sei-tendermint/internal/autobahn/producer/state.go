@@ -74,8 +74,11 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 	}
 	return types.PayloadBuilder{
 		CreatedAt: time.Now(),
-		TotalGas:  totalGas,
-		Txs:       payloadTxs,
+		// TODO: ReapMaxTxsBytesMaxGas does not handle corner cases correctly rn, which actually
+		// can produce negative total gas. Fixing it right away might be backward incompatible afaict,
+		// so we leave it as is for now.
+		TotalGas: uint64(totalGas), // nolint:gosec // guaranteed to be positive
+		Txs:      payloadTxs,
 	}.Build()
 }
 

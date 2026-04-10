@@ -510,7 +510,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 // NOTE: Gas limits are enforced using int64 running totals. If those totals
 // overflow, gas limit enforcement no longer works correctly. This preserves the
 // historical behavior for backward compatibility.
-func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, uint64) {
+func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, int64) {
 	if maxTxs < 0 {
 		maxTxs = utils.Max[int]()
 	}
@@ -595,7 +595,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		return true
 	})
 
-	return append(evmTxs, nonEvmTxs...), uint64(totalGasEstimated)
+	return append(evmTxs, nonEvmTxs...), totalGasEstimated
 }
 
 // RemoveTxs removes the provided transactions from the mempool if present.
