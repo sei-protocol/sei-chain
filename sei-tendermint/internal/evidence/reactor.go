@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -25,7 +27,7 @@ const (
 	// goes back to the start of the list and begins sending the evidence again.
 	// Most evidence should be committed in the very next block that is why we wait
 	// just over the block production rate before sending evidence again.
-	broadcastEvidenceIntervalS = 10
+	broadcastEvidenceInterval = 10 * time.Second
 )
 
 // GetChannelDescriptor produces an instance of a descriptor for this
@@ -213,7 +215,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 //
 // REF: https://github.com/tendermint/tendermint/issues/4727
 func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID, evidenceCh *p2p.Channel[*pb.Evidence]) {
-	var next *clist.CElement
 
 	defer func() {
 		r.mtx.Lock()
@@ -229,50 +230,39 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 		}
 	}()
 
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
 	for {
 		// This happens because the CElement we were looking at got garbage
-		// collected (removed). That is, .NextWaitChan() returned nil. So we can go
+		// collected (removed). That is, NextWait() returned nil. So we can go
 		// ahead and start from the beginning.
-		if next == nil {
-			select {
-			case <-r.evpool.EvidenceWaitChan(): // wait until next evidence is available
-				if next = r.evpool.EvidenceFront(); next == nil {
-					continue
+		next, err := r.evpool.WaitEvidenceFront(ctx)
+		if err != nil {
+			return
+		}
+
+		err = utils.WithTimeout(ctx, broadcastEvidenceInterval, func(ctx context.Context) error {
+			for {
+				ev := next.Value()
+				evProto, err := types.EvidenceToProto(ev)
+				if err != nil {
+					panic(fmt.Errorf("failed to convert evidence: %w", err))
 				}
 
-			case <-ctx.Done():
-				return
+				// Send the evidence to the corresponding peer. Note, the peer may be behind
+				// and thus would not be able to process the evidence correctly. Also, the
+				// peer may receive this piece of evidence multiple times if it added and
+				// removed frequently from the broadcasting peer.
+				evidenceCh.Send(evProto, peerID)
+				logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
+
+				next, err = next.NextWait(ctx)
+				if err != nil {
+					return err
+				}
 			}
-		}
-
-		ev := next.Value.(types.Evidence)
-		evProto, err := types.EvidenceToProto(ev)
-		if err != nil {
-			panic(fmt.Errorf("failed to convert evidence: %w", err))
-		}
-
-		// Send the evidence to the corresponding peer. Note, the peer may be behind
-		// and thus would not be able to process the evidence correctly. Also, the
-		// peer may receive this piece of evidence multiple times if it added and
-		// removed frequently from the broadcasting peer.
-
-		evidenceCh.Send(evProto, peerID)
-		logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
-
-		select {
-		case <-timer.C:
-			// start from the beginning after broadcastEvidenceIntervalS seconds
-			timer.Reset(time.Second * broadcastEvidenceIntervalS)
-			next = nil
-
-		case <-next.NextWaitChan():
-			next = next.Next()
-			timer.Stop()
-
-		case <-ctx.Done():
+		})
+		// In case the observed element has been removed or we waited too long for the next element,
+		// we start sending from the beginning.
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, clist.ErrRemoved) {
 			return
 		}
 	}

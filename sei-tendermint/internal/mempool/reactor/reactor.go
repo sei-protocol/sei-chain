@@ -242,7 +242,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
-	var nextGossipTx *clist.CElement
+	var nextGossipTx *clist.CElement[*mempool.WrappedTx]
 
 	defer func() {
 		if e := recover(); e != nil {
@@ -260,7 +260,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		return
 	}
 	for ctx.Err() == nil {
-		memTx := nextGossipTx.Value.(*mempool.WrappedTx)
+		memTx := nextGossipTx.Value()
 
 		if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
 			r.channel.Send(&pb.Message{
@@ -275,9 +275,9 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			)
 		}
 
-		if _, _, err := utils.RecvOrClosed(ctx, nextGossipTx.NextWaitChan()); err != nil {
+		nextGossipTx, err = nextGossipTx.NextWait(ctx)
+		if err != nil {
 			return
 		}
-		nextGossipTx = nextGossipTx.Next()
 	}
 }

@@ -88,7 +88,7 @@ type TxMempool struct {
 	// gossipIndex defines the gossiping index of valid transactions via a
 	// thread-safe linked-list. We also use the gossip index as a cursor for
 	// rechecking transactions already in the mempool.
-	gossipIndex *clist.CList
+	gossipIndex *clist.CList[*WrappedTx]
 
 	// recheckCursor and recheckEnd are used as cursors based on the gossip index
 	// to recheck transactions that are already in the mempool. Iteration is not
@@ -100,8 +100,8 @@ type TxMempool struct {
 	// refactored. Instead, we should consider just keeping a slice of a snapshot
 	// of the mempool's current transactions during Update and an integer cursor
 	// into that slice. This, however, requires additional O(n) space complexity.
-	recheckCursor *clist.CElement // next expected response
-	recheckEnd    *clist.CElement // re-checking stops here
+	recheckCursor *clist.CElement[*WrappedTx] // next expected response
+	recheckEnd    *clist.CElement[*WrappedTx] // re-checking stops here
 
 	// priorityIndex defines the priority index of valid transactions via a
 	// thread-safe priority queue.
@@ -141,7 +141,7 @@ func NewTxMempool(
 		blockFailedTxs:       NopTxCache{},
 		metrics:              metrics,
 		txStore:              NewTxStore(),
-		gossipIndex:          clist.New(),
+		gossipIndex:          clist.New[*WrappedTx](),
 		priorityIndex:        NewTxPriorityQueue(),
 		expirationIndex:      NewWrappedTxList(),
 		pendingTxs:           NewPendingTxs(cfg),
@@ -213,11 +213,8 @@ func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
-func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement, error) {
-	if _, _, err := utils.RecvOrClosed(ctx, txmp.gossipIndex.WaitChan()); err != nil {
-		return nil, err
-	}
-	return txmp.gossipIndex.Front(), nil
+func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
+	return txmp.gossipIndex.WaitFront(ctx)
 }
 
 // TxsAvailable returns a channel which fires once for every height, and only
@@ -845,7 +842,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 	txmp.metrics.RecheckTimes.Add(1)
 
-	wtx := txmp.recheckCursor.Value.(*WrappedTx)
+	wtx := txmp.recheckCursor.Value()
 
 	// Search through the remaining list of tx to recheck for a transaction that matches
 	// the one we received from the ABCI application.
@@ -866,7 +863,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		}
 
 		txmp.recheckCursor = txmp.recheckCursor.Next()
-		wtx = txmp.recheckCursor.Value.(*WrappedTx)
+		wtx = txmp.recheckCursor.Value()
 	}
 
 	// Only evaluate transactions that have not been removed. This can happen
@@ -936,7 +933,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 	txmp.recheckEnd = txmp.gossipIndex.Back()
 
 	for e := txmp.gossipIndex.Front(); e != nil; e = e.Next() {
-		wtx := e.Value.(*WrappedTx)
+		wtx := e.Value()
 
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.

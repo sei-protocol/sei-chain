@@ -62,7 +62,7 @@ type WrappedTx struct {
 	heapIndex int
 
 	// gossipEl references the linked-list element in the gossip index
-	gossipEl *clist.CElement
+	gossipEl *clist.CElement[*WrappedTx]
 
 	// removed marks the transaction as removed from the mempool. This is set
 	// during RemoveTx and is needed due to the fact that a given existing
