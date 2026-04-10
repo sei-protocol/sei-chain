@@ -54,21 +54,24 @@ func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreK
 			return nil, fmt.Errorf("failed to open tx hash index: %w", err)
 		}
 		wrapper.txHashIndex = idx
-		pruner := newTxHashIndexPruner(
+		wrapper.indexPruner = newTxHashIndexPruner(
 			idx,
 			int64(cfg.KeepRecent),
 			int64(cfg.PruneIntervalSeconds),
 			func() int64 { return store.LatestVersion() },
 		)
-		pruner.Start()
-		wrapper.indexPruner = pruner
 	default:
 		_ = store.Close()
 		return nil, fmt.Errorf("unsupported receipt tx index backend: %s", txIndexBackend)
 	}
 
 	if err := wrapper.replayWAL(); err != nil {
+		_ = wrapper.Close()
 		return nil, err
+	}
+
+	if wrapper.indexPruner != nil {
+		wrapper.indexPruner.Start()
 	}
 
 	return wrapper, nil

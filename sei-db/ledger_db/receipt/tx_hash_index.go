@@ -152,6 +152,11 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := iter.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
 
 	batch := idx.db.NewBatch()
 	defer func() {
@@ -168,8 +173,19 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 		if len(key) == 1+blockNumLen+txHashLen && key[0] == blockPrefix {
 			var txHash common.Hash
 			copy(txHash[:], key[1+blockNumLen:])
-			if err := batch.Delete(makeTxHashKey(txHash)); err != nil {
-				return err
+			txHashKey := makeTxHashKey(txHash)
+			// Only delete the primary key if it still points to this block.
+			// An overwrite (same tx hash re-indexed at a newer block) would
+			// have updated the primary key but left the old reverse entry;
+			// blindly deleting the primary key would corrupt the newer mapping.
+			primaryVal, getErr := idx.db.Get(txHashKey)
+			if getErr != nil && !errorutils.IsNotFound(getErr) {
+				return getErr
+			}
+			if getErr == nil && decodeBlockNumber(primaryVal) == decodeBlockNumber(key[1:1+blockNumLen]) {
+				if err := batch.Delete(txHashKey); err != nil {
+					return err
+				}
 			}
 		}
 		if err := batch.Delete(key); err != nil {
@@ -184,10 +200,7 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 			count = 0
 		}
 	}
-	if err := iter.Error(); err != nil {
-		return err
-	}
-	if err := iter.Close(); err != nil {
+	if err = iter.Error(); err != nil {
 		return err
 	}
 	if count > 0 {
