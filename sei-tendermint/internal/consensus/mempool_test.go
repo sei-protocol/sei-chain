@@ -62,7 +62,6 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Power:      10,
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
-	cs.txMempool.EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
@@ -91,8 +90,6 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 
-	cs.txMempool.EnableTxsAvailable()
-
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
 
@@ -115,7 +112,6 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Power:      10,
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
-	cs.txMempool.EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)

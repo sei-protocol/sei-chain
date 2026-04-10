@@ -148,34 +148,6 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	return ok && bytes.Equal(k.Address(), addr)
 }
 
-func createMempoolReactor(
-	cfg *config.Config,
-	appClient abci.Application,
-	store sm.Store,
-	memplMetrics *mempool.Metrics,
-	router *p2p.Router,
-) (*mempool.Reactor, *mempool.TxMempool, error) {
-
-	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		appClient,
-		mempool.WithMetrics(memplMetrics),
-		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
-		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
-	)
-
-	reactor, err := mempool.NewReactor(cfg.Mempool, mp, router)
-	if err != nil {
-		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
-	}
-
-	if cfg.Consensus.WaitForTxs() {
-		mp.EnableTxsAvailable()
-	}
-
-	return reactor, mp, nil
-}
-
 func createEvidenceReactor(
 	cfg *config.Config,
 	dbProvider config.DBProvider,
@@ -331,7 +303,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	appClient abci.Application,
+	app abci.Application,
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -340,7 +312,6 @@ func createRouter(
 	if err != nil {
 		return nil, closer, err
 	}
-
 	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
@@ -423,7 +394,7 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, appClient, genDoc)
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
