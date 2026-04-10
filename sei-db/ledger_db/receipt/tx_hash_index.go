@@ -247,6 +247,8 @@ func (p *txHashIndexPruner) Start() {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
+		ticker := time.NewTicker(p.interval)
+		defer ticker.Stop()
 		for {
 			latest := p.latestBlock()
 			pruneBefore := latest - p.keepRecent
@@ -258,7 +260,7 @@ func (p *txHashIndexPruner) Start() {
 			select {
 			case <-p.stopCh:
 				return
-			case <-time.After(p.interval):
+			case <-ticker.C:
 			}
 		}
 	}()
