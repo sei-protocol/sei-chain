@@ -78,11 +78,6 @@ func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
 }
 
-// interface to the mempool
-type txMempool interface {
-	TxsAvailable() <-chan struct{}
-}
-
 // interface to the evidence pool
 type evidencePool interface {
 	// reports conflicting votes to the evidence pool to be processed into evidence
@@ -749,6 +744,13 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 	}()
 
+	// Channel signaling that transactions are available.
+	// nil (blocks forever) if waiting for transactions is disabled.
+	var txsAvailable <-chan struct{}
+	if cs.config.WaitForTxs() {
+		txsAvailable = cs.txMempool.TxsAvailable()
+	}
+
 	for {
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
@@ -759,7 +761,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 
 		select {
-		case <-cs.txMempool.TxsAvailable():
+		case <-txsAvailable:
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:

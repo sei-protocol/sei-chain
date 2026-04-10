@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/parquet-go/parquet-go"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -36,15 +37,15 @@ type StoreConfig struct {
 	PruneIntervalSeconds int64
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
-	DisableTxIndexLookup bool
+	TxIndexBackend       string
 }
 
 // DefaultStoreConfig returns the default store configuration.
 func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
-		BlockFlushInterval:   defaultBlockFlushInterval,
-		MaxBlocksPerFile:     defaultMaxBlocksPerFile,
-		DisableTxIndexLookup: true,
+		BlockFlushInterval: defaultBlockFlushInterval,
+		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
+		TxIndexBackend:     dbconfig.ReceiptTxIndexBackendPebble,
 	}
 }
 
@@ -104,9 +105,6 @@ type Store struct {
 // NewStore creates a new parquet store.
 func NewStore(cfg StoreConfig) (*Store, error) {
 	storeCfg := resolveStoreConfig(cfg)
-	if !storeCfg.DisableTxIndexLookup {
-		panic("not implemented")
-	}
 
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
@@ -156,7 +154,9 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 	resolved.DBDirectory = cfg.DBDirectory
 	resolved.KeepRecent = cfg.KeepRecent
 	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
-	resolved.DisableTxIndexLookup = cfg.DisableTxIndexLookup
+	if cfg.TxIndexBackend != "" {
+		resolved.TxIndexBackend = cfg.TxIndexBackend
+	}
 	if cfg.BlockFlushInterval > 0 {
 		resolved.BlockFlushInterval = cfg.BlockFlushInterval
 	}
@@ -198,6 +198,12 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 // the closed parquet files tracked by the reader.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
+}
+
+// GetReceiptByTxHashInBlock narrows the parquet search to the file containing
+// blockNumber, falling back to a full scan on miss.
+func (s *Store) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*ReceiptResult, error) {
+	return s.Reader.GetReceiptByTxHashInBlock(ctx, txHash, blockNumber)
 }
 
 // GetLogs retrieves logs matching the filter.

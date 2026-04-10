@@ -194,14 +194,14 @@ func makeNode(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
+	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mpReactor, err := mempool.NewReactor(mp, router)
+	if err != nil {
+		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+	}
 	node.router = router
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
-
-	mpReactor, mp, err := createMempoolReactor(cfg, app, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)

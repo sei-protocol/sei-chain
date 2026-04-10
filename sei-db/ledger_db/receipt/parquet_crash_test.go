@@ -29,6 +29,14 @@ func extractParquetStore(t *testing.T, store ReceiptStore) *parquet.Store {
 	return pq.store
 }
 
+// simulateCrash closes the tx hash index (releasing the Pebble lock) and then
+// calls SimulateCrash on the underlying parquet store, mimicking a process
+// crash that would release all file locks.
+func simulateCrash(store ReceiptStore, pqStore *parquet.Store) {
+	CloseTxHashIndex(store)
+	pqStore.SimulateCrash()
+}
+
 // TestCrashRecoveryAtEachHookPoint crashes the store once at each of the five
 // fault-injection points in the write pipeline (AfterWALWrite, BeforeFlush,
 // AfterFlush, AfterCloseWriters, AfterWALClear), then reopens it and verifies
@@ -132,7 +140,7 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 			})
 			require.ErrorIs(t, err, errSimulatedCrash)
 
-			pqStore.SimulateCrash()
+			simulateCrash(store, pqStore)
 
 			// --- Reopen and verify recovery ---
 
@@ -255,7 +263,7 @@ func TestCrashRecoveryStress(t *testing.T) {
 				require.ErrorIs(t, err, errSimulatedCrash,
 					"crash %d: hook %s on block %d", crash, hook.name, crashBlock)
 
-				pqStore.SimulateCrash()
+				simulateCrash(store, pqStore)
 			}
 
 			// Final reopen: every block (including crash blocks) should be
