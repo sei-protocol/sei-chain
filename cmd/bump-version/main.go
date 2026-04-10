@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -35,18 +37,61 @@ var (
 func main() {
 	args := parseArgs()
 
-	// Validate tag file exists
+	// --- Validate the new tag ---
+	if !semver.IsValid(args.newTag) {
+		fatalf("%q is not a valid semver tag (expected format: vX.Y.Z)", args.newTag)
+	}
+
+	// --- Validate tag file exists ---
 	if _, err := os.Stat(tagFile); os.IsNotExist(err) {
 		fatalf("tag file not found: %s", tagFile)
 	}
 
-	// Dedup on rerun: if NEW_TAG is already the last line in app/tags, remove it
+	// --- Load existing tags and check for conflicts ---
+	existingTags, err := readNonEmptyLines(tagFile)
+	if err != nil {
+		fatalf("reading %s: %v", tagFile, err)
+	}
+
+	latestTag := findLatestSemver(existingTags)
+
+	// Detect rerun: the tag is already the last line (from a previous run).
+	// This must be checked before dedup mutates any files.
+	rerun := len(existingTags) > 0 && existingTags[len(existingTags)-1] == args.newTag
+
+	// Check if the tag already exists anywhere in app/tags (not just the last line).
+	// The last-line case is a rerun and is handled by dedup below.
+	if pos := indexOf(existingTags, args.newTag); pos != -1 && pos != len(existingTags)-1 {
+		fatalf("%s already exists in %s at line %d (not a rerun — this tag was already released)", args.newTag, tagFile, pos+1)
+	}
+
+	// Warn if the new tag sorts before the latest tag — this is almost certainly wrong.
+	// On a rerun the tag IS the latest, so compare against the second-to-last.
+	compareTarget := latestTag
+	if rerun && len(existingTags) >= 2 {
+		compareTarget = findLatestSemver(existingTags[:len(existingTags)-1])
+	}
+	if compareTarget != "" && !rerun && semver.Compare(args.newTag, compareTarget) < 0 {
+		fatalf("%s is older than the current latest upgrade %s; upgrade names must advance forward", args.newTag, compareTarget)
+	}
+
+	if rerun {
+		fmt.Printf("rerun detected: %s is already the last entry in %s, re-archiving\n", args.newTag, tagFile)
+	}
+
+	// Dedup on rerun: if NEW_TAG is already the last line in app/tags, remove it.
 	dedup(tagFile, args.newTag)
 
 	tagFolder := strings.ReplaceAll(args.newTag, ".", "")
+
+	// --- Validate tag folder produces a legal Go package name ---
+	if !isValidGoIdent(tagFolder) {
+		fatalf("tag %q produces folder name %q which is not a valid Go identifier; use a clean vX.Y.Z tag", args.newTag, tagFolder)
+	}
+
 	legacyCommonImport := `"` + modulePath + `/precompiles/common/legacy/` + tagFolder + `"`
 
-	// Resolve which modules to archive
+	// --- Resolve which modules to archive ---
 	modules := args.modules
 	if args.all {
 		modules = discoverModules()
@@ -55,9 +100,36 @@ func main() {
 		fatalf("no modules to archive; use --modules or --all")
 	}
 
+	// --- Validate every requested module exists and has no conflicting legacy dir ---
+	for _, mod := range modules {
+		moduleDir := filepath.Join(precompilesDir, mod)
+		if _, err := os.Stat(moduleDir); os.IsNotExist(err) {
+			fatalf("module directory not found: %s", moduleDir)
+		}
+		legacyDir := filepath.Join(moduleDir, "legacy", tagFolder)
+		if dirExists(legacyDir) && !rerun {
+			fatalf("legacy directory %s already exists but %s is not the last entry in %s/versions — refusing to overwrite a previous archive", legacyDir, args.newTag, moduleDir)
+		}
+		// Check if the tag is already buried in the module's versions file
+		if versions, _ := readNonEmptyLines(filepath.Join(moduleDir, "versions")); len(versions) > 0 {
+			if pos := indexOf(versions, args.newTag); pos != -1 && pos != len(versions)-1 {
+				fatalf("%s already exists in %s/versions at line %d (not a rerun — this version was already archived)", args.newTag, moduleDir, pos+1)
+			}
+		}
+	}
+
+	// Check common legacy dir conflict
+	commonLegacyDir := filepath.Join(commonDir, "legacy", tagFolder)
+	if dirExists(commonLegacyDir) && !rerun {
+		fatalf("common legacy directory %s already exists — refusing to overwrite", commonLegacyDir)
+	}
+
+	// --- All checks passed, proceed ---
 	fmt.Printf("new tag: %s\n", args.newTag)
 	fmt.Printf("version folder: %s\n", tagFolder)
+	fmt.Printf("latest existing: %s\n", latestTag)
 	fmt.Printf("modules: %s\n", strings.Join(modules, ", "))
+	fmt.Println()
 
 	// Always archive common when any module is archived
 	archiveCommon(tagFolder)
@@ -65,9 +137,6 @@ func main() {
 	// Archive each module
 	for _, mod := range modules {
 		moduleDir := filepath.Join(precompilesDir, mod)
-		if _, err := os.Stat(moduleDir); os.IsNotExist(err) {
-			fatalf("module directory not found: %s", moduleDir)
-		}
 		archiveModule(moduleDir, mod, args.newTag, tagFolder, legacyCommonImport)
 	}
 
@@ -77,6 +146,8 @@ func main() {
 
 	fmt.Println("\nnext step: run `go generate ./...` to regenerate setup.go files")
 }
+
+// --- CLI parsing ---
 
 type cliArgs struct {
 	newTag  string
@@ -125,7 +196,59 @@ func usage() {
 	os.Exit(1)
 }
 
-// discoverModules returns all precompile module names (excluding common, utils).
+// --- Validation helpers ---
+
+// findLatestSemver returns the highest valid semver tag from the list,
+// or "" if none are valid.
+func findLatestSemver(tags []string) string {
+	latest := ""
+	for _, t := range tags {
+		if semver.IsValid(t) && (latest == "" || semver.Compare(t, latest) > 0) {
+			latest = t
+		}
+	}
+	return latest
+}
+
+func indexOf(lines []string, value string) int {
+	for i, l := range lines {
+		if l == value {
+			return i
+		}
+	}
+	return -1
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// isValidGoIdent checks that s is a legal Go identifier (letter/underscore
+// start, then letters/digits/underscores).
+func isValidGoIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !isLetter(r) {
+				return false
+			}
+		} else {
+			if !isLetter(r) && !isDigit(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isLetter(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' }
+func isDigit(r rune) bool  { return r >= '0' && r <= '9' }
+
+// --- Module discovery ---
+
 func discoverModules() []string {
 	entries, err := os.ReadDir(precompilesDir)
 	if err != nil {
@@ -140,7 +263,8 @@ func discoverModules() []string {
 	return modules
 }
 
-// archiveCommon copies precompiles.go and evm_events.go into common/legacy/{tagFolder}/.
+// --- Archival ---
+
 func archiveCommon(tagFolder string) {
 	targetDir := filepath.Join(commonDir, "legacy", tagFolder)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -161,15 +285,12 @@ func archiveCommon(tagFolder string) {
 	fmt.Printf("archived common -> legacy/%s/\n", tagFolder)
 }
 
-// archiveModule copies .go files and abi.json into {module}/legacy/{tagFolder}/,
-// rewrites package declarations and common imports, and updates the versions file.
 func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonImport string) {
 	targetDir := filepath.Join(moduleDir, "legacy", tagFolder)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		fatalf("creating %s: %v", targetDir, err)
 	}
 
-	// Find .go files to copy (exclude _test.go and setup.go)
 	entries, err := os.ReadDir(moduleDir)
 	if err != nil {
 		fatalf("reading %s: %v", moduleDir, err)
@@ -210,31 +331,27 @@ func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonImport 
 	fmt.Printf("archived %s -> legacy/%s/\n", moduleName, tagFolder)
 }
 
-// copyAndRewritePackage copies a file and rewrites its package declaration.
+// --- File rewriting ---
+
 func copyAndRewritePackage(src, dst, newPkg string) error {
 	content, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-
 	rewritten := packageRe.ReplaceAllString(string(content), "package "+newPkg)
 	return os.WriteFile(dst, []byte(rewritten), 0644)
 }
 
-// copyRewritePackageAndImports copies a file, rewrites its package declaration,
-// and rewrites precompiles/common imports to point at the legacy snapshot.
 func copyRewritePackageAndImports(src, dst, newPkg, legacyCommonImport string) error {
 	content, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-
 	rewritten := packageRe.ReplaceAllString(string(content), "package "+newPkg)
 	rewritten = strings.ReplaceAll(rewritten, commonImport, legacyCommonImport)
 	return os.WriteFile(dst, []byte(rewritten), 0644)
 }
 
-// copyFile does a plain file copy.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -252,13 +369,15 @@ func copyFile(src, dst string) error {
 	return err
 }
 
+// --- File helpers ---
+
 // dedup removes the last line of a file if it matches the given value.
 // This allows safe reruns of the tool.
 func dedup(path, value string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return
 	}
-	lines, err := readLines(path)
+	lines, err := readNonEmptyLines(path)
 	if err != nil || len(lines) == 0 {
 		return
 	}
@@ -267,7 +386,6 @@ func dedup(path, value string) {
 	}
 }
 
-// appendLine appends a line to a file (creating it if needed).
 func appendLine(path, line string) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -277,7 +395,7 @@ func appendLine(path, line string) {
 	fmt.Fprintln(f, line)
 }
 
-func readLines(path string) ([]string, error) {
+func readNonEmptyLines(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -287,7 +405,10 @@ func readLines(path string) ([]string, error) {
 	var lines []string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
 	}
 	return lines, scanner.Err()
 }
