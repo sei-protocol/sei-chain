@@ -631,3 +631,140 @@ func TestProtocol_UnknownKind(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProtocol_OpenWithoutKind(t *testing.T) {
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := conn.NewTestConn()
+		kind := StreamKind(0)
+
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
+		s.SpawnBg(func() error {
+			// Send OPEN with no kind set - it should be rejected, instead of defaulting to 0.
+			for queue, ctrl := range badMux.queue.Lock() {
+				f := queue.Get(streamID(0))
+				f.Header.Kind = nil
+				ctrl.Updated()
+			}
+			return nil
+		})
+		mux := NewMux(makeConfig(kind))
+		err := mux.Run(ctx, c2)
+		t.Logf("mux terminated: %v", err)
+		if !errors.Is(err, errUnknownStream) {
+			return fmt.Errorf("err = %v, want %v", err, errUnknownStream)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProtocol_ConnectDoubleOpen(t *testing.T) {
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := conn.NewTestConn()
+		kind := StreamKind(0)
+		maxMsgSize := uint64(10)
+		window := uint64(3)
+
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
+		s.SpawnBg(func() error {
+			t.Log("Connect stream.")
+			stream, err := badMux.Connect(ctx, kind, 0, 0)
+			if err != nil {
+				return fmt.Errorf("mux2.Connect(): %w", err)
+			}
+			defer stream.Close()
+			t.Log("Send another opening frame for the same stream.")
+			for queue, ctrl := range badMux.queue.Lock() {
+				f := queue.Get(stream.state.id)
+				f.Header.Kind = utils.Alloc(uint64(kind))
+				ctrl.Updated()
+			}
+			<-ctx.Done()
+			return nil
+		})
+
+		mux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error {
+			t.Log("Accept stream")
+			stream, err := mux.Accept(ctx, kind, maxMsgSize, window)
+			if err != nil {
+				return fmt.Errorf("mux.Accept(): %w", err)
+			}
+			defer stream.Close()
+			<-ctx.Done()
+			return nil
+		})
+		err := mux.Run(ctx, c2)
+		t.Logf("mux terminated: %v", err)
+		if !errors.Is(err, errAlreadyOpened) {
+			return fmt.Errorf("err = %v, want %v", err, errAlreadyOpened)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProtocol_AcceptDoubleOpen(t *testing.T) {
+	rng := utils.TestRng()
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		c1, c2 := conn.NewTestConn()
+		kind := StreamKind(0)
+		maxMsgSize := uint64(10)
+		window := uint64(3)
+
+		// Bad mux.
+		badMux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error { return badMux.Run(ctx, c1) })
+		s.SpawnBg(func() error {
+			t.Log("Accept stream.")
+			stream, err := badMux.Accept(ctx, kind, 0, 0)
+			if err != nil {
+				return fmt.Errorf("mux2.Connect(): %w", err)
+			}
+			defer stream.Close()
+			t.Log("Send 2 messages to make sure that the OPEN frame is flushed")
+			for range 2 {
+				if err := stream.Send(ctx, utils.GenBytes(rng, int(maxMsgSize))); err != nil {
+					return utils.IgnoreCancel(err)
+				}
+			}
+			t.Log("Send another OPEN frame for the same stream.")
+			for queue, ctrl := range badMux.queue.Lock() {
+				f := queue.Get(stream.state.id)
+				f.Header.Kind = utils.Alloc(uint64(stream.state.kind))
+				ctrl.Updated()
+			}
+			<-ctx.Done()
+			return nil
+		})
+
+		mux := NewMux(makeConfig(kind))
+		s.SpawnBg(func() error {
+			t.Log("Connect stream")
+			stream, err := mux.Connect(ctx, kind, maxMsgSize, window)
+			if err != nil {
+				return fmt.Errorf("mux.Accept(): %w", err)
+			}
+			defer stream.Close()
+			<-ctx.Done()
+			return nil
+		})
+		err := mux.Run(ctx, c2)
+		t.Logf("mux terminated: %v", err)
+		if !errors.Is(err, errAlreadyOpened) {
+			return fmt.Errorf("err = %v, want %v", err, errAlreadyOpened)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
