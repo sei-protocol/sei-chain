@@ -400,17 +400,22 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "invalid number of signer;  expected: %d, got %d", len(signerAddrs), len(sigs))
 	}
 	var events sdk.Events
+	// CheckTx and ReCheckTx discard these events (see CosmosCheckTxAnte); building them
+	// still runs SignatureDataToBz + base64 per signer — measurable CPU/alloc on hot path.
+	skipSigEvents := ctx.IsCheckTx() || ctx.IsReCheckTx()
 	for i, sig := range sigs {
-		events = append(events, sdk.NewEvent(sdk.EventTypeTx,
-			sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signerAddrs[i], sig.Sequence)),
-		))
-		if sigBzs, err := authante.SignatureDataToBz(sig.Data); err != nil {
-			return nil, err
-		} else {
-			for _, sigBz := range sigBzs {
-				events = append(events, sdk.NewEvent(sdk.EventTypeTx,
-					sdk.NewAttribute(sdk.AttributeKeySignature, base64.StdEncoding.EncodeToString(sigBz)),
-				))
+		if !skipSigEvents {
+			events = append(events, sdk.NewEvent(sdk.EventTypeTx,
+				sdk.NewAttribute(sdk.AttributeKeyAccountSequence, fmt.Sprintf("%s/%d", signerAddrs[i], sig.Sequence)),
+			))
+			if sigBzs, err := authante.SignatureDataToBz(sig.Data); err != nil {
+				return nil, err
+			} else {
+				for _, sigBz := range sigBzs {
+					events = append(events, sdk.NewEvent(sdk.EventTypeTx,
+						sdk.NewAttribute(sdk.AttributeKeySignature, base64.StdEncoding.EncodeToString(sigBz)),
+					))
+				}
 			}
 		}
 
