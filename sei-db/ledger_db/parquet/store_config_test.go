@@ -78,7 +78,7 @@ func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
 
 	require.Equal(t, int64(123), store.config.KeepRecent)
 	require.Equal(t, int64(9), store.config.PruneIntervalSeconds)
-	require.Equal(t, "", store.config.TxIndexBackend)
+	require.Equal(t, "none", store.config.TxIndexBackend)
 }
 
 func TestNewStoreSucceedsWithTxIndexLookupEnabled(t *testing.T) {

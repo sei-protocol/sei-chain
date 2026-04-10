@@ -155,7 +155,7 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 	resolved.KeepRecent = cfg.KeepRecent
 	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
 	if cfg.TxIndexBackend != "" {
-		resolved.TxIndexBackend = dbconfig.NormalizeReceiptTxIndexBackend(cfg.TxIndexBackend)
+		resolved.TxIndexBackend = cfg.TxIndexBackend
 	}
 	if cfg.BlockFlushInterval > 0 {
 		resolved.BlockFlushInterval = cfg.BlockFlushInterval

@@ -136,7 +136,9 @@ func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, 
 			return err
 		}
 	}
-	return batch.Commit(dbtypes.WriteOptions{Sync: true})
+	// Avoid Sync on every block: fsync per commit would add large latency;
+	// Pebble still appends to the WAL without forcing a full sync each time.
+	return batch.Commit(dbtypes.WriteOptions{})
 }
 
 func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64) (err error) {
