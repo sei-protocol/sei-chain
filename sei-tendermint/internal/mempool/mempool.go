@@ -269,21 +269,20 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 func (txmp *TxMempool) CheckTx(
 	ctx context.Context,
 	tx types.Tx,
-	cb func(*abci.ResponseCheckTx),
 	txInfo TxInfo,
-) error {
+) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
+		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
-		return fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
+		return nil, fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
 	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
-		return fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
+		return nil, fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -295,14 +294,14 @@ func (txmp *TxMempool) CheckTx(
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			logger.Error("failed to get tx priority hint", "err", err)
-			return err
+			return nil, err
 		}
 		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, nil)
 
 		cutoff, found := txmp.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
 			txmp.metrics.CheckTxDroppedByPriorityHint.Add(1)
-			return errors.New("priority not high enough for mempool")
+			return nil, errors.New("priority not high enough for mempool")
 		}
 	}
 	txHash := tx.Key()
@@ -312,7 +311,7 @@ func (txmp *TxMempool) CheckTx(
 	// check if we've seen this transaction and error if we have.
 	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
-		return ErrTxInCache
+		return nil, ErrTxInCache
 	}
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
@@ -382,21 +381,21 @@ func (txmp *TxMempool) CheckTx(
 			txmp.priorityReservoir.Add(res.Priority)
 			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			// otherwise add to pending txs store
 			if res.Checker == nil {
-				return errors.New("no checker available for pending transaction")
+				return nil, errors.New("no checker available for pending transaction")
 			}
 			if err := txmp.canAddPendingTx(wtx); err != nil {
 				// TODO: eviction strategy for pending transactions
 				removeHandler(true)
-				return err
+				return nil, err
 			}
 			atomic.AddInt64(&txmp.pendingSizeBytes, int64(wtx.Size()))
 			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
-				return err
+				return nil, err
 			}
 		}
 
@@ -405,11 +404,7 @@ func (txmp *TxMempool) CheckTx(
 		}
 	}
 
-	if cb != nil {
-		cb(res.ResponseCheckTx)
-	}
-
-	return nil
+	return res.ResponseCheckTx, nil
 }
 
 func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
@@ -1056,7 +1051,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 		for _, reenqueue := range toBeReenqueued {
 			rtx := reenqueue.tx
 			go func() {
-				if err := txmp.CheckTx(context.Background(), rtx, nil, TxInfo{}); err != nil {
+				if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
 					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
 				}
 			}()

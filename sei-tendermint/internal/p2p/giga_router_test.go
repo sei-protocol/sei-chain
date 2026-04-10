@@ -257,7 +257,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				for _, payload := range txs {
-					if err := txMempool.CheckTx(ctx, payload, nil, mempool.TxInfo{}); err != nil {
+					if _, err := txMempool.CheckTx(ctx, payload, mempool.TxInfo{}); err != nil {
 						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}

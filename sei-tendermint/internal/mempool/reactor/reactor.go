@@ -120,7 +120,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		}
 
 		for _, tx := range protoTxs {
-			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
+			if _, err := r.mempool.CheckTx(ctx, tx, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
 					// If the tx is in the cache, then we've been gossiped a tx

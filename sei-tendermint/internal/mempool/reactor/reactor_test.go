@@ -68,7 +68,8 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs
 		txs[i] = testTx{
 			tx: []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, i+1000)),
 		}
-		require.NoError(t, txmp.CheckTx(ctx, txs[i].tx, nil, txInfo))
+		_, err := txmp.CheckTx(ctx, txs[i].tx, txInfo)
+		require.NoError(t, err)
 	}
 
 	return txs
@@ -422,10 +423,9 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	secondary := rts.nodes[1]
 
 	tx1 := tmrand.Bytes(cfg.Mempool.MaxTxBytes)
-	err := rts.reactors[primary].mempool.CheckTx(
+	_, err := rts.reactors[primary].mempool.CheckTx(
 		ctx,
 		tx1,
-		nil,
 		mempool.TxInfo{SenderID: mempool.UnknownPeerID},
 	)
 	require.NoError(t, err)
@@ -436,7 +436,7 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	rts.reactors[secondary].mempool.Flush()
 
 	tx2 := tmrand.Bytes(cfg.Mempool.MaxTxBytes + 1)
-	err = rts.mempools[primary].CheckTx(ctx, tx2, nil, mempool.TxInfo{SenderID: mempool.UnknownPeerID})
+	_, err = rts.mempools[primary].CheckTx(ctx, tx2, mempool.TxInfo{SenderID: mempool.UnknownPeerID})
 	require.Error(t, err)
 }
 

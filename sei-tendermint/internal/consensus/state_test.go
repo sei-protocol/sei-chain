@@ -2229,7 +2229,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
 
-	err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	_, err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), mempool.TxInfo{})
 	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	ensureNewTimeout(t, timeoutProposeCh, height+1, round)
@@ -2542,7 +2542,7 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 	incrementRound(vss[1:]...)
 	startTestRound(ctx, cs, height, round)
 
-	err := cs.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), nil, mempool.TxInfo{})
+	_, err := cs.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), mempool.TxInfo{})
 	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
