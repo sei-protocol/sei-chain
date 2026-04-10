@@ -131,9 +131,15 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
+					// If the tx is in the cache, then we've been gossiped a tx
+					// that we've already got. Gossip should be smarter, but it's
+					// not a problem.
 					continue
 				}
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					// Do not propagate context cancellation errors, but do not
+					// continue to check transactions from this message if we are
+					// shutting down.
 					return nil
 				}
 
@@ -217,17 +223,24 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			counts[peerUpdate.NodeID] = 0
 		}
 
+		// Do not allow starting new tx broadcast loops after reactor shutdown
+		// has been initiated. This can happen after we've manually closed all
+		// peer broadcast, but the router still sends in-flight peer updates.
 		if !r.IsRunning() {
 			return
 		}
 
 		if r.cfg.Broadcast {
+			// Check if we've already started a goroutine for this peer. If not,
+			// create one and reserve the peer's mempool ID.
 			if _, ok := r.peerRoutines[peerUpdate.NodeID]; !ok {
 				pctx, pcancel := context.WithCancel(ctx)
 				r.peerRoutines[peerUpdate.NodeID] = pcancel
 
 				r.ids.ReserveForPeer(peerUpdate.NodeID)
 
+				// Start a broadcast routine ensuring all txs are forwarded to
+				// the peer.
 				go r.broadcastTxRoutine(pctx, peerUpdate.NodeID)
 			}
 		}
@@ -238,6 +251,8 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			delete(counts, peerUpdate.NodeID)
 		}
 
+		// Check if we've started a tx broadcasting goroutine for this peer.
+		// If so, signal it to terminate.
 		closer, ok := r.peerRoutines[peerUpdate.NodeID]
 		if ok {
 			closer()
