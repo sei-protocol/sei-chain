@@ -45,6 +45,9 @@ var errFrameAfterClose = errors.New("received frame after CLOSE frame")
 var errTooManyMsgs = errors.New("too many messages")
 var errTooLargeMsg = errors.New("message too large")
 var errUnknownKind = errors.New("unknown kind")
+var errStreamKindMismatch = errors.New("stream kind mismatch")
+var errAlreadyOpened = errors.New("stream already opened")
+var errAlreadyClosed = errors.New("stream already closed")
 
 type Config struct {
 	// Maximal number of bytes in a frame (excluding header).
@@ -121,20 +124,25 @@ func newRunner(mux *Mux) *runner {
 	}
 }
 
-// getOrAccept() gets the current state of the stream with the given id (kind is ignored).
+// getOrAccept() gets the current state of the stream for the given header message.
 // If the stream does not exist yet, it tries to create it as an accept (inbound) stream.
 // In that case the inbound stream limit for the given kind is checked.
-func (r *runner) getOrAccept(id streamID, kind StreamKind) (*streamState, error) {
+func (r *runner) getOrAccept(h *pb.Header) (*streamState, error) {
+	id := streamIDFromRemote(h.Id)
+	kind := StreamKind(h.GetKind())
 	for inner := range r.inner.RLock() {
 		s, ok := inner.streams[id]
 		if ok {
+			if h.Kind != nil && s.kind != kind {
+				return nil, errStreamKindMismatch
+			}
 			return s, nil
 		}
 	}
+	if id.isConnect() || h.Kind == nil {
+		return nil, errUnknownStream
+	}
 	for inner := range r.inner.Lock() {
-		if id.isConnect() {
-			return nil, errUnknownStream
-		}
 		if inner.acceptsSem[kind] == 0 {
 			return nil, errTooManyAccepts
 		}
@@ -258,10 +266,7 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 		if err := proto.Unmarshal(headerRaw, &h); err != nil {
 			return err
 		}
-		id := streamIDFromRemote(h.Id)
-		kind := StreamKind(h.GetKind())
-
-		s, err := r.getOrAccept(id, kind)
+		s, err := r.getOrAccept(&h)
 		if err != nil {
 			return err
 		}
@@ -276,7 +281,7 @@ func (r *runner) runRecv(ctx context.Context, conn conn.Conn) error {
 				return err
 			}
 			if !s.id.isConnect() {
-				r.mux.kinds[kind].acceptsQueue <- s
+				r.mux.kinds[s.kind].acceptsQueue <- s
 			}
 		}
 		if we := h.GetWindowEnd(); we > 0 {

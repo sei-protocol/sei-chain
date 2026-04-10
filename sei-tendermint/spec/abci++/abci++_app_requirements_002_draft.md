@@ -779,26 +779,12 @@ When verifying the full proof, the root hash for one ProofOp is the value being
 verified for the next ProofOp in the list. The root hash of the final ProofOp in
 the list should match the `AppHash` being verified against.
 
-#### Peer Filtering
-
-When Tendermint connects to a peer, it sends two queries to the ABCI application
-using the following paths, with no additional data:
-
-* `/p2p/filter/addr/<IP:PORT>`, where `<IP:PORT>` denote the IP address and
-  the port of the connection
-* `p2p/filter/id/<ID>`, where `<ID>` is the peer node ID (ie. the
-  pubkey.Address() for the peer's PubKey)
-
-If either of these queries return a non-zero ABCI code, Tendermint will refuse
-to connect to the peer.
-
 #### Paths
 
 Queries are directed at paths, and may optionally include additional data.
 
 The expectation is for there to be some number of high level paths
-differentiating concerns, like `/p2p`, `/store`, and `/app`. Currently,
-Tendermint only uses `/p2p`, for filtering peers. For more advanced use, see the
+differentiating concerns, like `/store` and `/app`. For more advanced use, see the
 implementation of
 [Query in the Cosmos-SDK](https://github.com/cosmos/cosmos-sdk/blob/v0.23.1/baseapp/baseapp.go#L333).
 
