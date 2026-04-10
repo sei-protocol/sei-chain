@@ -171,14 +171,20 @@ func (p *PebbleKeymap) Put(keys []types.ScopedKey) error {
 	batch := p.db.NewBatch()
 	defer func() { _ = batch.Close() }()
 
-	// EXPERIMENT: skip linked-list encoding; store only the 13-byte address.
+	prevKey := p.lastKey
 	for _, k := range keys {
-		if err := batch.Set(k.Key, k.Address.Serialize(), nil); err != nil {
+		val := p.encodeLinkedValuePooled(k.Address, prevKey)
+		if err := batch.Set(k.Key, val, nil); err != nil {
 			return fmt.Errorf("failed to set key in PebbleDB batch: %w", err)
 		}
+		prevKey = k.Key
 	}
+	p.lastKey = make([]byte, len(prevKey))
+	copy(p.lastKey, prevKey)
 
-	// EXPERIMENT: skip latestKeyMetaKey update (no linked list to maintain).
+	if err := batch.Set(latestKeyMetaKey, p.lastKey, nil); err != nil {
+		return fmt.Errorf("failed to set latest key metadata: %w", err)
+	}
 
 	p.m.SetKeymapManagerPhase("put/commit")
 	if err := batch.Commit(pebble.NoSync); err != nil {
