@@ -150,13 +150,13 @@ func (it *dbIterator) SeekGE(key []byte) bool {
 		return false
 	}
 
-	kind, strippedKey := evm.ParseEVMKey(key)
-	if kind != it.kind {
-		it.err = fmt.Errorf("key type mismatch: expected %d, got %d", it.kind, kind)
+	physKey, err := it.resolvePhysicalKey(key)
+	if err != nil {
+		it.err = err
 		return false
 	}
 
-	if !it.iter.SeekGE(ktype.EVMPhysicalKey(kind, strippedKey)) {
+	if !it.iter.SeekGE(physKey) {
 		return false
 	}
 	it.skipMetaForward()
@@ -168,17 +168,48 @@ func (it *dbIterator) SeekLT(key []byte) bool {
 		return false
 	}
 
-	kind, strippedKey := evm.ParseEVMKey(key)
-	if kind != it.kind {
-		it.err = fmt.Errorf("key type mismatch: expected %d, got %d", it.kind, kind)
+	physKey, err := it.resolvePhysicalKey(key)
+	if err != nil {
+		it.err = err
 		return false
 	}
 
-	if !it.iter.SeekLT(ktype.EVMPhysicalKey(kind, strippedKey)) {
+	if !it.iter.SeekLT(physKey) {
 		return false
 	}
 	it.skipMetaBackward()
 	return it.iter.Valid()
+}
+
+// resolvePhysicalKey converts a seek key to physical format for the underlying
+// DB iterator. Accepts both formats so that keys returned by Key() can be
+// passed directly back to SeekGE/SeekLT:
+//   - Physical keys ("evm/" + prefix_byte + stripped_key) are validated and
+//     passed through.
+//   - Memiavl keys (prefix_byte + stripped_key) are converted via EVMPhysicalKey.
+//
+// Memiavl EVM prefix bytes (0x03..0x0a) are all below 0x20, while physical
+// keys start with an ASCII module name (>= 0x20), so the formats are
+// unambiguous.
+func (it *dbIterator) resolvePhysicalKey(key []byte) ([]byte, error) {
+	if len(key) == 0 {
+		return nil, fmt.Errorf("empty seek key")
+	}
+	if key[0] >= 0x20 { // physical key: starts with ASCII module name; memiavl keys start with 0x03..0x0a
+		kind, _, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("invalid physical seek key: %w", err)
+		}
+		if kind != it.kind {
+			return nil, fmt.Errorf("physical key type mismatch: expected %d, got %d", it.kind, kind)
+		}
+		return key, nil
+	}
+	kind, strippedKey := evm.ParseEVMKey(key)
+	if kind != it.kind {
+		return nil, fmt.Errorf("key type mismatch: expected %d, got %d", it.kind, kind)
+	}
+	return ktype.EVMPhysicalKey(kind, strippedKey), nil
 }
 
 func (it *dbIterator) Next() bool {

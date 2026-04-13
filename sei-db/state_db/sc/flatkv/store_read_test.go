@@ -1013,6 +1013,65 @@ func TestIteratorSeekGEKeyTypeMismatch(t *testing.T) {
 	require.Error(t, iter.Error(), "key type mismatch should set an error")
 }
 
+func TestIteratorSeekGEPhysicalKeyTypeMismatch(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slotN(0x01), []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+
+	// SeekGE with an account physical key on a storage iterator → mismatch
+	accountKey := ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr[:])
+	require.False(t, iter.SeekGE(accountKey))
+	require.Error(t, iter.Error(), "physical key type mismatch should set an error")
+	require.Contains(t, iter.Error().Error(), "mismatch")
+}
+
+func TestIteratorSeekGEInvalidPhysicalKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slotN(0x01), []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+
+	// SeekGE with garbage ASCII key → rejected
+	require.False(t, iter.SeekGE([]byte("not-a-valid-key")))
+	require.Error(t, iter.Error(), "invalid physical key should set an error")
+}
+
+func TestIteratorSeekGEPhysicalKeyRoundTrip(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	slot := slotN(0x01)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slot, []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+	require.True(t, iter.First())
+
+	// Key() returns a physical key; feeding it back to SeekGE must work.
+	physKey := append([]byte(nil), iter.Key()...)
+	require.True(t, iter.SeekGE(physKey))
+	require.Equal(t, physKey, iter.Key())
+}
+
 // =============================================================================
 // R-19: Iterator Skips Meta Keys
 // =============================================================================

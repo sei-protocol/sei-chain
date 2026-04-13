@@ -127,7 +127,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 // This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
 // avoiding an extra map allocation and repeated string concatenation per key.
 func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[evm.EVMKeyKind]map[string][]byte)
+	result := make(map[evm.EVMKeyKind]map[string][]byte, 5)
 
 	getOrCreate := func(kind evm.EVMKeyKind, sizeHint int) map[string][]byte {
 		m, ok := result[kind]
@@ -137,8 +137,6 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 		}
 		return m
 	}
-
-	evmPrefix := evm.EVMStoreKey + "/"
 
 	for _, cs := range changeSets {
 		if cs.Changeset.Pairs == nil {
@@ -152,12 +150,13 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 					return nil, fmt.Errorf("flatkv: empty key in changeset")
 				}
 
-				memiavlKey := pair.Key
-				if kind == evm.EVMKeyCodeHash {
-					memiavlKey = evm.BuildMemIAVLEVMKey(ktype.EVMKeyAccount, keyBytes)
+				var physKey string
+				if kind == evm.EVMKeyLegacy {
+					physKey = string(ktype.ModulePhysicalKey(evm.EVMStoreKey, pair.Key))
+				} else {
+					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
 				}
 
-				physKey := evmPrefix + string(memiavlKey)
 				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
 				if pair.Delete {
 					kindMap[physKey] = nil
@@ -166,10 +165,9 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 				}
 			}
 		} else {
-			modPrefix := cs.Name + "/"
 			legacyMap := getOrCreate(evm.EVMKeyLegacy, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
-				physKey := modPrefix + string(pair.Key)
+				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
 				if pair.Delete {
 					legacyMap[physKey] = nil
 				} else {

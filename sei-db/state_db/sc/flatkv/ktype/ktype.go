@@ -70,11 +70,11 @@ func ModulePhysicalKey(moduleName string, key []byte) []byte {
 // StripModulePrefix splits a module-prefixed physical key into its module name
 // and original key. Returns an error if no "/" separator is found.
 func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, err error) {
-	mod, rest, found := bytes.Cut(physicalKey, []byte{'/'})
-	if !found {
+	idx := bytes.IndexByte(physicalKey, '/')
+	if idx < 0 {
 		return "", nil, fmt.Errorf("physical key missing module prefix separator '/': %x", physicalKey)
 	}
-	return string(mod), rest, nil
+	return string(physicalKey[:idx]), physicalKey[idx+1:], nil
 }
 
 // EVMPhysicalKey returns the physical DB key for an EVM key kind.
@@ -82,15 +82,20 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 // For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
 // because these fields are merged into one physical row.
 func EVMPhysicalKey(kind evm.EVMKeyKind, strippedKey []byte) []byte {
-	canonicalKind := kind
 	if kind == evm.EVMKeyCodeHash {
-		canonicalKind = EVMKeyAccount
+		kind = EVMKeyAccount
 	}
-	memiavlKey := evm.BuildMemIAVLEVMKey(canonicalKind, strippedKey)
-	if memiavlKey == nil {
+	prefixByte, ok := evm.EVMKeyPrefixByte(kind)
+	if !ok {
 		return nil
 	}
-	return ModulePhysicalKey(evm.EVMStoreKey, memiavlKey)
+	mod := evm.EVMStoreKey
+	result := make([]byte, len(mod)+2+len(strippedKey))
+	copy(result, mod)
+	result[len(mod)] = '/'
+	result[len(mod)+1] = prefixByte
+	copy(result[len(mod)+2:], strippedKey)
+	return result
 }
 
 // StripEVMPhysicalKey extracts the EVM key kind and stripped key from a

@@ -97,7 +97,8 @@ type Store interface {
 // Iterator provides ordered iteration over EVM keys.
 // Follows PebbleDB semantics: not positioned on creation.
 //
-// Keys are returned in internal format (without memiavl prefix).
+// Keys are returned in physical format ("evm/" + type_prefix_byte + stripped_key).
+// SeekGE/SeekLT accept both physical keys and memiavl keys (prefix_byte + stripped_key).
 //
 // EXPERIMENTAL: not used in production. Interface may change when
 // Exporter/state-sync is implemented.
@@ -114,10 +115,8 @@ type Iterator interface {
 	Next() bool
 	Prev() bool
 
-	// Key returns the current key in internal format (valid until next move).
-	// Internal formats:
-	//   - Storage: addr(20) || slot(32)
-	//   - Nonce/Code/CodeHash: addr(20)
+	// Key returns the current key in physical format (valid until next move).
+	// Physical format: "evm/" + type_prefix_byte + stripped_key.
 	Key() []byte
 
 	// Value returns the current value (valid until next move).
