@@ -579,7 +579,11 @@ func testStateLockNoPOL(t *testing.T, stateless bool) {
 
 	// cs1 is locked on a block at this point, so we must generate a new consensus
 	// state to force a new proposal block to be generated.
+<<<<<<< HEAD
 	cs2 := newState(t, cs1.state, vs2, kvstore.NewApplication())
+=======
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 	// before we time out into new round, set next proposal block
 	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round+1)
 	require.NotNil(t, propBlock, "Failed to create proposal block with vs2")
@@ -806,6 +810,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 			Send a prevote for B from each of the validators to cs1.
 			Send a precommit for nil from all of the validtors to cs1.
 
+<<<<<<< HEAD
 			Check that cs1 updates its 'locked round' value to the current round.
 		*/
 		round++
@@ -817,6 +822,18 @@ func TestStateLock_POLRelock(t *testing.T) {
 		p := propR1.ToProto()
 		require.NoError(t, leaderVS.SignProposal(ctx, cs1.state.ChainID, p))
 		propR1.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+=======
+		Check that cs1 updates its 'locked round' value to the current round.
+	*/
+	incrementRound(vs2, vs3, vs4)
+	round++
+	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
+	require.NoError(t, err)
+	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxKeys(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
+	p := propR1.ToProto()
+	require.NoError(t, vs2.SignProposal(ctx, cs1.state.ChainID, p))
+	propR1.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 
 		err = cs1.SetProposalAndBlock(ctx, propR1, theBlock, theBlockParts, "")
 		require.NoError(t, err)
@@ -1537,6 +1554,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 		// timeout of precommit wait to new round
 		ensureNewTimeout(t, timeoutWaitCh, height, round)
 
+<<<<<<< HEAD
 		round++ // moving to the next round
 		// in round 2 we see the polkad block from round 0
 		leaderR2 := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
@@ -1546,6 +1564,16 @@ func TestStateLock_POLSafety2(t *testing.T) {
 		p := newProp.ToProto()
 		err = leaderR2.SignProposal(ctx, config.ChainID(), p)
 		require.NoError(t, err)
+=======
+	round++ // moving to the next round
+	// in round 2 we see the polkad block from round 0
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
+	require.NoError(t, err)
+	newProp := types.NewProposal(height, round, 0, propBlockID0, propBlock0.Header.Time, propBlock0.GetTxKeys(), propBlock0.Header, propBlock0.LastCommit, propBlock0.Evidence, pubKey.Address())
+	p := newProp.ToProto()
+	err = vs3.SignProposal(ctx, config.ChainID(), p)
+	require.NoError(t, err)
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 
 		newProp.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
@@ -1691,9 +1719,24 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 		require.NoError(t, err)
 		propR2.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
+<<<<<<< HEAD
 		// cs1 receives a proposal for D, the block that received a POL in round 1.
 		err = cs1.SetProposalAndBlock(ctx, propR2, propBlockR1, propBlockR1Parts, "")
 		require.NoError(t, err)
+=======
+		Send cs1 prevotes for nil and check that it still prevotes its locked block
+		and not the block that it prevoted.
+	*/
+	incrementRound(vs2, vs3, vs4)
+	round++
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
+	require.NoError(t, err)
+	propR2 := types.NewProposal(height, round, 1, r1BlockID, propBlockR1.Header.Time, propBlockR1.GetTxKeys(), propBlockR1.Header, propBlockR1.LastCommit, propBlockR1.Evidence, pubKey.Address())
+	p := propR2.ToProto()
+	err = vs3.SignProposal(ctx, cs1.state.ChainID, p)
+	require.NoError(t, err)
+	propR2.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 
 		ensureNewRound(t, newRoundCh, height, round)
 
@@ -2586,6 +2629,7 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 }
 
 func TestSetProposal_InvalidProposer(t *testing.T) {
+<<<<<<< HEAD
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
@@ -2668,6 +2712,112 @@ func TestStatePropagatesStatelessLeaderElectionToRoundState(t *testing.T) {
 	cs := newStateWithConfig(t, cfg, state, privVals[0], kvstore.NewApplication())
 
 	require.True(t, cs.GetRoundState().StatelessLeaderElection)
+=======
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+
+	timeoutWaitCh := subscribe(ctx, t, cs.eventBus, types.EventQueryTimeoutWait)
+	proposalCh := subscribe(ctx, t, cs.eventBus, types.EventQueryCompleteProposal)
+	addr := getAddr(ctx, cs)
+	voteCh := subscribeToVoter(ctx, t, cs, addr)
+	lockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryLock)
+	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
+
+	findValidatorStub := func(address []byte) *validatorStub {
+		t.Helper()
+
+		for _, vs := range vss {
+			pubKey, err := vs.GetPubKey(ctx)
+			require.NoError(t, err)
+			if bytes.Equal(pubKey.Address(), address) {
+				return vs
+			}
+		}
+		return nil
+	}
+
+	startTestRound(ctx, cs, height, round)
+	ensureNewRound(t, newRoundCh, height, round)
+
+	round0Validators := cs.GetRoundState().Validators.Copy()
+	round0Proposer := round0Validators.GetProposer()
+	require.NotNil(t, round0Proposer)
+
+	round1Validators := round0Validators.CopyIncrementProposerPriority(1)
+	round1Proposer := round1Validators.GetProposer()
+	require.NotNil(t, round1Proposer)
+	require.False(t, bytes.Equal(round0Proposer.Address, round1Proposer.Address), "test requires different proposers across rounds")
+
+	round1ProposerStub := findValidatorStub(round1Proposer.Address)
+	require.NotNil(t, round1ProposerStub)
+
+	ensureNewProposal(t, proposalCh, height, round)
+	rs := cs.GetRoundState()
+	block := rs.ProposalBlock
+	blockParts := rs.ProposalBlockParts
+	blockID := types.BlockID{
+		Hash:          block.Hash(),
+		PartSetHeader: blockParts.Header(),
+	}
+	require.True(t, bytes.Equal(block.Header.ProposerAddress, round0Proposer.Address))
+
+	ensurePrevote(t, voteCh, height, round)
+	signAddVotes(ctx, t, cs, tmproto.PrevoteType, config.ChainID(), blockID, vss[1:]...)
+	ensureLock(t, lockCh, height, round)
+	ensurePrecommit(t, voteCh, height, round)
+	signAddVotes(ctx, t, cs, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vss[1:]...)
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
+
+	incrementRound(vss[1:]...)
+	round++
+	ensureNewRound(t, newRoundCh, height, round)
+	require.True(t, bytes.Equal(cs.GetRoundState().Validators.GetProposer().Address, round1Proposer.Address))
+
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), blockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, round1Proposer.Address)
+	require.False(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
+
+	proposal.ProposerAddress = round0Proposer.Address
+	require.True(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
+
+	p := proposal.ToProto()
+	require.NoError(t, round1ProposerStub.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidProposer)
+	require.Nil(t, cs.roundState.Proposal())
+}
+
+func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+
+	want := cs.GetRoundState().Validators.GetProposer().PubKey
+	var proposer *validatorStub
+	for _, vs := range vss {
+		got, err := vs.GetPubKey(ctx)
+		require.NoError(t, err)
+		if want == got {
+			proposer = vs
+			break
+		}
+	}
+	require.NotNil(t, proposer)
+
+	proposal, _ := decideProposal(ctx, t, cs, proposer, height, round)
+
+	proposal.Header.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
+
+	p := proposal.ToProto()
+	require.NoError(t, proposer.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidHeaderProposer)
+	require.Nil(t, cs.roundState.Proposal())
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 }
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
