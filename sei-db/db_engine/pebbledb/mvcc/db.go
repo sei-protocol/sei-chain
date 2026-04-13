@@ -914,6 +914,16 @@ func parseStoreKey(key []byte) (string, error) {
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) ([]byte, error) {
+	totalStart := time.Now()
+	defer func() {
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "getMVCCSlice",
+			DurationNanos: time.Since(totalStart).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
+	}()
 	// end domain is exclusive, so we need to increment the version by 1
 	if version < math.MaxInt64 {
 		version++
@@ -939,7 +949,16 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		Reverse:       true,
 	})
 	defer func() {
+		closeStart := time.Now()
 		err = errorutils.Join(err, itr.Close())
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "pebble",
+			Operation:     "iterClose",
+			DurationNanos: time.Since(closeStart).Nanoseconds(),
+			Key:           slices.Clone(key),
+			Reverse:       true,
+		})
 	}()
 
 	lastStart := time.Now()
@@ -956,12 +975,39 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		return nil, errorutils.ErrRecordNotFound
 	}
 
-	_, vBz, ok := SplitMVCCKey(itr.Key())
+	keyReadStart := time.Now()
+	rawIterKey := slices.Clone(itr.Key())
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "iterKey",
+		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
+		Key:           rawIterKey,
+		Reverse:       true,
+	})
+
+	splitKeyStart := time.Now()
+	_, vBz, ok := SplitMVCCKey(rawIterKey)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "splitKey",
+		DurationNanos: time.Since(splitKeyStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
 	if !ok {
-		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", itr.Key())
+		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
 	}
 
+	decodeVersionStart := time.Now()
 	keyVersion, err := decodeUint64Ascending(vBz)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "decodeKeyVersion",
+		DurationNanos: time.Since(decodeVersionStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode key version: %w", err)
 	}
@@ -969,7 +1015,28 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		return nil, fmt.Errorf("key version too large: %d", keyVersion)
 	}
 
-	return slices.Clone(itr.Value()), nil
+	valueReadStart := time.Now()
+	rawIterValue := itr.Value()
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "iterValue",
+		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
+		Key:           rawIterKey,
+		Reverse:       true,
+	})
+
+	valueCloneStart := time.Now()
+	clonedValue := slices.Clone(rawIterValue)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "cloneValue",
+		DurationNanos: time.Since(valueCloneStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
+
+	return clonedValue, nil
 }
 
 func (db *Database) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
