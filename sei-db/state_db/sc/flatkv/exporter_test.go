@@ -203,19 +203,19 @@ func TestExporterRoundTrip(t *testing.T) {
 	// --- Verify round-trip ---
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found := s2.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found = s2.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist after import")
 	require.Equal(t, nonceVal, got)
 
-	got, found = s2.Get(codeKey)
+	got, found = s2.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, found, "code key should exist after import")
 	require.Equal(t, codeVal, got)
 
-	got, found = s2.Get(codeHashKey)
+	got, found = s2.Get(evm.EVMStoreKey, codeHashKey)
 	require.True(t, found, "codehash key should exist after import")
 	require.Equal(t, codeHashVal, got)
 
@@ -326,11 +326,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found := s2.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key must survive reopen")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found = s2.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key must survive reopen")
 	require.Equal(t, nonceVal, got)
 
@@ -395,7 +395,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	var found bool
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(evm.EVMStoreKey, k)
 		require.True(t, found, "pre-import: key should exist")
 	}
 
@@ -443,24 +443,24 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	// --- Phase 4: verify stale keys are gone across all DB types ---
 	var got []byte
-	got, found = s.Get(storageA)
+	got, found = s.Get(evm.EVMStoreKey, storageA)
 	require.True(t, found, "storage key A should exist")
 	require.Equal(t, newStorageVal, got)
 
-	got, found = s.Get(nonceA)
+	got, found = s.Get(evm.EVMStoreKey, nonceA)
 	require.True(t, found, "nonce key A should exist")
 	require.Equal(t, newNonceVal, got)
 
-	got, found = s.Get(codeB)
+	got, found = s.Get(evm.EVMStoreKey, codeB)
 	require.True(t, found, "code key B should exist")
 	require.Equal(t, newCodeVal, got)
 
-	got, found = s.Get(codeHashB)
+	got, found = s.Get(evm.EVMStoreKey, codeHashB)
 	require.True(t, found, "codehash key B should exist")
 	require.Equal(t, newCodeHashVal, got)
 
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(evm.EVMStoreKey, k)
 		require.False(t, found, "stale key should NOT exist after import")
 	}
 
@@ -476,7 +476,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	require.Equal(t, int64(1), s.Version())
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(evm.EVMStoreKey, k)
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
 	require.Equal(t, srcHash, s.RootHash())
@@ -558,7 +558,7 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 
 	// Data should NOT have been imported.
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01)))
-	_, found := s.Get(key)
+	_, found := s.Get(evm.EVMStoreKey, key)
 	require.False(t, found, "height != 0 node should be skipped")
 	require.NoError(t, s.Close())
 }
@@ -660,7 +660,7 @@ func TestImporterDoubleImport(t *testing.T) {
 	require.NoError(t, imp1.Close())
 
 	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01)))
-	val, found := s.Get(key1)
+	val, found := s.Get(evm.EVMStoreKey, key1)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x11), val)
 
@@ -676,11 +676,11 @@ func TestImporterDoubleImport(t *testing.T) {
 	require.Equal(t, int64(2), s.Version())
 
 	// Data from first import should be gone.
-	_, found = s.Get(key1)
+	_, found = s.Get(evm.EVMStoreKey, key1)
 	require.False(t, found, "first import data should be wiped by second import")
 
 	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x02), slotN(0x02)))
-	val, found = s.Get(key2)
+	val, found = s.Get(evm.EVMStoreKey, key2)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x22), val)
 	require.NoError(t, s.Close())

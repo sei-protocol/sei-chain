@@ -194,7 +194,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 
 	// Apply but not commit - should be readable from pending writes
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "should be readable from pending writes")
 	require.Equal(t, value, got)
 
@@ -202,7 +202,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Still should be readable after commit
-	got, found = s.Get(key)
+	got, found = s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -241,7 +241,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 	// Verify all entries
 	for _, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		got, found := s.Get(key)
+		got, found := s.Get(evm.EVMStoreKey, key)
 		require.True(t, found)
 		require.Equal(t, padLeft32(e.value), got)
 	}
@@ -312,7 +312,7 @@ func TestStoreVersioning(t *testing.T) {
 	require.Equal(t, int64(2), s.Version())
 
 	// Latest value should be from version 2
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x02), got)
 }
@@ -347,7 +347,7 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	got, found := s2.Get(key)
+	got, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 
@@ -703,7 +703,7 @@ func TestGetMissingKeyReturnsNil(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	v, ok := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	v, ok := s.Get(evm.EVMStoreKey, []byte{0xFF, 0xFF, 0xFF})
 	require.False(t, ok)
 	require.Nil(t, v)
 }
@@ -712,7 +712,7 @@ func TestGetUnsupportedKeyType_Strict(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	val, found := s.Get([]byte{})
+	val, found := s.Get(evm.EVMStoreKey, []byte{})
 	require.False(t, found)
 	require.Nil(t, val)
 }
@@ -722,7 +722,7 @@ func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
-	val, found := s.Get([]byte{})
+	val, found := s.Get(evm.EVMStoreKey, []byte{})
 	require.False(t, found)
 	require.Nil(t, val)
 }
@@ -770,15 +770,15 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, hash, s2.RootHash())
 
-	v, ok := s2.Get(storageKey)
+	v, ok := s2.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v)
 
-	v, ok = s2.Get(nonceKey)
+	v, ok = s2.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 5}, v)
 
-	v, ok = s2.Get(codeKey)
+	v, ok = s2.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
@@ -806,7 +806,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 	require.NotNil(t, ro.RootHash())
@@ -836,7 +836,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -864,7 +864,7 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(3), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(3), got)
 }
@@ -923,7 +923,7 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	require.Equal(t, int64(3), s.Version())
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(1), got)
 }
@@ -959,8 +959,8 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	require.Equal(t, int64(4), ro1.Version())
 	require.Equal(t, int64(4), ro2.Version())
 
-	g1, ok1 := ro1.Get(key)
-	g2, ok2 := ro2.Get(key)
+	g1, ok1 := ro1.Get(evm.EVMStoreKey, key)
+	g2, ok2 := ro2.Get(evm.EVMStoreKey, key)
 	require.True(t, ok1)
 	require.True(t, ok2)
 	require.Equal(t, padLeft32(4), g1)
@@ -988,7 +988,7 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
 
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(2), got)
 }
@@ -1083,7 +1083,7 @@ func TestLoadVersionReload(t *testing.T) {
 	require.Equal(t, int64(1), s.Version())
 	require.Equal(t, expectedHash, s.RootHash())
 
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x11), val)
 	require.NoError(t, s.Close())
@@ -1104,7 +1104,7 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x22), val)
 	require.NoError(t, s.Close())
@@ -1129,11 +1129,11 @@ func TestLoadVersionReadOnlyDoesNotSeePending(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	_, found := ro.Get(key2)
+	_, found := ro.Get(evm.EVMStoreKey, key2)
 	require.False(t, found, "read-only store should not see uncommitted data")
 
 	// But committed data should be visible.
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), val)
 	require.NoError(t, s.Close())
@@ -1189,11 +1189,11 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 
 	require.Equal(t, int64(1), s2.Version())
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "committed data should persist")
 	require.Equal(t, padLeft32(0x11), val)
 
-	_, found = s2.Get(key2)
+	_, found = s2.Get(evm.EVMStoreKey, key2)
 	require.False(t, found, "uncommitted data should be lost")
 }
 
@@ -1213,7 +1213,7 @@ func TestCloseDuringConcurrentReadOnlyClone(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// RO should still function.
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "RO clone should remain functional after parent close")
 	require.Equal(t, padLeft32(0xAA), val)
 

@@ -123,7 +123,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
-		val, found := s2.Get(key)
+		val, found := s2.Get(evm.EVMStoreKey, key)
 		require.True(t, found, "slot %d should exist after recovery", i)
 		require.Equal(t, padLeft32(byte(i*11)), val)
 	}
@@ -165,7 +165,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	// All 20 storage slots should be readable.
 	for i := 1; i <= 20; i++ {
 		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
-		val, found := s2.Get(key)
+		val, found := s2.Get(evm.EVMStoreKey, key)
 		require.True(t, found, "slot %d should exist", i)
 		require.Equal(t, padLeft32(byte(i)), val)
 	}
@@ -206,7 +206,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.Equal(t, expectedVersion, s2.Version())
 	require.Equal(t, expectedHash, s2.RootHash())
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xAA), val)
 
@@ -299,7 +299,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.Equal(t, int64(2), s2.Version())
 	require.NotEqual(t, hashAfterV1, s2.RootHash(), "hash should differ after v2 replay")
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x22), val, "v2 value should be present after catchup")
 	verifyLtHashConsistency(t, s2)

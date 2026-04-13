@@ -27,11 +27,11 @@ func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 }
 func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
 func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) Get([]byte) ([]byte, bool)                     { return nil, false }
-func (f *failingEVMStore) GetBlockHeightModified([]byte) (int64, bool, error) {
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
-func (f *failingEVMStore) Has([]byte) bool                         { return false }
+func (f *failingEVMStore) Has(string, []byte) bool                 { return false }
 func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator    { return nil }
 func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator { return nil }
 func (f *failingEVMStore) RootHash() []byte                        { return nil }
@@ -581,11 +581,11 @@ func TestExportImportSplitWrite(t *testing.T) {
 
 	// Verify FlatKV data
 	require.NotNil(t, dst.evmCommitter)
-	got, found := dst.evmCommitter.Get(storageKey)
+	got, found := dst.evmCommitter.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist in FlatKV after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = dst.evmCommitter.Get(nonceKey)
+	got, found = dst.evmCommitter.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist in FlatKV after import")
 	require.Equal(t, nonceVal, got)
 }
@@ -837,7 +837,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	bankStore := cs3.GetChildStoreByName("bank")
 	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
 
-	got, found := cs3.evmCommitter.Get(storageKey)
+	got, found := cs3.evmCommitter.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xA5), got)
 }

@@ -736,7 +736,7 @@ func TestLtHashCrossApplyAccountSameFieldOverwrite(t *testing.T) {
 
 	// Verify final value
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, uint64(20), binary.BigEndian.Uint64(val))
 }
@@ -770,7 +770,7 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 
 	// Verify final value
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), val)
 }
@@ -807,7 +807,7 @@ func TestLtHashCrossApplyCodeOverwrite(t *testing.T) {
 
 	// Verify final value
 	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x40, 0x02, 0x03}, val)
 }
@@ -839,7 +839,7 @@ func TestLtHashCrossApplyLegacyOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	val, found := s.Get(legacyKey)
+	val, found := s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x30}, val)
 }
@@ -899,27 +899,27 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 
 	// Verify all final values
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, uint64(100), binary.BigEndian.Uint64(nonceVal))
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s.Get(chKey)
+	chVal, found := s.Get(evm.EVMStoreKey, chKey)
 	require.True(t, found)
 	expected := codeHashN(0x30)
 	require.Equal(t, expected[:], chVal)
 
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	codeVal, found := s.Get(codeKey)
+	codeVal, found := s.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x60, 0x01}, codeVal)
 
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	storageVal, found := s.Get(storageKey)
+	storageVal, found := s.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), storageVal)
 
-	legacyVal, found := s.Get(legacyKey)
+	legacyVal, found := s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
@@ -981,12 +981,12 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, nonceBytes(99), nonceVal)
 
 	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	_, found = s.Get(chKey)
+	_, found = s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be zero (EOA)")
 
 	raw, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1046,11 +1046,11 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	}))
 
 	// Pending reads before commit
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be readable from pending writes")
 	require.Equal(t, nonceBytes(42), nonceVal)
 
-	chVal, found := s.Get(chKey)
+	chVal, found := s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
@@ -1076,11 +1076,11 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	}))
 
 	// Verify both fields are readable before commit
-	nonceVal, found := s.Get(nonceKey)
+	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be readable from pending writes")
 	require.Equal(t, nonceBytes(10), nonceVal)
 
-	chVal, found := s.Get(chKey)
+	chVal, found := s.Get(evm.EVMStoreKey, chKey)
 	require.True(t, found, "codehash should be readable from pending writes")
 	expected := codeHashN(0xEE)
 	require.Equal(t, expected[:], chVal)
@@ -1091,17 +1091,17 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	}))
 
 	// Verify both fields return not-found BEFORE commit (the core semantic change)
-	nonceVal, found = s.Get(nonceKey)
+	nonceVal, found = s.Get(evm.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after pending full-delete")
 	require.Nil(t, nonceVal)
 
-	chVal, found = s.Get(chKey)
+	chVal, found = s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should not be found after pending full-delete")
 	require.Nil(t, chVal)
 
-	hasNonce := s.Has(nonceKey)
+	hasNonce := s.Has(evm.EVMStoreKey, nonceKey)
 	require.False(t, hasNonce, "Has(nonce) should be false after pending full-delete")
-	hasCodeHash := s.Has(chKey)
+	hasCodeHash := s.Has(evm.EVMStoreKey, chKey)
 	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
 
 	// Verify isDelete is set

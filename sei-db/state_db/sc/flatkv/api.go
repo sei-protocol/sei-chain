@@ -34,15 +34,20 @@ type Store interface {
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
-	// Get returns the value for the x/evm memiavl key. If not found, returns (nil, false).
-	Get(key []byte) (value []byte, found bool)
+	// Get returns the value for a key within the given module.
+	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
+	// routed to account/storage/code/legacy DBs internally.
+	// For non-EVM modules, the key is read from legacy storage with the module prefix.
+	// If not found, returns (nil, false).
+	Get(moduleName string, key []byte) (value []byte, found bool)
 
 	// GetBlockHeightModified returns the block height at which the key was last modified.
+	// Only supported for EVM keys; non-EVM legacy data does not track block height.
 	// If not found, returns (-1, false, nil).
-	GetBlockHeightModified(key []byte) (int64, bool, error)
+	GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error)
 
-	// Has reports whether the x/evm memiavl key exists.
-	Has(key []byte) bool
+	// Has reports whether the key exists within the given module.
+	Has(moduleName string, key []byte) bool
 
 	// Iterator returns an iterator over [start, end) in memiavl key order.
 	// Pass nil for unbounded.

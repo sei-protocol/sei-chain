@@ -12,15 +12,25 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// Get returns the value for the given memiavl key.
+// Get returns the value for the given key within the specified module.
+// For EVM keys (moduleName == evm.EVMStoreKey), the key is a memiavl EVM key
+// routed internally to account/storage/code/legacy DBs.
+// For non-EVM modules, the key is read from legacy storage with the module prefix.
 // Returns (value, true) if found, (nil, false) if not found.
 // Panics on I/O errors or unsupported key types.
-func (s *CommitStore) Get(key []byte) ([]byte, bool) {
+func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
+	if moduleName != evm.EVMStoreKey {
+		value, err := s.getLegacyValue(moduleName, key)
+		if err != nil {
+			panic(fmt.Sprintf("flatkv: Get module=%s key %x: %v", moduleName, key, err))
+		}
+		return value, value != nil
+	}
+
 	kind, keyBytes := evm.ParseEVMKey(key)
 
 	switch kind {
 	case evm.EVMKeyEmpty:
-		// An empty key is always not found.
 		return nil, false
 	case evm.EVMKeyStorage:
 		value, err := s.getStorageValue(keyBytes)
@@ -71,8 +81,13 @@ func (s *CommitStore) Get(key []byte) ([]byte, bool) {
 }
 
 // GetBlockHeightModified returns the block height at which the key was last modified.
+// Only supported for EVM keys; non-EVM legacy data does not track block height.
 // If not found, returns (-1, false, nil).
-func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
+func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
+	if moduleName != evm.EVMStoreKey {
+		return -1, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
+	}
+
 	kind, keyBytes := evm.ParseEVMKey(key)
 
 	switch kind {
@@ -110,10 +125,10 @@ func (s *CommitStore) GetBlockHeightModified(key []byte) (int64, bool, error) {
 	}
 }
 
-// Has reports whether the given memiavl key exists.
+// Has reports whether the key exists within the given module.
 // Panics on I/O errors or unsupported key types.
-func (s *CommitStore) Has(key []byte) bool {
-	_, found := s.Get(key)
+func (s *CommitStore) Has(moduleName string, key []byte) bool {
+	_, found := s.Get(moduleName, key)
 	return found
 }
 
