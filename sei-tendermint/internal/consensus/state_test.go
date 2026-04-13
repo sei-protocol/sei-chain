@@ -2587,11 +2587,6 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 
-	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
-
-	startTestRound(ctx, cs, height, round)
-	ensureNewRound(t, newRoundCh, height, round)
-
 	want := cs.GetRoundState().Validators.GetProposer().PubKey
 	var proposer *validatorStub
 	for _, vs := range vss {
