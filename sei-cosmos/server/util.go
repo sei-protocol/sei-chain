@@ -349,6 +349,7 @@ func AddCommands(
 		ShowValidatorCmd(),
 		ShowAddressCmd(),
 		VersionCmd(),
+		commands.MakeGenAutobahnConfigCommand(),
 		commands.MakeGenValidatorCommand(),
 		commands.MakeReindexEventCommand(conf),
 		commands.MakeLightCommand(conf),
