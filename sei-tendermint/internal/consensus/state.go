@@ -2129,13 +2129,38 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
+	p := proposal.ToProto()
 	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+		logger.Error(
+			"received proposal with unexpected proposer address",
+			"height", proposal.Height,
+			"round", proposal.Round,
+			"got", got,
+			"want", want,
+		)
+		if _, val, ok := cs.roundState.Validators().GetByAddress(got); ok {
+			err := val.PubKey.Verify(types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature)
+			logger.Info(
+				"validated proposal signature against received proposer address",
+				"height", proposal.Height,
+				"round", proposal.Round,
+				"proposer", got,
+				"signature_valid", err == nil,
+				"err", err,
+			)
+		} else {
+			logger.Info(
+				"received proposer address not found in validator set",
+				"height", proposal.Height,
+				"round", proposal.Round,
+				"proposer", got,
+			)
+		}
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
 	}
 	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
 		return fmt.Errorf("%w: %s is not a validator", ErrInvalidHeaderProposer, proposal.Header.ProposerAddress)
 	}
-	p := proposal.ToProto()
 	// Verify signature
 	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(
 		types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature,
