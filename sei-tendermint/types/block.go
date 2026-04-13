@@ -404,7 +404,7 @@ type Header struct {
 
 	// consensus info
 	EvidenceHash    tmbytes.HexBytes `json:"evidence_hash"`    // evidence included in the block
-	ProposerAddress Address          `json:"proposer_address"` // original proposer of the block
+	ProposerAddress Address          `json:"proposer_address"` // proposer recorded in the block header; preserved across re-proposals
 }
 
 // Populate the Header with state-derived data.
