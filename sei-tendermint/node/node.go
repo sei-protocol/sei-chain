@@ -212,6 +212,8 @@ func makeNode(
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
 
+	// Mempool gossiping is not compatible with Giga,
+	// so we disable the mempool reactor.
 	if !gigaEnabled {
 		mpReactor, err := mempoolreactor.NewReactor(mp, router)
 		if err != nil {

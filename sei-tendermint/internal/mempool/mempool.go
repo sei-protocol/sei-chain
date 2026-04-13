@@ -499,7 +499,7 @@ func (txmp *TxMempool) Flush() {
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
-	txs, _ := txmp.ReapMaxTxsBytesMaxGas(utils.Max[int](), maxBytes, maxGasWanted, maxGasEstimated)
+	txs, _ := txmp.ReapMaxTxsBytesMaxGas(utils.Max[uint64](), maxBytes, maxGasWanted, maxGasEstimated)
 	return txs
 }
 
@@ -510,10 +510,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 // NOTE: Gas limits are enforced using int64 running totals. If those totals
 // overflow, gas limit enforcement no longer works correctly. This preserves the
 // historical behavior for backward compatibility.
-func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, int64) {
-	if maxTxs < 0 {
-		maxTxs = utils.Max[int]()
-	}
+func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs uint64, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, int64) {
 	if maxBytes < 0 {
 		maxBytes = utils.Max[int64]()
 	}
@@ -533,7 +530,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		totalSize         int64
 	)
 
-	numTxs := 0
+	numTxs := uint64(0)
 	encounteredGasUnfit := false
 	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
 		// do not reap anything if threshold is not met
@@ -546,7 +543,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
 		// bytes limit is a hard stop
-		if totalSize+size > maxBytes {
+		if totalSize+size > maxBytes || numTxs+1 > maxTxs {
 			return false
 		}
 
@@ -576,6 +573,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		}
 
 		// include tx and update totals
+		numTxs += 1
 		totalSize += size
 		totalGasWanted = prospectiveGasWanted
 		totalGasEstimated = prospectiveGasEstimated
@@ -585,11 +583,7 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs int, maxBytes, maxGasWanted,
 		} else {
 			nonEvmTxs = append(nonEvmTxs, wtx.tx)
 		}
-		numTxs++
 		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
-			return false
-		}
-		if numTxs >= maxTxs {
 			return false
 		}
 		return true
