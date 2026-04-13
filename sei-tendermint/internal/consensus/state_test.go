@@ -16,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -2605,8 +2606,7 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 
 	proposal, _ := decideProposal(ctx, t, cs, proposer, height, round)
 
-	proposal.Header.ProposerAddress = tmrand.Bytes(crypto.AddressSize)
-	require.False(t, cs.GetRoundState().Validators.HasAddress(proposal.Header.ProposerAddress))
+	proposal.Header.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
 
 	p := proposal.ToProto()
 	require.NoError(t, proposer.SignProposal(ctx, config.ChainID(), p))
