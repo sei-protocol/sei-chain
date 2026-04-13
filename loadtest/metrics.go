@@ -7,8 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -17,35 +16,13 @@ const (
 )
 
 type MetricsServer struct {
-	metrics *telemetry.Metrics
-	server  *http.Server
-}
-
-func (s *MetricsServer) metricsHandler(w http.ResponseWriter, _ *http.Request) {
-	gr, err := s.metrics.Gather("prometheus")
-	if err != nil {
-		rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to gather metrics: %s", err))
-		return
-	}
-
-	w.Header().Set("Content-Type", gr.ContentType)
-	_, _ = w.Write(gr.Metrics)
+	server *http.Server
 }
 
 func (s *MetricsServer) StartMetricsClient(config Config) {
-	m, err := telemetry.New(telemetry.Config{
-		ServiceName:             "loadtest-client",
-		Enabled:                 true,
-		EnableHostnameLabel:     true,
-		EnableServiceLabel:      true,
-		PrometheusRetentionTime: 600,
-	})
-	if err != nil {
-		panic(err)
-	}
-	s.metrics = m
-	http.HandleFunc("/healthz", s.healthzHandler)
-	http.HandleFunc("/metrics", s.metricsHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", s.healthzHandler)
+	mux.Handle("/metrics", promhttp.HandlerFor(loadtestPrometheusGatherer(), promhttp.HandlerOpts{}))
 
 	metricsPort := config.MetricsPort
 	if config.MetricsPort == 0 {
@@ -57,9 +34,10 @@ func (s *MetricsServer) StartMetricsClient(config Config) {
 
 	s.server = &http.Server{
 		Addr:              listenAddr,
+		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
-	err = s.server.ListenAndServe()
+	err := s.server.ListenAndServe()
 	if err != nil {
 		panic(err)
 	}

@@ -39,7 +39,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -139,6 +138,12 @@ func deployEvmContracts(config *Config) {
 }
 
 func run(config *Config) {
+	shutdownOtel, err := initLoadtestOtelMetrics()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = shutdownOtel(context.Background()) }()
+
 	config.EVMAddresses = &EVMAddresses{}
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
@@ -273,7 +278,7 @@ func printStats(
 		//nolint:gosec
 		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
 		totalTps += tps
-		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
+		defer setThroughputMetricByType("tps", float32(tps), msgType)
 	}
 
 	var totalDuration time.Duration
