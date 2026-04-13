@@ -99,11 +99,11 @@ func (s *CommitStore) flushAllDBs() error {
 }
 
 func (s *CommitStore) clearPendingWrites() {
-	s.accountWrites = make(map[string]*vtype.AccountData)
-	s.codeWrites = make(map[string]*vtype.CodeData)
-	s.storageWrites = make(map[string]*vtype.StorageData)
-	s.legacyWrites = make(map[string]*vtype.LegacyData)
-	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0)
+	s.accountWrites = make(map[string]*vtype.AccountData, len(s.accountWrites))
+	s.codeWrites = make(map[string]*vtype.CodeData, len(s.codeWrites))
+	s.storageWrites = make(map[string]*vtype.StorageData, len(s.storageWrites))
+	s.legacyWrites = make(map[string]*vtype.LegacyData, len(s.legacyWrites))
+	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
 }
 
 // commitBatches commits pending writes to their respective DBs atomically.
@@ -117,7 +117,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 		dbDir string
 		batch types.Batch
 	}
-	var pending []pendingCommit
+	var pendingBuf [4]pendingCommit
+	pending := pendingBuf[:0]
 	defer func() {
 		for _, p := range pending {
 			_ = p.batch.Close()

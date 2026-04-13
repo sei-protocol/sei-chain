@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -55,31 +56,28 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	}
 	newAccountValues := deriveNewAccountValues(accountWrites, accountOld, blockHeight)
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
-	storeWrites(s.accountWrites, newAccountValues)
+	maps.Copy(s.accountWrites, newAccountValues)
 
-	// Gather storage pairs
 	storageChanges, err := processStorageChanges(changesByType[evm.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
-	storeWrites(s.storageWrites, storageChanges)
+	maps.Copy(s.storageWrites, storageChanges)
 
-	// Gather code pairs
 	codeChanges, err := processCodeChanges(changesByType[evm.EVMKeyCode], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
 	codePairs := gatherLTHashPairs(codeChanges, codeOld)
-	storeWrites(s.codeWrites, codeChanges)
+	maps.Copy(s.codeWrites, codeChanges)
 
-	// Gather legacy pairs
 	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy])
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
 	legacyPairs := gatherLTHashPairs(legacyChanges, legacyOld)
-	storeWrites(s.legacyWrites, legacyChanges)
+	maps.Copy(s.legacyWrites, legacyChanges)
 
 	////////////////////
 	// Compute LTHash //
@@ -122,12 +120,6 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	return nil
 }
 
-func storeWrites[T vtype.VType](pendingWrites map[string]T, newValues map[string]T) {
-	for keyStr, newValue := range newValues {
-		pendingWrites[keyStr] = newValue
-	}
-}
-
 // classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
 // already in physical format ("module/" + memiavl_key). Non-EVM modules are
 // merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
@@ -136,6 +128,15 @@ func storeWrites[T vtype.VType](pendingWrites map[string]T, newValues map[string
 // avoiding an extra map allocation and repeated string concatenation per key.
 func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
+
+	getOrCreate := func(kind evm.EVMKeyKind, sizeHint int) map[string][]byte {
+		m, ok := result[kind]
+		if !ok {
+			m = make(map[string][]byte, sizeHint)
+			result[kind] = m
+		}
+		return m
+	}
 
 	evmPrefix := evm.EVMStoreKey + "/"
 
@@ -157,13 +158,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 				}
 
 				physKey := evmPrefix + string(memiavlKey)
-
-				kindMap, ok := result[kind]
-				if !ok {
-					kindMap = make(map[string][]byte, len(cs.Changeset.Pairs))
-					result[kind] = kindMap
-				}
-
+				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
 				if pair.Delete {
 					kindMap[physKey] = nil
 				} else {
@@ -172,11 +167,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 			}
 		} else {
 			modPrefix := cs.Name + "/"
-			legacyMap, ok := result[evm.EVMKeyLegacy]
-			if !ok {
-				legacyMap = make(map[string][]byte, len(cs.Changeset.Pairs))
-				result[evm.EVMKeyLegacy] = legacyMap
-			}
+			legacyMap := getOrCreate(evm.EVMKeyLegacy, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
 				physKey := modPrefix + string(pair.Key)
 				if pair.Delete {
@@ -255,9 +246,10 @@ func gatherLTHashPairs[T vtype.VType](
 
 	for keyStr, newValue := range newValues {
 		oldValue := oldValues[keyStr]
+		isDelete := newValue.IsDelete()
 
 		var newBytes []byte
-		if !newValue.IsDelete() {
+		if !isDelete {
 			newBytes = newValue.Serialize()
 		}
 
@@ -270,7 +262,7 @@ func gatherLTHashPairs[T vtype.VType](
 			Key:       []byte(keyStr),
 			Value:     newBytes,
 			LastValue: oldBytes,
-			Delete:    newValue.IsDelete(),
+			Delete:    isDelete,
 		})
 	}
 
@@ -331,8 +323,8 @@ func mergeAccountUpdates(
 
 // Combine the pending account writes with prior values to determine the new account values.
 //
-// We need to take this step because accounts are split into multiple fields, and its possible to overwrite just a
-// single field (thus requring us to copy the unmodified fields from the prior value).
+// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
+// single field (thus requiring us to copy the unmodified fields from the prior value).
 func deriveNewAccountValues(
 	pendingWrites map[string]*vtype.PendingAccountWrite,
 	oldValues map[string]*vtype.AccountData,

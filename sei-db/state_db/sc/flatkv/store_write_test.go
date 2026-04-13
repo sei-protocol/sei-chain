@@ -1632,7 +1632,7 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 	// ParseEVMKey to return EVMKeyNonce with wrong-length keyBytes.
 	// This only happens for the correct total length. So instead, test via
 	// a key that ParseEVMKey routes to EVMKeyNonce (21 bytes total),
-	// but AddressFromBytes() fails because keyBytes are manipulated.
+	// but the len(keyBytes) != ktype.AddressLen check in getAccountData fails.
 	//
 	// Actually, ParseEVMKey always strips the prefix correctly for 21-byte keys.
 	// The address will always be 20 bytes. So this error path is unreachable
