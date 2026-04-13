@@ -45,10 +45,16 @@ const (
 )
 
 var (
-	_ types.StateStore = (*Database)(nil)
+	_ types.StateStore          = (*Database)(nil)
+	_ types.TraceableStateStore = (*Database)(nil)
 
 	defaultWriteOpts = pebble.NoSync
 )
+
+type tracedDatabase struct {
+	*Database
+	collector types.ReadTraceCollector
+}
 
 type Database struct {
 	storage      *pebble.DB
@@ -304,11 +310,23 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
+	return db.hasWithCollector(storeKey, version, key, nil)
+}
+
+func (db *Database) hasWithCollector(storeKey string, version int64, key []byte, collector types.ReadTraceCollector) (bool, error) {
+	start := time.Now()
+	defer recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "has",
+		DurationNanos: time.Since(start).Nanoseconds(),
+		Key:           slices.Clone(key),
+	})
 	if version < db.GetEarliestVersion() {
 		return false, nil
 	}
 
-	val, err := db.Get(storeKey, version, key)
+	val, err := db.getWithCollector(storeKey, version, key, collector)
 	if err != nil {
 		return false, err
 	}
@@ -317,6 +335,10 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 }
 
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
+	return db.getWithCollector(storeKey, targetVersion, key, nil)
+}
+
+func (db *Database) getWithCollector(storeKey string, targetVersion int64, key []byte, collector types.ReadTraceCollector) (_ []byte, _err error) {
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.getLatency.Record(
@@ -327,12 +349,19 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []b
 				attribute.String("store", storeKey),
 			),
 		)
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "get",
+			DurationNanos: time.Since(startTime).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
 	}()
 	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
 	}
 
-	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
+	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion, collector)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
 			return nil, nil
@@ -597,6 +626,10 @@ func (db *Database) Prune(version int64) (_err error) {
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return db.iteratorWithCollector(storeKey, version, start, end, nil)
+}
+
+func (db *Database) iteratorWithCollector(storeKey string, version int64, start, end []byte, collector types.ReadTraceCollector) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -612,12 +645,21 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		upperBound = MVCCEncode(prependStoreKey(storeKey, end), 0)
 	}
 
+	iterStart := time.Now()
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "newIter",
+		DurationNanos: time.Since(iterStart).Nanoseconds(),
+		Start:         slices.Clone(lowerBound),
+		End:           slices.Clone(upperBound),
+	})
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, collector), nil
 }
 
 // Taken from pebbledb prefix upper bound
@@ -635,6 +677,10 @@ func prefixEnd(b []byte) []byte {
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return db.reverseIteratorWithCollector(storeKey, version, start, end, nil)
+}
+
+func (db *Database) reverseIteratorWithCollector(storeKey string, version int64, start, end []byte, collector types.ReadTraceCollector) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -652,12 +698,22 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		upperBound = MVCCEncode(prefixEnd(storePrefix(storeKey)), 0)
 	}
 
+	iterStart := time.Now()
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "newIter",
+		DurationNanos: time.Since(iterStart).Nanoseconds(),
+		Start:         slices.Clone(lowerBound),
+		End:           slices.Clone(upperBound),
+		Reverse:       true,
+	})
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, collector), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -857,24 +913,46 @@ func parseStoreKey(key []byte) (string, error) {
 	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
 }
 
-func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
+func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) ([]byte, error) {
 	// end domain is exclusive, so we need to increment the version by 1
 	if version < math.MaxInt64 {
 		version++
 	}
 
+	lowerBound := MVCCEncode(prependStoreKey(storeKey, key), 0)
+	upperBound := MVCCEncode(prependStoreKey(storeKey, key), version)
+	iterStart := time.Now()
 	itr, err := db.NewIter(&pebble.IterOptions{
-		LowerBound: MVCCEncode(prependStoreKey(storeKey, key), 0),
-		UpperBound: MVCCEncode(prependStoreKey(storeKey, key), version),
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "newIter",
+		DurationNanos: time.Since(iterStart).Nanoseconds(),
+		Start:         slices.Clone(lowerBound),
+		End:           slices.Clone(upperBound),
+		Reverse:       true,
+	})
 	defer func() {
 		err = errorutils.Join(err, itr.Close())
 	}()
 
-	if !itr.Last() {
+	lastStart := time.Now()
+	lastOK := itr.Last()
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "last",
+		DurationNanos: time.Since(lastStart).Nanoseconds(),
+		Key:           slices.Clone(key),
+		Reverse:       true,
+	})
+	if !lastOK {
 		return nil, errorutils.ErrRecordNotFound
 	}
 
@@ -892,6 +970,36 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 	}
 
 	return slices.Clone(itr.Value()), nil
+}
+
+func (db *Database) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
+	if collector == nil {
+		return db
+	}
+	return &tracedDatabase{Database: db, collector: collector}
+}
+
+func (db *tracedDatabase) Get(storeKey string, version int64, key []byte) ([]byte, error) {
+	return db.Database.getWithCollector(storeKey, version, key, db.collector)
+}
+
+func (db *tracedDatabase) Has(storeKey string, version int64, key []byte) (bool, error) {
+	return db.Database.hasWithCollector(storeKey, version, key, db.collector)
+}
+
+func (db *tracedDatabase) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return db.Database.iteratorWithCollector(storeKey, version, start, end, db.collector)
+}
+
+func (db *tracedDatabase) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	return db.Database.reverseIteratorWithCollector(storeKey, version, start, end, db.collector)
+}
+
+func recordReadTrace(collector types.ReadTraceCollector, event types.ReadTraceEvent) {
+	if collector == nil {
+		return
+	}
+	collector.RecordReadTrace(event)
 }
 
 func valTombstoned(value []byte) bool {

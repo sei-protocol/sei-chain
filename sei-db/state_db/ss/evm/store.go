@@ -355,6 +355,31 @@ func (s *EVMStateStore) Close() error {
 	return lastErr
 }
 
+func (s *EVMStateStore) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
+	if collector == nil {
+		return s
+	}
+	traced := &EVMStateStore{
+		subDBs:      make(map[EVMStoreType]types.StateStore, len(s.subDBs)),
+		managedDBs:  make([]types.StateStore, 0, len(s.managedDBs)),
+		dir:         s.dir,
+		separateDBs: s.separateDBs,
+	}
+	managedSeen := map[types.StateStore]types.StateStore{}
+	for storeType, db := range s.subDBs {
+		tracedDB := db
+		if traceable, ok := db.(types.TraceableStateStore); ok {
+			tracedDB = traceable.WithReadTraceCollector(collector)
+		}
+		traced.subDBs[storeType] = tracedDB
+		if _, ok := managedSeen[db]; !ok {
+			managedSeen[db] = tracedDB
+			traced.managedDBs = append(traced.managedDBs, tracedDB)
+		}
+	}
+	return traced
+}
+
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {
 	filtered := make([]*proto.NamedChangeSet, 0, len(changesets))
 	for _, cs := range changesets {

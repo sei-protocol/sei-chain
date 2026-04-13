@@ -24,13 +24,14 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    seidbtypes.StateStore
-	storeKey types.StoreKey
-	version  int64
+	store       seidbtypes.StateStore
+	activeStore seidbtypes.StateStore
+	storeKey    types.StoreKey
+	version     int64
 }
 
 func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64) *Store {
-	return &Store{store, storeKey, version}
+	return &Store{store: store, activeStore: store, storeKey: storeKey, version: version}
 }
 
 func (st *Store) GetStoreType() types.StoreType {
@@ -46,7 +47,7 @@ func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc typ
 }
 
 func (st *Store) Get(key []byte) []byte {
-	value, err := st.store.Get(st.storeKey.Name(), st.version, key)
+	value, err := st.activeStore.Get(st.storeKey.Name(), st.version, key)
 	if err != nil {
 		panic(err)
 	}
@@ -54,7 +55,7 @@ func (st *Store) Get(key []byte) []byte {
 }
 
 func (st *Store) Has(key []byte) bool {
-	has, err := st.store.Has(st.storeKey.Name(), st.version, key)
+	has, err := st.activeStore.Has(st.storeKey.Name(), st.version, key)
 	if err != nil {
 		panic(err)
 	}
@@ -70,7 +71,7 @@ func (st *Store) Delete(_ []byte) {
 }
 
 func (st *Store) Iterator(start, end []byte) types.Iterator {
-	itr, err := st.store.Iterator(st.storeKey.Name(), st.version, start, end)
+	itr, err := st.activeStore.Iterator(st.storeKey.Name(), st.version, start, end)
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +79,7 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 }
 
 func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
-	itr, err := st.store.ReverseIterator(st.storeKey.Name(), st.version, start, end)
+	itr, err := st.activeStore.ReverseIterator(st.storeKey.Name(), st.version, start, end)
 	if err != nil {
 		panic(err)
 	}
@@ -123,7 +124,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 }
 
 func (st *Store) VersionExists(version int64) bool {
-	earliest := st.store.GetEarliestVersion()
+	earliest := st.activeStore.GetEarliestVersion()
 	return version >= earliest
 }
 
@@ -147,4 +148,14 @@ func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 		res = append(res, string(iter.Key()))
 	}
 	return
+}
+
+func (st *Store) SetReadTraceCollector(collector seidbtypes.ReadTraceCollector) {
+	st.activeStore = st.store
+	if collector == nil {
+		return
+	}
+	if traceable, ok := st.store.(seidbtypes.TraceableStateStore); ok {
+		st.activeStore = traceable.WithReadTraceCollector(collector)
+	}
 }

@@ -177,15 +177,25 @@ func TestTraceTransactionProfile(t *testing.T) {
 			store := profile["store"].(map[string]interface{})
 			modules := store["modules"].(map[string]interface{})
 			foundIteratorTrace := false
+			foundLowLevelPebbleTrace := false
 			for _, module := range modules {
 				moduleMap := module.(map[string]interface{})
 				iterators, ok := moduleMap["iterators"].([]interface{})
 				if ok && len(iterators) > 0 {
 					foundIteratorTrace = true
-					break
+				}
+				lowLevelStats, ok := moduleMap["lowLevelStats"].(map[string]interface{})
+				if ok {
+					if _, ok := lowLevelStats["pebble.last"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.seekLT"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
 				}
 			}
 			require.True(t, foundIteratorTrace, "expected at least one iterator sample in the store trace")
+			require.True(t, foundLowLevelPebbleTrace, "expected low-level pebble iterator timings in the store trace")
 		},
 	)
 }

@@ -2,6 +2,7 @@ package types
 
 import (
 	"io"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -146,6 +147,34 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
+}
+
+type ReadTraceEvent struct {
+	StoreKey      string
+	Layer         string
+	Operation     string
+	DurationNanos int64
+	Key           []byte
+	Start         []byte
+	End           []byte
+	Reverse       bool
+}
+
+type ReadTraceCollector interface {
+	RecordReadTrace(ReadTraceEvent)
+}
+
+type TraceableStateStore interface {
+	WithReadTraceCollector(ReadTraceCollector) StateStore
+}
+
+func NewReadTraceEvent(storeKey, layer, operation string, duration time.Duration) ReadTraceEvent {
+	return ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         layer,
+		Operation:     operation,
+		DurationNanos: duration.Nanoseconds(),
+	}
 }
 
 // DBIterator iterates over versioned key-value pairs.
