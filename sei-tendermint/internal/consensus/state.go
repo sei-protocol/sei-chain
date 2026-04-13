@@ -2084,8 +2084,12 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
+<<<<<<< HEAD
 	leader := cs.roundState.Leader()
 	if want, got := leader.Address(), proposal.ProposerAddress; !bytes.Equal(want, got) {
+=======
+	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+>>>>>>> 21433ce (added a ProposerAddress check to setProposal CON-250 (#3232))
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
 	}
 	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
