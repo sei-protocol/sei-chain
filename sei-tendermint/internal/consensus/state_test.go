@@ -810,7 +810,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	pubKey, err := vss[0].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxKeys(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
 	p := propR1.ToProto()
@@ -1494,7 +1494,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 
 	round++ // moving to the next round
 	// in round 2 we see the polkad block from round 0
-	pubKey, err := vss[0].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	newProp := types.NewProposal(height, round, 0, propBlockID0, propBlock0.Header.Time, propBlock0.GetTxKeys(), propBlock0.Header, propBlock0.LastCommit, propBlock0.Evidence, pubKey.Address())
 	p := newProp.ToProto()
@@ -1631,7 +1631,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	propR2 := types.NewProposal(height, round, 1, r1BlockID, propBlockR1.Header.Time, propBlockR1.GetTxKeys(), propBlockR1.Header, propBlockR1.LastCommit, propBlockR1.Evidence, pubKey.Address())
 	p := propR2.ToProto()

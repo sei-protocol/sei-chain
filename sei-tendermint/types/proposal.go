@@ -36,7 +36,7 @@ type Proposal struct {
 	Header          `json:"header"`
 	LastCommit      *Commit      `json:"last_commit"`
 	Evidence        EvidenceList `json:"evidence"`
-	ProposerAddress Address      `json:"proposer_address"` // original proposer of the block
+	ProposerAddress Address      `json:"proposer_address"` // proposer of this proposal for the given height/round
 }
 
 // NewProposal returns a new Proposal.
