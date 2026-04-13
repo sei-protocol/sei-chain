@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -33,27 +34,30 @@ type iterator struct {
 	reverse            bool
 	iterationCount     int64
 	storeKey           string
+	collector          types.ReadTraceCollector
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, collector types.ReadTraceCollector) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:   src,
-			prefix:   prefix,
-			start:    mvccStart,
-			end:      mvccEnd,
-			version:  version,
-			valid:    false,
-			reverse:  reverse,
-			storeKey: storeKey,
+			source:    src,
+			prefix:    prefix,
+			start:     mvccStart,
+			end:       mvccEnd,
+			version:   version,
+			valid:     false,
+			reverse:   reverse,
+			storeKey:  storeKey,
+			collector: collector,
 		}
 	}
 
 	// move the underlying PebbleDB iterator to the first key
 	var valid bool
+	positionStart := time.Now()
 	if reverse {
 		valid = src.Last()
 	} else {
@@ -61,14 +65,20 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:   src,
-		prefix:   prefix,
-		start:    mvccStart,
-		end:      mvccEnd,
-		version:  version,
-		valid:    valid,
-		reverse:  reverse,
-		storeKey: storeKey,
+		source:    src,
+		prefix:    prefix,
+		start:     mvccStart,
+		end:       mvccEnd,
+		version:   version,
+		valid:     valid,
+		reverse:   reverse,
+		storeKey:  storeKey,
+		collector: collector,
+	}
+	if reverse {
+		itr.recordPebbleOp("last", time.Since(positionStart), nil)
+	} else {
+		itr.recordPebbleOp("first", time.Since(positionStart), nil)
 	}
 
 	if valid {
@@ -92,7 +102,10 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			// If version is less, seek to the largest version of that key <= requested iterator version
 			// It is guaranteed this won't move the iterator to a key that is invalid since
 			// curKeyVersionDecoded <= requested iterator version, so there exists at least one version of currKey SeekLT may move to
-			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
+			seekKey := MVCCEncode(currKey, itr.version+1)
+			seekStart := time.Now()
+			itr.valid = itr.source.SeekLT(seekKey)
+			itr.recordPebbleOp("seekLT", time.Since(seekStart), seekKey)
 		}
 	}
 
@@ -155,7 +168,9 @@ func (itr *iterator) nextForward() {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
+	nextPrefixStart := time.Now()
 	next := itr.source.NextPrefix()
+	itr.recordPebbleOp("nextPrefix", time.Since(nextPrefixStart), nil)
 
 	// First move the iterator to the next prefix, which may not correspond to the
 	// desired version for that key, e.g. if the key was written at a later version,
@@ -176,7 +191,10 @@ func (itr *iterator) nextForward() {
 
 		// Move the iterator to the closest version to the desired version, so we
 		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
+		seekKey := MVCCEncode(nextKey, itr.version+1)
+		seekStart := time.Now()
+		itr.valid = itr.source.SeekLT(seekKey)
+		itr.recordPebbleOp("seekLT", time.Since(seekStart), seekKey)
 
 		tmpKey, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
@@ -189,7 +207,9 @@ func (itr *iterator) nextForward() {
 		// There exists cases where the SeekLT() call moved us back to the same key
 		// we started at, so we must move to next key, i.e. two keys forward.
 		if bytes.Equal(tmpKey, currKey) {
+			nextPrefixStart = time.Now()
 			if itr.source.NextPrefix() {
+				itr.recordPebbleOp("nextPrefix", time.Since(nextPrefixStart), nil)
 				itr.nextForward()
 
 				_, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
@@ -244,7 +264,10 @@ func (itr *iterator) nextReverse() {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	next := itr.source.SeekLT(MVCCEncode(currKey, 0))
+	seekCurrent := MVCCEncode(currKey, 0)
+	seekStart := time.Now()
+	next := itr.source.SeekLT(seekCurrent)
+	itr.recordPebbleOp("seekLT", time.Since(seekStart), seekCurrent)
 
 	// First move the iterator to the next prefix, which may not correspond to the
 	// desired version for that key, e.g. if the key was written at a later version,
@@ -265,7 +288,10 @@ func (itr *iterator) nextReverse() {
 
 		// Move the iterator to the closest version to the desired version, so we
 		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
+		seekKey := MVCCEncode(nextKey, itr.version+1)
+		seekStart = time.Now()
+		itr.valid = itr.source.SeekLT(seekKey)
+		itr.recordPebbleOp("seekLT", time.Since(seekStart), seekKey)
 
 		_, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
@@ -453,4 +479,15 @@ func (itr *iterator) DebugRawIterate() {
 			valid = false
 		}
 	}
+}
+
+func (itr *iterator) recordPebbleOp(operation string, duration time.Duration, key []byte) {
+	recordReadTrace(itr.collector, types.ReadTraceEvent{
+		StoreKey:      itr.storeKey,
+		Layer:         "pebble",
+		Operation:     operation,
+		DurationNanos: duration.Nanoseconds(),
+		Key:           slices.Clone(key),
+		Reverse:       itr.reverse,
+	})
 }

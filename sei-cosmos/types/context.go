@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv"
 	stypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 /*
@@ -531,12 +532,16 @@ func (c Context) Value(key interface{}) interface{} {
 
 // KVStore fetches a KVStore from the MultiStore.
 func (c Context) KVStore(key StoreKey) KVStore {
+	store := c.MultiStore().GetKVStore(key)
+	injectReadTraceCollector(store, c.StoreTracer())
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+			nextStore := c.nextMs.GetKVStore(key)
+			injectReadTraceCollector(nextStore, c.StoreTracer())
+			return gaskv.NewStore(nextStore, c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(store, c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 }
 
 func (c Context) GigaKVStore(key StoreKey) KVStore {
@@ -545,12 +550,30 @@ func (c Context) GigaKVStore(key StoreKey) KVStore {
 
 // TransientStore fetches a TransientStore from the MultiStore.
 func (c Context) TransientStore(key StoreKey) KVStore {
+	store := c.MultiStore().GetKVStore(key)
+	injectReadTraceCollector(store, c.StoreTracer())
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+			nextStore := c.nextMs.GetKVStore(key)
+			injectReadTraceCollector(nextStore, c.StoreTracer())
+			return gaskv.NewStore(nextStore, c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(store, c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+}
+
+func injectReadTraceCollector(store KVStore, tracer gaskv.IStoreTracer) {
+	tracerAware, ok := store.(interface {
+		SetReadTraceCollector(seidbtypes.ReadTraceCollector)
+	})
+	if !ok {
+		return
+	}
+	if collector, ok := tracer.(seidbtypes.ReadTraceCollector); ok {
+		tracerAware.SetReadTraceCollector(collector)
+		return
+	}
+	tracerAware.SetReadTraceCollector(nil)
 }
 
 // CacheContext returns a new Context with the multi-store cached and a new

@@ -74,3 +74,10 @@ func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) e
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
 }
+
+func (s *CosmosStateStore) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
+	if traceable, ok := s.db.(types.TraceableStateStore); ok {
+		return &CosmosStateStore{db: traceable.WithReadTraceCollector(collector)}
+	}
+	return s
+}
