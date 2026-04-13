@@ -68,7 +68,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs
 		txs[i] = testTx{
 			tx: []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, i+1000)),
 		}
-		_, err := txmp.CheckTx(ctx, txs[i].tx, txInfo)
+		_, err = txmp.CheckTx(ctx, txs[i].tx, txInfo)
 		require.NoError(t, err)
 	}
 

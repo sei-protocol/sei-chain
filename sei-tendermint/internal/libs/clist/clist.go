@@ -52,7 +52,7 @@ type CElement[T any] struct {
 var ErrRemoved = errors.New("element was removed")
 
 // Blocking implementation of Next().
-// May return nil iff CElement was tail and got removed.
+// May return ErrRemoved iff CElement was tail and got removed.
 func (e *CElement[T]) NextWait(ctx context.Context) (*CElement[T], error) {
 	for {
 		e.mtx.RLock()

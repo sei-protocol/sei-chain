@@ -242,42 +242,28 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
-	var nextGossipTx *clist.CElement[*mempool.WrappedTx]
-
-	defer func() {
-		if e := recover(); e != nil {
-			logger.Error(
-				"recovering from broadcasting mempool loop",
-				"err", e,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-
-	var err error
-	nextGossipTx, err = r.mempool.WaitForNextTx(ctx)
-	if err != nil {
-		return
-	}
-	for ctx.Err() == nil {
-		memTx := nextGossipTx.Value()
-
-		if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
-			r.channel.Send(&pb.Message{
-				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
-				},
-			}, peerID)
-			logger.Debug(
-				"gossiped tx to peer",
-				"tx", memTx.Tx().Hash(),
-				"peer", peerID,
-			)
-		}
-
-		nextGossipTx, err = nextGossipTx.NextWait(ctx)
+	for {
+		next, err := r.mempool.WaitForNextTx(ctx)
 		if err != nil {
 			return
+		}
+		for {
+			memTx := next.Value()
+			if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
+				r.channel.Send(&pb.Message{
+					Sum: &pb.Message_Txs{
+						Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
+					},
+				}, peerID)
+			}
+
+			next, err = next.NextWait(ctx)
+			if err != nil {
+				if errors.Is(err, clist.ErrRemoved) {
+					break
+				}
+				return
+			}
 		}
 	}
 }
