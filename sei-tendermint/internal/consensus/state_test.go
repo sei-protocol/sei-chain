@@ -2509,19 +2509,27 @@ func TestDefaultSetProposalRejectsMismatchedProposerAddress(t *testing.T) {
 
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
 	height, round := cs.roundState.Height(), cs.roundState.Round()
-	round++
-	incrementRound(vss[1:]...)
-	startTestRound(ctx, cs, height, round)
+	want := cs.roundState.Validators().GetProposer().PubKey
+	var proposer *validatorStub
+	for _, vs := range vss {
+		got, err := vs.PrivValidator.GetPubKey(ctx)
+		require.NoError(t, err)
+		if want == got {
+			proposer = vs
+			break
+		}
+	}
+	require.NotNil(t, proposer)
 
-	proposal, _ := decideProposal(ctx, t, cs, vss[1], height, round)
+	proposer.Height = height
+	proposer.Round = round
+	proposal, _ := decideProposal(ctx, t, cs, proposer, height, round)
 	proposal.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
 
 	p := proposal.ToProto()
-	require.NoError(t, vss[1].SignProposal(ctx, config.ChainID(), p))
+	require.NoError(t, proposer.SignProposal(ctx, config.ChainID(), p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	err := cs.defaultSetProposal(proposal, tmtime.Now())
-	require.ErrorIs(t, err, ErrInvalidProposer)
+	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidProposer)
 	require.Nil(t, cs.roundState.Proposal())
 }
 
