@@ -35,7 +35,7 @@ import (
 // Consensus sentinel errors
 var (
 	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
-	ErrInvalidProposer     = errors.New("error invalid proposer")
+	ErrInvalidProposer              = errors.New("error invalid proposer")
 	ErrAddingVote                   = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
 	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
@@ -2131,7 +2131,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
-	if want,got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want,got) {
+	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
 	}
 	p := proposal.ToProto()

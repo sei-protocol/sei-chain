@@ -2503,7 +2503,7 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
 }
 
-func TestDefaultSetProposalRejectsMismatchedProposerAddress(t *testing.T) {
+func TestSetProposal_InvalidProposer(t *testing.T) {
 	config := configSetup(t)
 	ctx := t.Context()
 
@@ -2520,9 +2520,6 @@ func TestDefaultSetProposalRejectsMismatchedProposerAddress(t *testing.T) {
 		}
 	}
 	require.NotNil(t, proposer)
-
-	proposer.Height = height
-	proposer.Round = round
 	proposal, _ := decideProposal(ctx, t, cs, proposer, height, round)
 	proposal.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
 
