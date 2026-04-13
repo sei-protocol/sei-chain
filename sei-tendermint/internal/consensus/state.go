@@ -36,6 +36,7 @@ import (
 var (
 	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
 	ErrInvalidProposer              = errors.New("error invalid proposer")
+	ErrInvalidHeaderProposer        = errors.New("error invalid header proposer")
 	ErrAddingVote                   = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
 	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
@@ -2133,6 +2134,9 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 
 	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
+	}
+	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
+		return fmt.Errorf("%w: %s is not a validator", ErrInvalidHeaderProposer, proposal.Header.ProposerAddress)
 	}
 	p := proposal.ToProto()
 	// Verify signature
