@@ -16,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -2500,6 +2501,28 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 	require.Nil(t, rs.ProposalBlock, "proposal block must stay nil until matching commit block parts arrive")
 	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should keep pointing to commit certificate despite duplicate proposals")
 	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
+}
+
+func TestDefaultSetProposalRejectsMismatchedProposerAddress(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	round++
+	incrementRound(vss[1:]...)
+	startTestRound(ctx, cs, height, round)
+
+	proposal, _ := decideProposal(ctx, t, cs, vss[1], height, round)
+	proposal.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
+
+	p := proposal.ToProto()
+	require.NoError(t, vss[1].SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+
+	err := cs.defaultSetProposal(proposal, tmtime.Now())
+	require.ErrorIs(t, err, ErrInvalidProposer)
+	require.Nil(t, cs.roundState.Proposal())
 }
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
