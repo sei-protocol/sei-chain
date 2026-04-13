@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -514,10 +515,10 @@ func TestExportImportSplitWrite(t *testing.T) {
 	_, err := src.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := flatkv.Address{0xAA}
-	slot := flatkv.Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 	storageVal := padLeft32(0x42)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
@@ -684,7 +685,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	addr := [20]byte{0xAA}
 	slot := [32]byte{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 
@@ -758,7 +759,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	addr := [20]byte{0xEE}
 	slot := [32]byte{0xFF}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 
@@ -845,7 +846,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	addr := [20]byte{0xCC}
 	slot := [32]byte{0xDD}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 

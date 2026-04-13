@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ func TestStoreNonStorageKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x99}
+	addr := ktype.Address{0x99}
 	codeHash := vtype.CodeHash{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
 		0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00,
 		0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -55,15 +56,15 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x12, 0x34}
-	slot := Slot{0x56, 0x78}
+	addr := ktype.Address{0x12, 0x34}
+	slot := ktype.Slot{0x56, 0x78}
 
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	pairs := []*proto.KVPair{
 		// Storage key
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11, 0x22),
 		},
 		// Account nonce key
@@ -106,7 +107,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	}
 
 	// Verify storage data was written (via Store.Get which deserializes)
-	storageMemiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageMemiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	storageValue, found := s.Get(storageMemiavlKey)
 	require.True(t, found, "Storage should be found")
 	require.Equal(t, padLeft32(0x11, 0x22), storageValue)
@@ -143,8 +144,8 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	requireAllLocalMetaAt(t, s, 1)
 
 	// Commit version 2 with storage write only
-	addr := Address{0x99}
-	slot := Slot{0x88}
+	addr := ktype.Address{0x99}
+	slot := ktype.Slot{0x88}
 	key := memiavlStorageKey(addr, slot)
 	cs := makeChangeSet(key, padLeft32(0x77), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -157,8 +158,8 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr1 := Address{0xAA}
-	addr2 := Address{0xBB}
+	addr1 := ktype.Address{0xAA}
+	addr2 := ktype.Address{0xBB}
 
 	// Write account nonces and codes
 	// Note: Code is keyed by address (not codeHash) per x/evm/types/keys.go
@@ -225,14 +226,14 @@ func TestStoreWriteDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xCC}
-	slot := Slot{0xDD}
+	addr := ktype.Address{0xCC}
+	slot := ktype.Slot{0xDD}
 
 	// Write initial data
 	// Note: Code is keyed by address per x/evm/types/keys.go
 	pairs := []*proto.KVPair{
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11),
 		},
 		{
@@ -256,7 +257,7 @@ func TestStoreWriteDelete(t *testing.T) {
 	// For account, "delete" means setting fields to zero in AccountValue
 	deletePairs := []*proto.KVPair{
 		{
-			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Delete: true,
 		},
 		{
@@ -299,7 +300,7 @@ func TestAccountValueStorage(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xFF, 0xFF}
+	addr := ktype.Address{0xFF, 0xFF}
 	expectedCodeHash := vtype.CodeHash{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB}
 
 	// Write both Nonce and CodeHash for the same address
@@ -361,7 +362,7 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
+	addr := ktype.Address{0xAA}
 
 	// CodeSize key (0x09 || addr) goes to legacy
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
@@ -388,13 +389,13 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x12, 0x34}
-	slot := Slot{0x56, 0x78}
+	addr := ktype.Address{0x12, 0x34}
+	slot := ktype.Slot{0x56, 0x78}
 
 	pairs := []*proto.KVPair{
 		// Storage (optimized)
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11, 0x22),
 		},
 		// Nonce (optimized)
@@ -435,7 +436,7 @@ func TestStoreWriteDeleteLegacyKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xCC}
+	addr := ktype.Address{0xCC}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Write
@@ -466,7 +467,7 @@ func TestStoreLegacyKeyIncludedInLtHash(t *testing.T) {
 	hash1 := s.RootHash()
 
 	// Write a legacy key
-	addr := Address{0xDD}
+	addr := ktype.Address{0xDD}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 	cs := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -524,8 +525,8 @@ func TestStoreFsyncConfig(t *testing.T) {
 		require.NoError(t, err)
 		defer store.Close()
 
-		addr := Address{0xAA}
-		slot := Slot{0xBB}
+		addr := ktype.Address{0xAA}
+		slot := ktype.Slot{0xBB}
 		key := memiavlStorageKey(addr, slot)
 
 		// Write and commit with fsync disabled
@@ -558,7 +559,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	defer s.Close()
 
 	for i := 0; i < 5; i++ {
-		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
 	flatkvDir := s.flatkvDir()
@@ -588,7 +589,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	})
 
 	for i := 0; i < 5; i++ {
-		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
 	var countAfter int
@@ -616,7 +617,7 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	})
 
 	for i := 0; i < 10; i++ {
-		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
 	var countAfter int
@@ -635,9 +636,9 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	slot1 := Slot{0x01}
-	slot2 := Slot{0x02}
+	addr := ktype.Address{0xAA}
+	slot1 := ktype.Slot{0x01}
+	slot2 := ktype.Slot{0x02}
 
 	key1 := memiavlStorageKey(addr, slot1)
 	key2 := memiavlStorageKey(addr, slot2)
@@ -663,7 +664,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xBB}
+	addr := ktype.Address{0xBB}
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
 	codeHash := vtype.CodeHash{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00,
@@ -700,9 +701,9 @@ func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 		_, err = s.LoadVersion(0, false)
 		require.NoError(t, err)
 
-		commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
-		commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
-		commitStorageEntry(t, s, Address{0x03}, Slot{0x03}, []byte{0xCC})
+		commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+		commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+		commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 
 		hash := s.RootHash()
 		require.NoError(t, s.Close())
@@ -718,8 +719,8 @@ func TestLtHashUpdatedByDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xDD}
-	slot := Slot{0xEE}
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
 	key := memiavlStorageKey(addr, slot)
 
 	cs1 := makeChangeSet(key, padLeft32(0xFF), false)
@@ -739,7 +740,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xCC}
+	addr := ktype.Address{0xCC}
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
 	codeHash := vtype.CodeHash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -774,8 +775,8 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xEE}
-	slot := Slot{0xFF}
+	addr := ktype.Address{0xEE}
+	slot := ktype.Slot{0xFF}
 	key := memiavlStorageKey(addr, slot)
 
 	pairs := []*proto.KVPair{
@@ -828,10 +829,10 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 	require.True(t, s.config.Fsync)
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	require.Equal(t, int64(1), s.Version())
 
-	v, ok := s.Get(memiavlStorageKey(Address{0x01}, Slot{0x01}))
+	v, ok := s.Get(memiavlStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
 }
@@ -850,7 +851,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 	require.True(t, s.lastSnapshotTime.IsZero())
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	require.NoError(t, s.WriteSnapshot(""))
 
 	require.False(t, s.lastSnapshotTime.IsZero())
@@ -868,9 +869,9 @@ func TestWALRecordsChangesets(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
-	commitStorageEntry(t, s, Address{0x03}, Slot{0x03}, []byte{0xCC})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 
 	first, _ := s.changelog.FirstOffset()
 	last, _ := s.changelog.LastOffset()
@@ -895,7 +896,7 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xDD}
+	addr := ktype.Address{0xDD}
 	ch := codeHashN(0x99)
 
 	cs := namedCS(
@@ -947,8 +948,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		addr := Address{0x01}
-		slot := Slot{0x01}
+		addr := ktype.Address{0x01}
+		slot := ktype.Slot{0x01}
 
 		cs1 := namedCS(storagePair(addr, slot, []byte{0xAA}))
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -958,7 +959,7 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 		_, found := s.Get(key)
 		require.False(t, found, "write-then-delete: key should be gone")
 	})
@@ -967,8 +968,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		addr := Address{0x02}
-		slot := Slot{0x02}
+		addr := ktype.Address{0x02}
+		slot := ktype.Slot{0x02}
 
 		cs0 := namedCS(storagePair(addr, slot, []byte{0x11}))
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
@@ -982,7 +983,7 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 		val, found := s.Get(key)
 		require.True(t, found, "delete-then-write: key should exist")
 		require.Equal(t, padLeft32(0xBB), val)
@@ -1039,10 +1040,10 @@ func TestSubDBEntryCount(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr1 := Address{0x01}
-	addr2 := Address{0x02}
-	slot1 := Slot{0x01}
-	slot2 := Slot{0x02}
+	addr1 := ktype.Address{0x01}
+	addr2 := ktype.Address{0x02}
+	slot1 := ktype.Slot{0x01}
+	slot2 := ktype.Slot{0x02}
 
 	cs := namedCS(
 		storagePair(addr1, slot1, []byte{0xAA}),
@@ -1085,7 +1086,7 @@ func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x01}
+	addr := ktype.Address{0x01}
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{
@@ -1106,7 +1107,7 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x01}
+	addr := ktype.Address{0x01}
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{
@@ -1531,7 +1532,7 @@ func TestApplyChangeSetsNonEVMModuleRoutesToLegacy(t *testing.T) {
 	require.Len(t, s.pendingChangeSets, 1)
 
 	// Physical key in legacyWrites should be module-prefixed: "bank/some-bank-key"
-	physKey := string(ModulePhysicalKey("bank", []byte("some-bank-key")))
+	physKey := string(ktype.ModulePhysicalKey("bank", []byte("some-bank-key")))
 	_, found := s.legacyWrites[physKey]
 	require.True(t, found, "legacyWrites should contain module-prefixed key %q", physKey)
 
@@ -1548,7 +1549,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 
 	addr := addrN(0xAA)
 	slot := slotN(0x01)
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	evmCS := &proto.NamedChangeSet{
 		Name: "evm",
@@ -1574,7 +1575,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	require.Equal(t, padLeft32(0x42), val)
 
 	// Bank key should be in legacyWrites with module prefix.
-	bankPhysKey := string(ModulePhysicalKey("bank", []byte("bank-key")))
+	bankPhysKey := string(ktype.ModulePhysicalKey("bank", []byte("bank-key")))
 	_, found = s.legacyWrites[bankPhysKey]
 	require.True(t, found, "bank key should be in legacyWrites with module prefix")
 	require.Len(t, s.legacyWrites, 1)
@@ -1605,7 +1606,7 @@ func TestApplyChangeSetsOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -1656,7 +1657,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 
 	addr := addrN(0xBB)
 	slot := slotN(0x01)
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	// First pair: valid storage write
 	// Second pair: invalid nonce length (triggers error)
@@ -1726,7 +1727,7 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
@@ -1746,7 +1747,7 @@ func TestCommitOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)

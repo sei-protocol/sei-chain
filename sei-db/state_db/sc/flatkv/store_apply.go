@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -21,36 +22,10 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 
-	evmChangeSets := make([]*proto.NamedChangeSet, 0, len(changeSets))
-	nonEVMByModule := make(map[string]map[string][]byte)
-	for _, cs := range changeSets {
-		if cs.Name == evm.EVMStoreKey {
-			evmChangeSets = append(evmChangeSets, cs)
-		} else {
-			if cs.Changeset.Pairs == nil {
-				continue
-			}
-			modMap, ok := nonEVMByModule[cs.Name]
-			if !ok {
-				modMap = make(map[string][]byte, len(cs.Changeset.Pairs))
-				nonEVMByModule[cs.Name] = modMap
-			}
-			for _, pair := range cs.Changeset.Pairs {
-				if pair.Delete {
-					modMap[string(pair.Key)] = nil
-				} else {
-					modMap[string(pair.Key)] = pair.Value
-				}
-			}
-		}
-	}
-
-	changesByType, err := sortChangeSets(evmChangeSets)
+	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
 		return err
 	}
-
-	prefixModuleKeys(changesByType, nonEVMByModule)
 
 	blockHeight := s.committedVersion + 1
 
@@ -153,73 +128,67 @@ func storeWrites[T vtype.VType](pendingWrites map[string]T, newValues map[string
 	}
 }
 
-// sortChangeSets classifies EVM changeset pairs by key kind.
-// Map keys are memiavl keys (type prefix preserved); codehash keys are
-// canonicalized to the nonce prefix (0x0a) for account merging.
-// After this, prefixModuleKeys converts all map keys to physical format.
-func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
+// classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
+// already in physical format ("module/" + memiavl_key). Non-EVM modules are
+// merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
+//
+// This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
+// avoiding an extra map allocation and repeated string concatenation per key.
+func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[evm.EVMKeyKind]map[string][]byte)
+
+	evmPrefix := evm.EVMStoreKey + "/"
 
 	for _, cs := range changeSets {
 		if cs.Changeset.Pairs == nil {
 			continue
 		}
-		for _, pair := range cs.Changeset.Pairs {
-			kind, keyBytes := evm.ParseEVMKey(pair.Key)
 
-			if kind == evm.EVMKeyEmpty {
-				return nil, fmt.Errorf("flatkv: empty key in changeset")
+		if cs.Name == evm.EVMStoreKey {
+			for _, pair := range cs.Changeset.Pairs {
+				kind, keyBytes := evm.ParseEVMKey(pair.Key)
+				if kind == evm.EVMKeyEmpty {
+					return nil, fmt.Errorf("flatkv: empty key in changeset")
+				}
+
+				memiavlKey := pair.Key
+				if kind == evm.EVMKeyCodeHash {
+					memiavlKey = evm.BuildMemIAVLEVMKey(ktype.EVMKeyAccount, keyBytes)
+				}
+
+				physKey := evmPrefix + string(memiavlKey)
+
+				kindMap, ok := result[kind]
+				if !ok {
+					kindMap = make(map[string][]byte, len(cs.Changeset.Pairs))
+					result[kind] = kindMap
+				}
+
+				if pair.Delete {
+					kindMap[physKey] = nil
+				} else {
+					kindMap[physKey] = pair.Value
+				}
 			}
-
-			keyStr := string(pair.Key)
-			if kind == evm.EVMKeyCodeHash {
-				keyStr = string(evm.BuildMemIAVLEVMKey(EVMKeyAccount, keyBytes))
-			}
-
-			kindMap, ok := result[kind]
+		} else {
+			modPrefix := cs.Name + "/"
+			legacyMap, ok := result[evm.EVMKeyLegacy]
 			if !ok {
-				kindMap = make(map[string][]byte, len(cs.Changeset.Pairs))
-				result[kind] = kindMap
+				legacyMap = make(map[string][]byte, len(cs.Changeset.Pairs))
+				result[evm.EVMKeyLegacy] = legacyMap
 			}
-
-			if pair.Delete {
-				kindMap[keyStr] = nil
-			} else {
-				kindMap[keyStr] = pair.Value
+			for _, pair := range cs.Changeset.Pairs {
+				physKey := modPrefix + string(pair.Key)
+				if pair.Delete {
+					legacyMap[physKey] = nil
+				} else {
+					legacyMap[physKey] = pair.Value
+				}
 			}
 		}
 	}
 
 	return result, nil
-}
-
-// prefixModuleKeys prepends "module/" to every key for physical DB namespacing.
-// EVM keys get "evm/" prepended (same layout as ModulePhysicalKey).
-// Non-EVM cosmos keys are merged into the legacy map with their own module prefix.
-func prefixModuleKeys(
-	changesByType map[evm.EVMKeyKind]map[string][]byte,
-	nonEVMByModule map[string]map[string][]byte,
-) {
-	evmPrefix := evm.EVMStoreKey + "/"
-	for kind, m := range changesByType {
-		prefixed := make(map[string][]byte, len(m))
-		for key, val := range m {
-			prefixed[evmPrefix+key] = val
-		}
-		changesByType[kind] = prefixed
-	}
-
-	legacyMap := changesByType[evm.EVMKeyLegacy]
-	if len(nonEVMByModule) > 0 && legacyMap == nil {
-		legacyMap = make(map[string][]byte)
-		changesByType[evm.EVMKeyLegacy] = legacyMap
-	}
-	for module, pairs := range nonEVMByModule {
-		modPrefix := module + "/"
-		for rawKey, val := range pairs {
-			legacyMap[modPrefix+rawKey] = val
-		}
-	}
 }
 
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.

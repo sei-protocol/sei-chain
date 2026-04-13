@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -39,14 +40,14 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 	if start != nil {
 		parsedKind, keyBytes := evm.ParseEVMKey(start)
 		if parsedKind == kind {
-			physStart = EVMPhysicalKey(kind, keyBytes)
+			physStart = ktype.EVMPhysicalKey(kind, keyBytes)
 			startMatches = true
 		}
 	}
 	if end != nil {
 		parsedKind, keyBytes := evm.ParseEVMKey(end)
 		if parsedKind == kind {
-			physEnd = EVMPhysicalKey(kind, keyBytes)
+			physEnd = ktype.EVMPhysicalKey(kind, keyBytes)
 			endMatches = true
 		}
 	}
@@ -75,8 +76,8 @@ func newDBIterator(db types.KeyValueDB, kind evm.EVMKeyKind, start, end []byte) 
 // strippedPrefix is the stripped key prefix (e.g. addr for storage);
 // it is converted to a physical key prefix for the DB.
 func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, strippedPrefix []byte, externalPrefix []byte) Iterator {
-	physPrefix := EVMPhysicalKey(kind, strippedPrefix)
-	physEnd := PrefixEnd(physPrefix)
+	physPrefix := ktype.EVMPhysicalKey(kind, strippedPrefix)
+	physEnd := ktype.PrefixEnd(physPrefix)
 
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: physPrefix,
@@ -86,7 +87,7 @@ func newDBPrefixIterator(db types.KeyValueDB, kind evm.EVMKeyKind, strippedPrefi
 		return &emptyIterator{err: err}
 	}
 
-	externalEnd := PrefixEnd(externalPrefix)
+	externalEnd := ktype.PrefixEnd(externalPrefix)
 
 	return &dbIterator{
 		iter:  iter,
@@ -155,7 +156,7 @@ func (it *dbIterator) SeekGE(key []byte) bool {
 		return false
 	}
 
-	if !it.iter.SeekGE(EVMPhysicalKey(kind, strippedKey)) {
+	if !it.iter.SeekGE(ktype.EVMPhysicalKey(kind, strippedKey)) {
 		return false
 	}
 	it.skipMetaForward()
@@ -173,7 +174,7 @@ func (it *dbIterator) SeekLT(key []byte) bool {
 		return false
 	}
 
-	if !it.iter.SeekLT(EVMPhysicalKey(kind, strippedKey)) {
+	if !it.iter.SeekLT(ktype.EVMPhysicalKey(kind, strippedKey)) {
 		return false
 	}
 	it.skipMetaBackward()

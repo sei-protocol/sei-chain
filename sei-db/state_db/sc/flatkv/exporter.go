@@ -8,6 +8,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -166,9 +167,9 @@ func (e *KVExporter) convertToNodes(db exportDBKind, key, value []byte) ([]*type
 }
 
 func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	_, addr, ok := StripEVMPhysicalKey(key)
-	if !ok {
-		return nil, fmt.Errorf("corrupt account physical key: %x", key)
+	_, addr, err := ktype.StripEVMPhysicalKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt account physical key: %w", err)
 	}
 
 	ad, err := vtype.DeserializeAccountData(value)
@@ -206,9 +207,9 @@ func (e *KVExporter) accountToNodes(key, value []byte) ([]*types.SnapshotNode, e
 }
 
 func (e *KVExporter) codeToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	_, addr, ok := StripEVMPhysicalKey(key)
-	if !ok {
-		return nil, fmt.Errorf("corrupt code physical key: %x", key)
+	_, addr, err := ktype.StripEVMPhysicalKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt code physical key: %w", err)
 	}
 
 	codeData, err := vtype.DeserializeCodeData(value)
@@ -225,9 +226,9 @@ func (e *KVExporter) codeToNodes(key, value []byte) ([]*types.SnapshotNode, erro
 }
 
 func (e *KVExporter) storageToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	_, strippedKey, ok := StripEVMPhysicalKey(key)
-	if !ok {
-		return nil, fmt.Errorf("corrupt storage physical key: %x", key)
+	_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("corrupt storage physical key: %w", err)
 	}
 
 	storageData, err := vtype.DeserializeStorageData(value)
@@ -244,9 +245,9 @@ func (e *KVExporter) storageToNodes(key, value []byte) ([]*types.SnapshotNode, e
 }
 
 func (e *KVExporter) legacyToNodes(key, value []byte) ([]*types.SnapshotNode, error) {
-	moduleName, originalKey, ok := StripModulePrefix(key)
-	if !ok {
-		return nil, fmt.Errorf("legacy key missing module prefix: %x", key)
+	moduleName, originalKey, err := ktype.StripModulePrefix(key)
+	if err != nil {
+		return nil, fmt.Errorf("legacy key missing module prefix: %w", err)
 	}
 
 	legacyData, err := vtype.DeserializeLegacyData(value)

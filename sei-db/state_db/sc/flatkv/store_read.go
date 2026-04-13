@@ -8,6 +8,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -164,7 +165,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	// but a storage prefix is only (prefix + addr = 21 bytes).
 	// Detect storage prefix: 0x03 || addr(20) = 21 bytes
 	statePrefix := evm.StateKeyPrefix()
-	if len(prefix) == len(statePrefix)+AddressLen &&
+	if len(prefix) == len(statePrefix)+ktype.AddressLen &&
 		bytes.HasPrefix(prefix, statePrefix) {
 		// Storage address prefix: iterate all slots for this address
 		// Internal key format: addr(20) || slot(32)
@@ -220,17 +221,17 @@ func readFromDB[T vtype.VType](
 }
 
 func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {
-	if len(keyBytes) != AddressLen {
-		return nil, nil
+	if len(keyBytes) != ktype.AddressLen {
+		return nil, fmt.Errorf("accountDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	return readFromDB(EVMPhysicalKey(EVMKeyAccount, keyBytes), s.accountWrites, s.accountDB, vtype.DeserializeAccountData, "accountDB")
+	return readFromDB(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes), s.accountWrites, s.accountDB, vtype.DeserializeAccountData, "accountDB")
 }
 
 func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error) {
-	if len(keyBytes) != AddressLen+SlotLen {
-		return nil, nil
+	if len(keyBytes) != ktype.AddressLen+ktype.SlotLen {
+		return nil, fmt.Errorf("storageDB: expected key length %d, got %d", ktype.AddressLen+ktype.SlotLen, len(keyBytes))
 	}
-	return readFromDB(EVMPhysicalKey(evm.EVMKeyStorage, keyBytes), s.storageWrites, s.storageDB, vtype.DeserializeStorageData, "storageDB")
+	return readFromDB(ktype.EVMPhysicalKey(evm.EVMKeyStorage, keyBytes), s.storageWrites, s.storageDB, vtype.DeserializeStorageData, "storageDB")
 }
 
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
@@ -245,10 +246,10 @@ func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
-	if len(keyBytes) != AddressLen {
-		return nil, nil
+	if len(keyBytes) != ktype.AddressLen {
+		return nil, fmt.Errorf("codeDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	return readFromDB(EVMPhysicalKey(evm.EVMKeyCode, keyBytes), s.codeWrites, s.codeDB, vtype.DeserializeCodeData, "codeDB")
+	return readFromDB(ktype.EVMPhysicalKey(evm.EVMKeyCode, keyBytes), s.codeWrites, s.codeDB, vtype.DeserializeCodeData, "codeDB")
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
@@ -263,7 +264,7 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getLegacyData(moduleName string, keyBytes []byte) (*vtype.LegacyData, error) {
-	return readFromDB(ModulePhysicalKey(moduleName, keyBytes), s.legacyWrites, s.legacyDB, vtype.DeserializeLegacyData, "legacyDB")
+	return readFromDB(ktype.ModulePhysicalKey(moduleName, keyBytes), s.legacyWrites, s.legacyDB, vtype.DeserializeLegacyData, "legacyDB")
 }
 
 func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, error) {

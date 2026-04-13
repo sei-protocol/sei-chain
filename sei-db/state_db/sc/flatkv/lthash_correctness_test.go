@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -60,14 +61,14 @@ func nonceBytes(n uint64) []byte {
 	return b
 }
 
-func addrN(n byte) Address {
-	var a Address
+func addrN(n byte) ktype.Address {
+	var a ktype.Address
 	a[19] = n
 	return a
 }
 
-func slotN(n byte) Slot {
-	var s Slot
+func slotN(n byte) ktype.Slot {
+	var s ktype.Slot
 	s[31] = n
 	return s
 }
@@ -80,56 +81,56 @@ func codeHashN(n byte) vtype.CodeHash {
 	return h
 }
 
-func noncePair(addr Address, nonce uint64) *proto.KVPair {
+func noncePair(addr ktype.Address, nonce uint64) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 		Value: nonceBytes(nonce),
 	}
 }
 
-func codeHashPair(addr Address, ch vtype.CodeHash) *proto.KVPair {
+func codeHashPair(addr ktype.Address, ch vtype.CodeHash) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Value: ch[:],
 	}
 }
 
-func codePair(addr Address, bytecode []byte) *proto.KVPair {
+func codePair(addr ktype.Address, bytecode []byte) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 		Value: bytecode,
 	}
 }
 
-func codeDeletePair(addr Address) *proto.KVPair {
+func codeDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 		Delete: true,
 	}
 }
 
-func storagePair(addr Address, slot Slot, val []byte) *proto.KVPair {
+func storagePair(addr ktype.Address, slot ktype.Slot, val []byte) *proto.KVPair {
 	return &proto.KVPair{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 		Value: padLeft32(val...),
 	}
 }
 
-func storageDeletePair(addr Address, slot Slot) *proto.KVPair {
+func storageDeletePair(addr ktype.Address, slot ktype.Slot) *proto.KVPair {
 	return &proto.KVPair{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)),
+		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 		Delete: true,
 	}
 }
 
-func nonceDeletePair(addr Address) *proto.KVPair {
+func nonceDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
 		Delete: true,
 	}
 }
 
-func codeHashDeletePair(addr Address) *proto.KVPair {
+func codeHashDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
 		Delete: true,
@@ -690,7 +691,7 @@ func TestFullScanLtHashIncludesLegacy(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
+	addr := ktype.Address{0xAA}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	cs := makeChangeSet(legacyKey, []byte{0x42}, false)
@@ -768,7 +769,7 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	val, found := s.Get(key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), val)
@@ -913,7 +914,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x60, 0x01}, codeVal)
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	storageVal, found := s.Get(storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), storageVal)

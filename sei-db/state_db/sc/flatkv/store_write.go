@@ -319,16 +319,16 @@ func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[st
 	}
 
 	if err = deserializeBatchResults(storageBatch, storageOld, vtype.DeserializeStorageData, "storageDB"); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, fmt.Errorf("deserialize storageDB old values: %w", err)
 	}
 	if err = deserializeBatchResults(accountBatch, accountOld, vtype.DeserializeAccountData, "accountDB"); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, fmt.Errorf("deserialize accountDB old values: %w", err)
 	}
 	if err = deserializeBatchResults(codeBatch, codeOld, vtype.DeserializeCodeData, "codeDB"); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, fmt.Errorf("deserialize codeDB old values: %w", err)
 	}
 	if err = deserializeBatchResults(legacyBatch, legacyOld, vtype.DeserializeLegacyData, "legacyDB"); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, fmt.Errorf("deserialize legacyDB old values: %w", err)
 	}
 
 	return storageOld, accountOld, codeOld, legacyOld, nil

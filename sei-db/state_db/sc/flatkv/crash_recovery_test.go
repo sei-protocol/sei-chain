@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,7 +94,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	addr := addrN(0x02)
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
@@ -121,7 +122,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	verifyLtHashConsistency(t, s2)
 
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		val, found := s2.Get(key)
 		require.True(t, found, "slot %d should exist after recovery", i)
 		require.Equal(t, padLeft32(byte(i*11)), val)
@@ -141,7 +142,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 
 	addr := addrN(0x03)
 	for i := 1; i <= 20; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
@@ -163,7 +164,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 
 	// All 20 storage slots should be readable.
 	for i := 1; i <= 20; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		val, found := s2.Get(key)
 		require.True(t, found, "slot %d should exist", i)
 		require.Equal(t, padLeft32(byte(i)), val)
@@ -181,7 +182,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := addrN(0x04)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
@@ -264,7 +265,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	addr := addrN(0x06)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
@@ -320,7 +321,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 		pairs := []*proto.KVPair{
 			noncePair(addr, uint64(i)),
 			{
-				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i)))),
+				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i)))),
 				Value: padLeft32(byte(i)),
 			},
 		}
@@ -380,7 +381,7 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -415,7 +416,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x01))),
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x02), slotN(0x01))),
 		padLeft32(0x22), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -450,7 +451,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x03), slotN(0x01))),
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
 		padLeft32(0x33), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
