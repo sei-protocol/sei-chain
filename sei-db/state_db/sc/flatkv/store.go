@@ -61,12 +61,13 @@ type CommitStore struct {
 	config Config
 	dbDir  string
 
-	// Five separate PebbleDB instances
+	// Five separate PebbleDB instances.
+	// Physical key format: "module/" + type_prefix + stripped_key.
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // addr(20) → vtype.AccountData
-	codeDB     seidbtypes.KeyValueDB // addr(20) → vtype.CodeData
-	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → vtype.StorageData
-	legacyDB   seidbtypes.KeyValueDB // key → vtype.LegacyValue
+	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
+	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
+	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
+	legacyDB   seidbtypes.KeyValueDB // "module/"+key → vtype.LegacyData
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*LocalMeta
@@ -102,7 +103,6 @@ type CommitStore struct {
 	// readOnly marks stores opened via LoadVersion(..., true).
 	readOnly bool
 
-	// Temp working dir for readonly store; removed by Close.
 	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
 
 	// A work pool for reading from the DBs.

@@ -35,8 +35,9 @@ var _ VType = (*LegacyData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type LegacyData struct {
-	version LegacyDataVersion
-	value   []byte
+	version  LegacyDataVersion
+	value    []byte
+	isDelete bool
 }
 
 // Create a new LegacyData with the given value.
@@ -97,19 +98,34 @@ func (l *LegacyData) GetValue() []byte {
 }
 
 // Set the legacy value. Returns self (or a new LegacyData if nil).
+// Clears the delete flag — an explicit SetValue is a write, not a deletion,
+// even when value is empty ([]byte{} is a valid Cosmos module value).
 func (l *LegacyData) SetValue(value []byte) *LegacyData {
 	if l == nil {
 		l = NewLegacyData()
 	}
 	l.value = append([]byte(nil), value...)
+	l.isDelete = false
 	return l
 }
 
-// Check if this legacy data signifies a deletion operation. A deletion operation is automatically
-// performed when the value is empty (with the exception of the serialization version).
+// MarkDeleted flags this entry for physical key removal at commit time.
+// The stored value is irrelevant once marked; IsDelete() will return true.
+func (l *LegacyData) MarkDeleted() *LegacyData {
+	if l == nil {
+		l = NewLegacyData()
+	}
+	l.isDelete = true
+	return l
+}
+
+// IsDelete reports whether this entry represents a deletion.
+// Uses an explicit flag rather than value-length inference so that empty
+// values ([]byte{}) written by Cosmos modules are not misinterpreted as
+// deletions.
 func (l *LegacyData) IsDelete() bool {
 	if l == nil {
 		return true
 	}
-	return len(l.value) == 0
+	return l.isDelete
 }
