@@ -12,7 +12,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,13 +45,106 @@ const (
 	MinGasEVMTx  = 21000
 )
 
+type Config struct {
+	// Maximum number of transactions in the mempool
+	Size int
+
+	// Limit the total size of all txs in the mempool.
+	// This only accounts for raw transactions (e.g. given 1MB transactions and
+	// max-txs-bytes=5MB, mempool will only accept 5 transactions).
+	MaxTxsBytes int64
+
+	// Size of the cache (used to filter transactions we saw earlier) in transactions
+	CacheSize int
+
+	// Size of the duplicate cache used to track duplicate txs
+	DuplicateTxsCacheSize int
+
+	// Do not remove invalid transactions from the cache (default: false)
+	// Set to true if it's not possible for any invalid transaction to become
+	// valid again in the future.
+	KeepInvalidTxsInCache bool
+
+	// Maximum size of a single transaction
+	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	MaxTxBytes int
+
+	// TTLDuration, if non-zero, defines the maximum amount of time a transaction
+	// can exist for in the mempool.
+	//
+	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
+	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
+	// insertion time into the mempool is beyond TTLDuration.
+	TTLDuration time.Duration
+
+	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
+	// can exist for in the mempool.
+	//
+	// Note, if TTLDuration is also defined, a transaction will be removed if it
+	// has existed in the mempool at least TTLNumBlocks number of blocks or if
+	// it's insertion time into the mempool is beyond TTLDuration.
+	TTLNumBlocks int64
+
+	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
+	// needed to trigger a notification in mempool's Tx notifier
+	TxNotifyThreshold uint64
+
+	// Maximum number of transactions in the pending set
+	PendingSize int
+
+	// Limit the total size of all txs in the pending set.
+	MaxPendingTxsBytes int64
+
+	RemoveExpiredTxsFromQueue bool
+
+	// DropPriorityThreshold defines the percentage of transactions with the lowest
+	// priority hint (expressed as a float in the range [0.0, 1.0]) that will be
+	// dropped from the mempool once the configured utilisation threshold is reached.
+	//
+	// The default value of 0.1 means that the lowest 10% of transactions by
+	// priority will be dropped when the mempool utilisation exceeds the
+	// DropUtilisationThreshold.
+	//
+	// See DropUtilisationThreshold.
+	DropPriorityThreshold float64
+
+	// DropUtilisationThreshold defines the mempool utilisation level (expressed as
+	// a percentage in the range [0.0, 1.0]) above which transactions will be
+	// selectively dropped based on their priority hint.
+	//
+	// For example, if this parameter is set to 0.8, then once the mempool reaches
+	// 80% capacity, transactions with priority hints below DropPriorityThreshold
+	// percentile will be dropped to make room for new transactions.
+	DropUtilisationThreshold float64
+
+	// DropPriorityReservoirSize defines the size of the reservoir for keeping track
+	// of the distribution of transaction priorities in the mempool.
+	//
+	// This is used to determine the priority threshold below which transactions will
+	// be dropped when the mempool utilisation exceeds DropUtilisationThreshold.
+	//
+	// The reservoir is a statistically representative sample of transaction
+	// priorities in the mempool, and is used to estimate the priority distribution
+	// without needing to store all transaction priorities.
+	//
+	// A larger reservoir size will yield a more accurate estimate of the priority
+	// distribution, but will consume more memory.
+	//
+	// The default value of 10,240 is a reasonable compromise between accuracy and
+	// memory usage for most use cases. It takes approximately 80KB of memory storing
+	// int64 transaction priorities.
+	//
+	// See DropUtilisationThreshold and DropPriorityThreshold.
+	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
+}
+
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
 // is used to gossip transactions to peers in a FIFO manner.
 type TxMempool struct {
 	metrics *Metrics
-	config  *config.MempoolConfig
+	config  *Config
 	app     abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
@@ -126,7 +218,7 @@ type TxMempool struct {
 }
 
 func NewTxMempool(
-	cfg *config.MempoolConfig,
+	cfg *Config,
 	app abci.Application,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
@@ -161,7 +253,7 @@ func NewTxMempool(
 	return txmp
 }
 
-func (txmp *TxMempool) Config() *config.MempoolConfig { return txmp.config }
+func (txmp *TxMempool) Config() *Config { return txmp.config }
 
 func (txmp *TxMempool) App() abci.Application { return txmp.app }
 

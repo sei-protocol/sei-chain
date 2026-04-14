@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -170,17 +168,35 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 	}, nil
 }
 
+func defaultCfg() *Config {
+	return &Config{
+		// Each signature verification takes .5ms, Size reduced until we implement
+		// ABCI Recheck
+		Size:                         5000,
+		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
+		CacheSize:                    10000,
+		DuplicateTxsCacheSize:        100000,
+		MaxTxBytes:                   1024 * 1024,     // 1MB
+		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:                 10,              // remove txs after 10 blocks
+		TxNotifyThreshold:            0,
+		PendingSize:                  5000,
+		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
+		RemoveExpiredTxsFromQueue:    true,
+		DropPriorityThreshold:        0.1,
+		DropUtilisationThreshold:     1.0,
+		DropPriorityReservoirSize:    10_240,
+	}
+}
+
+
 func setup(t testing.TB, app abci.Application, cacheSize int, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
 	t.Helper()
 
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	cfg.Mempool.CacheSize = cacheSize
-	cfg.Mempool.DropUtilisationThreshold = 0.0 // disable dropping by priority hint to allow testing eviction logic
-
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
-	return NewTxMempool(cfg.Mempool, app, NopMetrics(), txConstraintsFetcher)
+	cfg := defaultCfg()
+	cfg.CacheSize = cacheSize
+	cfg.DropUtilisationThreshold = 0.0 // disable dropping by priority hint to allow testing eviction logic
+	return NewTxMempool(cfg, app, NopMetrics(), txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
