@@ -3,6 +3,7 @@ package flatkv
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -47,7 +48,7 @@ func (imp *KVImporter) flush() {
 	}
 
 	cs := []*proto.NamedChangeSet{{
-		Name:      "evm",
+		Name:      evm.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: imp.batch},
 	}}
 	if err := imp.store.ApplyChangeSets(cs); err != nil {

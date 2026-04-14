@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -26,11 +27,11 @@ func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 }
 func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
 func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) Get([]byte) ([]byte, bool)                     { return nil, false }
-func (f *failingEVMStore) GetBlockHeightModified([]byte) (int64, bool, error) {
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
-func (f *failingEVMStore) Has([]byte) bool                         { return false }
+func (f *failingEVMStore) Has(string, []byte) bool                 { return false }
 func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator    { return nil }
 func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator { return nil }
 func (f *failingEVMStore) RootHash() []byte                        { return nil }
@@ -514,10 +515,10 @@ func TestExportImportSplitWrite(t *testing.T) {
 	_, err := src.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := flatkv.Address{0xAA}
-	slot := flatkv.Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 	storageVal := padLeft32(0x42)
 
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
@@ -580,11 +581,11 @@ func TestExportImportSplitWrite(t *testing.T) {
 
 	// Verify FlatKV data
 	require.NotNil(t, dst.evmCommitter)
-	got, found := dst.evmCommitter.Get(storageKey)
+	got, found := dst.evmCommitter.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist in FlatKV after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = dst.evmCommitter.Get(nonceKey)
+	got, found = dst.evmCommitter.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist in FlatKV after import")
 	require.Equal(t, nonceVal, got)
 }
@@ -684,7 +685,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	addr := [20]byte{0xAA}
 	slot := [32]byte{0xBB}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 
@@ -758,7 +759,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	addr := [20]byte{0xEE}
 	slot := [32]byte{0xFF}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 
@@ -836,7 +837,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	bankStore := cs3.GetChildStoreByName("bank")
 	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
 
-	got, found := cs3.evmCommitter.Get(storageKey)
+	got, found := cs3.evmCommitter.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xA5), got)
 }
@@ -845,7 +846,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	addr := [20]byte{0xCC}
 	slot := [32]byte{0xDD}
 	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage,
-		flatkv.StorageKey(addr, slot))
+		ktype.StorageKey(addr, slot))
 
 	cfg := splitWriteConfig()
 

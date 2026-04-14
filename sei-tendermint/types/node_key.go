@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -48,12 +49,21 @@ func (nk NodeKey) PubKey() crypto.PubKey {
 }
 
 // SaveAs persists the NodeKey to filePath.
+// It also writes a node_pubkey.txt file in the same directory containing the
+// public key in "node:ed25519:public:<hex>" format for use in autobahn config generation.
 func (nk NodeKey) SaveAs(filePath string) error {
 	jsonBytes, err := nk.MarshalJSON()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filePath, jsonBytes, 0600)
+	if err := os.WriteFile(filePath, jsonBytes, 0600); err != nil {
+		return err
+	}
+	// Write pubkey in autobahn-compatible format alongside the key file.
+	// TODO: use p2p.NodePublicKey.String() directly to avoid duplicating the "node:" prefix.
+	pubKeyStr := fmt.Sprintf("node:%s", nk.PubKey())
+	pubKeyPath := filepath.Clean(filepath.Join(filepath.Dir(filePath), "node_pubkey.txt"))
+	return os.WriteFile(pubKeyPath, []byte(pubKeyStr), 0600)
 }
 
 // LoadOrGenNodeKey attempts to load the NodeKey from the given filePath. If
