@@ -117,7 +117,6 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `rs-backend = "pebbledb"`, "Missing or incorrect rs-backend")
 	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
-	require.Contains(t, output, "keep-recent =", "Missing keep-recent")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")
 	require.Contains(t, output, `Applies only when rs-backend = "pebbledb"`, "Missing pebble-only async-write-buffer note")
 	require.NotContains(t, output, "use-default-comparer", "use-default-comparer should not be in receipt-store template")
@@ -151,7 +150,6 @@ func TestDefaultConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "[state-store]")
 	require.Contains(t, output, "[receipt-store]")
 	require.Contains(t, output, "async-write-buffer =")
-	require.Contains(t, output, "keep-recent =")
 	require.Contains(t, output, "prune-interval-seconds =")
 }
 
