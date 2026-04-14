@@ -166,12 +166,8 @@ db-directory = "{{ .ReceiptStore.DBDirectory }}"
 # defaults to 100
 async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 
-# KeepRecent defines the number of versions to keep in receipt store
-# Setting it to 0 means keep everything.
-# Default to keep the last 100,000 blocks
-keep-recent = {{ .ReceiptStore.KeepRecent }}
-
 # PruneIntervalSeconds defines the interval in seconds to trigger pruning.
+# Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 `

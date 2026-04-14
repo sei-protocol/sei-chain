@@ -18,7 +18,6 @@ const (
 	flagRSBackend              = "receipt-store.rs-backend"
 	flagRSMisnamedBackend      = "receipt-store.backend"
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
-	flagRSKeepRecent           = "receipt-store.keep-recent"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
 )
 
@@ -40,22 +39,25 @@ type ReceiptStoreConfig struct {
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
-	// KeepRecent defines the number of versions to keep in receipt store
-	// Setting it to 0 means keep everything.
-	// Default to keep the last 100,000 blocks
-	KeepRecent int `mapstructure:"keep-recent"`
+	// KeepRecent defines the number of versions to keep in receipt store.
+	// Setting it to 0 means keep everything (no pruning).
+	// This is NOT read from receipt-store config; it is always derived from
+	// the global min-retain-blocks flag at the app layer.
+	KeepRecent int `mapstructure:"-"`
 
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 }
 
-// DefaultReceiptStoreConfig returns the default ReceiptStoreConfig
+// DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
+// KeepRecent defaults to 0 (no pruning). The app layer is responsible
+// for setting KeepRecent from the global min-retain-blocks flag.
 func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
 		Backend:              "pebbledb",
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
-		KeepRecent:           DefaultSSKeepRecent,
+		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 	}
 }
@@ -92,13 +94,6 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.AsyncWriteBuffer = asyncWriteBuffer
-	}
-	if v := opts.Get(flagRSKeepRecent); v != nil {
-		keepRecent, err := cast.ToIntE(v)
-		if err != nil {
-			return cfg, err
-		}
-		cfg.KeepRecent = keepRecent
 	}
 	if v := opts.Get(flagRSPruneIntervalSeconds); v != nil {
 		pruneIntervalSeconds, err := cast.ToIntE(v)
