@@ -178,6 +178,22 @@ func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
 	assert.Equal(t, filepath.Join(homePath, "data", "receipt.db"), receiptConfig.DBDirectory)
 }
 
+func TestReadReceiptStoreConfigFallsBackToMinRetainBlocks(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
+		server.FlagMinRetainBlocks: 500000,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 500000, receiptConfig.KeepRecent)
+}
+
+func TestReadReceiptStoreConfigFallsBackToZeroWhenNeitherSet(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
+}
+
 // TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"
 // and asserts the parquet receipt store is actually instantiated (not pebble).
 func TestFullAppPathWithParquetReceiptStore(t *testing.T) {
