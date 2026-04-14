@@ -174,9 +174,9 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("app.InitChain(): %w", err)
 		}
-		if _, err := app.Commit(ctx); err != nil {
-			return fmt.Errorf("app.Commit(): %w", err)
-		}
+		// No Commit after InitChain: the SDK expects the first FinalizeBlock at
+		// InitialHeight using the deliverState set up by InitChain.
+		// GetValidators uses DeliverContext() to read uncommitted staking params.
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {

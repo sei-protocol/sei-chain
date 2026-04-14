@@ -2188,6 +2188,11 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 }
 
 func (app *App) GetValidators() []abci.ValidatorUpdate {
+	// Prefer deliverState context if available (e.g. after InitChain before first Commit).
+	// The committed store may not have the staking params yet.
+	if ctx := app.DeliverContext(); ctx != nil {
+		return app.StakingKeeper.GetBondedValidators(*ctx)
+	}
 	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
 	return app.StakingKeeper.GetBondedValidators(ctx)
 }

@@ -102,7 +102,10 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
-		state.Committed = false
+		// InitChain sets Committed=true to allow the first FinalizeBlock without
+		// a prior Commit, matching real app behavior where InitChain sets up
+		// deliverState for the first block.
+		state.Committed = true
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
@@ -185,6 +188,56 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
 	}
+}
+
+// TestInitChainCommitThenFinalize verifies that Commit after InitChain
+// correctly persists state so that subsequent FinalizeBlock + Commit
+// calls succeed. This is the flow used by GigaRouter.runExecute().
+// Without the Commit after InitChain, the real app panics because
+// staking params are not persisted to the committed store.
+func TestInitChainCommitThenFinalize(t *testing.T) {
+	rng := utils.TestRng()
+	app := newTestApp()
+	ctx := t.Context()
+
+	initialHeight := rng.Int63n(100000) + 1
+	appState := testAppStateJSON(rng)
+
+	// InitChain
+	_, err := app.InitChain(ctx, &abci.RequestInitChain{
+		InitialHeight: initialHeight,
+		AppStateBytes: appState,
+	})
+	require.NoError(t, err)
+
+	// No Commit after InitChain — the SDK expects FinalizeBlock at InitialHeight
+	// using the deliverState set up by InitChain.
+
+	// Verify app reports correct height after InitChain (no blocks yet)
+	info, err := app.Info(ctx, &abci.RequestInfo{})
+	require.NoError(t, err)
+	require.Equal(t, initialHeight-1, info.LastBlockHeight,
+		"testApp should report InitialHeight-1 after InitChain with 0 blocks")
+
+	// FinalizeBlock should succeed (Committed=true from InitChain)
+	blockHash := sha256.Sum256([]byte("test-block"))
+	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+		Hash: blockHash[:],
+		Header: (&types.Header{
+			Height: initialHeight,
+		}).ToProto(),
+	})
+	require.NoError(t, err)
+
+	// Second Commit should succeed
+	_, err = app.Commit(ctx)
+	require.NoError(t, err)
+
+	// Verify height advanced
+	info, err = app.Info(ctx, &abci.RequestInfo{})
+	require.NoError(t, err)
+	require.Equal(t, initialHeight, info.LastBlockHeight,
+		"testApp should report InitialHeight after 1 block")
 }
 
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
