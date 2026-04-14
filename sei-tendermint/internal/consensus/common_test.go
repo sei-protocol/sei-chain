@@ -465,13 +465,11 @@ func newStateWithConfigAndBlockStore(
 	// Make Mempool
 
 	mempool := mempool.NewTxMempool(
-		thisConfig.Mempool,
+		thisConfig.Mempool.ToMempoolConfig(),
 		proxyAppConnMem,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
-
-	if thisConfig.Consensus.WaitForTxs() {
-		mempool.EnableTxsAvailable()
-	}
 
 	evpool := sm.EmptyEvidencePool{}
 

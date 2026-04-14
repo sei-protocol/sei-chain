@@ -15,3 +15,19 @@ func RecoverReceiptStore(changelogPath string, db types2.StateStore) error {
 func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return getLogsForTx(receipt, logStartIndex)
 }
+
+// CloseTxHashIndex closes the tx hash index held by a parquet receipt store,
+// allowing the same directory to be reopened in crash-recovery tests.
+func CloseTxHashIndex(store ReceiptStore) {
+	if c, ok := store.(*cachedReceiptStore); ok {
+		store = c.backend
+	}
+	if pq, ok := store.(*parquetReceiptStore); ok && pq.txHashIndex != nil {
+		if pq.indexPruner != nil {
+			pq.indexPruner.Stop()
+			pq.indexPruner = nil
+		}
+		_ = pq.txHashIndex.Close()
+		pq.txHashIndex = nil
+	}
+}

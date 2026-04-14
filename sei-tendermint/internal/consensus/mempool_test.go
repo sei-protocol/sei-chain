@@ -20,6 +20,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -62,7 +63,6 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Power:      10,
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
-	cs.txMempool.EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
@@ -91,8 +91,6 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 
-	cs.txMempool.EnableTxsAvailable()
-
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
 
@@ -115,7 +113,6 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Power:      10,
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
-	cs.txMempool.EnableTxsAvailable()
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
@@ -251,7 +248,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 
 		// check for the tx
 		for {
-			txs := cs.txMempool.ReapMaxBytesMaxGas(int64(len(txBytes)), -1, -1)
+			txs := cs.txMempool.ReapMaxBytesMaxGas(int64(len(txBytes)), utils.Max[int64](), utils.Max[int64]())
 			if len(txs) == 0 {
 				emptyMempoolCh <- struct{}{}
 				return

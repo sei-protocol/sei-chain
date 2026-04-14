@@ -1,11 +1,15 @@
-package mempool
+package reactor
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+const MaxActiveIDs = math.MaxUint16
 
 type IDs struct {
 	mtx       sync.RWMutex
@@ -19,7 +23,7 @@ func NewMempoolIDs() *IDs {
 		peerMap: make(map[types.NodeID]uint16),
 
 		// reserve UnknownPeerID for mempoolReactor.BroadcastTx
-		activeIDs: map[uint16]struct{}{UnknownPeerID: {}},
+		activeIDs: map[uint16]struct{}{mempool.UnknownPeerID: {}},
 		nextID:    1,
 	}
 }

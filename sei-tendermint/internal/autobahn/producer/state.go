@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"golang.org/x/time/rate"
@@ -32,19 +32,18 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	cfg *Config
-	// channel of transactions to build the next block from.
-	mempool chan *pb.Transaction
+	cfg       *Config
+	txMempool *mempool.TxMempool
 	// consensus state to which published blocks will be reported.
 	consensus *consensus.State
 }
 
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
-func NewState(cfg *Config, consensus *consensus.State) *State {
+func NewState(cfg *Config, txMempool *mempool.TxMempool, consensus *consensus.State) *State {
 	return &State{
 		cfg:       cfg,
-		mempool:   make(chan *pb.Transaction, cfg.MempoolSize),
+		txMempool: txMempool,
 		consensus: consensus,
 	}
 }
@@ -54,22 +53,37 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 func (s *State) makePayload(ctx context.Context) *types.Payload {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.BlockInterval)
 	defer cancel()
-	maxTxs := s.cfg.maxTxsPerBlock()
-	var totalGas uint64
-	var txs [][]byte
-	for totalGas < s.cfg.MaxGasPerBlock && uint64(len(txs)) < maxTxs {
-		tx, err := utils.Recv(ctx, s.mempool)
-		if err != nil {
-			break
+
+	if s.txMempool.NumTxsNotPending() == 0 {
+		select {
+		case <-ctx.Done():
+		case <-s.txMempool.TxsAvailable():
 		}
-		txs = append(txs, tx.Payload)
-		totalGas += tx.GasUsed
 	}
-	return types.PayloadBuilder{
+
+	txs, gasEstimated := s.txMempool.PopTxs(mempool.ReapLimits{
+		MaxTxs:          utils.Some(min(types.MaxTxsPerBlock, s.cfg.maxTxsPerBlock())),
+		MaxBytes:        utils.Some(utils.Clamp[int64](types.MaxTxsBytesPerBlock)),
+		MaxGasWanted:    utils.Some(utils.Clamp[int64](s.cfg.MaxGasPerBlock)),
+		MaxGasEstimated: utils.Some(utils.Clamp[int64](s.cfg.MaxGasPerBlock)),
+	})
+	payloadTxs := make([][]byte, 0, len(txs))
+	for _, tx := range txs {
+		payloadTxs = append(payloadTxs, tx)
+	}
+	payload, err := types.PayloadBuilder{
 		CreatedAt: time.Now(),
-		TotalGas:  totalGas,
-		Txs:       txs,
+		// TODO: ReapMaxTxsBytesMaxGas does not handle corner cases correctly rn, which actually
+		// can produce negative total gas. Fixing it right away might be backward incompatible afaict,
+		// so we leave it as is for now.
+		TotalGas: uint64(gasEstimated), // nolint:gosec
+		Txs:      payloadTxs,
 	}.Build()
+	// This should never happen: we construct the payload from correctly sized data.
+	if err != nil {
+		panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
+	}
+	return payload
 }
 
 // nextPayload constructs the payload for the next block.
@@ -84,11 +98,6 @@ func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 			return payload, nil
 		}
 	}
-}
-
-// PushToMempool pushes the transaction to the mempool.
-func (s *State) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
-	return utils.Send(ctx, s.mempool, tx)
 }
 
 // Run runs the background tasks of the producer state.

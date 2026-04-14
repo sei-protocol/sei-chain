@@ -1,4 +1,4 @@
-package mempool
+package reactor
 
 import (
 	"testing"

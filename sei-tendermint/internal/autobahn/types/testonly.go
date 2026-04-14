@@ -90,14 +90,14 @@ func GenBlockHeader(rng utils.Rng) *BlockHeader {
 
 // GenPayload generates a random Payload.
 func GenPayload(rng utils.Rng) *Payload {
-	return PayloadBuilder{
+	return utils.OrPanic1(PayloadBuilder{
 		CreatedAt: utils.GenTimestamp(rng),
 		TotalGas:  rng.Uint64(),
 		EdgeCount: rng.Int63(),
 		Coinbase:  utils.GenBytes(rng, 10),
 		Basefee:   rng.Int63(),
 		Txs:       utils.GenSlice(rng, func(rng utils.Rng) []byte { return utils.GenBytes(rng, 10) }),
-	}.Build()
+	}.Build())
 }
 
 // GenBlock generates a random Block.

@@ -35,6 +35,8 @@ import (
 // Consensus sentinel errors
 var (
 	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
+	ErrInvalidProposer              = errors.New("error invalid proposer")
+	ErrInvalidHeaderProposer        = errors.New("error invalid header proposer")
 	ErrAddingVote                   = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
 	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
@@ -76,11 +78,6 @@ func (ti *timeoutInfo) Less(b *timeoutInfo) bool {
 
 func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
-}
-
-// interface to the mempool
-type txMempool interface {
-	TxsAvailable() <-chan struct{}
 }
 
 // interface to the evidence pool
@@ -749,6 +746,13 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 	}()
 
+	// Channel signaling that transactions are available.
+	// nil (blocks forever) if waiting for transactions is disabled.
+	var txsAvailable <-chan struct{}
+	if cs.config.WaitForTxs() {
+		txsAvailable = cs.txMempool.TxsAvailable()
+	}
+
 	for {
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
@@ -759,7 +763,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 
 		select {
-		case <-cs.txMempool.TxsAvailable():
+		case <-txsAvailable:
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
@@ -2128,6 +2132,12 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
+	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
+	}
+	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
+		return fmt.Errorf("%w: %s is not a validator", ErrInvalidHeaderProposer, proposal.Header.ProposerAddress)
+	}
 	p := proposal.ToProto()
 	// Verify signature
 	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(
