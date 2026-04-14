@@ -1,7 +1,6 @@
 package multiversion
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"sort"
@@ -77,9 +76,10 @@ type VersionIndexedStore struct {
 	// mtx sync.Mutex
 	// used for tracking reads and writes for eventual validation + persistence into multi-version store
 	// TODO: does this need sync.Map?
-	readset    map[string][][]byte // contains the key -> []value mapping for all keys read from the store (not mvkv, underlying store)
-	writeset   map[string][]byte   // contains the key -> value mapping for all keys written to the store
-	iterateset Iterateset
+	readset      map[string][][]byte            // contains the key -> []value mapping for all keys read from the store (not mvkv, underlying store)
+	readsetDedup map[string]map[string]struct{} // O(1) dedup index: tracks which values have been seen per key
+	writeset     map[string][]byte              // contains the key -> value mapping for all keys written to the store
+	iterateset   Iterateset
 	// TODO: need to add iterateset here as well
 
 	// parent stores (both multiversion and underlying parent store)
@@ -99,6 +99,7 @@ var _ IterateSetHandler = (*VersionIndexedStore)(nil)
 func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersionStore, transactionIndex, incarnation int, abortChannel chan scheduler.Abort) *VersionIndexedStore {
 	return &VersionIndexedStore{
 		readset:           make(map[string][][]byte),
+		readsetDedup:      make(map[string]map[string]struct{}),
 		writeset:          make(map[string][]byte),
 		iterateset:        []*iterationTracker{},
 		parent:            parent,
@@ -386,18 +387,21 @@ func (store *VersionIndexedStore) WriteEstimatesToMultiVersionStore() {
 
 func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
 	keyStr := string(key)
-	existing, ok := store.readset[keyStr]
-	if !ok {
-		// fast path: new key, store value directly (avoids empty slice + append)
+	valStr := string(value)
+
+	dedupSet, keyExists := store.readsetDedup[keyStr]
+	if !keyExists {
+		// fast path: first read of this key
 		store.readset[keyStr] = [][]byte{value}
+		store.readsetDedup[keyStr] = map[string]struct{}{valStr: {}}
 		return
 	}
-	for _, readsetVal := range existing {
-		if bytes.Equal(value, readsetVal) {
-			return
-		}
+	// O(1) dedup check via the index map
+	if _, seen := dedupSet[valStr]; seen {
+		return
 	}
-	store.readset[keyStr] = append(existing, value)
+	dedupSet[valStr] = struct{}{}
+	store.readset[keyStr] = append(store.readset[keyStr], value)
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store
