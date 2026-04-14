@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	"golang.org/x/time/rate"
 )
@@ -18,9 +19,8 @@ const (
 
 // EVM key sizes (matches sei-db/common/evm).
 const (
-	AddressLen    = 20 // EVM address length
 	SlotLen       = 32 // EVM storage slot length
-	StorageKeyLen = AddressLen + SlotLen
+	StorageKeyLen = crand.AddressLen + SlotLen
 )
 
 // The test runner for the cryptosim benchmark.
@@ -152,7 +152,7 @@ func NewCryptoSim(
 	// avoiding rate() spikes when restarting with a preserved DB.
 
 	fmt.Printf("Initializing random number generator.\n")
-	rand := NewCannedRandom(config.CannedRandomSize, config.Seed)
+	rand := crand.NewCannedRandom(config.CannedRandomSize, config.Seed)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 

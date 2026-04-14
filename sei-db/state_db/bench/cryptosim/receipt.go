@@ -7,6 +7,7 @@ import (
 	"hash"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/crypto/sha3"
 )
@@ -20,7 +21,7 @@ const (
 	evmStorageKeyPrefixByte  = 0x03
 
 	hashLen            = 32
-	indexedAddressBase = hashLen - AddressLen
+	indexedAddressBase = hashLen - crand.AddressLen
 
 	syntheticReceiptMinBlockNumber uint64 = 1_000_000
 
@@ -61,7 +62,7 @@ var erc20TransferEventSignatureBytes = [hashLen]byte{
 //
 // The hash automatically becomes invalid (returns no result) once the corresponding
 // parquet file is pruned, so readers never need to track which hashes are live.
-func SyntheticTxHash(crand *CannedRandom, blockNumber uint64, txIndex uint32) []byte {
+func SyntheticTxHash(crand *crand.CannedRandom, blockNumber uint64, txIndex uint32) []byte {
 	//nolint:gosec // block numbers and tx indices won't exceed int64 in benchmarks
 	txID := int64(blockNumber)*syntheticTxIDBlockStride + int64(txIndex)
 	return crand.SeededBytes(hashLen, txID)
@@ -69,7 +70,7 @@ func SyntheticTxHash(crand *CannedRandom, blockNumber uint64, txIndex uint32) []
 
 // BuildERC20TransferReceiptFromTxn produces a plausible successful ERC20 transfer receipt from a transaction.
 func BuildERC20TransferReceiptFromTxn(
-	crand *CannedRandom,
+	crand *crand.CannedRandom,
 	feeCollectionAccount []byte,
 	blockNumber uint64,
 	txIndex uint32,
@@ -93,7 +94,7 @@ func BuildERC20TransferReceiptFromTxn(
 // ERC20 balances as storage slots rather than separate account references. The caller supplies the block number and tx
 // index so the resulting receipt can line up with the simulated block being benchmarked.
 func BuildERC20TransferReceipt(
-	crand *CannedRandom,
+	crand *crand.CannedRandom,
 	feeCollectionAccount []byte,
 	srcAccount []byte,
 	dstAccount []byte,
@@ -193,15 +194,15 @@ func validateAccountKey(name string, key []byte) error {
 // extractAccountKeyBytes accepts keys with either EVMKeyCode (0x07) or EVMKeyCodeHash (0x08) prefix,
 // since cryptosim uses EVMKeyCodeHash for accounts while ERC20 contracts use EVMKeyCode.
 func extractAccountKeyBytes(name string, key []byte) ([]byte, error) {
-	if len(key) != 1+AddressLen || (key[0] != evmCodeKeyPrefixByte && key[0] != evmCodeHashKeyPrefixByte) {
-		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, AddressLen)
+	if len(key) != 1+crand.AddressLen || (key[0] != evmCodeKeyPrefixByte && key[0] != evmCodeHashKeyPrefixByte) {
+		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, crand.AddressLen)
 	}
 	return key[1:], nil
 }
 
 func extractCodeKeyBytes(name string, key []byte) ([]byte, error) {
-	if len(key) != 1+AddressLen || key[0] != evmCodeKeyPrefixByte {
-		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, AddressLen)
+	if len(key) != 1+crand.AddressLen || key[0] != evmCodeKeyPrefixByte {
+		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, crand.AddressLen)
 	}
 	return key[1:], nil
 }
@@ -210,7 +211,7 @@ func extractStorageKeyAddressBytes(name string, key []byte) ([]byte, error) {
 	if len(key) != 1+StorageKeyLen || key[0] != evmStorageKeyPrefixByte {
 		return nil, fmt.Errorf("%s must be an EVM storage key with %d address+slot bytes", name, StorageKeyLen)
 	}
-	return key[1 : 1+AddressLen], nil
+	return key[1 : 1+crand.AddressLen], nil
 }
 
 func addToBloom(hasher hash.Hash, digest *[hashLen]byte, bloom *ethtypes.Bloom, value []byte) {

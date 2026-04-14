@@ -1,0 +1,12 @@
+{
+  "Comment": "Configuration for local smoke testing and debugging.",
+  "Seed": 1337,
+  "DataDir": "data",
+  "Backend": "litt",
+  "LogDir": "logs",
+  "CleanDataOnStart": true,
+  "CleanLogsOnStart": true,
+  "CleanDataOnExit": true,
+  "CleanLogsOnExit": true,
+  "UnprunedBlocks": 1000
+}
