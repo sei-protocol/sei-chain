@@ -12,7 +12,6 @@ const (
 	receiptStoreBackendKey              = "receipt-store.rs-backend"
 	receiptStoreDBDirectoryKey          = "receipt-store.db-directory"
 	receiptStoreAsyncWriteBufferKey     = "receipt-store.async-write-buffer"
-	receiptStoreKeepRecentKey           = "receipt-store.keep-recent"
 	receiptStorePruneIntervalSecondsKey = "receipt-store.prune-interval-seconds"
 )
 
@@ -24,12 +23,6 @@ func readReceiptStoreConfig(homePath string, appOpts seidbconfig.AppOptions) (se
 	if receiptConfig.DBDirectory == "" {
 		receiptConfig.DBDirectory = filepath.Join(homePath, "data", "receipt.db")
 	}
-	// If keep-recent was not explicitly set in [receipt-store], fall back to
-	// min-retain-blocks for backwards compatibility which used
-	// that flag to control receipt retention. Without this, nodes will
-	// silently inherit the 100k default and prune old receipts.
-	if appOpts.Get(receiptStoreKeepRecentKey) == nil {
-		receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
-	}
+	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	return receiptConfig, nil
 }
