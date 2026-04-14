@@ -23,8 +23,8 @@ var StreamLaneProposals = rpc.Register[API](
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*pb.LaneProposal]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10 * kB,
-		Window: 5,
+		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		Window:  5,
 	},
 )
 var StreamLaneVotes = rpc.Register[API](
@@ -70,7 +70,7 @@ var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
 	rpc.Msg[*pb.GetBlockResp]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10 * kB,
-		Window: 1,
+		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		Window:  1,
 	},
 )

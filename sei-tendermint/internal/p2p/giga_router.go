@@ -105,6 +105,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		proposerAddress = key.Address()
 	}
 
+	// TODO: add metrics to understand execution latency.
 	r.cfg.TxMempool.Lock()
 	defer r.cfg.TxMempool.Unlock()
 
@@ -128,7 +129,6 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
-	// TODO: we need the block to be persisted before we vote for apphash.
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
@@ -145,6 +145,9 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
 		blockTxs,
 		resp.TxResults,
+		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
+		// Therefore we disable constraints for now, until epochs are supported AND
+		// chain state understands that consensus parameters can change only at the epoch boundary.
 		mempool.NopTxConstraintsFetcher,
 		true,
 	)
@@ -170,8 +173,8 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("app.InitChain(): %w", err)
 		}
-		if _, err := app.Commit(ctx); err!=nil {
-			return fmt.Errorf("app.Commit(): %w",err)
+		if _, err := app.Commit(ctx); err != nil {
+			return fmt.Errorf("app.Commit(): %w", err)
 		}
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
@@ -189,11 +192,11 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	for n := next; ; n += 1 {
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w",n,err)
+			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
 		commitResp, err := r.executeBlock(ctx, b)
-		if err!=nil {
-			return fmt.Errorf("r.executeBlock(%v): %w",n,err)
+		if err != nil {
+			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {

@@ -499,8 +499,21 @@ func (txmp *TxMempool) Flush() {
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
-	txs, _ := txmp.ReapMaxTxsBytesMaxGas(utils.Max[uint64](), maxBytes, maxGasWanted, maxGasEstimated)
+	txmp.mtx.Lock()
+	defer txmp.mtx.Unlock()
+	txs, _ := txmp.reapTxs(ReapLimits{
+		MaxBytes:        utils.Some(maxBytes),
+		MaxGasWanted:    utils.Some(maxGasWanted),
+		MaxGasEstimated: utils.Some(maxGasEstimated),
+	})
 	return txs
+}
+
+type ReapLimits struct {
+	MaxTxs          utils.Option[uint64]
+	MaxBytes        utils.Option[int64]
+	MaxGasWanted    utils.Option[int64]
+	MaxGasEstimated utils.Option[int64]
 }
 
 // ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
@@ -510,7 +523,11 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 // NOTE: Gas limits are enforced using int64 running totals. If those totals
 // overflow, gas limit enforcement no longer works correctly. This preserves the
 // historical behavior for backward compatibility.
-func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs uint64, maxBytes, maxGasWanted, maxGasEstimated int64) (types.Txs, int64) {
+func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
+	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
+	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
+	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
+	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
 	if maxBytes < 0 {
 		maxBytes = utils.Max[int64]()
 	}
@@ -520,10 +537,6 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs uint64, maxBytes, maxGasWant
 	if maxGasEstimated < 0 {
 		maxGasEstimated = utils.Max[int64]()
 	}
-
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-
 	var (
 		totalGasWanted    int64
 		totalGasEstimated int64
@@ -593,15 +606,16 @@ func (txmp *TxMempool) ReapMaxTxsBytesMaxGas(maxTxs uint64, maxBytes, maxGasWant
 }
 
 // RemoveTxs removes the provided transactions from the mempool if present.
-func (txmp *TxMempool) RemoveTxs(txs types.Txs) {
+func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
 	txmp.Lock()
 	defer txmp.Unlock()
-
+	txs, gasEstimated := txmp.reapTxs(l)
 	for _, tx := range txs {
 		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
-			txmp.removeTx(wtx, false, true, true)
+			txmp.removeTx(wtx, false, false, true)
 		}
 	}
+	return txs, gasEstimated
 }
 
 // ReapMaxTxs returns a list of transactions within the provided number of

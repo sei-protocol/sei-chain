@@ -37,6 +37,7 @@ type testAppState struct {
 	Blocks     []*abci.RequestFinalizeBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
+	Committed  bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
@@ -102,6 +103,7 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
+		state.Committed = false
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
@@ -113,6 +115,9 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 
 func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
+		if !state.Committed {
+			return nil, fmt.Errorf("not committed")
+		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return nil, fmt.Errorf("app not initialized")
@@ -123,6 +128,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 			state.Txs[sha256.Sum256(tx)] = true
 		}
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
+		state.Committed = false
 		ctrl.Updated()
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
@@ -133,6 +139,13 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 }
 
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+	for state, ctrl := range a.state.Lock() {
+		if state.Committed {
+			return nil, fmt.Errorf("double commit")
+		}
+		state.Committed = true
+		ctrl.Updated()
+	}
 	return &abci.ResponseCommit{
 		// Don't prune anything.
 		RetainHeight: 0,
