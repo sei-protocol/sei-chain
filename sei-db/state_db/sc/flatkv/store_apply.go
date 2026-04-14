@@ -2,14 +2,17 @@ package flatkv
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
+// Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	if s.readOnly {
 		return errReadOnly
@@ -19,10 +22,12 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	// Setup //
 	///////////
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := sortChangeSets(changeSets)
+
+	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
 		return err
 	}
+
 	blockHeight := s.committedVersion + 1
 
 	////////////////////
@@ -51,31 +56,28 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	}
 	newAccountValues := deriveNewAccountValues(accountWrites, accountOld, blockHeight)
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
-	storeWrites(s.accountWrites, newAccountValues)
+	maps.Copy(s.accountWrites, newAccountValues)
 
-	// Gather storage pairs
 	storageChanges, err := processStorageChanges(changesByType[evm.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
-	storeWrites(s.storageWrites, storageChanges)
+	maps.Copy(s.storageWrites, storageChanges)
 
-	// Gather code pairs
 	codeChanges, err := processCodeChanges(changesByType[evm.EVMKeyCode], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
 	codePairs := gatherLTHashPairs(codeChanges, codeOld)
-	storeWrites(s.codeWrites, codeChanges)
+	maps.Copy(s.codeWrites, codeChanges)
 
-	// Gather legacy pairs
 	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy])
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
 	legacyPairs := gatherLTHashPairs(legacyChanges, legacyOld)
-	storeWrites(s.legacyWrites, legacyChanges)
+	maps.Copy(s.legacyWrites, legacyChanges)
 
 	////////////////////
 	// Compute LTHash //
@@ -118,44 +120,59 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	return nil
 }
 
-// Store a map of writes into a map of pending writes.
-func storeWrites[T vtype.VType](
-	// the map that is accumulating writes
-	pendingWrites map[string]T,
-	// new writes that need to be applied to the pendingWrites map
-	newValues map[string]T,
-) {
-	for keyStr, newValue := range newValues {
-		pendingWrites[keyStr] = newValue
-	}
-}
+// classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
+// already in physical format ("module/" + memiavl_key). Non-EVM modules are
+// merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
+//
+// This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
+// avoiding an extra map allocation and repeated string concatenation per key.
+func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
+	result := make(map[evm.EVMKeyKind]map[string][]byte, 5)
 
-// Sort the change sets by type. Returns an error if any key is empty.
-func sortChangeSets(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[evm.EVMKeyKind]map[string][]byte)
+	getOrCreate := func(kind evm.EVMKeyKind, sizeHint int) map[string][]byte {
+		m, ok := result[kind]
+		if !ok {
+			m = make(map[string][]byte, sizeHint)
+			result[kind] = m
+		}
+		return m
+	}
 
 	for _, cs := range changeSets {
 		if cs.Changeset.Pairs == nil {
 			continue
 		}
-		for _, pair := range cs.Changeset.Pairs {
-			kind, keyBytes := evm.ParseEVMKey(pair.Key)
-			if kind == evm.EVMKeyEmpty {
-				return nil, fmt.Errorf("flatkv: empty key in changeset")
+
+		if cs.Name == evm.EVMStoreKey {
+			for _, pair := range cs.Changeset.Pairs {
+				kind, keyBytes := evm.ParseEVMKey(pair.Key)
+				if kind == evm.EVMKeyEmpty {
+					return nil, fmt.Errorf("flatkv: empty key in changeset")
+				}
+
+				var physKey string
+				if kind == evm.EVMKeyLegacy {
+					physKey = string(ktype.ModulePhysicalKey(evm.EVMStoreKey, pair.Key))
+				} else {
+					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
+				}
+
+				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
+				if pair.Delete {
+					kindMap[physKey] = nil
+				} else {
+					kindMap[physKey] = pair.Value
+				}
 			}
-
-			keyStr := string(keyBytes)
-
-			kindMap, ok := result[kind]
-			if !ok {
-				kindMap = make(map[string][]byte)
-				result[kind] = kindMap
-			}
-
-			if pair.Delete {
-				kindMap[keyStr] = nil
-			} else {
-				kindMap[keyStr] = pair.Value
+		} else {
+			legacyMap := getOrCreate(evm.EVMKeyLegacy, len(cs.Changeset.Pairs))
+			for _, pair := range cs.Changeset.Pairs {
+				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
+				if pair.Delete {
+					legacyMap[physKey] = nil
+				} else {
+					legacyMap[physKey] = pair.Value
+				}
 			}
 		}
 	}
@@ -168,7 +185,7 @@ func processStorageChanges(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.StorageData, error) {
-	result := make(map[string]*vtype.StorageData)
+	result := make(map[string]*vtype.StorageData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
@@ -191,7 +208,7 @@ func processCodeChanges(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.CodeData, error) {
-	result := make(map[string]*vtype.CodeData)
+	result := make(map[string]*vtype.CodeData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
@@ -206,12 +223,11 @@ func processCodeChanges(
 
 // Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
 func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.LegacyData, error) {
-	result := make(map[string]*vtype.LegacyData)
+	result := make(map[string]*vtype.LegacyData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			// Deletion is equivalent to setting the legacy value to a zero value
-			result[keyStr] = vtype.NewLegacyData().SetValue(nil)
+			result[keyStr] = vtype.NewLegacyData().MarkDeleted()
 		} else {
 			result[keyStr] = vtype.NewLegacyData().SetValue(rawChange)
 		}
@@ -219,7 +235,6 @@ func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.Legac
 	return result, nil
 }
 
-// Gather LtHash pairs for a DB.
 func gatherLTHashPairs[T vtype.VType](
 	newValues map[string]T,
 	oldValues map[string]T,
@@ -228,10 +243,11 @@ func gatherLTHashPairs[T vtype.VType](
 	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
 
 	for keyStr, newValue := range newValues {
-		var oldValue = oldValues[keyStr]
+		oldValue := oldValues[keyStr]
+		isDelete := newValue.IsDelete()
 
 		var newBytes []byte
-		if !newValue.IsDelete() {
+		if !isDelete {
 			newBytes = newValue.Serialize()
 		}
 
@@ -244,7 +260,7 @@ func gatherLTHashPairs[T vtype.VType](
 			Key:       []byte(keyStr),
 			Value:     newBytes,
 			LastValue: oldBytes,
-			Delete:    newValue.IsDelete(),
+			Delete:    isDelete,
 		})
 	}
 
@@ -258,8 +274,7 @@ func mergeAccountUpdates(
 	balanceChanges map[string][]byte,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
-	// PendingAccountWrite objects are well behaved when nil, no need to bootstrap map entries.
-	updates := make(map[string]*vtype.PendingAccountWrite)
+	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
 
 	for key, nonceChange := range nonceChanges {
 		if nonceChange == nil {
@@ -306,14 +321,14 @@ func mergeAccountUpdates(
 
 // Combine the pending account writes with prior values to determine the new account values.
 //
-// We need to take this step because accounts are split into multiple fields, and its possible to overwrite just a
-// single field (thus requring us to copy the unmodified fields from the prior value).
+// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
+// single field (thus requiring us to copy the unmodified fields from the prior value).
 func deriveNewAccountValues(
 	pendingWrites map[string]*vtype.PendingAccountWrite,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
 ) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData)
+	result := make(map[string]*vtype.AccountData, len(pendingWrites))
 
 	for addrStr, pendingWrite := range pendingWrites {
 		oldValue := oldValues[addrStr]
