@@ -512,6 +512,26 @@ func TestWrapSeiLegacyHTTP_BatchAllBlockedNotificationsEmptyHTTPBody(t *testing.
 	}
 }
 
+func TestWrapSeiLegacyHTTP_BatchSingleBlockedNotificationEmptyHTTPBody(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run: blocked notification must not be forwarded")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// Single notification (no id) for a gated method: blocked AND a notification,
+	// so no response entry and nothing forwarded — expect empty HTTP body, not [].
+	body := `[{"jsonrpc":"2.0","method":"sei_getBlockByNumber","params":[]}]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	if len(bytes.TrimSpace(rec.Body.Bytes())) != 0 {
+		t.Fatalf("JSON-RPC 2.0 forbids empty batch array; want empty body, got %q", rec.Body.String())
+	}
+}
+
 func TestWrapSeiLegacyHTTP_BatchInnerReorderedByID(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Inner returns results permuted vs forwarded request order.
