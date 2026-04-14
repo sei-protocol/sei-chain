@@ -168,7 +168,10 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	next := last + 1
 	if last == 0 {
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return fmt.Errorf("App.InitChain(): %w", err)
+			return fmt.Errorf("app.InitChain(): %w", err)
+		}
+		if _, err := app.Commit(ctx); err!=nil {
+			return fmt.Errorf("app.Commit(): %w",err)
 		}
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
@@ -186,9 +189,12 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	for n := next; ; n += 1 {
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
-			return err
+			return fmt.Errorf("r.data.GlobalBlock(%v): %w",n,err)
 		}
 		commitResp, err := r.executeBlock(ctx, b)
+		if err!=nil {
+			return fmt.Errorf("r.executeBlock(%v): %w",n,err)
+		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)

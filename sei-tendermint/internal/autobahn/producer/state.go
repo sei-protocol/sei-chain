@@ -62,17 +62,17 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 	}
 
 	txs, totalGas := s.txMempool.ReapMaxTxsBytesMaxGas(
-		s.cfg.maxTxsPerBlock(), // nolint:gosec // config values fit into int on supported platforms.
-		utils.Max[int64](),
-		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
-		int64(s.cfg.MaxGasPerBlock), // nolint:gosec // config values stay within int64 range.
+		min(types.MaxTxsPerBlock,s.cfg.maxTxsPerBlock()),
+		utils.Clamp[int64](types.MaxTxsBytesPerBlock),
+		utils.Clamp[int64](s.cfg.MaxGasPerBlock),
+		utils.Clamp[int64](s.cfg.MaxGasPerBlock),
 	)
 	s.txMempool.RemoveTxs(txs)
 	payloadTxs := make([][]byte, 0, len(txs))
 	for _, tx := range txs {
 		payloadTxs = append(payloadTxs, tx)
 	}
-	return types.PayloadBuilder{
+	payload,err := types.PayloadBuilder{
 		CreatedAt: time.Now(),
 		// TODO: ReapMaxTxsBytesMaxGas does not handle corner cases correctly rn, which actually
 		// can produce negative total gas. Fixing it right away might be backward incompatible afaict,
@@ -80,6 +80,11 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 		TotalGas: uint64(totalGas), // nolint:gosec
 		Txs:      payloadTxs,
 	}.Build()
+	// This should never happen: we construct the payload from correctly sized data.
+	if err!=nil {
+		panic(fmt.Errorf("PayloadBuilder{}.Build(): %w",err))
+	}
+	return payload
 }
 
 // nextPayload constructs the payload for the next block.

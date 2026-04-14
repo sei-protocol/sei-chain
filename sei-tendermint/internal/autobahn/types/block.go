@@ -72,6 +72,27 @@ func (h *BlockHeader) Verify(c *Committee) error {
 	return nil
 }
 
+const standardTxBytes uint64 = 1024
+
+// Maximum number of transactions in a block. 
+const MaxTxsPerBlock uint64 = 2000
+// Maximum total size of all the transactions.
+// It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)
+// up to MaxTxsPerBlock limit.
+const MaxTxsBytesPerBlock = MaxTxsPerBlock * standardTxBytes
+
+// Upper bound on the block proto encoding.
+var MaxBlockProtoSize = func() uint64 {
+	// Payload.Txs represents the variable part of the Block size.
+	// Proto size is maximized if we distribute data evenly across transactions. 
+	tx := make([]byte,standardTxBytes)
+	txs := make([][]byte,MaxTxsPerBlock)
+	for i := range txs { txs[i] = tx }
+	// Crude estimate of all other fields.
+	const otherFields = 100 * 1024
+	return otherFields + uint64(protoutils.Size(&pb.Block{Payload:&pb.Payload{Txs:txs}}))
+}()
+
 // Block .
 type Block struct {
 	utils.ReadOnly
@@ -149,7 +170,19 @@ type Payload struct {
 }
 
 // Build builds the Payload.
-func (b PayloadBuilder) Build() *Payload { return &Payload{p: b} }
+func (b PayloadBuilder) Build() (*Payload,error) {
+	if uint64(len(b.Txs)) > MaxTxsPerBlock {
+		return nil,fmt.Errorf("too many transactions")
+	}
+	total := uint64(0)
+	for _,tx := range b.Txs {
+		total += uint64(len(tx))
+	}
+	if total > MaxTxsBytesPerBlock {
+		return nil, fmt.Errorf("total txs bytes too large")
+	}
+	return &Payload{p: b},nil
+}
 
 // ToBuilder converts the Payload to a PayloadBuilder.
 func (p *Payload) ToBuilder() PayloadBuilder { return p.p }
@@ -245,7 +278,7 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 			Coinbase:  p.Coinbase,
 			Basefee:   *p.Basefee,
 			Txs:       p.Txs,
-		}.Build(), nil
+		}.Build()
 	},
 }
 
