@@ -167,6 +167,8 @@ func (a *testApp) Snapshot() testAppState {
 		s := *state
 		// Txs is derived and the only mutable field.
 		s.Txs = nil
+		// "Committed" field is not guaranteed to be consistent.
+		s.Committed = false
 		return s
 	}
 	panic("unreachable")
