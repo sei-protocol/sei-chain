@@ -13,6 +13,11 @@ import (
 // read more than the inner JSON-RPC stack will accept (see rpc.Server.SetHTTPBodyLimit).
 const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
 
+const (
+	invalidRequestCode = -32600
+	internalErrorCode  = -32603
+)
+
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for
 // gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
 // Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
@@ -206,7 +211,7 @@ func seiLegacyBatchResponsesNoForward(
 	out := make([]json.RawMessage, 0, lenMsgs)
 	for i := 0; i < lenMsgs; i++ {
 		if invalidReq[i] {
-			out = append(out, marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
+			out = append(out, marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg))
 			continue
 		}
 		if isJSONRPCNotificationID(ids[i]) {
@@ -232,13 +237,13 @@ func mergeSeiLegacyHTTPBatch(
 		for i := 0; i < lenMsgs; i++ {
 			switch {
 			case invalidReq[i]:
-				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg)))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg)))
 			case isJSONRPCNotificationID(ids[i]):
 				continue
 			case blocked[i]:
 				out = append(out, json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i])))
 			default:
-				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr)))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), internalErrorCode, seiLegacyBatchInternalErr)))
 			}
 		}
 		return out
@@ -275,7 +280,7 @@ func mergeSeiLegacyHTTPBatch(
 	used := make([]bool, len(innerArr))
 	for i := 0; i < lenMsgs; i++ {
 		if invalidReq[i] {
-			out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg)))
+			out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg)))
 			continue
 		}
 		if isJSONRPCNotificationID(ids[i]) {
@@ -288,7 +293,7 @@ func mergeSeiLegacyHTTPBatch(
 		k := rpcIDKey(ids[i])
 		idx, ok := idToIdx[k]
 		if !ok || used[idx] {
-			out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr)))
+			out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), internalErrorCode, seiLegacyBatchInternalErr)))
 			continue
 		}
 		used[idx] = true
@@ -393,7 +398,7 @@ func marshalBlockedResponse(id json.RawMessage, gateErr error) []byte {
 			"jsonrpc": "2.0",
 			"id":      id,
 			"error": map[string]interface{}{
-				"code":    -32603,
+				"code":    internalErrorCode,
 				"message": gateErr.Error(),
 			},
 		})

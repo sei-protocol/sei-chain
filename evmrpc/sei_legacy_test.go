@@ -11,7 +11,13 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
 )
+
+func TestConstants(t *testing.T) {
+	require.Equal(t, -32600, invalidRequestCode)
+	require.Equal(t, -32603, internalErrorCode)
+}
 
 func TestBuildSeiLegacyEnabledSet_Empty(t *testing.T) {
 	s := BuildSeiLegacyEnabledSet(nil)
@@ -297,7 +303,7 @@ func TestWrapSeiLegacyHTTP_BatchTrailingNonObjectDoesNotBypassGate(t *testing.T)
 		t.Fatalf("slot 0 should be legacy gate error: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 should be JSON-RPC invalid request (-32600): %+v", batch[1])
 	}
 }
@@ -320,7 +326,7 @@ func TestWrapSeiLegacyHTTP_BatchLeadingNonObjectDoesNotBypassGate(t *testing.T) 
 		t.Fatalf("want 2 entries, got %d", len(batch))
 	}
 	err0, _ := batch[0]["error"].(map[string]any)
-	if err0 == nil || int(err0["code"].(float64)) != -32600 {
+	if err0 == nil || int(err0["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 0 should be -32600 invalid request: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
@@ -394,7 +400,7 @@ func TestWrapSeiLegacyHTTP_BatchInvalidNonObjectNotForwarded(t *testing.T) {
 		t.Fatalf("slot 0: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 want -32600: %+v", batch[1])
 	}
 }
@@ -486,7 +492,7 @@ func TestWrapSeiLegacyHTTP_BatchInvalidThenNotificationOneResponse(t *testing.T)
 		t.Fatalf("want 1 entry (-32600 only; notification omitted), got %d: %s", len(batch), rec.Body.String())
 	}
 	err0, _ := batch[0]["error"].(map[string]any)
-	if err0 == nil || int(err0["code"].(float64)) != -32600 {
+	if err0 == nil || int(err0["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("want -32600: %+v", batch[0])
 	}
 }
@@ -596,7 +602,7 @@ func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	if err2 == nil {
 		t.Fatal("slot 2 should be JSON-RPC error")
 	}
-	if int(err2["code"].(float64)) != -32603 {
+	if int(err2["code"].(float64)) != internalErrorCode {
 		t.Fatalf("want -32603, got %+v", err2)
 	}
 }
@@ -630,7 +636,7 @@ func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
 		if errObj == nil {
 			t.Fatalf("slot %d expected error, got %+v", i, batch[i])
 		}
-		if int(errObj["code"].(float64)) != -32603 {
+		if int(errObj["code"].(float64)) != internalErrorCode {
 			t.Fatalf("slot %d: %+v", i, errObj)
 		}
 	}
