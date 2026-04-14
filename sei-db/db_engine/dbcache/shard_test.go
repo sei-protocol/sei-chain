@@ -241,6 +241,9 @@ func TestGetUpdateLruTrue(t *testing.T) {
 
 	s.Get(read, []byte("a"), true)
 
+	// LRU updates are now async — flush before asserting order.
+	s.flushLRU()
+
 	s.lock.Lock()
 	lru := s.gcQueue.PopLeastRecentlyUsed()
 	s.lock.Unlock()
@@ -575,6 +578,9 @@ func TestEvictionOrderIsLRU(t *testing.T) {
 	s.Set([]byte("c"), []byte("3333"))
 
 	s.Get(read, []byte("a"), true)
+
+	// LRU updates are now async — flush so Touch("a") is applied before eviction.
+	s.flushLRU()
 
 	s.Set([]byte("d"), []byte("4444"))
 

@@ -14,8 +14,9 @@ import (
 type shard struct {
 	ctx context.Context
 
-	// A lock to protect the shard's data.
-	lock sync.Mutex
+	// A RW lock to protect the shard's data. Readers (cache hits) acquire RLock
+	// for concurrent access; writers (cache misses, Set, Delete) acquire full Lock.
+	lock sync.RWMutex
 
 	// The data in the shard.
 	data map[string]*shardEntry
@@ -35,6 +36,14 @@ type shard struct {
 
 	// Cache-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *CacheMetrics
+
+	// Channel for deferred LRU updates from read-locked cache hits.
+	// A background goroutine drains this and applies Touch() under write lock.
+	lruCh chan []byte
+
+	// Channel for flush requests (testing only). Sending a chan struct{} causes
+	// the LRU worker to drain all pending updates and close the channel when done.
+	flushCh chan chan struct{}
 }
 
 // The result of a read from the underlying database.
@@ -74,19 +83,22 @@ type shardEntry struct {
 }
 
 /*
-This implementation currently uses a single exlusive lock, as opposed to a RW lock. This is a lot simpler than
-using a RW lock, but it comes at higher risk of contention under certain workloads. If this contention ever
-becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
-for converting to a RW lock:
+This implementation uses a RW lock to allow concurrent cache-hit reads. The strategy:
 
-- Create a background goroutine that is responsible for garbage collection and updating the LRU.
-- The GC goroutine should periodically wake up, grab the lock, and do garbage collection.
-- When Get() is called, the calling goroutine should grab a read lock and attempt to read the value.
-    - If the value is present, send a message to the GC goroutine over a channel (so it can update the LRU)
-	  and return the value. In this way, many readers can read from this shard concurrently.
-	- If the value is missing, drop the read lock and acquire a write lock. Then, handle the read
-	  like we currently handle in the current implementation.
+  - Get() acquires RLock and checks for a cache hit (statusAvailable or statusDeleted).
+    On hit, it returns the value immediately under RLock and sends a deferred LRU update
+    to the background goroutine via lruCh. Many readers can read concurrently.
+  - On cache miss, Get() releases RLock and acquires a full Lock to schedule the read,
+    following the same path as before.
+  - A background goroutine (runLRUWorker) drains lruCh, batches Touch() calls, and runs
+    eviction under the write lock.
+  - All write methods (Set, Delete, BatchSet, injectValue, bulkInjectValues) acquire
+    the full write lock as before.
 */
+
+// lruChSize is the buffer size for deferred LRU updates from read-locked cache hits.
+// Large enough to avoid blocking readers under normal load.
+const lruChSize = 4096
 
 // Creates a new Shard.
 func NewShard(
@@ -104,21 +116,110 @@ func NewShard(
 		return nil, fmt.Errorf("maxSize must be greater than 0")
 	}
 
-	return &shard{
+	s := &shard{
 		ctx:                       ctx,
 		readPool:                  readPool,
-		lock:                      sync.Mutex{},
 		data:                      make(map[string]*shardEntry),
 		gcQueue:                   newLRUQueue(),
 		estimatedOverheadPerEntry: estimatedOverheadPerEntry,
 		maxSize:                   maxSize,
-	}, nil
+		lruCh:                     make(chan []byte, lruChSize),
+		flushCh:                   make(chan chan struct{}),
+	}
+	go s.runLRUWorker()
+	return s, nil
+}
+
+// flushLRU blocks until all pending LRU updates have been processed.
+// Intended for testing only.
+func (s *shard) flushLRU() {
+	done := make(chan struct{})
+	s.flushCh <- done
+	<-done
+}
+
+// runLRUWorker drains deferred LRU updates from read-locked cache hits.
+// It batches Touch() calls under a single write lock acquisition.
+func (s *shard) runLRUWorker() {
+	for {
+		select {
+		case key := <-s.lruCh:
+			s.lock.Lock()
+			s.gcQueue.Touch(key)
+			// Drain any additional queued updates while we hold the lock.
+		drain:
+			for {
+				select {
+				case k := <-s.lruCh:
+					s.gcQueue.Touch(k)
+				default:
+					break drain
+				}
+			}
+			s.evictUnlocked()
+			s.lock.Unlock()
+		case done := <-s.flushCh:
+			// Process any remaining items, then signal completion.
+			s.lock.Lock()
+		flushDrain:
+			for {
+				select {
+				case k := <-s.lruCh:
+					s.gcQueue.Touch(k)
+				default:
+					break flushDrain
+				}
+			}
+			s.evictUnlocked()
+			s.lock.Unlock()
+			close(done)
+		case <-s.ctx.Done():
+			return
+		}
+	}
 }
 
 // Get returns the value for the given key, or (nil, false, nil) if not found.
 func (s *shard) Get(read Reader, key []byte, updateLru bool) ([]byte, bool, error) {
+	// Fast path: read lock for cache hits. Under RLock no writer can modify the
+	// map or entry fields, so reading status and value is safe.
+	s.lock.RLock()
+	if entry, ok := s.data[string(key)]; ok {
+		switch entry.status {
+		case statusAvailable:
+			value := entry.value
+			s.lock.RUnlock()
+			if updateLru {
+				select {
+				case s.lruCh <- key:
+				default:
+					// Channel full — skip LRU update rather than block readers.
+				}
+			}
+			s.metrics.reportCacheHits(1)
+			return value, true, nil
+		case statusDeleted:
+			s.lock.RUnlock()
+			if updateLru {
+				select {
+				case s.lruCh <- key:
+				default:
+				}
+			}
+			s.metrics.reportCacheHits(1)
+			return nil, false, nil
+		case statusScheduled:
+			valueChan := entry.valueChan
+			s.lock.RUnlock()
+			return s.waitForScheduled(valueChan)
+		}
+	}
+	s.lock.RUnlock()
+
+	// Slow path: write lock for cache misses and unknown entries.
 	s.lock.Lock()
 
+	// Re-check after acquiring write lock — another goroutine may have populated.
 	entry := s.getEntry(key, true)
 
 	switch entry.status {
@@ -161,6 +262,12 @@ func (s *shard) getDeleted(key []byte, updateLru bool) ([]byte, bool, error) {
 func (s *shard) getScheduled(entry *shardEntry) ([]byte, bool, error) {
 	valueChan := entry.valueChan
 	s.lock.Unlock()
+	return s.waitForScheduled(valueChan)
+}
+
+// waitForScheduled blocks until a pending read completes and returns its result.
+// Caller must NOT hold any lock.
+func (s *shard) waitForScheduled(valueChan chan readResult) ([]byte, bool, error) {
 	s.metrics.reportCacheMisses(1)
 	startTime := time.Now()
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
@@ -371,8 +478,8 @@ func (s *shard) evictUnlocked() {
 
 // getSizeInfo returns the current size (bytes) and entry count under the shard lock.
 func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	return s.gcQueue.GetTotalSize(), s.gcQueue.GetCount()
 }
 
