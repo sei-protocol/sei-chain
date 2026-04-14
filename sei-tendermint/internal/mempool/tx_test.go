@@ -201,7 +201,7 @@ func TestTxStore_Size(t *testing.T) {
 
 	for i := range numTxs {
 		txStore.SetTx(&WrappedTx{
-			tx:        fmt.Appendf(nil,"test_tx_%d", i),
+			tx:        fmt.Appendf(nil, "test_tx_%d", i),
 			priority:  int64(i),
 			timestamp: time.Now(),
 		})
@@ -270,7 +270,7 @@ func TestWrappedTxList(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsGood(t *testing.T) {
-	pendingTxs := NewPendingTxs(defaultCfg())
+	pendingTxs := NewPendingTxs(DefaultConfig())
 	for _, test := range []struct {
 		origLen    int
 		popIndices []int
@@ -333,7 +333,7 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsBad(t *testing.T) {
-	pendingTxs := NewPendingTxs(defaultCfg())
+	pendingTxs := NewPendingTxs(DefaultConfig())
 	// out of range
 	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
 	// out of order
@@ -344,7 +344,7 @@ func TestPendingTxsPopTxsBad(t *testing.T) {
 }
 
 func TestPendingTxs_InsertCondition(t *testing.T) {
-	mempoolCfg := defaultCfg() 
+	mempoolCfg := DefaultConfig()
 
 	// First test exceeding number of txs
 	mempoolCfg.PendingSize = 2

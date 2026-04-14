@@ -15,7 +15,6 @@ import (
 	"golang.org/x/time/rate"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
@@ -325,7 +324,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
-	txMempool := mempool.NewTxMempool(config.TestMempoolConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,

@@ -138,6 +138,27 @@ type Config struct {
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
+func DefaultConfig() *Config {
+	return &Config{
+		// Each signature verification takes .5ms, Size reduced until we implement
+		// ABCI Recheck
+		Size:                      5000,
+		MaxTxsBytes:               1024 * 1024 * 1024, // 1GB
+		CacheSize:                 10000,
+		DuplicateTxsCacheSize:     100000,
+		MaxTxBytes:                1024 * 1024,     // 1MB
+		TTLDuration:               5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:              10,              // remove txs after 10 blocks
+		TxNotifyThreshold:         0,
+		PendingSize:               5000,
+		MaxPendingTxsBytes:        1024 * 1024 * 1024, // 1GB
+		RemoveExpiredTxsFromQueue: true,
+		DropPriorityThreshold:     0.1,
+		DropUtilisationThreshold:  1.0,
+		DropPriorityReservoirSize: 10_240,
+	}
+}
+
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that

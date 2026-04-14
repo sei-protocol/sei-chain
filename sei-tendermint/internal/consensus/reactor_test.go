@@ -273,7 +273,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		proxyAppConnCon := app
 
 		mempool := mempool.NewTxMempool(
-			thisConfig.Mempool,
+			thisConfig.Mempool.ToMempoolConfig(),
 			proxyAppConnMem,
 			mempool.NopMetrics(),
 			mempool.NopTxConstraintsFetcher,

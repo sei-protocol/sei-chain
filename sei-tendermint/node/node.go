@@ -190,7 +190,7 @@ func makeNode(
 			makeCloser(closers))
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
@@ -215,7 +215,7 @@ func makeNode(
 	// Mempool gossiping is not compatible with Giga,
 	// so we disable the mempool reactor.
 	if !gigaEnabled {
-		mpReactor, err := mempoolreactor.NewReactor(mp, router)
+		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
 		if err != nil {
 			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
 		}

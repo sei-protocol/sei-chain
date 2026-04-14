@@ -11,7 +11,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -234,9 +233,7 @@ func randomGenesisDoc() *types.GenesisDoc {
 func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
 	t.Helper()
 
-	cfg := config.TestMempoolConfig()
-
-	return mempool.NewTxMempool(cfg, app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // used for testing by state store
