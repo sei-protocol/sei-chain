@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -22,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
@@ -184,12 +184,12 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, app, and genesis doc.
+// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
 func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
-	appClient abci.Application,
+	txMempool *mempool.TxMempool,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
 	if autobahnConfigFile == "" {
@@ -245,8 +245,8 @@ func buildGigaConfig(
 			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		},
-		App:    appClient,
-		GenDoc: genDoc,
+		TxMempool: txMempool,
+		GenDoc:    genDoc,
 	}, nil
 }
 
@@ -256,7 +256,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	app abci.Application,
+	txMempool utils.Option[*mempool.TxMempool],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -348,7 +348,11 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
+		mp, ok := txMempool.Get()
+		if !ok {
+			return nil, closer, errors.New("autobahn requires a tx mempool")
+		}
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
@@ -403,7 +407,7 @@ func makeNodeInfo(
 			byte(consensus.DataChannel),
 			byte(consensus.VoteChannel),
 			byte(consensus.VoteSetBitsChannel),
-			byte(mempool.MempoolChannel),
+			byte(mempoolreactor.MempoolChannel),
 			byte(evidence.EvidenceChannel),
 			byte(statesync.SnapshotChannel),
 			byte(statesync.ChunkChannel),

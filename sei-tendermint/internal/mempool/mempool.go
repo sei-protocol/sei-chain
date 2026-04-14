@@ -12,19 +12,21 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
-// errTxInCache is returned to the client if we saw tx earlier.
-var errTxInCache = errors.New("tx already exists in cache")
+var logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
-// errTxTooLarge defines an error when a transaction is too big to be sent to peers.
-var errTxTooLarge = errors.New("tx too large")
+// ErrTxInCache is returned to the client if we saw tx earlier.
+var ErrTxInCache = errors.New("tx already exists in cache")
+
+// ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
+var ErrTxTooLarge = errors.New("tx too large")
 
 // Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
 // collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
@@ -43,13 +45,127 @@ const (
 	MinGasEVMTx  = 21000
 )
 
+type Config struct {
+	// Maximum number of transactions in the mempool
+	Size int
+
+	// Limit the total size of all txs in the mempool.
+	// This only accounts for raw transactions (e.g. given 1MB transactions and
+	// max-txs-bytes=5MB, mempool will only accept 5 transactions).
+	MaxTxsBytes int64
+
+	// Size of the cache (used to filter transactions we saw earlier) in transactions
+	CacheSize int
+
+	// Size of the duplicate cache used to track duplicate txs
+	DuplicateTxsCacheSize int
+
+	// Do not remove invalid transactions from the cache (default: false)
+	// Set to true if it's not possible for any invalid transaction to become
+	// valid again in the future.
+	KeepInvalidTxsInCache bool
+
+	// Maximum size of a single transaction
+	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	MaxTxBytes int
+
+	// TTLDuration, if non-zero, defines the maximum amount of time a transaction
+	// can exist for in the mempool.
+	//
+	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
+	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
+	// insertion time into the mempool is beyond TTLDuration.
+	TTLDuration time.Duration
+
+	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
+	// can exist for in the mempool.
+	//
+	// Note, if TTLDuration is also defined, a transaction will be removed if it
+	// has existed in the mempool at least TTLNumBlocks number of blocks or if
+	// it's insertion time into the mempool is beyond TTLDuration.
+	TTLNumBlocks int64
+
+	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
+	// needed to trigger a notification in mempool's Tx notifier
+	TxNotifyThreshold uint64
+
+	// Maximum number of transactions in the pending set
+	PendingSize int
+
+	// Limit the total size of all txs in the pending set.
+	MaxPendingTxsBytes int64
+
+	RemoveExpiredTxsFromQueue bool
+
+	// DropPriorityThreshold defines the percentage of transactions with the lowest
+	// priority hint (expressed as a float in the range [0.0, 1.0]) that will be
+	// dropped from the mempool once the configured utilisation threshold is reached.
+	//
+	// The default value of 0.1 means that the lowest 10% of transactions by
+	// priority will be dropped when the mempool utilisation exceeds the
+	// DropUtilisationThreshold.
+	//
+	// See DropUtilisationThreshold.
+	DropPriorityThreshold float64
+
+	// DropUtilisationThreshold defines the mempool utilisation level (expressed as
+	// a percentage in the range [0.0, 1.0]) above which transactions will be
+	// selectively dropped based on their priority hint.
+	//
+	// For example, if this parameter is set to 0.8, then once the mempool reaches
+	// 80% capacity, transactions with priority hints below DropPriorityThreshold
+	// percentile will be dropped to make room for new transactions.
+	DropUtilisationThreshold float64
+
+	// DropPriorityReservoirSize defines the size of the reservoir for keeping track
+	// of the distribution of transaction priorities in the mempool.
+	//
+	// This is used to determine the priority threshold below which transactions will
+	// be dropped when the mempool utilisation exceeds DropUtilisationThreshold.
+	//
+	// The reservoir is a statistically representative sample of transaction
+	// priorities in the mempool, and is used to estimate the priority distribution
+	// without needing to store all transaction priorities.
+	//
+	// A larger reservoir size will yield a more accurate estimate of the priority
+	// distribution, but will consume more memory.
+	//
+	// The default value of 10,240 is a reasonable compromise between accuracy and
+	// memory usage for most use cases. It takes approximately 80KB of memory storing
+	// int64 transaction priorities.
+	//
+	// See DropUtilisationThreshold and DropPriorityThreshold.
+	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		// Each signature verification takes .5ms, Size reduced until we implement
+		// ABCI Recheck
+		Size:                      5000,
+		MaxTxsBytes:               1024 * 1024 * 1024, // 1GB
+		CacheSize:                 10000,
+		DuplicateTxsCacheSize:     100000,
+		MaxTxBytes:                1024 * 1024,     // 1MB
+		TTLDuration:               5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:              10,              // remove txs after 10 blocks
+		TxNotifyThreshold:         0,
+		PendingSize:               5000,
+		MaxPendingTxsBytes:        1024 * 1024 * 1024, // 1GB
+		RemoveExpiredTxsFromQueue: true,
+		DropPriorityThreshold:     0.1,
+		DropUtilisationThreshold:  1.0,
+		DropPriorityReservoirSize: 10_240,
+	}
+}
+
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
 // is used to gossip transactions to peers in a FIFO manner.
 type TxMempool struct {
 	metrics *Metrics
-	config  *config.MempoolConfig
+	config  *Config
 	app     abci.Application
 
 	// txsAvailable fires once for each height when the mempool is not empty
@@ -123,7 +239,7 @@ type TxMempool struct {
 }
 
 func NewTxMempool(
-	cfg *config.MempoolConfig,
+	cfg *Config,
 	app abci.Application,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
@@ -157,6 +273,10 @@ func NewTxMempool(
 
 	return txmp
 }
+
+func (txmp *TxMempool) Config() *Config { return txmp.config }
+
+func (txmp *TxMempool) App() abci.Application { return txmp.app }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
@@ -204,14 +324,14 @@ func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeByt
 
 func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
 
-// WaitForNextTx returns a blocking channel that will be closed when the next
-// valid transaction is available to gossip. It is thread-safe.
-func (txmp *TxMempool) WaitForNextTx() <-chan struct{} { return txmp.gossipIndex.WaitChan() }
-
-// NextGossipTx returns the next valid transaction to gossip. A caller must wait
-// for WaitForNextTx to signal a transaction is available to gossip first. It is
-// thread-safe.
-func (txmp *TxMempool) NextGossipTx() *clist.CElement { return txmp.gossipIndex.Front() }
+// WaitForNextTx waits until the next transaction is available for gossip.
+// Returns the next valid transaction to gossip.
+func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement, error) {
+	if _, _, err := utils.RecvOrClosed(ctx, txmp.gossipIndex.WaitChan()); err != nil {
+		return nil, err
+	}
+	return txmp.gossipIndex.Front(), nil
+}
 
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.
@@ -269,14 +389,14 @@ func (txmp *TxMempool) CheckTx(
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return fmt.Errorf("%w: max size is %d, but got %d", errTxTooLarge, txmp.config.MaxTxBytes, txSize)
+		return fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
 	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
-		return fmt.Errorf("%w: tx size is too big: %d, max: %d", errTxTooLarge, txSize, constraints.MaxDataBytes)
+		return fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -305,7 +425,7 @@ func (txmp *TxMempool) CheckTx(
 	// check if we've seen this transaction and error if we have.
 	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
-		return errTxInCache
+		return ErrTxInCache
 	}
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
@@ -482,7 +602,7 @@ func (txmp *TxMempool) Flush() {
 // and gas constraints. The returned list starts with EVM transactions (in priority order),
 // followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
-//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit. Can be set to -1 to be ignored.
+//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
 //  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
 //     Can be set to -1 to be ignored.
 //  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
@@ -494,18 +614,53 @@ func (txmp *TxMempool) Flush() {
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
+	txs, _ := txmp.reapTxs(ReapLimits{
+		MaxBytes:        utils.Some(maxBytes),
+		MaxGasWanted:    utils.Some(maxGasWanted),
+		MaxGasEstimated: utils.Some(maxGasEstimated),
+	})
+	return txs
+}
 
+type ReapLimits struct {
+	MaxTxs          utils.Option[uint64]
+	MaxBytes        utils.Option[int64]
+	MaxGasWanted    utils.Option[int64]
+	MaxGasEstimated utils.Option[int64]
+}
+
+// ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
+// byte, and gas constraints together with the total estimated gas for the
+// returned transactions.
+//
+// NOTE: Gas limits are enforced using int64 running totals. If those totals
+// overflow, gas limit enforcement no longer works correctly. This preserves the
+// historical behavior for backward compatibility.
+func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
+	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
+	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
+	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
+	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
+	if maxBytes < 0 {
+		maxBytes = utils.Max[int64]()
+	}
+	if maxGasWanted < 0 {
+		maxGasWanted = utils.Max[int64]()
+	}
+	if maxGasEstimated < 0 {
+		maxGasEstimated = utils.Max[int64]()
+	}
 	var (
 		totalGasWanted    int64
 		totalGasEstimated int64
 		totalSize         int64
 	)
 
-	numTxs := 0
+	numTxs := uint64(0)
 	encounteredGasUnfit := false
 	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
 		// do not reap anything if threshold is not met
-		return []types.Tx{}
+		return []types.Tx{}, 0
 	}
 	totalTxs := txmp.priorityIndex.NumTxs()
 	evmTxs := make([]types.Tx, 0, totalTxs)
@@ -514,7 +669,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
 		// bytes limit is a hard stop
-		if maxBytes > -1 && totalSize+size > maxBytes {
+		if totalSize+size > maxBytes || numTxs+1 > maxTxs {
 			return false
 		}
 
@@ -531,8 +686,8 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		prospectiveGasWanted := totalGasWanted + wtx.gasWanted
 		prospectiveGasEstimated := totalGasEstimated + txGasEstimate
 
-		maxGasWantedExceeded := maxGasWanted > -1 && prospectiveGasWanted > maxGasWanted
-		maxGasEstimatedExceeded := maxGasEstimated > -1 && prospectiveGasEstimated > maxGasEstimated
+		maxGasWantedExceeded := prospectiveGasWanted > maxGasWanted
+		maxGasEstimatedExceeded := prospectiveGasEstimated > maxGasEstimated
 
 		if maxGasWantedExceeded || maxGasEstimatedExceeded {
 			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
@@ -544,6 +699,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		}
 
 		// include tx and update totals
+		numTxs += 1
 		totalSize += size
 		totalGasWanted = prospectiveGasWanted
 		totalGasEstimated = prospectiveGasEstimated
@@ -553,14 +709,26 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		} else {
 			nonEvmTxs = append(nonEvmTxs, wtx.tx)
 		}
-		numTxs++
 		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
 		}
 		return true
 	})
 
-	return append(evmTxs, nonEvmTxs...)
+	return append(evmTxs, nonEvmTxs...), totalGasEstimated
+}
+
+// RemoveTxs removes the provided transactions from the mempool if present.
+func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
+	txmp.Lock()
+	defer txmp.Unlock()
+	txs, gasEstimated := txmp.reapTxs(l)
+	for _, tx := range txs {
+		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
+			txmp.removeTx(wtx, false, false, true)
+		}
+	}
+	return txs, gasEstimated
 }
 
 // ReapMaxTxs returns a list of transactions within the provided number of
