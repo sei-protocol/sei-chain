@@ -96,6 +96,23 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	return EVMKeyLegacy, key
 }
 
+// EVMKeyPrefixByte returns the single-byte on-disk prefix for a given key kind.
+// Returns (0, false) for kinds that have no fixed prefix (e.g. EVMKeyLegacy).
+func EVMKeyPrefixByte(kind EVMKeyKind) (byte, bool) {
+	switch kind {
+	case EVMKeyStorage:
+		return stateKeyPrefix[0], true
+	case EVMKeyNonce:
+		return nonceKeyPrefix[0], true
+	case EVMKeyCodeHash:
+		return codeHashKeyPrefix[0], true
+	case EVMKeyCode:
+		return codeKeyPrefix[0], true
+	default:
+		return 0, false
+	}
+}
+
 // BuildMemIAVLEVMKey builds a memiavl key from internal bytes.
 // This is the reverse of ParseEVMKey for optimized key types.
 //
@@ -103,23 +120,13 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 // FlatKV stores data in internal format; this function converts back to
 // memiavl format for Iterator/Exporter output.
 func BuildMemIAVLEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
-	var prefix []byte
-	switch kind {
-	case EVMKeyStorage:
-		prefix = stateKeyPrefix
-	case EVMKeyNonce:
-		prefix = nonceKeyPrefix
-	case EVMKeyCodeHash:
-		prefix = codeHashKeyPrefix
-	case EVMKeyCode:
-		prefix = codeKeyPrefix
-	default:
+	prefix, ok := EVMKeyPrefixByte(kind)
+	if !ok {
 		return nil
 	}
-
-	result := make([]byte, 0, len(prefix)+len(keyBytes))
-	result = append(result, prefix...)
-	result = append(result, keyBytes...)
+	result := make([]byte, 1+len(keyBytes))
+	result[0] = prefix
+	copy(result[1:], keyBytes)
 	return result
 }
 

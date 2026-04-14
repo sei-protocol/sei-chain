@@ -102,9 +102,9 @@ func TestStoreGetReceiptByTxHashWithoutIndex(t *testing.T) {
 	}
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:          dir,
-		MaxBlocksPerFile:     500,
-		DisableTxIndexLookup: true,
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		TxIndexBackend:   "none",
 	})
 	require.NoError(t, err)
 	defer func() { _ = store.Close() }()
