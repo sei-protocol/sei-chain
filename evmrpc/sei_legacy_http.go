@@ -209,7 +209,7 @@ func seiLegacyBatchResponsesNoForward(
 	lenMsgs int,
 ) []json.RawMessage {
 	out := make([]json.RawMessage, 0, lenMsgs)
-	for i := 0; i < lenMsgs; i++ {
+	for i := range lenMsgs {
 		if invalidReq[i] {
 			out = append(out, marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg))
 			continue
