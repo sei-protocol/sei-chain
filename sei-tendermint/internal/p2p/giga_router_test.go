@@ -175,11 +175,10 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	}
 }
 
-// TestInitChainCommitThenFinalize verifies that Commit after InitChain
-// correctly persists state so that subsequent FinalizeBlock + Commit
-// calls succeed. This is the flow used by GigaRouter.runExecute().
-// Without the Commit after InitChain, the real app panics because
-// staking params are not persisted to the committed store.
+// TestInitChainCommitThenFinalize verifies the autobahn block execution flow:
+// the CometBFT handshaker calls InitChain (no Commit), then GigaRouter.runExecute()
+// calls FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
+// followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
@@ -261,6 +260,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
+			// Simulate CometBFT handshaker calling InitChain (see consensus/replay.go).
+			// In production, the handshaker always runs before GigaRouter.Run().
+			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
+				return fmt.Errorf("app.InitChain(): %w", err)
+			}
 			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),

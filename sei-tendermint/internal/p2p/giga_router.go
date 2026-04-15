@@ -171,12 +171,11 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
-		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return fmt.Errorf("app.InitChain(): %w", err)
-		}
-		// No Commit after InitChain: the SDK expects the first FinalizeBlock at
-		// InitialHeight using the deliverState set up by InitChain.
-		// GetValidators uses DeliverContext() to read uncommitted staking params.
+		// The CometBFT handshaker already called InitChain when it saw
+		// appHeight==0 (see consensus/replay.go). We must NOT call it again —
+		// a second InitChain re-runs initChainer and corrupts state.
+		// Just set next to InitialHeight so the first FinalizeBlock uses the
+		// deliverState that the handshaker's InitChain set up.
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
