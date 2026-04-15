@@ -262,11 +262,15 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 }
 
 // convertFlatKVNodes transforms a single FlatKV physical-key snapshot node
-// into one or more EVM SS nodes by stripping the module prefix from the key,
+// into one or more SS nodes by stripping the module prefix from the key,
 // deserializing the vtype metadata from the value, and (for merged account
 // rows) splitting into separate nonce and codeHash nodes.
+//
+// For EVM-specific keys (account, storage, code) the output StoreKey is "evm".
+// For legacy keys the original module name is preserved so they route back to
+// the correct Cosmos SS module.
 func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
-	_, innerKey, err := ktype.StripModulePrefix(node.Key)
+	moduleName, innerKey, err := ktype.StripModulePrefix(node.Key)
 	if err != nil {
 		return nil, fmt.Errorf("convertFlatKVNodes: %w", err)
 	}
@@ -322,7 +326,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 			return nil, fmt.Errorf("convertFlatKVNodes legacy: %w", err)
 		}
 		return []types.SnapshotNode{
-			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: ld.GetValue()},
+			{StoreKey: moduleName, Key: innerKey, Value: ld.GetValue()},
 		}, nil
 
 	default:
@@ -331,142 +335,94 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		// FlatKV nodes carry physical keys and vtype-serialized values that
-		// Cosmos SS cannot interpret directly. Convert them into standard
-		// EVM-format nodes before forwarding.
-		converted := make(chan types.SnapshotNode, cap(ch))
-		var convertErr error
-		go func() {
-			defer close(converted)
-			for node := range ch {
-				if node.StoreKey == keys.FlatKVStoreKey {
-					nodes, err := convertFlatKVNodes(node)
-					if err != nil {
-						convertErr = fmt.Errorf("import: %w", err)
-						return
-					}
-					for _, n := range nodes {
-						converted <- n
-					}
-					continue
-				}
-				converted <- node
-			}
-		}()
-		if err := s.cosmosStore.Import(version, converted); err != nil {
-			return err
-		}
-		return convertErr
-	}
+	importToEVM := s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
-	evmCh := make(chan types.SnapshotNode, 100)
-	importErrCh := make(chan error, 2)
+	var evmCh chan types.SnapshotNode
+	if importToEVM {
+		evmCh = make(chan types.SnapshotNode, 100)
+	}
 
+	done := make(chan struct{})
+	var doneOnce sync.Once
+	errs := make(chan error, 2)
 	var wg sync.WaitGroup
-	var closeOnce sync.Once
 
-	closeImportChans := func() {
-		closeOnce.Do(func() {
-			close(cosmosCh)
-			close(evmCh)
-		})
+	fail := func(err error) {
+		errs <- err
+		doneOnce.Do(func() { close(done) })
 	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if err := s.cosmosStore.Import(version, cosmosCh); err != nil {
-			importErrCh <- err
+			fail(err)
 		}
 	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := s.evmStore.Import(version, evmCh); err != nil {
-			importErrCh <- err
-		}
-	}()
-
-	var importErr error
-	drainImportErr := func() {
-		for {
-			select {
-			case err := <-importErrCh:
-				if err != nil && importErr == nil {
-					importErr = err
-					closeImportChans()
-				}
-			default:
-				return
+	if importToEVM {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.evmStore.Import(version, evmCh); err != nil {
+				fail(err)
 			}
-		}
+		}()
 	}
-	sendNode := func(dst chan types.SnapshotNode, node types.SnapshotNode) error {
-		for {
-			drainImportErr()
-			if importErr != nil {
-				return importErr
-			}
-			select {
-			case dst <- node:
-				return nil
-			case err := <-importErrCh:
-				if err != nil && importErr == nil {
-					importErr = err
-					closeImportChans()
-				}
-			}
+
+	send := func(dst chan<- types.SnapshotNode, n types.SnapshotNode) bool {
+		select {
+		case dst <- n:
+			return true
+		case <-done:
+			return false
 		}
 	}
 
+	var routeErr error
 	for node := range ch {
-		drainImportErr()
-		if importErr != nil {
+		if routeErr != nil {
 			continue
 		}
 
+		var nodes []types.SnapshotNode
 		if node.StoreKey == keys.FlatKVStoreKey {
 			converted, err := convertFlatKVNodes(node)
 			if err != nil {
-				importErr = fmt.Errorf("import: %w", err)
-				closeImportChans()
+				routeErr = fmt.Errorf("import: %w", err)
 				continue
 			}
-			for _, n := range converted {
-				if err := sendNode(evmCh, n); err != nil {
+			nodes = converted
+		} else {
+			nodes = append(nodes, node)
+		}
+
+		for _, n := range nodes {
+			if n.StoreKey == evm.EVMStoreKey && importToEVM {
+				if !send(evmCh, n) {
+					break
+				}
+			} else {
+				if !send(cosmosCh, n) {
 					break
 				}
 			}
-			continue
-		}
-
-		isEVM := node.StoreKey == evm.EVMStoreKey
-		if !isEVM {
-			if err := sendNode(cosmosCh, node); err != nil {
-				continue
-			}
-		} else {
-			if err := sendNode(evmCh, node); err != nil {
-				continue
-			}
 		}
 	}
-	closeImportChans()
 
+	close(cosmosCh)
+	if evmCh != nil {
+		close(evmCh)
+	}
 	wg.Wait()
-	close(importErrCh)
-	if importErr == nil {
-		for err := range importErrCh {
-			if err != nil {
-				importErr = err
-				break
-			}
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			return err
 		}
 	}
-	return importErr
+	return routeErr
 }
 
 func (s *CompositeStateStore) Prune(version int64) error {

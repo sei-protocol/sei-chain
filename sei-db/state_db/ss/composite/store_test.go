@@ -1685,6 +1685,50 @@ func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
 	require.Equal(t, []byte("ev_1"), ev)
 }
 
+func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
+	addr := make([]byte, 20)
+	addr[0] = 0xAA
+
+	evmLegacyInnerKey := append([]byte{0x01}, addr...)
+	evmLegacyPhysKey := ktype.ModulePhysicalKey("evm", evmLegacyInnerKey)
+	evmLegacyVal := vtype.NewLegacyData().SetValue([]byte("sei1abc")).Serialize()
+
+	bankInnerKey := []byte("balances/addr1")
+	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
+	bankLegacyVal := vtype.NewLegacyData().SetValue([]byte("1000usei")).Serialize()
+
+	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
+		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
+
+			ch := make(chan types.SnapshotNode, 10)
+			nodes := []types.SnapshotNode{
+				{StoreKey: commonevm.FlatKVStoreKey, Key: evmLegacyPhysKey, Value: evmLegacyVal},
+				{StoreKey: commonevm.FlatKVStoreKey, Key: bankPhysKey, Value: bankLegacyVal},
+			}
+			go feedNodes(ch, nodes)
+
+			err := store.Import(1, ch)
+			require.NoError(t, err)
+
+			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, evmLegacyInnerKey)
+				require.NoError(t, err)
+				require.Equal(t, []byte("sei1abc"), evmVal, "evm legacy key should land in EVM store")
+			}
+
+			bankVal, err := store.cosmosStore.Get("bank", 1, bankInnerKey)
+			require.NoError(t, err)
+			require.Equal(t, []byte("1000usei"), bankVal, "bank legacy key should land in cosmos under 'bank' module")
+
+			wrongModule, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, bankInnerKey)
+			require.NoError(t, err)
+			require.Nil(t, wrongModule, "bank legacy key should NOT land under evm store key")
+		})
+	}
+}
+
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 	store, cleanup := setupImportTestStore(t, config.DualWrite)
 	defer cleanup()
