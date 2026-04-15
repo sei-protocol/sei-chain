@@ -339,8 +339,8 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 		slot := slotN(i)
 		storVal := vtype.NewStorageData().SetBlockHeight(1).SetValue(&[32]byte{i, 0xAA}).Serialize()
 		acctVal := vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
-		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal})
-		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal})
+		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 1})
+		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
 	}
 	require.NoError(t, imp.Close())
 
