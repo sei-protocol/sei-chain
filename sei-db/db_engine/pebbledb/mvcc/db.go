@@ -1022,7 +1022,7 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		return nil, fmt.Errorf("failed to decode key version: %w", err)
 	}
 	if keyVersion > version {
-		return nil, fmt.Errorf("key version too large: %d", keyVersion)
+		return nil, errorutils.ErrRecordNotFound
 	}
 
 	valueReadStart := time.Now()
@@ -1145,7 +1145,7 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 		return nil, fmt.Errorf("failed to decode key version: %w", err)
 	}
 	if keyVersion > version {
-		return nil, fmt.Errorf("key version too large: %d", keyVersion)
+		return nil, errorutils.ErrRecordNotFound
 	}
 
 	valueReadStart := time.Now()
