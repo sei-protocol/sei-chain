@@ -69,6 +69,13 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 		if !ok {
 			return &abci.ResponseInfo{}, nil
 		}
+		if len(state.Blocks) == 0 {
+			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
+			return &abci.ResponseInfo{
+				LastBlockHeight:  0,
+				LastBlockAppHash: slices.Clone(state.AppHash[:]),
+			}, nil
+		}
 		return &abci.ResponseInfo{
 			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
@@ -200,10 +207,10 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	// Verify app reports correct height after InitChain (no blocks yet)
 	info, err := app.Info(ctx, &abci.RequestInfo{})
 	require.NoError(t, err)
-	require.Equal(t, initialHeight-1, info.LastBlockHeight,
-		"testApp should report InitialHeight-1 after InitChain with 0 blocks")
+	require.Equal(t, int64(0), info.LastBlockHeight,
+		"testApp should report 0 after InitChain with no committed blocks (matches real SDK)")
 
-	// FinalizeBlock should succeed (Committed=true from InitChain)
+	// FinalizeBlock should succeed — deliverState was set up by InitChain
 	blockHash := sha256.Sum256([]byte("test-block"))
 	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Hash: blockHash[:],
