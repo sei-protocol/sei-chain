@@ -176,6 +176,14 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// a second InitChain re-runs initChainer and corrupts state.
 		// Just set next to InitialHeight so the first FinalizeBlock uses the
 		// deliverState that the handshaker's InitChain set up.
+		//
+		// WARNING: This assumes the handshaker ran before GigaRouter.Run().
+		// State sync (--state-sync) skips the handshaker (node.go:358:
+		// shouldHandshake = !stateSync), so autobahn + state sync would
+		// reach here without InitChain ever being called, causing the first
+		// FinalizeBlock to fail on nil deliverState. If state sync support
+		// is added, runExecute must detect whether InitChain is needed
+		// (e.g. check DeliverContext != nil) and call it when missing.
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
