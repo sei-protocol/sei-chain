@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"golang.org/x/time/rate"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
@@ -265,9 +262,6 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
 }
 
-var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
-var infoFiltered = makeInfo(keyFiltered)
-
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {
 	info := makeInfo(key)
 	return utils.OrPanic1(NewRouter(
@@ -294,12 +288,6 @@ func makeRouterOptions() *RouterOptions {
 		ResolveTimeout:   utils.Some(time.Hour),
 		DialTimeout:      utils.Some(time.Hour),
 		HandshakeTimeout: utils.Some(time.Hour),
-		FilterPeerByID: utils.Some(func(_ context.Context, id types.NodeID) error {
-			if id == infoFiltered.NodeID {
-				return errors.New("should filter")
-			}
-			return nil
-		}),
 	}
 }
 
@@ -336,7 +324,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
-	txMempool := mempool.NewTxMempool(config.TestMempoolConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
@@ -394,72 +382,6 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, int64(42), giga.cfg.GenDoc.InitialHeight)
 }
 
-func TestRouter_FilterByIP(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	t.Cleanup(leaktest.Check(t))
-
-	var reject atomic.Bool
-	opts := makeRouterOptions()
-	opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addr netip.AddrPort) error {
-		if reject.Load() {
-			return errors.New("fail all")
-		}
-		return nil
-	})
-	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		r := makeRouterWithOptions(rng, opts)
-		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err != nil {
-			return err
-		}
-		sub := r.peerManager.Subscribe()
-
-		t.Logf("Connection should succeed.")
-		r2 := makeRouter(rng)
-		addr := TestAddress(r)
-
-		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, utils.Slice(addr))
-			if err != nil {
-				return fmt.Errorf("peerTransport.dial(): %w", err)
-			}
-			s.SpawnBg(func() error { return utils.IgnoreCancel(tcpConn.Run(ctx)) })
-			if _, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
-				return fmt.Errorf("handshake(): %w", err)
-			}
-			RequireUpdate(t, sub, PeerUpdate{
-				NodeID: TestAddress(r2).NodeID,
-				Status: PeerStatusUp,
-			})
-			return nil
-		}); err != nil {
-			return err
-		}
-		t.Logf("Enable filtering.")
-		reject.Store(true)
-
-		t.Logf("Connection should fail during handshake.")
-		r2 = makeRouter(rng)
-		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, utils.Slice(addr))
-			if err != nil {
-				return fmt.Errorf("peerTransport.dial(): %w", err)
-			}
-			s.SpawnBg(func() error {
-				_, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr))
-				return utils.IgnoreCancel(err)
-			})
-			if utils.IgnoreCancel(tcpConn.Run(ctx)) == nil {
-				return fmt.Errorf("expected disconnect")
-			}
-			return nil
-		})
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func blindHandshake(ctx context.Context, c tcp.Conn, key NodeSecretKey, info types.NodeInfo) error {
 	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		sc, err := conn.MakeSecretConnection(ctx, c)
@@ -500,7 +422,6 @@ func TestRouter_AcceptPeers(t *testing.T) {
 		"empty handshake":      {types.NodeInfo{}, peerKey, false},
 		"self handshake":       {makeInfo(selfKey), selfKey, false},
 		"incompatible network": {badInfo, peerKey, false},
-		"filtered":             {infoFiltered, keyFiltered, false},
 	}
 
 	for name, tc := range testcases {

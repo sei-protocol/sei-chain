@@ -285,7 +285,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
+		cfg.Mempool.ToMempoolConfig(),
 		app,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
@@ -382,7 +382,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	// Make Mempool
 
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
+		cfg.Mempool.ToMempoolConfig(),
 		app,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
@@ -447,7 +447,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 
 	// Make Mempool
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
+		cfg.Mempool.ToMempoolConfig(),
 		app,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -57,11 +58,11 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x12}
-	slot := Slot{0x34}
+	addr := ktype.Address{0x12}
+	slot := ktype.Slot{0x34}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0x56}, false)
+	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
@@ -163,8 +164,8 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
 	globalVer, err := s.loadGlobalVersion()
 	require.NoError(t, err)

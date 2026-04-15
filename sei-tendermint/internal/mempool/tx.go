@@ -6,7 +6,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -312,7 +311,7 @@ func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils
 type PendingTxs struct {
 	mtx       *sync.RWMutex
 	txs       []TxWithResponse
-	config    *config.MempoolConfig
+	config    *Config
 	sizeBytes uint64
 }
 
@@ -322,7 +321,7 @@ type TxWithResponse struct {
 	txInfo          TxInfo
 }
 
-func NewPendingTxs(conf *config.MempoolConfig) *PendingTxs {
+func NewPendingTxs(conf *Config) *PendingTxs {
 	return &PendingTxs{
 		mtx:       &sync.RWMutex{},
 		txs:       []TxWithResponse{},

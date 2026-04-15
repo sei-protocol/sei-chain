@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
 // =============================================================================
@@ -38,9 +39,26 @@ func TestCommitStoreImplementsStore(t *testing.T) {
 // =============================================================================
 
 // memiavlStorageKey builds a memiavl-format storage key for testing external API.
-func memiavlStorageKey(addr Address, slot Slot) []byte {
-	internal := StorageKey(addr, slot)
+func memiavlStorageKey(addr ktype.Address, slot ktype.Slot) []byte {
+	internal := ktype.StorageKey(addr, slot)
 	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal)
+}
+
+// accountPhysKey returns the physical DB key for an account address.
+func accountPhysKey(addr ktype.Address) []byte {
+	return ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr[:])
+}
+
+// storagePhysKey returns the physical DB key for a storage slot.
+func storagePhysKey(addr ktype.Address, slot ktype.Slot) []byte {
+	return ktype.EVMPhysicalKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+}
+
+// padLeft32 returns a 32-byte big-endian value with the given bytes right-aligned.
+func padLeft32(val ...byte) []byte {
+	var b [32]byte
+	copy(b[32-len(val):], val)
+	return b[:]
 }
 
 // makeChangeSet creates a changeset
@@ -132,11 +150,11 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0xCC}, false)
+	cs := makeChangeSet(key, padLeft32(0xCC), false)
 
 	// Initial version is 0
 	require.Equal(t, int64(0), s.Version())
@@ -167,16 +185,16 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x11}
-	slot := Slot{0x22}
-	value := []byte{0x33}
+	addr := ktype.Address{0x11}
+	slot := ktype.Slot{0x22}
+	value := padLeft32(0x33)
 	key := memiavlStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, value, false)
 
 	// Apply but not commit - should be readable from pending writes
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "should be readable from pending writes")
 	require.Equal(t, value, got)
 
@@ -184,7 +202,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Still should be readable after commit
-	got, found = s.Get(key)
+	got, found = s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -193,21 +211,21 @@ func TestStoreMultipleWrites(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x44}
+	addr := ktype.Address{0x44}
 	entries := []struct {
-		slot  Slot
+		slot  ktype.Slot
 		value byte
 	}{
-		{Slot{0x01}, 0xAA},
-		{Slot{0x02}, 0xBB},
-		{Slot{0x03}, 0xCC},
+		{ktype.Slot{0x01}, 0xAA},
+		{ktype.Slot{0x02}, 0xBB},
+		{ktype.Slot{0x03}, 0xCC},
 	}
 
 	// Create multiple pairs in one changeset
 	pairs := make([]*proto.KVPair, len(entries))
 	for i, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		pairs[i] = &proto.KVPair{Key: key, Value: []byte{e.value}}
+		pairs[i] = &proto.KVPair{Key: key, Value: padLeft32(e.value)}
 	}
 
 	cs := &proto.NamedChangeSet{
@@ -223,9 +241,9 @@ func TestStoreMultipleWrites(t *testing.T) {
 	// Verify all entries
 	for _, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		got, found := s.Get(key)
+		got, found := s.Get(evm.EVMStoreKey, key)
 		require.True(t, found)
-		require.Equal(t, []byte{e.value}, got)
+		require.Equal(t, padLeft32(e.value), got)
 	}
 }
 
@@ -249,11 +267,11 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0xCC}, false)
+	cs := makeChangeSet(key, padLeft32(0xCC), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should have pending writes
@@ -275,36 +293,36 @@ func TestStoreVersioning(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x88}
-	slot := Slot{0x99}
+	addr := ktype.Address{0x88}
+	slot := ktype.Slot{0x99}
 	key := memiavlStorageKey(addr, slot)
 
 	// Version 1
-	cs1 := makeChangeSet(key, []byte{0x01}, false)
+	cs1 := makeChangeSet(key, padLeft32(0x01), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(1), s.Version())
 
 	// Version 2 with updated value
-	cs2 := makeChangeSet(key, []byte{0x02}, false)
+	cs2 := makeChangeSet(key, padLeft32(0x02), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(2), s.Version())
 
 	// Latest value should be from version 2
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x02}, got)
+	require.Equal(t, padLeft32(0x02), got)
 }
 
 func TestStorePersistence(t *testing.T) {
 	dir := t.TempDir()
 
-	addr := Address{0xDD}
-	slot := Slot{0xEE}
-	value := []byte{0xFF}
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
+	value := padLeft32(0xFF)
 	key := memiavlStorageKey(addr, slot)
 
 	// Write and close
@@ -329,7 +347,7 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	got, found := s2.Get(key)
+	got, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 
@@ -350,11 +368,11 @@ func TestStoreRootHashChanges(t *testing.T) {
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
 	// Apply changeset
-	addr := Address{0xAB}
-	slot := Slot{0xCD}
+	addr := ktype.Address{0xAB}
+	slot := ktype.Slot{0xCD}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0xEF}, false)
+	cs := makeChangeSet(key, padLeft32(0xEF), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Working hash should change
@@ -378,11 +396,11 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
 	// Apply changeset
-	addr := Address{0xEE}
-	slot := Slot{0xFF}
+	addr := ktype.Address{0xEE}
+	slot := ktype.Slot{0xFF}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Working hash should change
@@ -394,11 +412,11 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x12}
-	slot := Slot{0x34}
+	addr := ktype.Address{0x12}
+	slot := ktype.Slot{0x34}
 	key := memiavlStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0x56}, false)
+	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Get working hash
@@ -475,8 +493,8 @@ func TestClearChangelog(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Close()
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0x02})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0x02})
 
 	last, _ := s.changelog.LastOffset()
 	require.Greater(t, last, uint64(0), "WAL should have entries")
@@ -521,8 +539,8 @@ func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	commitStorageEntry(t, s1, Address{0x01}, Slot{0x01}, []byte{0x01})
-	commitStorageEntry(t, s1, Address{0x01}, Slot{0x02}, []byte{0x02})
+	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x02}, []byte{0x02})
 	require.NoError(t, s1.WriteSnapshot(""))
 	require.NoError(t, s1.Close())
 
@@ -548,7 +566,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
@@ -581,7 +599,7 @@ func TestWalOffsetForVersionFastPath(t *testing.T) {
 	defer s.Close()
 
 	for i := 0; i < 5; i++ {
-		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
 	for v := int64(1); v <= 5; v++ {
@@ -604,7 +622,7 @@ func TestWalOffsetForVersionBeforeWAL(t *testing.T) {
 	defer s.Close()
 
 	for i := 0; i < 3; i++ {
-		commitStorageEntry(t, s, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 
 	off, err := s.walOffsetForVersion(0)
@@ -620,8 +638,8 @@ func TestWalOffsetForVersionNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Close()
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0x01})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0x02})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0x02})
 
 	_, err = s.walOffsetForVersion(10)
 	require.Error(t, err, "version 10 should not be found in WAL with only 2 entries")
@@ -641,7 +659,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		commitStorageEntry(t, s1, Address{byte(i + 1)}, Slot{byte(i + 1)}, []byte{byte(i + 1)})
+		commitStorageEntry(t, s1, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
 	hashAtV10 := s1.RootHash()
 
@@ -678,16 +696,35 @@ func TestRootHashIsBlake3_256(t *testing.T) {
 }
 
 // =============================================================================
-// Get returns nil for unknown keys
+// Get returns nil for missing keys, errors for unsupported key types
 // =============================================================================
 
-func TestGetUnknownKeyReturnsNil(t *testing.T) {
+func TestGetMissingKeyReturnsNil(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	v, ok := s.Get([]byte{0xFF, 0xFF, 0xFF})
+	v, ok := s.Get(evm.EVMStoreKey, []byte{0xFF, 0xFF, 0xFF})
 	require.False(t, ok)
 	require.Nil(t, v)
+}
+
+func TestGetUnsupportedKeyType_Strict(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	val, found := s.Get(evm.EVMStoreKey, []byte{})
+	require.False(t, found)
+	require.Nil(t, val)
+}
+
+func TestGetUnsupportedKeyType_NonStrict(t *testing.T) {
+	cfg := DefaultTestConfig(t)
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+
+	val, found := s.Get(evm.EVMStoreKey, []byte{})
+	require.False(t, found)
+	require.Nil(t, val)
 }
 
 // =============================================================================
@@ -697,8 +734,8 @@ func TestGetUnknownKeyReturnsNil(t *testing.T) {
 func TestPersistenceAllKeyTypes(t *testing.T) {
 	dir := t.TempDir()
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 
 	cfg := DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -707,11 +744,11 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
 
-	cs := makeChangeSet(storageKey, []byte{0x11}, false)
+	cs := makeChangeSet(storageKey, padLeft32(0x11), false)
 	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	cs2 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 5}, false)
 	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
@@ -733,15 +770,15 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, hash, s2.RootHash())
 
-	v, ok := s2.Get(storageKey)
+	v, ok := s2.Get(evm.EVMStoreKey, storageKey)
 	require.True(t, ok)
-	require.Equal(t, []byte{0x11}, v)
+	require.Equal(t, padLeft32(0x11), v)
 
-	v, ok = s2.Get(nonceKey)
+	v, ok = s2.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 5}, v)
 
-	v, ok = s2.Get(codeKey)
+	v, ok = s2.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
@@ -756,10 +793,10 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	value := []byte{0xCC}
+	value := padLeft32(0xCC)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
 	commitAndCheck(t, s)
@@ -769,7 +806,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 	require.NotNil(t, ro.RootHash())
@@ -783,10 +820,10 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	_, err = writer.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xCC}
-	slot := Slot{0xDD}
+	addr := ktype.Address{0xCC}
+	slot := ktype.Slot{0xDD}
 	key := memiavlStorageKey(addr, slot)
-	value := []byte{0xEE}
+	value := padLeft32(0xEE)
 
 	require.NoError(t, writer.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
 	commitAndCheck(t, writer)
@@ -799,7 +836,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -811,13 +848,13 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0x11}
-	slot := Slot{0x22}
+	addr := ktype.Address{0x11}
+	slot := ktype.Slot{0x22}
 	key := memiavlStorageKey(addr, slot)
 
 	for i := byte(1); i <= 5; i++ {
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-			makeChangeSet(key, []byte{i}, false),
+			makeChangeSet(key, padLeft32(i), false),
 		}))
 		commitAndCheck(t, s)
 	}
@@ -827,9 +864,9 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(3), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{3}, got)
+	require.Equal(t, padLeft32(3), got)
 }
 
 func TestReadOnlyWriteGuards(t *testing.T) {
@@ -839,10 +876,10 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -868,27 +905,27 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
 	commitAndCheck(t, s)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{3}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(3), false)}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(3), s.Version())
 
 	require.Equal(t, int64(1), ro.Version())
-	got, found := ro.Get(key)
+	got, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{1}, got)
+	require.Equal(t, padLeft32(1), got)
 }
 
 func TestReadOnlyConcurrentInstances(t *testing.T) {
@@ -900,13 +937,13 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0x11}
-	slot := Slot{0x22}
+	addr := ktype.Address{0x11}
+	slot := ktype.Slot{0x22}
 	key := memiavlStorageKey(addr, slot)
 
 	for i := byte(1); i <= 4; i++ {
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-			makeChangeSet(key, []byte{i}, false),
+			makeChangeSet(key, padLeft32(i), false),
 		}))
 		commitAndCheck(t, s)
 	}
@@ -922,12 +959,12 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	require.Equal(t, int64(4), ro1.Version())
 	require.Equal(t, int64(4), ro2.Version())
 
-	g1, ok1 := ro1.Get(key)
-	g2, ok2 := ro2.Get(key)
+	g1, ok1 := ro1.Get(evm.EVMStoreKey, key)
+	g2, ok2 := ro2.Get(evm.EVMStoreKey, key)
 	require.True(t, ok1)
 	require.True(t, ok2)
-	require.Equal(t, []byte{4}, g1)
-	require.Equal(t, []byte{4}, g2)
+	require.Equal(t, padLeft32(4), g1)
+	require.Equal(t, padLeft32(4), g2)
 }
 
 func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
@@ -937,23 +974,23 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	_, err = s.LoadVersion(999, true)
 	require.Error(t, err)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{2}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
 	v, err := s.Commit()
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
 
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{2}, got)
+	require.Equal(t, padLeft32(2), got)
 }
 
 func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
@@ -963,10 +1000,10 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
 	key := memiavlStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, []byte{1}, false)}))
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	roStore, err := s.LoadVersion(0, true)
@@ -1032,8 +1069,8 @@ func TestLoadVersionReload(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1046,9 +1083,9 @@ func TestLoadVersionReload(t *testing.T) {
 	require.Equal(t, int64(1), s.Version())
 	require.Equal(t, expectedHash, s.RootHash())
 
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x11}, val)
+	require.Equal(t, padLeft32(0x11), val)
 	require.NoError(t, s.Close())
 }
 
@@ -1056,8 +1093,8 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x02)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0x22}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1067,9 +1104,9 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(1), ro.Version())
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x22}, val)
+	require.Equal(t, padLeft32(0x22), val)
 	require.NoError(t, s.Close())
 }
 
@@ -1077,14 +1114,14 @@ func TestLoadVersionReadOnlyDoesNotSeePending(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x03)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0x33}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x33), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Apply a new changeset without committing.
-	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x02)))
-	cs2 := makeChangeSet(key2, []byte{0x44}, false)
+	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
+	cs2 := makeChangeSet(key2, padLeft32(0x44), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// RO should not see the uncommitted write.
@@ -1092,13 +1129,13 @@ func TestLoadVersionReadOnlyDoesNotSeePending(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	_, found := ro.Get(key2)
+	_, found := ro.Get(evm.EVMStoreKey, key2)
 	require.False(t, found, "read-only store should not see uncommitted data")
 
 	// But committed data should be visible.
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, val)
+	require.Equal(t, padLeft32(0x33), val)
 	require.NoError(t, s.Close())
 }
 
@@ -1130,14 +1167,14 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := addrN(0x10)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Apply but do NOT commit.
-	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x02)))
-	cs2 := makeChangeSet(key2, []byte{0x22}, false)
+	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
+	cs2 := makeChangeSet(key2, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Close should succeed even with pending writes.
@@ -1152,11 +1189,11 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 
 	require.Equal(t, int64(1), s2.Version())
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "committed data should persist")
-	require.Equal(t, []byte{0x11}, val)
+	require.Equal(t, padLeft32(0x11), val)
 
-	_, found = s2.Get(key2)
+	_, found = s2.Get(evm.EVMStoreKey, key2)
 	require.False(t, found, "uncommitted data should be lost")
 }
 
@@ -1164,8 +1201,8 @@ func TestCloseDuringConcurrentReadOnlyClone(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x11)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0xAA}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1176,9 +1213,9 @@ func TestCloseDuringConcurrentReadOnlyClone(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// RO should still function.
-	val, found := ro.Get(key)
+	val, found := ro.Get(evm.EVMStoreKey, key)
 	require.True(t, found, "RO clone should remain functional after parent close")
-	require.Equal(t, []byte{0xAA}, val)
+	require.Equal(t, padLeft32(0xAA), val)
 
 	require.NoError(t, ro.Close())
 }
@@ -1197,8 +1234,8 @@ func TestRootHashAndVersionAfterClose(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x12)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0xBB}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0xBB), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1232,8 +1269,8 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 
 	addr := addrN(0x20)
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		cs := makeChangeSet(key, []byte{byte(i)}, false)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
 		require.NoError(t, err)
@@ -1267,8 +1304,8 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	addr := addrN(0x21)
 	var hashes [6][]byte
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		cs := makeChangeSet(key, []byte{byte(i)}, false)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
 		require.NoError(t, err)

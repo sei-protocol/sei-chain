@@ -16,6 +16,11 @@ func New[T Message]() T {
 	return utils.Zero[T]().ProtoReflect().New().Interface().(T)
 }
 
+// Computes the size of the message encoding.
+func Size[T Message](t T) int {
+	return proto.Size(t)
+}
+
 func Marshal[T Message](t T) []byte {
 	// Marshalling messages is always expected to succeed.
 	return utils.OrPanic1(proto.Marshal(t))

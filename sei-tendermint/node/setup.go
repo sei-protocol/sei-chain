@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -33,7 +32,6 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmgrpc "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -171,62 +169,16 @@ func createEvidenceReactor(
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
-// autobahnValidator represents a validator entry in the autobahn config file.
-type autobahnValidator struct {
-	ValidatorKey atypes.PublicKey  `json:"validator_key"` // autobahn validator public key
-	NodeKey      p2p.NodePublicKey `json:"node_key"`      // p2p node public key
-	Address      tcp.HostPort      `json:"address"`       // network address (host:port)
-}
-
-// autobahnFileConfig is the JSON structure of the autobahn config file.
-type autobahnFileConfig struct {
-	Validators         []autobahnValidator  `json:"validators"`
-	MaxGasPerBlock     uint64               `json:"max_gas_per_block"`
-	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
-	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
-	MempoolSize        uint64               `json:"mempool_size"`
-	BlockInterval      utils.Duration       `json:"block_interval"`
-	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
-	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
-	DialInterval       utils.Duration       `json:"dial_interval"`
-}
-
-func (fc *autobahnFileConfig) validate() error {
-	if len(fc.Validators) == 0 {
-		return errors.New("validators must not be empty")
-	}
-	if fc.MaxGasPerBlock == 0 {
-		return errors.New("max_gas_per_block must be > 0")
-	}
-	if fc.MaxTxsPerBlock == 0 {
-		return errors.New("max_txs_per_block must be > 0")
-	}
-	if fc.MempoolSize == 0 {
-		return errors.New("mempool_size must be > 0")
-	}
-	if fc.BlockInterval <= 0 {
-		return errors.New("block_interval must be > 0")
-	}
-	if fc.ViewTimeout <= 0 {
-		return errors.New("view_timeout must be > 0")
-	}
-	if fc.DialInterval <= 0 {
-		return errors.New("dial_interval must be > 0")
-	}
-	return nil
-}
-
-func loadAutobahnFileConfig(path string) (*autobahnFileConfig, error) {
+func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path is from operator-controlled config
 	if err != nil {
 		return nil, err
 	}
-	var fc autobahnFileConfig
+	var fc config.AutobahnFileConfig
 	if err := json.Unmarshal(data, &fc); err != nil {
 		return nil, err
 	}
-	if err := fc.validate(); err != nil {
+	if err := fc.Validate(); err != nil {
 		return nil, err
 	}
 	return &fc, nil
@@ -313,29 +265,6 @@ func createRouter(
 	if err != nil {
 		return nil, closer, err
 	}
-	appClient := utils.None[abci.Application]()
-	if mp, ok := txMempool.Get(); ok {
-		appClient = utils.Some(mp.App())
-	}
-	options := getRouterConfig(cfg, appClient)
-	options.Endpoint = ep
-	options.MaxIncomingConnectionAttempts = utils.Some(cfg.P2P.MaxIncomingConnectionAttempts)
-	options.MaxDialRate = utils.Some(rate.Every(cfg.P2P.DialInterval))
-	options.HandshakeTimeout = utils.Some(cfg.P2P.HandshakeTimeout)
-	options.DialTimeout = utils.Some(cfg.P2P.DialTimeout)
-	options.PexOnHandshake = cfg.P2P.PexReactor
-	options.Connection = conn.DefaultMConnConfig()
-	options.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
-	options.Connection.SendRate = cfg.P2P.SendRate
-	options.Connection.RecvRate = cfg.P2P.RecvRate
-	options.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	if addr := cfg.P2P.ExternalAddress; addr != "" {
-		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
-		if err != nil {
-			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
-		}
-		options.SelfAddress = utils.Some(nodeAddr)
-	}
 	var privatePeerIDs []types.NodeID
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
@@ -357,10 +286,31 @@ func createRouter(
 	// TODO(gprusak): eventually we should migrate configs to specify
 	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
 	maxInbound := maxConns - maxOutbound
-	options.MaxOutbound = utils.Some(maxOutbound)
-	options.MaxConcurrentAccepts = utils.Some(maxInbound)
-	options.MaxInbound = utils.Some(maxInbound)
-	options.PrivatePeers = privatePeerIDs
+	connection := conn.DefaultMConnConfig()
+	connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
+	connection.SendRate = cfg.P2P.SendRate
+	connection.RecvRate = cfg.P2P.RecvRate
+	connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+	options := &p2p.RouterOptions{
+		Endpoint:                      ep,
+		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
+		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
+		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
+		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
+		PexOnHandshake:                cfg.P2P.PexReactor,
+		PrivatePeers:                  privatePeerIDs,
+		MaxInbound:                    utils.Some(maxInbound),
+		MaxOutbound:                   utils.Some(maxOutbound),
+		MaxConcurrentAccepts:          utils.Some(maxInbound),
+		Connection:                    connection,
+	}
+	if addr := cfg.P2P.ExternalAddress; addr != "" {
+		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
+		if err != nil {
+			return nil, closer, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
+		}
+		options.SelfAddress = utils.Some(nodeAddr)
+	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
@@ -392,6 +342,7 @@ func createRouter(
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
 	if cfg.AutobahnConfigFile != "" {
+		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile)
 		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
 		valKey, ok := validatorKey.Get()
 		if !ok {
@@ -405,6 +356,7 @@ func createRouter(
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
+		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
 		options.Giga = utils.Some(gigaCfg)
 	}
 

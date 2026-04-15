@@ -7,9 +7,9 @@ import (
 	"runtime/debug"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -45,13 +45,13 @@ type Reactor struct {
 }
 
 // NewReactor returns a reference to a new reactor.
-func NewReactor(txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(txmp.Config()))
+func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		cfg:                 txmp.Config(),
+		cfg:                 cfg,
 		mempool:             txmp,
 		ids:                 NewMempoolIDs(),
 		router:              router,

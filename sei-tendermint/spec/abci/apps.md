@@ -131,17 +131,6 @@ latest committed block.
 after the full block has been processed and the state committed to disk.
 Otherwise it should never be modified.
 
-Tendermint Core currently uses the Query connection to filter peers upon
-connecting, according to IP address or node ID. For instance,
-returning non-OK ABCI response to either of the following queries will
-cause Tendermint to not connect to the corresponding peer:
-
-- `p2p/filter/addr/<ip addr>`, where `<ip addr>` is an IP address.
-- `p2p/filter/id/<id>`, where `<is>` is the hex-encoded node ID (the hash of
-  the node's p2p pubkey).
-
-Note: these query formats are subject to change!
-
 ### Snapshot Connection
 
 The Snapshot Connection is optional, and is only used to serve state sync snapshots for other nodes
@@ -462,26 +451,13 @@ When verifying the full proof, the root hash for one ProofOp is the value being
 verified for the next ProofOp in the list. The root hash of the final ProofOp in
 the list should match the `AppHash` being verified against.
 
-### Peer Filtering
-
-When Tendermint connects to a peer, it sends two queries to the ABCI application
-using the following paths, with no additional data:
-
-- `/p2p/filter/addr/<IP:PORT>`, where `<IP:PORT>` denote the IP address and
-  the port of the connection
-- `p2p/filter/id/<ID>`, where `<ID>` is the peer node ID (ie. the
-  pubkey.Address() for the peer's PubKey)
-
-If either of these queries return a non-zero ABCI code, Tendermint will refuse
-to connect to the peer.
 
 ### Paths
 
 Queries are directed at paths, and may optionally include additional data.
 
 The expectation is for there to be some number of high level paths
-differentiating concerns, like `/p2p`, `/store`, and `/app`. Currently,
-Tendermint only uses `/p2p`, for filtering peers. For more advanced use, see the
+differentiating concerns, like `/store` and `/app`. For more advanced use, see the
 implementation of
 [Query in the Cosmos-SDK](https://github.com/cosmos/cosmos-sdk/blob/v0.23.1/baseapp/baseapp.go#L333).
 

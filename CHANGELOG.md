@@ -29,6 +29,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.4
 sei-chain
+* [#3238](https://github.com/sei-protocol/sei-chain/pull/3238) Backport `release/v6.4`: Fix receipt default retention
+* [#3233](https://github.com/sei-protocol/sei-chain/pull/3233) Backport `release/v6.4`: added a ProposerAddress check to setProposal CON-250
+* [#3215](https://github.com/sei-protocol/sei-chain/pull/3215) Bump version file to `v6.4.1` in prep to cut tag
+* [#3214](https://github.com/sei-protocol/sei-chain/pull/3214) Backport `release/v6.4`: Update Changelog in prep to cut v6.4.1
 * [#3211](https://github.com/sei-protocol/sei-chain/pull/3211) Backport `release/v6.4`: Unify EVM SS into single DB with store key prefixes
 * [#3201](https://github.com/sei-protocol/sei-chain/pull/3201) Backport `release/v6.4`: feat(mempool): only allow one retry for failed txs
 * [#3199](https://github.com/sei-protocol/sei-chain/pull/3199) Add v154 wasmvm library compatibility documentation

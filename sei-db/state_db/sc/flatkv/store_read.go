@@ -8,92 +8,127 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// Get returns the value for the given memiavl key.
+// Get returns the value for the given key within the specified module.
+// For EVM keys (moduleName == evm.EVMStoreKey), the key is a memiavl EVM key
+// routed internally to account/storage/code/legacy DBs.
+// For non-EVM modules, the key is read from legacy storage with the module prefix.
 // Returns (value, true) if found, (nil, false) if not found.
-func (s *CommitStore) Get(key []byte) ([]byte, bool) {
-	kind, keyBytes := evm.ParseEVMKey(key)
-	if kind == evm.EVMKeyUnknown {
-		return nil, false
+// Panics on I/O errors or unsupported key types.
+func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
+	if moduleName != evm.EVMStoreKey {
+		value, err := s.getLegacyValue(moduleName, key)
+		if err != nil {
+			panic(fmt.Sprintf("flatkv: Get module=%s key %x: %v", moduleName, key, err))
+		}
+		return value, value != nil
 	}
 
+	kind, keyBytes := evm.ParseEVMKey(key)
+
 	switch kind {
+	case evm.EVMKeyEmpty:
+		return nil, false
 	case evm.EVMKeyStorage:
 		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
-			return nil, false
+			panic(fmt.Sprintf("flatkv: Get storage key %x: %v", key, err))
 		}
 		return value, value != nil
 
 	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
-		// Account data: keyBytes = addr(20)
-		// accountDB stores AccountValue at key=addr(20)
-		addr, ok := AddressFromBytes(keyBytes)
-		if !ok {
-			return nil, false
-		}
-
-		// Check pending writes first
-		if paw, found := s.accountWrites[string(addr[:])]; found {
-			if paw.isDelete {
-				return nil, false
-			}
-			if kind == evm.EVMKeyNonce {
-				nonce := make([]byte, NonceLen)
-				binary.BigEndian.PutUint64(nonce, paw.value.Nonce)
-				return nonce, true
-			}
-			// CodeHash
-			if paw.value.CodeHash == (CodeHash{}) {
-				return nil, false
-			}
-			return paw.value.CodeHash[:], true
-		}
-
-		// Read from accountDB
-		encoded, err := s.accountDB.Get(AccountKey(addr))
+		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
-			return nil, false
+			panic(fmt.Sprintf("flatkv: Get account key %x: %v", key, err))
 		}
-		av, err := DecodeAccountValue(encoded)
-		if err != nil {
+		if accountData == nil || accountData.IsDelete() {
 			return nil, false
 		}
 
 		if kind == evm.EVMKeyNonce {
-			nonce := make([]byte, NonceLen)
-			binary.BigEndian.PutUint64(nonce, av.Nonce)
-			return nonce, true
+			nonceBytes := make([]byte, vtype.NonceLen)
+			binary.BigEndian.PutUint64(nonceBytes, accountData.GetNonce())
+			return nonceBytes, true
 		}
 		// CodeHash
-		if av.CodeHash == (CodeHash{}) {
+		codeHash := accountData.GetCodeHash()
+		var zeroCodeHash vtype.CodeHash
+		if *codeHash == zeroCodeHash {
 			return nil, false
 		}
-		return av.CodeHash[:], true
+		return codeHash[:], true
 
 	case evm.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
 		if err != nil {
-			return nil, false
+			panic(fmt.Sprintf("flatkv: Get code key %x: %v", key, err))
 		}
 		return value, value != nil
 
 	case evm.EVMKeyLegacy:
-		value, err := s.getLegacyValue(keyBytes)
+		value, err := s.getLegacyValue(evm.EVMStoreKey, keyBytes)
 		if err != nil {
-			return nil, false
+			panic(fmt.Sprintf("flatkv: Get legacy key %x: %v", key, err))
 		}
 		return value, value != nil
 
 	default:
-		return nil, false
+		panic(fmt.Sprintf("flatkv: Get unsupported key type: %v", kind))
 	}
 }
 
-// Has reports whether the given memiavl key exists.
-func (s *CommitStore) Has(key []byte) bool {
-	_, found := s.Get(key)
+// GetBlockHeightModified returns the block height at which the key was last modified.
+// Only supported for EVM keys; non-EVM legacy data does not track block height.
+// If not found, returns (-1, false, nil).
+func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
+	if moduleName != evm.EVMStoreKey {
+		return -1, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
+	}
+
+	kind, keyBytes := evm.ParseEVMKey(key)
+
+	switch kind {
+	case evm.EVMKeyStorage:
+		sd, err := s.getStorageData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if sd == nil || sd.IsDelete() {
+			return -1, false, nil
+		}
+		return sd.GetBlockHeight(), true, nil
+
+	case evm.EVMKeyNonce, evm.EVMKeyCodeHash:
+		accountData, err := s.getAccountData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if accountData == nil || accountData.IsDelete() {
+			return -1, false, nil
+		}
+		return accountData.GetBlockHeight(), true, nil
+
+	case evm.EVMKeyCode:
+		cd, err := s.getCodeData(keyBytes)
+		if err != nil {
+			return -1, false, err
+		}
+		if cd == nil || cd.IsDelete() {
+			return -1, false, nil
+		}
+		return cd.GetBlockHeight(), true, nil
+	default:
+		return -1, false, fmt.Errorf("block height modified not tracked for key type: %v", kind)
+	}
+}
+
+// Has reports whether the key exists within the given module.
+// Panics on I/O errors or unsupported key types.
+func (s *CommitStore) Has(moduleName string, key []byte) bool {
+	_, found := s.Get(moduleName, key)
 	return found
 }
 
@@ -145,7 +180,7 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	// but a storage prefix is only (prefix + addr = 21 bytes).
 	// Detect storage prefix: 0x03 || addr(20) = 21 bytes
 	statePrefix := evm.StateKeyPrefix()
-	if len(prefix) == len(statePrefix)+AddressLen &&
+	if len(prefix) == len(statePrefix)+ktype.AddressLen &&
 		bytes.HasPrefix(prefix, statePrefix) {
 		// Storage address prefix: iterate all slots for this address
 		// Internal key format: addr(20) || slot(32)
@@ -164,10 +199,6 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 	switch kind {
 	case evm.EVMKeyStorage:
 		return s.newStoragePrefixIterator(keyBytes, prefix)
-
-	case evm.EVMKeyNonce, evm.EVMKeyCodeHash, evm.EVMKeyCode:
-		return &emptyIterator{}
-
 	default:
 		return &emptyIterator{}
 	}
@@ -177,67 +208,83 @@ func (s *CommitStore) IteratorByPrefix(prefix []byte) Iterator {
 // Internal Getters (used by ApplyChangeSets for LtHash computation)
 // =============================================================================
 
-// getAccountValue loads AccountValue from pending writes or DB.
-// Returns zero AccountValue if not found (new account) or if the pending
-// write is marked for deletion (row logically absent).
-// Returns error if existing data is corrupted (decode fails) or I/O error occurs.
-func (s *CommitStore) getAccountValue(addr Address) (AccountValue, error) {
-	// Check pending writes first
-	if paw, ok := s.accountWrites[string(addr[:])]; ok {
-		if paw.isDelete {
-			return AccountValue{}, nil
-		}
-		return paw.value, nil
+// readFromDB checks pending writes first, then falls back to a DB read.
+// Returns (zero, nil) when the key is not found.
+func readFromDB[T vtype.VType](
+	physKey []byte,
+	pendingWrites map[string]T,
+	db seidbtypes.KeyValueDB,
+	deserialize func([]byte) (T, error),
+	dbName string,
+) (T, error) {
+	if v, ok := pendingWrites[string(physKey)]; ok {
+		return v, nil
 	}
-
-	// Read from accountDB
-	value, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := db.Get(physKey)
 	if err != nil {
+		var zero T
 		if errorutils.IsNotFound(err) {
-			return AccountValue{}, nil // New account
+			return zero, nil
 		}
-		return AccountValue{}, fmt.Errorf("accountDB I/O error for addr %x: %w", addr, err)
+		return zero, fmt.Errorf("%s I/O error for key %x: %w", dbName, physKey, err)
 	}
-
-	av, err := DecodeAccountValue(value)
-	if err != nil {
-		return AccountValue{}, fmt.Errorf("corrupted AccountValue for addr %x: %w", addr, err)
-	}
-	return av, nil
+	return deserialize(raw)
 }
 
-// getKVValue returns the value from pending writes or the backing DB.
-// Returns (nil, nil) if not found. Returns (nil, error) on I/O error.
-func (s *CommitStore) getKVValue(
-	key []byte,
-	writes map[string]*pendingKVWrite,
-	db seidbtypes.KeyValueDB,
-	dbName string,
-) ([]byte, error) {
-	if pw, ok := writes[string(key)]; ok {
-		if pw.isDelete {
-			return nil, nil
-		}
-		return pw.value, nil
+func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {
+	if len(keyBytes) != ktype.AddressLen {
+		return nil, fmt.Errorf("accountDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	value, err := db.Get(key)
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("%s I/O error for key %x: %w", dbName, key, err)
+	return readFromDB(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes), s.accountWrites, s.accountDB, vtype.DeserializeAccountData, "accountDB")
+}
+
+func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error) {
+	if len(keyBytes) != ktype.AddressLen+ktype.SlotLen {
+		return nil, fmt.Errorf("storageDB: expected key length %d, got %d", ktype.AddressLen+ktype.SlotLen, len(keyBytes))
 	}
-	return value, nil
+	return readFromDB(ktype.EVMPhysicalKey(evm.EVMKeyStorage, keyBytes), s.storageWrites, s.storageDB, vtype.DeserializeStorageData, "storageDB")
 }
 
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.storageWrites, s.storageDB, "storageDB")
+	sd, err := s.getStorageData(key)
+	if err != nil {
+		return nil, err
+	}
+	if sd == nil || sd.IsDelete() {
+		return nil, nil
+	}
+	return sd.GetValue()[:], nil
+}
+
+func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
+	if len(keyBytes) != ktype.AddressLen {
+		return nil, fmt.Errorf("codeDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
+	}
+	return readFromDB(ktype.EVMPhysicalKey(evm.EVMKeyCode, keyBytes), s.codeWrites, s.codeDB, vtype.DeserializeCodeData, "codeDB")
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.codeWrites, s.codeDB, "codeDB")
+	cd, err := s.getCodeData(key)
+	if err != nil {
+		return nil, err
+	}
+	if cd == nil || cd.IsDelete() {
+		return nil, nil
+	}
+	return cd.GetBytecode(), nil
 }
 
-func (s *CommitStore) getLegacyValue(key []byte) ([]byte, error) {
-	return s.getKVValue(key, s.legacyWrites, s.legacyDB, "legacyDB")
+func (s *CommitStore) getLegacyData(moduleName string, keyBytes []byte) (*vtype.LegacyData, error) {
+	return readFromDB(ktype.ModulePhysicalKey(moduleName, keyBytes), s.legacyWrites, s.legacyDB, vtype.DeserializeLegacyData, "legacyDB")
+}
+
+func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, error) {
+	ld, err := s.getLegacyData(moduleName, key)
+	if err != nil {
+		return nil, err
+	}
+	if ld == nil || ld.IsDelete() {
+		return nil, nil
+	}
+	return ld.GetValue(), nil
 }

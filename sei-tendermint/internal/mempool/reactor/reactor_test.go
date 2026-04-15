@@ -50,7 +50,7 @@ func setupMempool(t testing.TB, app abci.Application, cacheSize int, txConstrain
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return mempool.NewTxMempool(cfg.Mempool, app, mempool.NopMetrics(), txConstraintsFetcher)
+	return mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, mempool.NopMetrics(), txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs int, peerID uint16) []testTx {
@@ -84,6 +84,15 @@ func convertTex(in []testTx) types.Txs {
 }
 
 func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTestSuite {
+	return setupReactorsWithTxConstraintsFetchers(ctx, t, numNodes, nil)
+}
+
+func setupReactorsWithTxConstraintsFetchers(
+	ctx context.Context,
+	t *testing.T,
+	numNodes int,
+	txConstraintsFetchers map[int]mempool.TxConstraintsFetcher,
+) *reactorTestSuite {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
@@ -97,15 +106,19 @@ func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTest
 		kvstores: make(map[types.NodeID]*kvstore.Application, numNodes),
 	}
 
-	for _, node := range rts.network.Nodes() {
+	for i, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
-		txmp := setupMempool(t, app, 0, mempool.NopTxConstraintsFetcher)
+		txConstraintsFetcher := mempool.NopTxConstraintsFetcher
+		if customFetcher, ok := txConstraintsFetchers[i]; ok {
+			txConstraintsFetcher = customFetcher
+		}
+		txmp := setupMempool(t, app, 0, txConstraintsFetcher)
 		rts.mempools[nodeID] = txmp
 
-		reactor, err := NewReactor(txmp, node.Router)
+		reactor, err := NewReactor(config.TestMempoolConfig(), txmp, node.Router)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
@@ -138,8 +151,8 @@ func setupReactorForTest(t *testing.T, txConstraintsFetcher mempool.TxConstraint
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	node := network.Nodes()[0]
 
-	txmp := mempool.NewTxMempool(cfg.Mempool, kvstore.NewApplication(), mempool.NopMetrics(), txConstraintsFetcher)
-	reactor, err := NewReactor(txmp, node.Router)
+	txmp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), kvstore.NewApplication(), mempool.NopMetrics(), txConstraintsFetcher)
+	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
 	require.NoError(t, err)
 	reactor.MarkReadyToStart()
 	require.NoError(t, reactor.Start(t.Context()))
@@ -211,28 +224,24 @@ func TestReactorBroadcastTxs(t *testing.T) {
 func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 	ctx := t.Context()
 
-	rts := setupReactors(ctx, t, 2)
+	rts := setupReactorsWithTxConstraintsFetchers(ctx, t, 2, map[int]mempool.TxConstraintsFetcher{
+		1: func() (mempool.TxConstraints, error) {
+			return mempool.TxConstraints{
+				MaxDataBytes: 10,
+				MaxGas:       -1,
+			}, nil
+		},
+	})
 	t.Cleanup(leaktest.Check(t))
 
 	sender := rts.nodes[0]
 	receiver := rts.nodes[1]
 
-	rts.start(t)
-
 	receiverReactor := rts.reactors[receiver]
 	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
 	receiverReactor.cfg.CheckTxErrorThreshold = 2
-	receiverReactor.mempool = mempool.NewTxMempool(
-		receiverReactor.cfg,
-		kvstore.NewApplication(),
-		mempool.NopMetrics(),
-		mempool.TxConstraintsFetcher(func() (mempool.TxConstraints, error) {
-			return mempool.TxConstraints{
-				MaxDataBytes: 10,
-				MaxGas:       -1,
-			}, nil
-		}),
-	)
+
+	rts.start(t)
 	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
 
 	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {

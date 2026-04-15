@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -173,14 +171,9 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 func setup(t testing.TB, app abci.Application, cacheSize int, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
 	t.Helper()
 
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	cfg.Mempool.CacheSize = cacheSize
-	cfg.Mempool.DropUtilisationThreshold = 0.0 // disable dropping by priority hint to allow testing eviction logic
-
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
-	return NewTxMempool(cfg.Mempool, app, NopMetrics(), txConstraintsFetcher)
+	cfg := TestConfig()
+	cfg.CacheSize = cacheSize
+	return NewTxMempool(cfg, app, NopMetrics(), txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {

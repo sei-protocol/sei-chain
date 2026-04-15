@@ -27,17 +27,27 @@ type Store interface {
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are ignored. Call Commit to persist.
+	// Non-EVM modules are routed into legacy storage under their module prefix.
+	// Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
-	// Get returns the value for the x/evm memiavl key, or (nil, false) if not found.
-	Get(key []byte) ([]byte, bool)
+	// Get returns the value for a key within the given module.
+	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
+	// routed to account/storage/code/legacy DBs internally.
+	// For non-EVM modules, the key is read from legacy storage with the module prefix.
+	// If not found, returns (nil, false).
+	Get(moduleName string, key []byte) (value []byte, found bool)
 
-	// Has reports whether the x/evm memiavl key exists.
-	Has(key []byte) bool
+	// GetBlockHeightModified returns the block height at which the key was last modified.
+	// Only supported for EVM keys; non-EVM legacy data does not track block height.
+	// If not found, returns (-1, false, nil).
+	GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error)
+
+	// Has reports whether the key exists within the given module.
+	Has(moduleName string, key []byte) bool
 
 	// Iterator returns an iterator over [start, end) in memiavl key order.
 	// Pass nil for unbounded.
@@ -87,7 +97,8 @@ type Store interface {
 // Iterator provides ordered iteration over EVM keys.
 // Follows PebbleDB semantics: not positioned on creation.
 //
-// Keys are returned in internal format (without memiavl prefix).
+// Keys are returned in physical format ("evm/" + type_prefix_byte + stripped_key).
+// SeekGE/SeekLT accept both physical keys and memiavl keys (prefix_byte + stripped_key).
 //
 // EXPERIMENTAL: not used in production. Interface may change when
 // Exporter/state-sync is implemented.
@@ -104,10 +115,8 @@ type Iterator interface {
 	Next() bool
 	Prev() bool
 
-	// Key returns the current key in internal format (valid until next move).
-	// Internal formats:
-	//   - Storage: addr(20) || slot(32)
-	//   - Nonce/Code/CodeHash: addr(20)
+	// Key returns the current key in physical format (valid until next move).
+	// Physical format: "evm/" + type_prefix_byte + stripped_key.
 	Key() []byte
 
 	// Value returns the current value (valid until next move).
