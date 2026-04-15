@@ -149,6 +149,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults1", txResults)
 
@@ -172,6 +173,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults2", txResults2)
 
@@ -897,6 +899,7 @@ func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 
 	require.Equal(t, 3, len(txResults))
