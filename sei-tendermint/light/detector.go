@@ -82,7 +82,7 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 			witnessesToBlacklist = append(witnessesToBlacklist, c.witnesses[e.WitnessIndex])
 		case ErrProposerPrioritiesDiverge:
 			logger.Info("witness reported validator set with different proposer priorities",
-				"witness", c.witnesses[e.WitnessIndex], "err", err)
+				"primary", c.primary, "witness", c.witnesses[e.WitnessIndex], "err", err)
 			return e
 		default:
 			if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
