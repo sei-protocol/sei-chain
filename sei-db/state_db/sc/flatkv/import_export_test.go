@@ -629,8 +629,9 @@ func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 	// A key without module prefix ("/" separator) should be rejected by
 	// routePhysicalKey during flush.
 	imp.AddNode(&types.SnapshotNode{
-		Key:   []byte{0xDE, 0xAD},
-		Value: []byte{0x01, 0x02},
+		Key:     []byte{0xDE, 0xAD},
+		Value:   []byte{0x01, 0x02},
+		Version: 1,
 	})
 
 	err = imp.Close()
@@ -659,8 +660,9 @@ func TestImporterDoubleImport(t *testing.T) {
 	imp1, err := s.Importer(1)
 	require.NoError(t, err)
 	imp1.AddNode(&types.SnapshotNode{
-		Key:   storagePhysKey(addrN(0x01), slotN(0x01)),
-		Value: vtype.NewStorageData().SetBlockHeight(1).SetValue(sv1).Serialize(),
+		Key:     storagePhysKey(addrN(0x01), slotN(0x01)),
+		Value:   vtype.NewStorageData().SetBlockHeight(1).SetValue(sv1).Serialize(),
+		Version: 1,
 	})
 	require.NoError(t, imp1.Close())
 
@@ -673,8 +675,9 @@ func TestImporterDoubleImport(t *testing.T) {
 	imp2, err := s.Importer(2)
 	require.NoError(t, err)
 	imp2.AddNode(&types.SnapshotNode{
-		Key:   storagePhysKey(addrN(0x02), slotN(0x02)),
-		Value: vtype.NewStorageData().SetBlockHeight(2).SetValue(sv2).Serialize(),
+		Key:     storagePhysKey(addrN(0x02), slotN(0x02)),
+		Value:   vtype.NewStorageData().SetBlockHeight(2).SetValue(sv2).Serialize(),
+		Version: 2,
 	})
 	require.NoError(t, imp2.Close())
 
