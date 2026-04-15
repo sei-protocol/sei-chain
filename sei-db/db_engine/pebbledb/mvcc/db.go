@@ -64,11 +64,12 @@ type readTraceCloserRegistry interface {
 }
 
 type historicalReadSession struct {
-	snapshot  *pebble.Snapshot
-	iterators map[string]*pebble.Iterator
-	cache     map[historicalReadCacheKey]historicalReadCacheValue
-	mu        sync.Mutex
-	closed    bool
+	snapshot        *pebble.Snapshot
+	iterators       map[string]*pebble.Iterator
+	cache           map[historicalReadCacheKey]historicalReadCacheValue
+	keepLastVersion bool
+	mu              sync.Mutex
+	closed          bool
 }
 
 type historicalReadCacheKey struct {
@@ -387,7 +388,7 @@ func (db *Database) getWithCollector(storeKey string, targetVersion int64, key [
 		return nil, nil
 	}
 
-	if value, found, err := getLatestIndexedValue(db.storage, storeKey, key, targetVersion, db.GetEarliestVersion(), collector); err != nil {
+	if value, found, err := getLatestIndexedValue(db.storage, storeKey, key, targetVersion, db.GetEarliestVersion(), db.config.KeepLastVersion, collector); err != nil {
 		return nil, err
 	} else if found {
 		return value, nil
@@ -542,10 +543,10 @@ func (db *Database) Prune(version int64) (_err error) {
 	defer func() { _ = batch.Close() }()
 
 	var (
-		counter                                 int
-		prevKey, prevKeyEncoded, prevValEncoded []byte
-		prevVersionDecoded                      int64
-		prevStore                               string
+		counter            int
+		prevKey            []byte
+		prevVersionDecoded int64
+		prevStore          string
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -581,7 +582,7 @@ func (db *Database) Prune(version int64) (_err error) {
 			}
 		}
 
-		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		currVersionDecoded, err := decodeUint64Descending(currVersion)
 		if err != nil {
 			return err
 		}
@@ -593,11 +594,12 @@ func (db *Database) Prune(version int64) (_err error) {
 			continue
 		}
 
-		// Delete a key if another entry for that key exists at a larger version than original but leq to the prune height
-		// Also delete a key if it has been tombstoned and its version is leq to the prune height
-		// Also delete a key if KeepLastVersion is false and version is leq to the prune height
-		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
-			err = batch.Delete(prevKeyEncoded, nil)
+		// With descending MVCC ordering, the first version seen for a logical key is
+		// the newest one. Any later version for the same key is older and can be
+		// pruned once it falls below the prune height. If KeepLastVersion is false,
+		// even the first/only version at or below the prune height can be deleted.
+		if currVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || !db.config.KeepLastVersion) {
+			err = batch.Delete(currKeyEncoded, nil)
 			if err != nil {
 				return err
 			}
@@ -617,8 +619,6 @@ func (db *Database) Prune(version int64) (_err error) {
 		// Update prevKey and prevVersion for next iteration
 		prevKey = currKey
 		prevVersionDecoded = currVersionDecoded
-		prevKeyEncoded = currKeyEncoded
-		prevValEncoded = slices.Clone(itr.Value())
 
 		itr.Next()
 	}
@@ -821,7 +821,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		// Parse prefix out of the key
 		parsedKey := currKey[len(prefix):]
 
-		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		currVersionDecoded, err := decodeUint64Descending(currVersion)
 		if err != nil {
 			return false, err
 		}
@@ -935,13 +935,10 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 			Key:           slices.Clone(key),
 		})
 	}()
-	// end domain is exclusive, so we need to increment the version by 1
-	if version < math.MaxInt64 {
-		version++
-	}
-
-	lowerBound := MVCCEncode(prependStoreKey(storeKey, key), 0)
-	upperBound := MVCCEncode(prependStoreKey(storeKey, key), version)
+	prefixedKey := prependStoreKey(storeKey, key)
+	seekKey := MVCCEncode(prefixedKey, version)
+	lowerBound := seekKey
+	upperBound := iteratorUpperBoundForLogicalKey(prefixedKey)
 	iterStart := time.Now()
 	itr, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: lowerBound,
@@ -972,17 +969,16 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		})
 	}()
 
-	lastStart := time.Now()
-	lastOK := itr.Last()
+	firstStart := time.Now()
+	firstOK := itr.First()
 	recordReadTrace(collector, types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "pebble",
-		Operation:     "last",
-		DurationNanos: time.Since(lastStart).Nanoseconds(),
+		Operation:     "first",
+		DurationNanos: time.Since(firstStart).Nanoseconds(),
 		Key:           slices.Clone(key),
-		Reverse:       true,
 	})
-	if !lastOK {
+	if !firstOK {
 		return nil, errorutils.ErrRecordNotFound
 	}
 
@@ -998,7 +994,7 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 	})
 
 	splitKeyStart := time.Now()
-	_, vBz, ok := SplitMVCCKey(rawIterKey)
+	userKey, vBz, ok := SplitMVCCKey(rawIterKey)
 	recordReadTrace(collector, types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "mvcc",
@@ -1009,9 +1005,12 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 	if !ok {
 		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
 	}
+	if !bytes.Equal(userKey, prefixedKey) {
+		return nil, errorutils.ErrRecordNotFound
+	}
 
 	decodeVersionStart := time.Now()
-	keyVersion, err := decodeUint64Ascending(vBz)
+	keyVersion, err := decodeUint64Descending(vBz)
 	recordReadTrace(collector, types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "mvcc",
@@ -1062,10 +1061,6 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 		})
 	}()
 
-	if version < math.MaxInt64 {
-		version++
-	}
-
 	prefixedKey := prependStoreKey(storeKey, key)
 	seekKey := MVCCEncode(prefixedKey, version)
 
@@ -1086,7 +1081,7 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 
 	seekStart := time.Now()
 	session.mu.Lock()
-	ok := itr.SeekLT(seekKey)
+	ok := itr.SeekGE(seekKey)
 	var (
 		rawIterKey   []byte
 		rawIterValue []byte
@@ -1100,10 +1095,9 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 	recordReadTrace(collector, types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "pebble",
-		Operation:     "seekLT",
+		Operation:     "seekGE",
 		DurationNanos: time.Since(seekStart).Nanoseconds(),
 		Key:           slices.Clone(seekKey),
-		Reverse:       true,
 	})
 	if iterErr != nil {
 		return nil, iterErr
@@ -1139,7 +1133,7 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 	}
 
 	decodeVersionStart := time.Now()
-	keyVersion, err := decodeUint64Ascending(vBz)
+	keyVersion, err := decodeUint64Descending(vBz)
 	recordReadTrace(collector, types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "mvcc",
@@ -1182,6 +1176,7 @@ func (db *Database) WithReadTraceCollector(collector types.ReadTraceCollector) t
 		return db
 	}
 	session := newHistoricalReadSession(db.storage)
+	session.keepLastVersion = db.config.KeepLastVersion
 	traced := &tracedDatabase{Database: db, collector: collector, readSession: session}
 	if registry, ok := collector.(readTraceCloserRegistry); ok {
 		registry.AddReadTraceCloser(session)
@@ -1297,7 +1292,7 @@ func visibleValueAtVersion(prefixedVal []byte, targetVersion int64) ([]byte, err
 	if len(tombBz) == 0 {
 		return valBz, nil
 	}
-	tombstone, err := decodeUint64Ascending(tombBz)
+	tombstone, err := decodeUint64Descending(tombBz)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
 	}
@@ -1309,9 +1304,10 @@ func visibleValueAtVersion(prefixedVal []byte, targetVersion int64) ([]byte, err
 
 func newHistoricalReadSession(db *pebble.DB) *historicalReadSession {
 	session := &historicalReadSession{
-		snapshot:  db.NewSnapshot(),
-		iterators: map[string]*pebble.Iterator{},
-		cache:     map[historicalReadCacheKey]historicalReadCacheValue{},
+		snapshot:        db.NewSnapshot(),
+		iterators:       map[string]*pebble.Iterator{},
+		cache:           map[historicalReadCacheKey]historicalReadCacheValue{},
+		keepLastVersion: true,
 	}
 	return session
 }
@@ -1389,6 +1385,14 @@ func iteratorUpperBoundForStore(storeKey string) []byte {
 	return MVCCEncode(upperStorePrefix, 0)
 }
 
+func iteratorUpperBoundForLogicalKey(key []byte) []byte {
+	upperKeyPrefix := prefixEnd(key)
+	if upperKeyPrefix == nil {
+		return nil
+	}
+	return MVCCEncode(upperKeyPrefix, 0)
+}
+
 func latestIndexPrefix(storeKey string) []byte {
 	return []byte(fmt.Sprintf(LatestStorePrefixTpl, storeKey))
 }
@@ -1414,7 +1418,7 @@ func decodeLatestIndexValue(bz []byte) (int64, []byte, error) {
 	return int64(version), bz[VersionSize:], nil
 }
 
-func getLatestIndexedValue(db *pebble.DB, storeKey string, key []byte, targetVersion int64, earliestVersion int64, collector types.ReadTraceCollector) ([]byte, bool, error) {
+func getLatestIndexedValue(db *pebble.DB, storeKey string, key []byte, targetVersion int64, earliestVersion int64, keepLastVersion bool, collector types.ReadTraceCollector) ([]byte, bool, error) {
 	start := time.Now()
 	latestKey := latestIndexKey(storeKey, key)
 	val, closer, err := db.Get(latestKey)
@@ -1444,7 +1448,7 @@ func getLatestIndexedValue(db *pebble.DB, storeKey string, key []byte, targetVer
 	if err != nil {
 		return nil, false, err
 	}
-	if latestVersion < earliestVersion {
+	if latestVersion < earliestVersion && !keepLastVersion {
 		recordReadTrace(collector, types.ReadTraceEvent{
 			StoreKey:      storeKey,
 			Layer:         "mvcc",
@@ -1508,7 +1512,7 @@ func getLatestIndexedValueFromSession(session *historicalReadSession, storeKey s
 	if err != nil {
 		return nil, false, err
 	}
-	if latestVersion < earliestVersion {
+	if latestVersion < earliestVersion && !session.keepLastVersion {
 		recordReadTrace(collector, types.ReadTraceEvent{
 			StoreKey:      storeKey,
 			Layer:         "mvcc",

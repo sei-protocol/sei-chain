@@ -195,6 +195,12 @@ func TestTraceTransactionProfile(t *testing.T) {
 					if _, ok := lowLevelStats["pebble.seekLT"]; ok {
 						foundLowLevelPebbleTrace = true
 					}
+					if _, ok := lowLevelStats["pebble.first"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.seekGE"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
 					if _, ok := lowLevelStats["mvcc.getMVCCSlice"]; ok {
 						foundLowLevelGetPathTrace = true
 					}
