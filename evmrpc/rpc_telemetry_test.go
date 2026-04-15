@@ -32,7 +32,7 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	req := rpcRequestCounter.WithLabelValues(endpoint, "http", "true")
 	reqBefore := testutil.ToFloat64(req)
 
-	lat := rpcLatencySummary.WithLabelValues(endpoint, "http")
+	lat := rpcLatencySummary.WithLabelValues(endpoint, "http", "true")
 	latCountBefore, latSumBefore := summaryCountAndSum(t, lat)
 
 	wsBefore := testutil.ToFloat64(websocketConnectCounter)
@@ -47,7 +47,7 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	require.Equal(t, uint64(1), latCountAfter-latCountBefore, "sei_rpc_request_latency_ms sample count")
 	latDelta := latSumAfter - latSumBefore
 	require.GreaterOrEqual(t, latDelta, 0.1, "latency sum should reflect ~2ms observation")
-	require.LessOrEqual(t, latDelta, 10, "latency sum upper bound (scheduling jitter)")
+	require.LessOrEqual(t, latDelta, 10.0, "latency sum upper bound (scheduling jitter)")
 
 	wsDelta := testutil.ToFloat64(websocketConnectCounter) - wsBefore
 	// Global counter: other tests that open websocket connections may increment it in the same window.
