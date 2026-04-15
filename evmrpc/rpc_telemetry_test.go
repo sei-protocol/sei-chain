@@ -38,7 +38,7 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	wsBefore := testutil.ToFloat64(websocketConnectCounter)
 
 	recordRPCRequest(endpoint, "http", true)
-	recordRPCLatency(endpoint, "http", time.Now().Add(-2*time.Millisecond))
+	recordRPCLatency(endpoint, "http", true, time.Now().Add(-2*time.Millisecond))
 	recordWebsocketConnect()
 
 	require.InDelta(t, 1.0, testutil.ToFloat64(req)-reqBefore, 0.001, "sei_rpc_request_counter increment")

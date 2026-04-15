@@ -301,7 +301,7 @@ func recordMetricsWithError(apiMethod string, connectionType ConnectionType, sta
 	}
 
 	recordRPCRequest(apiMethod, string(connectionType), success)
-	recordRPCLatency(apiMethod, string(connectionType), startTime)
+	recordRPCLatency(apiMethod, string(connectionType), success, startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {

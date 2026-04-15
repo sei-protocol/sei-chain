@@ -41,7 +41,7 @@ func initRPCTelemetryMetrics() {
 				Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 				MaxAge:     10 * time.Second,
 			},
-			[]string{"endpoint", "connection"},
+			[]string{"endpoint", "connection", "success"},
 		)
 		websocketConnectCounter = prometheus.NewCounter(
 			prometheus.CounterOpts{
@@ -58,11 +58,11 @@ func recordRPCRequest(endpoint, connection string, success bool) {
 	rpcRequestCounter.WithLabelValues(endpoint, connection, strconv.FormatBool(success)).Inc()
 }
 
-func recordRPCLatency(endpoint, connection string, start time.Time) {
+func recordRPCLatency(endpoint, connection string, success bool, start time.Time) {
 	initRPCTelemetryMetrics()
 	// Match armon go-metrics MeasureSince: timer value = elapsed / time.Millisecond.
 	ms := float64(time.Since(start).Nanoseconds()) / float64(time.Millisecond)
-	rpcLatencySummary.WithLabelValues(endpoint, connection).Observe(ms)
+	rpcLatencySummary.WithLabelValues(endpoint, connection, strconv.FormatBool(success)).Observe(ms)
 }
 
 func recordWebsocketConnect() {
