@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func TestLegacySerializationGoldenFile_V0(t *testing.T) {
 
 	want, err := os.ReadFile(golden)
 	require.NoError(t, err)
-	wantBytes, err := hex.DecodeString(string(want))
+	wantBytes, err := hex.DecodeString(strings.TrimSpace(string(want)))
 	require.NoError(t, err)
 	require.Equal(t, wantBytes, serialized, "serialization differs from golden file")
 
@@ -76,13 +77,28 @@ func TestLegacyRoundTrip_EmptyValue(t *testing.T) {
 	require.Empty(t, rt.GetValue())
 }
 
-func TestLegacyIsDelete_EmptyValue(t *testing.T) {
+func TestLegacyIsDelete_Default(t *testing.T) {
 	ld := NewLegacyData()
+	require.False(t, ld.IsDelete(), "newly created LegacyData is not a deletion")
+}
+
+func TestLegacyIsDelete_EmptySliceIsNotDelete(t *testing.T) {
+	ld := NewLegacyData().SetValue([]byte{})
+	require.False(t, ld.IsDelete(), "empty value is a valid write, not a deletion")
+}
+
+func TestLegacyIsDelete_MarkDeleted(t *testing.T) {
+	ld := NewLegacyData().MarkDeleted()
 	require.True(t, ld.IsDelete())
 }
 
-func TestLegacyIsDelete_EmptySlice(t *testing.T) {
-	ld := NewLegacyData().SetValue([]byte{})
+func TestLegacyIsDelete_MarkDeletedThenSetValue(t *testing.T) {
+	ld := NewLegacyData().MarkDeleted().SetValue([]byte{0x01})
+	require.False(t, ld.IsDelete(), "SetValue clears the delete flag")
+}
+
+func TestLegacyIsDelete_SetValueThenMarkDeleted(t *testing.T) {
+	ld := NewLegacyData().SetValue([]byte{0x01}).MarkDeleted()
 	require.True(t, ld.IsDelete())
 }
 
@@ -153,7 +169,7 @@ func TestNilLegacyData_SerializeRoundTrips(t *testing.T) {
 	var ld *LegacyData
 	rt, err := DeserializeLegacyData(ld.Serialize())
 	require.NoError(t, err)
-	require.True(t, rt.IsDelete())
+	require.False(t, rt.IsDelete(), "deserialized data from disk is not a deletion")
 	require.Empty(t, rt.GetValue())
 }
 
@@ -174,5 +190,12 @@ func TestLegacyData_SetValueNil(t *testing.T) {
 	ld := NewLegacyData().SetValue([]byte{0x01})
 	ld = ld.SetValue(nil)
 	require.Empty(t, ld.GetValue())
+	require.False(t, ld.IsDelete(), "SetValue(nil) is a write of empty data, not a deletion")
+}
+
+func TestLegacyData_MarkDeletedNilReceiver(t *testing.T) {
+	var ld *LegacyData
+	ld = ld.MarkDeleted()
+	require.NotNil(t, ld)
 	require.True(t, ld.IsDelete())
 }

@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -15,16 +16,23 @@ import (
 
 // parquetReceiptStore wraps the parquet.Store and implements ReceiptStore.
 type parquetReceiptStore struct {
-	store    *parquet.Store
-	storeKey sdk.StoreKey
+	store       *parquet.Store
+	storeKey    sdk.StoreKey
+	txHashIndex TxHashIndex
+	indexPruner *txHashIndexPruner
 }
 
 func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	txIndexBackend := dbconfig.NormalizeReceiptTxIndexBackend(cfg.TxIndexBackend)
+	parquetTxIndexBackend := txIndexBackend
+	if parquetTxIndexBackend == dbconfig.ReceiptTxIndexBackendNone {
+		parquetTxIndexBackend = "none"
+	}
 	storeCfg := parquet.StoreConfig{
 		DBDirectory:          cfg.DBDirectory,
 		KeepRecent:           int64(cfg.KeepRecent),
 		PruneIntervalSeconds: int64(cfg.PruneIntervalSeconds),
-		DisableTxIndexLookup: cfg.DisableTxIndexLookup,
+		TxIndexBackend:       parquetTxIndexBackend,
 	}
 
 	store, err := parquet.NewStore(storeCfg)
@@ -37,8 +45,33 @@ func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreK
 		storeKey: storeKey,
 	}
 
+	switch txIndexBackend {
+	case dbconfig.ReceiptTxIndexBackendNone:
+	case dbconfig.ReceiptTxIndexBackendPebble:
+		idx, err := NewPebbleTxHashIndex(TxHashIndexDir(cfg.DBDirectory))
+		if err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("failed to open tx hash index: %w", err)
+		}
+		wrapper.txHashIndex = idx
+		wrapper.indexPruner = newTxHashIndexPruner(
+			idx,
+			int64(cfg.KeepRecent),
+			int64(cfg.PruneIntervalSeconds),
+			func() int64 { return store.LatestVersion() },
+		)
+	default:
+		_ = store.Close()
+		return nil, fmt.Errorf("unsupported receipt tx index backend: %s", txIndexBackend)
+	}
+
 	if err := wrapper.replayWAL(); err != nil {
+		_ = wrapper.Close()
 		return nil, err
+	}
+
+	if wrapper.indexPruner != nil {
+		wrapper.indexPruner.Start()
 	}
 
 	return wrapper, nil
@@ -83,7 +116,7 @@ func (s *parquetReceiptStore) warmupReceipts() []ReceiptRecord {
 }
 
 func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	result, err := s.store.GetReceiptByTxHash(ctx.Context(), txHash)
+	result, err := s.indexedReceiptLookup(ctx.Context(), txHash)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +144,7 @@ func (s *parquetReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*
 }
 
 func (s *parquetReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	result, err := s.store.GetReceiptByTxHash(ctx.Context(), txHash)
+	result, err := s.indexedReceiptLookup(ctx.Context(), txHash)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +157,20 @@ func (s *parquetReceiptStore) GetReceiptFromStore(ctx sdk.Context, txHash common
 		return nil, err
 	}
 	return receipt, nil
+}
+
+// indexedReceiptLookup uses the tx hash index (when available) to narrow
+// the parquet search to a single file, falling back to a full scan.
+func (s *parquetReceiptStore) indexedReceiptLookup(ctx context.Context, txHash common.Hash) (*parquet.ReceiptResult, error) {
+	if s.txHashIndex != nil {
+		blockNum, ok, err := s.txHashIndex.GetBlockNumber(ctx, txHash)
+		if err != nil {
+			logger.Error("tx hash index lookup failed, falling back to full scan", "err", err)
+		} else if ok {
+			return s.store.GetReceiptByTxHashInBlock(ctx, txHash, blockNum)
+		}
+	}
+	return s.store.GetReceiptByTxHash(ctx, txHash)
 }
 
 func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
@@ -194,10 +241,49 @@ func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRec
 		return err
 	}
 
+	if s.txHashIndex != nil {
+		if err := s.indexReceiptInputs(inputs); err != nil {
+			return fmt.Errorf("tx hash index write failed: %w", err)
+		}
+	}
+
 	if maxBlock > 0 {
 		s.store.UpdateLatestVersion(int64(maxBlock)) //nolint:gosec // block numbers won't exceed int64 max
 	}
 
+	return nil
+}
+
+// indexReceiptInputs batches tx hashes by block number and writes them to the
+// tx hash index.
+func (s *parquetReceiptStore) indexReceiptInputs(inputs []parquet.ReceiptInput) error {
+	type blockBatch struct {
+		blockNumber uint64
+		hashes      []common.Hash
+	}
+	var batches []blockBatch
+	batchIdx := make(map[uint64]int)
+
+	for i := range inputs {
+		bn := inputs[i].BlockNumber
+		txHash := common.BytesToHash(inputs[i].Receipt.TxHash)
+		if idx, ok := batchIdx[bn]; ok {
+			batches[idx].hashes = append(batches[idx].hashes, txHash)
+		} else {
+			batchIdx[bn] = len(batches)
+			batches = append(batches, blockBatch{
+				blockNumber: bn,
+				hashes:      []common.Hash{txHash},
+			})
+		}
+	}
+
+	ctx := context.Background()
+	for _, b := range batches {
+		if err := s.txHashIndex.IndexBlock(ctx, b.blockNumber, b.hashes); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -239,7 +325,16 @@ func (s *parquetReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uin
 }
 
 func (s *parquetReceiptStore) Close() error {
-	return s.store.Close()
+	if s.indexPruner != nil {
+		s.indexPruner.Stop()
+	}
+	storeErr := s.store.Close()
+	if s.txHashIndex != nil {
+		if err := s.txHashIndex.Close(); err != nil && storeErr == nil {
+			storeErr = err
+		}
+	}
+	return storeErr
 }
 
 func (s *parquetReceiptStore) replayWAL() error {
@@ -263,6 +358,15 @@ func (s *parquetReceiptStore) replayWAL() error {
 		maxBlock      uint64
 		dropOffset    uint64
 	)
+
+	// Collect tx hashes per block during replay so the index can be
+	// populated in a single batch after the parquet store is consistent.
+	type replayedBlock struct {
+		blockNumber uint64
+		hashes      []common.Hash
+	}
+	var replayedBlocks []replayedBlock
+	replayIdx := make(map[uint64]int)
 
 	blockHash := common.Hash{}
 	fileStartBlock := s.store.FileStartBlock()
@@ -303,6 +407,18 @@ func (s *parquetReceiptStore) replayWAL() error {
 				ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),
 			})
 
+			if s.txHashIndex != nil {
+				if idx, ok := replayIdx[blockNumber]; ok {
+					replayedBlocks[idx].hashes = append(replayedBlocks[idx].hashes, txHash)
+				} else {
+					replayIdx[blockNumber] = len(replayedBlocks)
+					replayedBlocks = append(replayedBlocks, replayedBlock{
+						blockNumber: blockNumber,
+						hashes:      []common.Hash{txHash},
+					})
+				}
+			}
+
 			txLogs := getLogsForTx(receipt, logStartIndex)
 			logStartIndex += uint(len(txLogs))
 			for _, lg := range txLogs {
@@ -332,6 +448,17 @@ func (s *parquetReceiptStore) replayWAL() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Re-index replayed blocks so the tx hash index stays consistent
+	// with the parquet store after a crash/restart.
+	if s.txHashIndex != nil {
+		ctx := context.Background()
+		for _, rb := range replayedBlocks {
+			if err := s.txHashIndex.IndexBlock(ctx, rb.blockNumber, rb.hashes); err != nil {
+				return fmt.Errorf("failed to re-index replayed block %d: %w", rb.blockNumber, err)
+			}
+		}
 	}
 
 	if maxBlock > 0 {

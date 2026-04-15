@@ -16,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -587,7 +588,7 @@ func testStateLockNoPOL(t *testing.T) {
 
 	// cs1 is locked on a block at this point, so we must generate a new consensus
 	// state to force a new proposal block to be generated.
-	cs2, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
 	// before we time out into new round, set next proposal block
 	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round+1)
 	require.NotNil(t, propBlock, "Failed to create proposal block with vs2")
@@ -809,7 +810,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	pubKey, err := vss[0].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxKeys(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
 	p := propR1.ToProto()
@@ -1493,7 +1494,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 
 	round++ // moving to the next round
 	// in round 2 we see the polkad block from round 0
-	pubKey, err := vss[0].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	newProp := types.NewProposal(height, round, 0, propBlockID0, propBlock0.Header.Time, propBlock0.GetTxKeys(), propBlock0.Header, propBlock0.LastCommit, propBlock0.Evidence, pubKey.Address())
 	p := newProp.ToProto()
@@ -1630,7 +1631,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	*/
 	incrementRound(vs2, vs3, vs4)
 	round++
-	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
+	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 	propR2 := types.NewProposal(height, round, 1, r1BlockID, propBlockR1.Header.Time, propBlockR1.GetTxKeys(), propBlockR1.Header, propBlockR1.LastCommit, propBlockR1.Evidence, pubKey.Address())
 	p := propR2.ToProto()
@@ -2500,6 +2501,113 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 	require.Nil(t, rs.ProposalBlock, "proposal block must stay nil until matching commit block parts arrive")
 	require.Equal(t, wrongBlockID.PartSetHeader, rs.ProposalBlockParts.Header(), "part set header should keep pointing to commit certificate despite duplicate proposals")
 	require.NotEqual(t, originalPartSetHeader, rs.ProposalBlockParts.Header(), "should not revert back to mismatching proposal block parts")
+}
+
+func TestSetProposal_InvalidProposer(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+
+	timeoutWaitCh := subscribe(ctx, t, cs.eventBus, types.EventQueryTimeoutWait)
+	proposalCh := subscribe(ctx, t, cs.eventBus, types.EventQueryCompleteProposal)
+	addr := getAddr(ctx, cs)
+	voteCh := subscribeToVoter(ctx, t, cs, addr)
+	lockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryLock)
+	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
+
+	findValidatorStub := func(address []byte) *validatorStub {
+		t.Helper()
+
+		for _, vs := range vss {
+			pubKey, err := vs.GetPubKey(ctx)
+			require.NoError(t, err)
+			if bytes.Equal(pubKey.Address(), address) {
+				return vs
+			}
+		}
+		return nil
+	}
+
+	startTestRound(ctx, cs, height, round)
+	ensureNewRound(t, newRoundCh, height, round)
+
+	round0Validators := cs.GetRoundState().Validators.Copy()
+	round0Proposer := round0Validators.GetProposer()
+	require.NotNil(t, round0Proposer)
+
+	round1Validators := round0Validators.CopyIncrementProposerPriority(1)
+	round1Proposer := round1Validators.GetProposer()
+	require.NotNil(t, round1Proposer)
+	require.False(t, bytes.Equal(round0Proposer.Address, round1Proposer.Address), "test requires different proposers across rounds")
+
+	round1ProposerStub := findValidatorStub(round1Proposer.Address)
+	require.NotNil(t, round1ProposerStub)
+
+	ensureNewProposal(t, proposalCh, height, round)
+	rs := cs.GetRoundState()
+	block := rs.ProposalBlock
+	blockParts := rs.ProposalBlockParts
+	blockID := types.BlockID{
+		Hash:          block.Hash(),
+		PartSetHeader: blockParts.Header(),
+	}
+	require.True(t, bytes.Equal(block.Header.ProposerAddress, round0Proposer.Address))
+
+	ensurePrevote(t, voteCh, height, round)
+	signAddVotes(ctx, t, cs, tmproto.PrevoteType, config.ChainID(), blockID, vss[1:]...)
+	ensureLock(t, lockCh, height, round)
+	ensurePrecommit(t, voteCh, height, round)
+	signAddVotes(ctx, t, cs, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vss[1:]...)
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
+
+	incrementRound(vss[1:]...)
+	round++
+	ensureNewRound(t, newRoundCh, height, round)
+	require.True(t, bytes.Equal(cs.GetRoundState().Validators.GetProposer().Address, round1Proposer.Address))
+
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), blockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, round1Proposer.Address)
+	require.False(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
+
+	proposal.ProposerAddress = round0Proposer.Address
+	require.True(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
+
+	p := proposal.ToProto()
+	require.NoError(t, round1ProposerStub.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidProposer)
+	require.Nil(t, cs.roundState.Proposal())
+}
+
+func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+
+	want := cs.GetRoundState().Validators.GetProposer().PubKey
+	var proposer *validatorStub
+	for _, vs := range vss {
+		got, err := vs.GetPubKey(ctx)
+		require.NoError(t, err)
+		if want == got {
+			proposer = vs
+			break
+		}
+	}
+	require.NotNil(t, proposer)
+
+	proposal, _ := decideProposal(ctx, t, cs, proposer, height, round)
+
+	proposal.Header.ProposerAddress = ed25519.GenerateSecretKey().Public().Address()
+
+	p := proposal.ToProto()
+	require.NoError(t, proposer.SignProposal(ctx, config.ChainID(), p))
+	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidHeaderProposer)
+	require.Nil(t, cs.roundState.Proposal())
 }
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {

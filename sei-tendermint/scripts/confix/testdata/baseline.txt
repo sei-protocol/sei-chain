@@ -2,7 +2,6 @@
 +M db-backend
 +M db-dir
 +M fast-sync
-+M filter-peers
 +M genesis-file
 +M log-format
 +M log-level

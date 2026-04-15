@@ -97,7 +97,6 @@ type BaseApp struct {
 
 	appStore
 	baseappVersions
-	peerFilters
 	snapshotData
 	abciData
 	moduleRouter

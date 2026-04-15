@@ -69,12 +69,12 @@ func TestLoadConfigFromFile_DisableTransactionReadsOverride(t *testing.T) {
 	require.True(t, cfg.DisableTransactionReads)
 }
 
-func TestLoadConfigFromFile_DisableReceiptTxIndexLookupOverride(t *testing.T) {
+func TestLoadConfigFromFile_ReceiptTxIndexBackendOverride(t *testing.T) {
 	t.Parallel()
 
 	configPath := filepath.Join(t.TempDir(), "cryptosim.json")
 	err := os.WriteFile(configPath, []byte(`{
-  "DisableReceiptTxIndexLookup": true,
+  "ReceiptTxIndexBackend": "",
   "DataDir": "data",
   "LogDir": "logs"
 }`), 0o600)
@@ -82,5 +82,5 @@ func TestLoadConfigFromFile_DisableReceiptTxIndexLookupOverride(t *testing.T) {
 
 	cfg, err := LoadConfigFromFile(configPath)
 	require.NoError(t, err)
-	require.True(t, cfg.DisableReceiptTxIndexLookup)
+	require.Equal(t, "", cfg.ReceiptTxIndexBackend)
 }

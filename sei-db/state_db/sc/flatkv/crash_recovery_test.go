@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,8 +94,8 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	addr := addrN(0x02)
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		cs := makeChangeSet(key, []byte{byte(i * 11)}, false)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
 		require.NoError(t, err)
@@ -121,10 +122,10 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	verifyLtHashConsistency(t, s2)
 
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		val, found := s2.Get(key)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		val, found := s2.Get(evm.EVMStoreKey, key)
 		require.True(t, found, "slot %d should exist after recovery", i)
-		require.Equal(t, []byte{byte(i * 11)}, val)
+		require.Equal(t, padLeft32(byte(i*11)), val)
 	}
 }
 
@@ -141,8 +142,8 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 
 	addr := addrN(0x03)
 	for i := 1; i <= 20; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		cs := makeChangeSet(key, []byte{byte(i)}, false)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
 		require.NoError(t, err)
@@ -163,10 +164,10 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 
 	// All 20 storage slots should be readable.
 	for i := 1; i <= 20; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i))))
-		val, found := s2.Get(key)
+		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		val, found := s2.Get(evm.EVMStoreKey, key)
 		require.True(t, found, "slot %d should exist", i)
-		require.Equal(t, []byte{byte(i)}, val)
+		require.Equal(t, padLeft32(byte(i)), val)
 	}
 }
 
@@ -181,8 +182,8 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := addrN(0x04)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
-	cs := makeChangeSet(key, []byte{0xAA}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
 	require.NoError(t, err)
@@ -205,12 +206,12 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.Equal(t, expectedVersion, s2.Version())
 	require.Equal(t, expectedHash, s2.RootHash())
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0xAA}, val)
+	require.Equal(t, padLeft32(0xAA), val)
 
 	// Can continue committing after recovery from snapshot-only state.
-	cs2 := makeChangeSet(key, []byte{0xBB}, false)
+	cs2 := makeChangeSet(key, padLeft32(0xBB), false)
 	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	v, err := s2.Commit()
 	require.NoError(t, err)
@@ -234,7 +235,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 
 	// Corrupt the account value in the DB with invalid-length data.
 	batch := s.accountDB.NewBatch()
-	require.NoError(t, batch.Set(AccountKey(addr), []byte{0xDE, 0xAD}))
+	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -248,7 +249,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	}
 	err = s.ApplyChangeSets([]*proto.NamedChangeSet{cs2})
 	require.Error(t, err, "should fail on corrupted AccountValue")
-	require.Contains(t, err.Error(), "corrupted AccountValue")
+	require.Contains(t, err.Error(), "unsupported serialization version")
 }
 
 func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
@@ -264,15 +265,15 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	addr := addrN(0x06)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
 	require.NoError(t, err)
 	hashAfterV1 := s.RootHash()
 
 	// Now simulate writing v2 to WAL but "crashing" before DB commit.
-	cs2 := makeChangeSet(key, []byte{0x22}, false)
+	cs2 := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Write v2 to WAL manually (like Commit step 1).
@@ -298,9 +299,9 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.Equal(t, int64(2), s2.Version())
 	require.NotEqual(t, hashAfterV1, s2.RootHash(), "hash should differ after v2 replay")
 
-	val, found := s2.Get(key)
+	val, found := s2.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x22}, val, "v2 value should be present after catchup")
+	require.Equal(t, padLeft32(0x22), val, "v2 value should be present after catchup")
 	verifyLtHashConsistency(t, s2)
 }
 
@@ -320,8 +321,8 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 		pairs := []*proto.KVPair{
 			noncePair(addr, uint64(i)),
 			{
-				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(byte(i)))),
-				Value: []byte{byte(i)},
+				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i)))),
+				Value: padLeft32(byte(i)),
 			},
 		}
 		cs := &proto.NamedChangeSet{
@@ -380,8 +381,8 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		[]byte{0x11}, false,
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
+		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
@@ -415,8 +416,8 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x01))),
-		[]byte{0x22}, false,
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x02), slotN(0x01))),
+		padLeft32(0x22), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
@@ -450,8 +451,8 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x03), slotN(0x01))),
-		[]byte{0x33}, false,
+		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
+		padLeft32(0x33), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()

@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -38,48 +37,29 @@ func cachingStateFetcher(store Store) func() (State, error) {
 
 }
 
-// TxPreCheckFromStore returns a function to filter transactions before processing.
-// The function limits the size of a transaction to the block's maximum data size.
-func TxPreCheckFromStore(store Store) mempool.PreCheckFunc {
+// TxConstraintsFetcherFromStore returns the precomputed consensus-derived mempool limits for the
+// current persisted state.
+func TxConstraintsFetcherFromStore(store Store) mempool.TxConstraintsFetcher {
 	fetch := cachingStateFetcher(store)
 
-	return func(tx types.Tx) error {
+	return func() (mempool.TxConstraints, error) {
 		state, err := fetch()
 		if err != nil {
-			return err
+			return mempool.TxConstraints{}, err
 		}
 
-		return TxPreCheckForState(state)(tx)
+		return TxConstraintsFetcherForState(state)()
 	}
 }
 
-func TxPreCheckForState(state State) mempool.PreCheckFunc {
-	return func(tx types.Tx) error {
-		maxDataBytes := types.MaxDataBytesNoEvidence(
-			state.ConsensusParams.Block.MaxBytes,
-			state.Validators.Size(),
-		)
-		return mempool.PreCheckMaxBytes(maxDataBytes)(tx)
-	}
-
-}
-
-// TxPostCheckFromStore returns a function to filter transactions after processing.
-// The function limits the gas wanted by a transaction to the block's maximum total gas.
-func TxPostCheckFromStore(store Store) mempool.PostCheckFunc {
-	fetch := cachingStateFetcher(store)
-
-	return func(tx types.Tx, resp *abci.ResponseCheckTx) error {
-		state, err := fetch()
-		if err != nil {
-			return err
-		}
-		return mempool.PostCheckMaxGas(state.ConsensusParams.Block.MaxGas)(tx, resp)
-	}
-}
-
-func TxPostCheckForState(state State) mempool.PostCheckFunc {
-	return func(tx types.Tx, resp *abci.ResponseCheckTx) error {
-		return mempool.PostCheckMaxGas(state.ConsensusParams.Block.MaxGas)(tx, resp)
+func TxConstraintsFetcherForState(state State) mempool.TxConstraintsFetcher {
+	return func() (mempool.TxConstraints, error) {
+		return mempool.TxConstraints{
+			MaxDataBytes: types.MaxDataBytesNoEvidence(
+				state.ConsensusParams.Block.MaxBytes,
+				state.Validators.Size(),
+			),
+			MaxGas: state.ConsensusParams.Block.MaxGas,
+		}, nil
 	}
 }

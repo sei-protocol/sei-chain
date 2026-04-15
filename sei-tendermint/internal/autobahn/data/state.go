@@ -79,19 +79,29 @@ func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
 // reconcile fixes cursor inconsistencies between the two WALs that can
 // result from crashes during parallel persistence or pruning.
 //
-// Prefix: advances both WALs to the max of their starting points.
-// blocksFirst > qcsFirst can only happen if a prune completed on blocks
-// but crashed before completing on QCs (blocks never naturally start
-// ahead of QCs since QCs arrive first). In that case, truncating QCs
-// to match completes the interrupted prune.
+// The possible WAL states on startup and how they are handled:
 //
-// Tail: if blocks WAL extends past QCs WAL, the excess blocks were
-// persisted without their corresponding QCs (crash during parallel
-// persistence in runPersist). These blocks are untrustworthy — a
-// different QC could arrive for those positions — so they are removed.
+//	Case  Blocks    QCs       Scenario                          Action
+//	1     empty     empty     Fresh start                       no-op
+//	2     [a,b]     empty     QCs lost (corruption)             error (statesync needed)
+//	3     empty     [X,Y)     Blocks lost (crash)               Prefix: fast-forward blocks.next to X
+//	4     [a,b]     [X,Y)     Normal (a=X, b<Y)                 no-op
+//	5     [a,b]     [X,Y)     Prune crash: blocks ahead (a>X)   Prefix: truncate QCs to a
+//	6     [a,b]     [X,Y)     Prune crash: QCs ahead (a<X)      Prefix: truncate blocks to X
+//	7     [a,b]     [X,Y)     Persist crash: blocks past (b>=Y) Tail: truncate blocks to Y
+//	8     [a,b]     [X,Y)     QCs ahead (normal, b<Y)           Tail: no-op (blocks catch up)
 func (dw *DataWAL) reconcile(committee *types.Committee) error {
 	fb := committee.FirstBlock()
-	// Fix prefix.
+	// Fix tail: remove blocks past QC range.
+	qcNext := dw.CommitQCs.Next()
+	if qcNext == fb && dw.Blocks.Next() > fb {
+		// Blocks exist but QCs WAL is empty — data is corrupted.
+		return fmt.Errorf("corrupted WAL: blocks exist but QCs WAL is empty; statesync required to recover")
+	}
+	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
+		return fmt.Errorf("truncate blocks tail: %w", err)
+	}
+	// Fix prefix: align both WALs to the later start.
 	blocksFirst := dw.Blocks.LoadedFirst()
 	qcsFirst := dw.CommitQCs.LoadedFirst()
 	reconciled := max(blocksFirst, qcsFirst)
@@ -99,13 +109,6 @@ func (dw *DataWAL) reconcile(committee *types.Committee) error {
 		if err := dw.TruncateBefore(reconciled); err != nil {
 			return err
 		}
-	}
-	// Fix tail and trim loaded blocks to match QC range.
-	// QCs are the source of truth; blocks outside [reconciled, qcNext)
-	// are stale (from prefix desync or parallel persistence crash).
-	qcNext := dw.CommitQCs.Next()
-	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
-		return fmt.Errorf("truncate blocks tail: %w", err)
 	}
 	return nil
 }
@@ -547,6 +550,7 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 // a QC range; this is handled on recovery (NewState skips partial QC prefixes).
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	pruningTime := time.Now()
+	truncateTo := utils.None[types.GlobalBlockNumber]()
 	for inner, ctrl := range s.inner.Lock() {
 		// Can only prune executed blocks (those with AppProposals).
 		firstToKeep := min(retainFrom, inner.nextAppProposal)
@@ -558,9 +562,11 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 			inner.pruneFirst(pruningTime, s.metrics)
 		}
 		ctrl.Updated()
-		if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-			return err
-		}
+		truncateTo = utils.Some(inner.first)
+	}
+	// Truncate WALs outside the lock to avoid holding it during disk I/O.
+	if n, ok := truncateTo.Get(); ok {
+		return s.dataWAL.TruncateBefore(n)
 	}
 	return nil
 }
@@ -654,6 +660,7 @@ func (s *State) runPersist(ctx context.Context) error {
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
+		truncateTo := utils.None[types.GlobalBlockNumber]()
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune blocks old enough. Keep at least one entry.
 			// Per-block pruning may split QC ranges; handled on recovery.
@@ -665,15 +672,21 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 			}
 			if pruned {
 				ctrl.Updated()
-				if err := s.dataWAL.TruncateBefore(inner.first); err != nil {
-					return err
-				}
+				truncateTo = utils.Some(inner.first)
 			}
-			// Compute the next pruning time.
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first < inner.nextAppProposal }); err != nil {
+			// Wait for at least 2 entries before retrying. Without +1,
+			// the loop would spin when only one entry remains (kept by
+			// the +1 guard above).
+			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first+1 < inner.nextAppProposal }); err != nil {
 				return err
 			}
 			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
+		}
+		// Truncate WALs outside the lock to avoid holding it during disk I/O.
+		if n, ok := truncateTo.Get(); ok {
+			if err := s.dataWAL.TruncateBefore(n); err != nil {
+				return err
+			}
 		}
 		// Wait until the next pruning time.
 		if err := utils.SleepUntil(ctx, pruningTime); err != nil {

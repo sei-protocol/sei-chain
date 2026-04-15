@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,13 +21,13 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x11}
-	slot := Slot{0x22}
-	value := []byte{0x33}
+	addr := ktype.Address{0x11}
+	slot := ktype.Slot{0x22}
+	value := padLeft32(0x33)
 	key := memiavlStorageKey(addr, slot)
 
 	// No data initially
-	_, found := s.Get(key)
+	_, found := s.Get(evm.EVMStoreKey, key)
 	require.False(t, found)
 
 	// Apply changeset (adds to pending writes)
@@ -33,7 +35,7 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 
@@ -41,7 +43,7 @@ func TestStoreGetPendingWrites(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should still be readable after commit
-	got, found = s.Get(key)
+	got, found = s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
 }
@@ -50,17 +52,17 @@ func TestStoreGetPendingDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x44}
-	slot := Slot{0x55}
+	addr := ktype.Address{0x44}
+	slot := ktype.Slot{0x55}
 	key := memiavlStorageKey(addr, slot)
 
 	// Write and commit
-	cs1 := makeChangeSet(key, []byte{0x66}, false)
+	cs1 := makeChangeSet(key, padLeft32(0x66), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
-	_, found := s.Get(key)
+	_, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
 
 	// Apply delete (pending)
@@ -68,14 +70,14 @@ func TestStoreGetPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
-	_, found = s.Get(key)
+	_, found = s.Get(evm.EVMStoreKey, key)
 	require.False(t, found)
 
 	// Commit delete
 	commitAndCheck(t, s)
 
 	// Still should not be found
-	_, found = s.Get(key)
+	_, found = s.Get(evm.EVMStoreKey, key)
 	require.False(t, found)
 }
 
@@ -83,7 +85,7 @@ func TestStoreGetNonStorageKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x77}
+	addr := ktype.Address{0x77}
 
 	// Non-storage keys should return not found (before write)
 	nonStorageKeys := [][]byte{
@@ -92,8 +94,9 @@ func TestStoreGetNonStorageKeys(t *testing.T) {
 		evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
 	}
 
+	var found bool
 	for _, key := range nonStorageKeys {
-		_, found := s.Get(key)
+		_, found = s.Get(evm.EVMStoreKey, key)
 		require.False(t, found, "non-storage keys should not be found before write")
 	}
 }
@@ -102,20 +105,22 @@ func TestStoreHas(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x88}
-	slot := Slot{0x99}
+	addr := ktype.Address{0x88}
+	slot := ktype.Slot{0x99}
 	key := memiavlStorageKey(addr, slot)
 
 	// Initially not found
-	require.False(t, s.Has(key))
+	found := s.Has(evm.EVMStoreKey, key)
+	require.False(t, found)
 
 	// Write and commit
-	cs := makeChangeSet(key, []byte{0xAA}, false)
+	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Now should exist
-	require.True(t, s.Has(key))
+	found = s.Has(evm.EVMStoreKey, key)
+	require.True(t, found)
 }
 
 // =============================================================================
@@ -126,11 +131,11 @@ func TestStoreGetLegacyPendingWrites(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xEE}
+	addr := ktype.Address{0xEE}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Not found initially
-	_, found := s.Get(legacyKey)
+	_, found := s.Get(evm.EVMStoreKey, legacyKey)
 	require.False(t, found)
 
 	// Apply changeset
@@ -138,13 +143,13 @@ func TestStoreGetLegacyPendingWrites(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
-	got, found := s.Get(legacyKey)
+	got, found := s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 
 	// Commit and still readable
 	commitAndCheck(t, s)
-	got, found = s.Get(legacyKey)
+	got, found = s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 }
@@ -153,7 +158,7 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xFF}
+	addr := ktype.Address{0xFF}
 	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Write and commit
@@ -161,7 +166,7 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	_, found := s.Get(legacyKey)
+	_, found := s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 
 	// Apply delete (pending)
@@ -169,12 +174,12 @@ func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
-	_, found = s.Get(legacyKey)
+	_, found = s.Get(evm.EVMStoreKey, legacyKey)
 	require.False(t, found)
 
 	// Commit delete
 	commitAndCheck(t, s)
-	_, found = s.Get(legacyKey)
+	_, found = s.Get(evm.EVMStoreKey, legacyKey)
 	require.False(t, found)
 }
 
@@ -186,19 +191,19 @@ func TestStoreDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x55}
-	slot := Slot{0x66}
+	addr := ktype.Address{0x55}
+	slot := ktype.Slot{0x66}
 	key := memiavlStorageKey(addr, slot)
 
 	// Write
-	cs1 := makeChangeSet(key, []byte{0x77}, false)
+	cs1 := makeChangeSet(key, padLeft32(0x77), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x77}, got)
+	require.Equal(t, padLeft32(0x77), got)
 
 	// Delete
 	cs2 := makeChangeSet(key, nil, true)
@@ -206,7 +211,7 @@ func TestStoreDelete(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should not exist
-	_, found = s.Get(key)
+	_, found = s.Get(evm.EVMStoreKey, key)
 	require.False(t, found)
 }
 
@@ -229,11 +234,11 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	slot := Slot{0xBB}
-	value := []byte{0xCC}
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	value := padLeft32(0xCC)
 	memiavlKey := memiavlStorageKey(addr, slot)
-	internalKey := StorageKey(addr, slot) // addr(20) || slot(32)
+	physKey := storagePhysKey(addr, slot)
 
 	cs := makeChangeSet(memiavlKey, value, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -245,7 +250,7 @@ func TestStoreIteratorSingleKey(t *testing.T) {
 
 	require.True(t, iter.First())
 	require.True(t, iter.Valid())
-	require.Equal(t, internalKey, iter.Key()) // internal key format
+	require.Equal(t, physKey, iter.Key()) // physical key format
 	require.Equal(t, value, iter.Value())
 
 	// Only one key
@@ -257,22 +262,22 @@ func TestStoreIteratorMultipleKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xDD}
+	addr := ktype.Address{0xDD}
 
 	// Write multiple slots
 	entries := []struct {
-		slot  Slot
+		slot  ktype.Slot
 		value byte
 	}{
-		{Slot{0x01}, 0xAA},
-		{Slot{0x02}, 0xBB},
-		{Slot{0x03}, 0xCC},
+		{ktype.Slot{0x01}, 0xAA},
+		{ktype.Slot{0x02}, 0xBB},
+		{ktype.Slot{0x03}, 0xCC},
 	}
 
 	pairs := make([]*proto.KVPair, len(entries))
 	for i, e := range entries {
 		key := memiavlStorageKey(addr, e.slot)
-		pairs[i] = &proto.KVPair{Key: key, Value: []byte{e.value}}
+		pairs[i] = &proto.KVPair{Key: key, Value: padLeft32(e.value)}
 	}
 
 	cs := &proto.NamedChangeSet{
@@ -303,10 +308,10 @@ func TestStoreIteratorNonStorageKeys(t *testing.T) {
 	defer s.Close()
 
 	// Iterating non-storage keys should return empty iterator (Phase 1)
-	addr := Address{0xCC}
+	addr := ktype.Address{0xCC}
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 
-	iter := s.Iterator(nonceKey, PrefixEnd(nonceKey))
+	iter := s.Iterator(nonceKey, ktype.PrefixEnd(nonceKey))
 	defer iter.Close()
 
 	require.False(t, iter.Valid(), "non-storage key iteration should be empty in Phase 1")
@@ -320,13 +325,13 @@ func TestStoreStoragePrefixIteration(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAB}
+	addr := ktype.Address{0xAB}
 
 	// Write multiple slots
 	for i := byte(1); i <= 3; i++ {
-		slot := Slot{i}
+		slot := ktype.Slot{i}
 		key := memiavlStorageKey(addr, slot)
-		cs := makeChangeSet(key, []byte{i * 10}, false)
+		cs := makeChangeSet(key, padLeft32(i*10), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 	commitAndCheck(t, s)
@@ -349,22 +354,22 @@ func TestStoreIteratorByPrefixAddress(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr1 := Address{0xAA}
-	addr2 := Address{0xBB}
+	addr1 := ktype.Address{0xAA}
+	addr2 := ktype.Address{0xBB}
 
 	// Write slots for addr1
 	for i := byte(1); i <= 3; i++ {
-		slot := Slot{i}
+		slot := ktype.Slot{i}
 		key := memiavlStorageKey(addr1, slot)
-		cs := makeChangeSet(key, []byte{i * 10}, false)
+		cs := makeChangeSet(key, padLeft32(i*10), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 
 	// Write slots for addr2
 	for i := byte(1); i <= 2; i++ {
-		slot := Slot{i}
+		slot := ktype.Slot{i}
 		key := memiavlStorageKey(addr2, slot)
-		cs := makeChangeSet(key, []byte{i * 20}, false)
+		cs := makeChangeSet(key, padLeft32(i*20), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 
@@ -421,36 +426,41 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Storage
-	got, found := s.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)))
+	got, found := s.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 	require.True(t, found, "storage should be found")
-	require.Equal(t, storageVal, got)
+	require.Equal(t, padLeft32(0x42), got)
 
 	// Nonce
-	got, found = s.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
+	got, found = s.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
 	require.True(t, found, "nonce should be found")
 	require.Equal(t, uint64(7), binary.BigEndian.Uint64(got))
 
 	// CodeHash
-	got, found = s.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
+	got, found = s.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
 	require.True(t, found, "codehash should be found")
 	require.Equal(t, ch[:], got)
 
 	// Code
-	got, found = s.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
+	got, found = s.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
 	require.True(t, found, "code should be found")
 	require.Equal(t, bytecode, got)
 
 	// Legacy
-	got, found = s.Get(legacyKey)
+	got, found = s.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found, "legacy should be found")
 	require.Equal(t, legacyVal, got)
 
 	// Has should match
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])))
-	require.True(t, s.Has(legacyKey))
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, legacyKey)
+	require.True(t, found)
 }
 
 func TestGetNonceFromCommittedEOA(t *testing.T) {
@@ -466,15 +476,17 @@ func TestGetNonceFromCommittedEOA(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	got, found := s.Get(nonceKey)
+	got, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be found for EOA")
 	require.Equal(t, uint64(42), binary.BigEndian.Uint64(got))
 
-	_, found = s.Get(chKey)
+	_, found = s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should NOT be found for EOA")
 
-	require.True(t, s.Has(nonceKey))
-	require.False(t, s.Has(chKey))
+	found = s.Has(evm.EVMStoreKey, nonceKey)
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, chKey)
+	require.False(t, found)
 }
 
 func TestGetCodeHashFromCommittedContract(t *testing.T) {
@@ -491,16 +503,18 @@ func TestGetCodeHashFromCommittedContract(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	got, found := s.Get(chKey)
+	got, found := s.Get(evm.EVMStoreKey, chKey)
 	require.True(t, found, "codehash should be found for contract")
 	require.Equal(t, ch[:], got)
 
-	got, found = s.Get(nonceKey)
+	got, found = s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, uint64(1), binary.BigEndian.Uint64(got))
 
-	require.True(t, s.Has(chKey))
-	require.True(t, s.Has(nonceKey))
+	found = s.Has(evm.EVMStoreKey, chKey)
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, nonceKey)
+	require.True(t, found)
 }
 
 func TestGetCodeFromCommittedDB(t *testing.T) {
@@ -515,14 +529,14 @@ func TestGetCodeFromCommittedDB(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(codePair(addr, bytecode)),
 	}))
-	got, found := s.Get(codeKey)
+	got, found := s.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, found, "pending code write should be visible")
 	require.Equal(t, bytecode, got)
 
 	commitAndCheck(t, s)
 
 	// Still visible after commit
-	got, found = s.Get(codeKey)
+	got, found = s.Get(evm.EVMStoreKey, codeKey)
 	require.True(t, found)
 	require.Equal(t, bytecode, got)
 
@@ -530,11 +544,11 @@ func TestGetCodeFromCommittedDB(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(codeDeletePair(addr)),
 	}))
-	_, found = s.Get(codeKey)
+	_, found = s.Get(evm.EVMStoreKey, codeKey)
 	require.False(t, found, "pending code delete should hide the entry")
 
 	commitAndCheck(t, s)
-	_, found = s.Get(codeKey)
+	_, found = s.Get(evm.EVMStoreKey, codeKey)
 	require.False(t, found, "code should be gone after commit")
 }
 
@@ -542,21 +556,40 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	cases := []struct {
+	// Nil and empty keys map to EVMKeyEmpty, which returns (nil, false)
+	// without panicking.
+	for _, tc := range []struct {
 		name string
 		key  []byte
 	}{
 		{"nil key", nil},
 		{"empty key", []byte{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			val, found := s.Get(evm.EVMStoreKey, tc.key)
+			require.False(t, found)
+			require.Nil(t, val)
+			found = s.Has(evm.EVMStoreKey, tc.key)
+			require.False(t, found)
+		})
+	}
+
+	// Non-empty keys that don't match a known prefix are classified as
+	// EVMKeyLegacy, which is a supported type — Get/Has should not panic.
+	for _, tc := range []struct {
+		name string
+		key  []byte
+	}{
 		{"single byte", []byte{0xFF}},
 		{"random bytes", []byte{0xDE, 0xAD, 0xBE, 0xEF}},
 		{"short nonce-like (2 bytes)", []byte{0x04, 0x01}},
-	}
-	for _, tc := range cases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, found := s.Get(tc.key)
+			val, found := s.Get(evm.EVMStoreKey, tc.key)
 			require.False(t, found)
-			require.False(t, s.Has(tc.key))
+			require.Nil(t, val)
+			found = s.Has(evm.EVMStoreKey, tc.key)
+			require.False(t, found)
 		})
 	}
 }
@@ -585,14 +618,16 @@ func TestGetAccountAfterFullDeletePending(t *testing.T) {
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
 
-	_, nonceFound := s.Get(nonceKey)
+	_, nonceFound := s.Get(evm.EVMStoreKey, nonceKey)
 	require.False(t, nonceFound, "nonce should not be found after full delete (isDelete=true)")
 
-	_, chFound := s.Get(chKey)
+	_, chFound := s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, chFound, "codehash should not be found after full delete (isDelete=true)")
 
-	require.False(t, s.Has(nonceKey))
-	require.False(t, s.Has(chKey))
+	found := s.Has(evm.EVMStoreKey, nonceKey)
+	require.False(t, found)
+	found = s.Has(evm.EVMStoreKey, chKey)
+	require.False(t, found)
 }
 
 func TestGetAccountAfterFullDeleteCommitted(t *testing.T) {
@@ -615,14 +650,16 @@ func TestGetAccountAfterFullDeleteCommitted(t *testing.T) {
 
 	// After full delete + commit, the account row is physically deleted from
 	// accountDB (batch.Delete in commitBatches). Both fields return not-found.
-	_, nonceFound := s.Get(nonceKey)
+	_, nonceFound := s.Get(evm.EVMStoreKey, nonceKey)
 	require.False(t, nonceFound, "nonce should not be found after full delete + commit")
 
-	_, chFound := s.Get(chKey)
+	_, chFound := s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, chFound, "codehash should not be found after full delete + commit")
 
-	require.False(t, s.Has(nonceKey))
-	require.False(t, s.Has(chKey))
+	found := s.Has(evm.EVMStoreKey, nonceKey)
+	require.False(t, found)
+	found = s.Has(evm.EVMStoreKey, chKey)
+	require.False(t, found)
 }
 
 func TestGetAccountAfterPartialDelete(t *testing.T) {
@@ -644,17 +681,18 @@ func TestGetAccountAfterPartialDelete(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	got, found := s.Get(nonceKey)
+	got, found := s.Get(evm.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should survive partial delete")
 	require.Equal(t, uint64(99), binary.BigEndian.Uint64(got))
 
-	_, found = s.Get(chKey)
+	_, found = s.Get(evm.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be gone after delete")
 
 	// Account row should still exist (EOA encoding)
-	raw, err := s.accountDB.Get(AccountKey(addr))
+	raw, err := s.accountDB.Get(accountPhysKey(addr))
 	require.NoError(t, err)
-	require.Equal(t, accountValueEOALen, len(raw))
+	expectedEOALen := vtype.VersionLength + vtype.BlockHeightLength + vtype.BalanceLength + vtype.NonceLength
+	require.Equal(t, expectedEOALen, len(raw))
 }
 
 // =============================================================================
@@ -667,24 +705,25 @@ func TestGetAfterOverwrite(t *testing.T) {
 
 	addr := addrN(0xC1)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x11})),
 	}))
 	commitAndCheck(t, s)
 
-	got, _ := s.Get(key)
-	require.Equal(t, []byte{0x11}, got)
+	got, found := s.Get(evm.EVMStoreKey, key)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x11), got)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x22, 0x33})),
 	}))
 	commitAndCheck(t, s)
 
-	got, found := s.Get(key)
+	got, found = s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x22, 0x33}, got, "should return v2 value after overwrite")
+	require.Equal(t, padLeft32(0x22, 0x33), got, "should return v2 value after overwrite")
 }
 
 func TestGetAfterDeleteAndRecreate(t *testing.T) {
@@ -693,7 +732,7 @@ func TestGetAfterDeleteAndRecreate(t *testing.T) {
 
 	addr := addrN(0xC2)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	// v1: create
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -707,7 +746,7 @@ func TestGetAfterDeleteAndRecreate(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	_, found := s.Get(key)
+	_, found := s.Get(evm.EVMStoreKey, key)
 	require.False(t, found, "should not be found after delete")
 
 	// v3: re-create with different value
@@ -716,9 +755,9 @@ func TestGetAfterDeleteAndRecreate(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	got, found := s.Get(key)
+	got, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0xBB, 0xCC}, got, "should return v3 value after re-create")
+	require.Equal(t, padLeft32(0xBB, 0xCC), got, "should return v3 value after re-create")
 }
 
 func TestGetAfterReopenAllKeyTypes(t *testing.T) {
@@ -761,23 +800,23 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	got, found := s2.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)))
+	got, found := s2.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 	require.True(t, found, "storage should survive reopen")
-	require.Equal(t, []byte{0x42}, got)
+	require.Equal(t, padLeft32(0x42), got)
 
-	got, found = s2.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
+	got, found = s2.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
 	require.True(t, found, "nonce should survive reopen")
 	require.Equal(t, uint64(100), binary.BigEndian.Uint64(got))
 
-	got, found = s2.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
+	got, found = s2.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
 	require.True(t, found, "codehash should survive reopen")
 	require.Equal(t, ch[:], got)
 
-	got, found = s2.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
+	got, found = s2.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
 	require.True(t, found, "code should survive reopen")
 	require.Equal(t, bytecode, got)
 
-	got, found = s2.Get(legacyKey)
+	got, found = s2.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found, "legacy should survive reopen")
 	require.Equal(t, []byte{0x77}, got)
 }
@@ -809,7 +848,7 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	defer iter.Close()
 	require.True(t, iter.First(), "iterator should see committed entry")
 	require.True(t, iter.Valid())
-	require.Equal(t, StorageKey(addr, slot), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
 }
 
 func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
@@ -853,7 +892,7 @@ func TestIteratorLast(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xD3)
-	slots := []Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
+	slots := []ktype.Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
 
 	var pairs []*proto.KVPair
 	for _, sl := range slots {
@@ -867,7 +906,7 @@ func TestIteratorLast(t *testing.T) {
 
 	require.True(t, iter.Last(), "Last() should succeed")
 	require.True(t, iter.Valid())
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 }
 
 func TestIteratorSeekGE(t *testing.T) {
@@ -887,17 +926,17 @@ func TestIteratorSeekGE(t *testing.T) {
 	defer iter.Close()
 
 	// SeekGE to a key between 0x20 and 0x30 → should land on 0x30
-	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x25)))
+	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x25)))
 	require.True(t, iter.SeekGE(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	// SeekGE to exact key 0x30 → should land on 0x30
-	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
+	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x30)))
 	require.True(t, iter.SeekGE(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	// SeekGE past all keys → invalid
-	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0xFF)))
+	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0xFF)))
 	require.False(t, iter.SeekGE(seekKey))
 }
 
@@ -918,12 +957,12 @@ func TestIteratorSeekLT(t *testing.T) {
 	defer iter.Close()
 
 	// SeekLT(0x30) → should land on 0x20
-	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
+	seekKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x30)))
 	require.True(t, iter.SeekLT(seekKey))
-	require.Equal(t, StorageKey(addr, slotN(0x20)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), iter.Key())
 
 	// SeekLT before first key → invalid
-	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x10)))
+	seekKey = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x10)))
 	require.False(t, iter.SeekLT(seekKey))
 }
 
@@ -932,7 +971,7 @@ func TestIteratorPrev(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xD6)
-	slots := []Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
+	slots := []ktype.Slot{slotN(0x10), slotN(0x20), slotN(0x30)}
 	var pairs []*proto.KVPair
 	for _, sl := range slots {
 		pairs = append(pairs, storagePair(addr, sl, []byte{0xAA}))
@@ -944,13 +983,13 @@ func TestIteratorPrev(t *testing.T) {
 	defer iter.Close()
 
 	require.True(t, iter.Last())
-	require.Equal(t, StorageKey(addr, slotN(0x30)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), iter.Key())
 
 	require.True(t, iter.Prev())
-	require.Equal(t, StorageKey(addr, slotN(0x20)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), iter.Key())
 
 	require.True(t, iter.Prev())
-	require.Equal(t, StorageKey(addr, slotN(0x10)), iter.Key())
+	require.Equal(t, storagePhysKey(addr, slotN(0x10)), iter.Key())
 
 	require.False(t, iter.Prev(), "Prev past first should be invalid")
 }
@@ -972,6 +1011,65 @@ func TestIteratorSeekGEKeyTypeMismatch(t *testing.T) {
 	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
 	require.False(t, iter.SeekGE(nonceKey))
 	require.Error(t, iter.Error(), "key type mismatch should set an error")
+}
+
+func TestIteratorSeekGEPhysicalKeyTypeMismatch(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slotN(0x01), []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+
+	// SeekGE with an account physical key on a storage iterator → mismatch
+	accountKey := ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr[:])
+	require.False(t, iter.SeekGE(accountKey))
+	require.Error(t, iter.Error(), "physical key type mismatch should set an error")
+	require.Contains(t, iter.Error().Error(), "mismatch")
+}
+
+func TestIteratorSeekGEInvalidPhysicalKey(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slotN(0x01), []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+
+	// SeekGE with garbage ASCII key → rejected
+	require.False(t, iter.SeekGE([]byte("not-a-valid-key")))
+	require.Error(t, iter.Error(), "invalid physical key should set an error")
+}
+
+func TestIteratorSeekGEPhysicalKeyRoundTrip(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xD7)
+	slot := slotN(0x01)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addr, slot, []byte{0xAA})),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.Iterator(nil, nil)
+	defer iter.Close()
+	require.True(t, iter.First())
+
+	// Key() returns a physical key; feeding it back to SeekGE must work.
+	physKey := append([]byte(nil), iter.Key()...)
+	require.True(t, iter.SeekGE(physKey))
+	require.Equal(t, physKey, iter.Key())
 }
 
 // =============================================================================
@@ -1029,8 +1127,8 @@ func TestIteratorRangeBounds(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 	commitAndCheck(t, s)
 
-	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x20)))
-	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x40)))
+	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x20)))
+	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x40)))
 
 	iter := s.Iterator(startKey, endKey)
 	defer iter.Close()
@@ -1041,8 +1139,8 @@ func TestIteratorRangeBounds(t *testing.T) {
 	}
 
 	require.Len(t, keys, 2, "range [0x20, 0x40) should see 0x20 and 0x30")
-	require.Equal(t, StorageKey(addr, slotN(0x20)), keys[0])
-	require.Equal(t, StorageKey(addr, slotN(0x30)), keys[1])
+	require.Equal(t, storagePhysKey(addr, slotN(0x20)), keys[0])
+	require.Equal(t, storagePhysKey(addr, slotN(0x30)), keys[1])
 }
 
 func TestIteratorHalfOpenStart(t *testing.T) {
@@ -1058,7 +1156,7 @@ func TestIteratorHalfOpenStart(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 	commitAndCheck(t, s)
 
-	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
+	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x30)))
 	count := iterCount(t, s.Iterator(nil, endKey))
 	require.Equal(t, 2, count, "[nil, 0x30) should see 0x10, 0x20")
 }
@@ -1076,7 +1174,7 @@ func TestIteratorHalfOpenEnd(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 	commitAndCheck(t, s)
 
-	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
+	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x30)))
 	count := iterCount(t, s.Iterator(startKey, nil))
 	require.Equal(t, 3, count, "[0x30, nil) should see 0x30, 0x40, 0x50")
 }
@@ -1091,8 +1189,8 @@ func TestIteratorInvalidRange(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x30)))
-	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x10)))
+	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x30)))
+	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x10)))
 
 	iter := s.Iterator(startKey, endKey)
 	defer iter.Close()
@@ -1113,8 +1211,8 @@ func TestIteratorDomain(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x00)))
-	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0xFF)))
+	startKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x00)))
+	endKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0xFF)))
 	iter := s.Iterator(startKey, endKey)
 	defer iter.Close()
 
@@ -1221,23 +1319,23 @@ func TestReadOnlyGetAllKeyTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	got, found := ro.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)))
+	got, found := ro.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 	require.True(t, found)
-	require.Equal(t, []byte{0x42}, got)
+	require.Equal(t, padLeft32(0x42), got)
 
-	got, found = ro.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
+	got, found = ro.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
 	require.True(t, found)
 	require.Equal(t, uint64(50), binary.BigEndian.Uint64(got))
 
-	got, found = ro.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
+	got, found = ro.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
 	require.True(t, found)
 	require.Equal(t, ch[:], got)
 
-	got, found = ro.Get(evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
+	got, found = ro.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
 	require.True(t, found)
 	require.Equal(t, bytecode, got)
 
-	got, found = ro.Get(legacyKey)
+	got, found = ro.Get(evm.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x77}, got)
 }
@@ -1298,7 +1396,7 @@ func TestGetNilKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	val, found := s.Get(nil)
+	val, found := s.Get(evm.EVMStoreKey, nil)
 	require.False(t, found)
 	require.Nil(t, val)
 }
@@ -1307,7 +1405,7 @@ func TestGetEmptyKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	val, found := s.Get([]byte{})
+	val, found := s.Get(evm.EVMStoreKey, []byte{})
 	require.False(t, found)
 	require.Nil(t, val)
 }
@@ -1315,13 +1413,17 @@ func TestGetEmptyKey(t *testing.T) {
 func TestHasNilKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	require.False(t, s.Has(nil))
+
+	found := s.Has(evm.EVMStoreKey, nil)
+	require.False(t, found)
 }
 
 func TestHasEmptyKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	require.False(t, s.Has([]byte{}))
+
+	found := s.Has(evm.EVMStoreKey, []byte{})
+	require.False(t, found)
 }
 
 func TestHasForAllKeyTypes(t *testing.T) {
@@ -1333,7 +1435,7 @@ func TestHasForAllKeyTypes(t *testing.T) {
 	ch := codeHashN(0xAB)
 
 	pairs := []*proto.KVPair{
-		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot)), Value: []byte{0x11}},
+		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: padLeft32(0x11)},
 		noncePair(addr, 42),
 		codeHashPair(addr, ch),
 		codePair(addr, []byte{0x60, 0x60}),
@@ -1345,10 +1447,14 @@ func TestHasForAllKeyTypes(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])))
-	require.True(t, s.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])))
+	found := s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]))
+	require.True(t, found)
+	found = s.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]))
+	require.True(t, found)
 }
 
 func TestHasOnPendingDeletes(t *testing.T) {
@@ -1357,16 +1463,18 @@ func TestHasOnPendingDeletes(t *testing.T) {
 
 	addr := addrN(0x11)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
-	cs := makeChangeSet(key, []byte{0xAA}, false)
+	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
-	require.True(t, s.Has(key))
+	found := s.Has(evm.EVMStoreKey, key)
+	require.True(t, found)
 
 	delCS := makeChangeSet(key, nil, true)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
-	require.False(t, s.Has(key), "Has should return false for pending-deleted key")
+	found = s.Has(evm.EVMStoreKey, key)
+	require.False(t, found, "Has should return false for pending-deleted key")
 }
 
 func TestHasOnReadOnlyStore(t *testing.T) {
@@ -1374,9 +1482,9 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 
 	addr := addrN(0x12)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
-	cs := makeChangeSet(key, []byte{0xBB}, false)
+	cs := makeChangeSet(key, padLeft32(0xBB), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1384,8 +1492,10 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.True(t, ro.Has(key))
-	require.False(t, ro.Has(evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0xFF), slotN(0xFF)))))
+	found := ro.Has(evm.EVMStoreKey, key)
+	require.True(t, found)
+	found = ro.Has(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0xFF), slotN(0xFF))))
+	require.False(t, found)
 	require.NoError(t, s.Close())
 }
 
@@ -1411,9 +1521,9 @@ func TestGetAfterRollback(t *testing.T) {
 
 	addr := addrN(0x13)
 	slot := slotN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
-	cs1 := makeChangeSet(key, []byte{0x11}, false)
+	cs1 := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s) // v1
 
@@ -1421,18 +1531,18 @@ func TestGetAfterRollback(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s) // v2 - snapshot triggers
 
-	cs3 := makeChangeSet(key, []byte{0x33}, false)
+	cs3 := makeChangeSet(key, padLeft32(0x33), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s) // v3
 
-	val, found := s.Get(key)
+	val, found := s.Get(evm.EVMStoreKey, key)
 	require.True(t, found)
-	require.Equal(t, []byte{0x33}, val)
+	require.Equal(t, padLeft32(0x33), val)
 
 	require.NoError(t, s.Rollback(2))
 	require.Equal(t, int64(2), s.Version())
 
-	_, found = s.Get(key)
+	_, found = s.Get(evm.EVMStoreKey, key)
 	require.False(t, found, "key should be deleted at v2")
 }
 
@@ -1443,7 +1553,7 @@ func TestGetWithTruncatedEVMKey(t *testing.T) {
 	// A key with a valid storage prefix but too short to be parsed.
 	statePrefix := evm.StateKeyPrefix()
 	truncatedKey := append(statePrefix, 0x01, 0x02)
-	val, found := s.Get(truncatedKey)
+	val, found := s.Get(evm.EVMStoreKey, truncatedKey)
 	require.False(t, found)
 	require.Nil(t, val)
 }
@@ -1454,7 +1564,7 @@ func TestIteratorStartEqualsEnd(t *testing.T) {
 
 	addr := addrN(0x20)
 	key := memiavlStorageKey(addr, slotN(0x01))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1472,7 +1582,7 @@ func TestIteratorInterleavedNextPrev(t *testing.T) {
 	addr := addrN(0x21)
 	for i := byte(1); i <= 5; i++ {
 		key := memiavlStorageKey(addr, slotN(i))
-		cs := makeChangeSet(key, []byte{i}, false)
+		cs := makeChangeSet(key, padLeft32(i), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 	commitAndCheck(t, s)
@@ -1499,7 +1609,7 @@ func TestIteratorMultipleFirstLastCalls(t *testing.T) {
 	addr := addrN(0x22)
 	for i := byte(1); i <= 3; i++ {
 		key := memiavlStorageKey(addr, slotN(i))
-		cs := makeChangeSet(key, []byte{i}, false)
+		cs := makeChangeSet(key, padLeft32(i), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 	commitAndCheck(t, s)
@@ -1529,7 +1639,7 @@ func TestIteratorByPrefixAfterDeletions(t *testing.T) {
 	addr := addrN(0x23)
 	for i := byte(1); i <= 3; i++ {
 		key := memiavlStorageKey(addr, slotN(i))
-		cs := makeChangeSet(key, []byte{i * 10}, false)
+		cs := makeChangeSet(key, padLeft32(i*10), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 	commitAndCheck(t, s)
@@ -1558,7 +1668,7 @@ func TestIteratorByPrefixOnReadOnlyStore(t *testing.T) {
 	addr := addrN(0x24)
 	for i := byte(1); i <= 3; i++ {
 		key := memiavlStorageKey(addr, slotN(i))
-		cs := makeChangeSet(key, []byte{i}, false)
+		cs := makeChangeSet(key, padLeft32(i), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	}
 	commitAndCheck(t, s)
@@ -1585,7 +1695,7 @@ func TestIteratorByPrefixNilPrefix(t *testing.T) {
 
 	addr := addrN(0x25)
 	key := memiavlStorageKey(addr, slotN(0x01))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
@@ -1605,7 +1715,7 @@ func TestIteratorOnClosedStore(t *testing.T) {
 
 	addr := addrN(0x26)
 	key := memiavlStorageKey(addr, slotN(0x01))
-	cs := makeChangeSet(key, []byte{0x11}, false)
+	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
