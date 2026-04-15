@@ -320,10 +320,9 @@ func TestNextWait(t *testing.T) {
 		require.Same(t, el2, next)
 	})
 
-	t.Run("removing element should unblock with nil next", func(t *testing.T) {
+	t.Run("removing element should unblock with ErrRemoved", func(t *testing.T) {
 		l.Remove(el2)
-		next, err := el2.NextWait(t.Context())
-		require.NoError(t, err)
-		require.Nil(t, next)
+		_, err := el2.NextWait(t.Context())
+		require.ErrorIs(t, err, ErrRemoved)
 	})
 }
