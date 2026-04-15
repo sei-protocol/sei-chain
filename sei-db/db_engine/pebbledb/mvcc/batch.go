@@ -49,9 +49,14 @@ func (b *Batch) Reset() {
 func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
 	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
 	prefixedVal := MVCCEncode(value, tombstone)
+	latestKey := latestIndexKey(storeKey, key)
+	latestVal := encodeLatestIndexValue(b.version, prefixedVal)
 
 	if err := b.batch.Set(prefixedKey, prefixedVal, nil); err != nil {
 		return fmt.Errorf("failed to write PebbleDB batch: %w", err)
+	}
+	if err := b.batch.Set(latestKey, latestVal, nil); err != nil {
+		return fmt.Errorf("failed to write latest index batch: %w", err)
 	}
 
 	return nil
@@ -112,9 +117,14 @@ func (b *RawBatch) Reset() {
 func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, version int64) error {
 	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version)
 	prefixedVal := MVCCEncode(value, tombstone)
+	latestKey := latestIndexKey(storeKey, key)
+	latestVal := encodeLatestIndexValue(version, prefixedVal)
 
 	if err := b.batch.Set(prefixedKey, prefixedVal, nil); err != nil {
 		return fmt.Errorf("failed to write PebbleDB batch: %w", err)
+	}
+	if err := b.batch.Set(latestKey, latestVal, nil); err != nil {
+		return fmt.Errorf("failed to write latest index batch: %w", err)
 	}
 
 	return nil
