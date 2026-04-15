@@ -272,7 +272,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
 				return fmt.Errorf("app.InitChain(): %w", err)
 			}
-			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			mempoolCfg := mempool.TestConfig()
+			// Disable TTL purging: txs enter the mempool at height=-1 (the mempool's
+			// initial height) but the first block is at InitialHeight (random, up to
+			// 100001). With TTLNumBlocks=10, purgeExpiredTxs would instantly evict all
+			// txs on the first Update call because -1 < InitialHeight-10.
+			mempoolCfg.TTLNumBlocks = 0
+			mempoolCfg.TTLDuration = 0
+			txMempool := mempool.NewTxMempool(mempoolCfg, app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
