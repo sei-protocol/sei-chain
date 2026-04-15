@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
-	pebbleblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/pebble_block_db"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
@@ -24,7 +22,6 @@ type blockDBBuilder struct {
 func buildBuilders() []blockDBBuilder {
 	return []blockDBBuilder{
 		newMemBlockDBBuilder(),
-		newPebbleBlockDBBuilder(),
 	}
 }
 
@@ -34,15 +31,6 @@ func newMemBlockDBBuilder() blockDBBuilder {
 		name: "mem",
 		builder: func(_ string) (blockdb.BlockDB, error) {
 			return db, nil
-		},
-	}
-}
-
-func newPebbleBlockDBBuilder() blockDBBuilder {
-	return blockDBBuilder{
-		name: "pebble",
-		builder: func(path string) (blockdb.BlockDB, error) {
-			return pebbleblockdb.Open(context.Background(), filepath.Join(path, "pebble-blockdb"))
 		},
 	}
 }

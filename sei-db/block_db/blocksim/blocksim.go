@@ -6,11 +6,8 @@ import (
 	"os"
 	"time"
 
-	"path/filepath"
-
 	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
-	pebbleblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/pebble_block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"golang.org/x/time/rate"
@@ -322,8 +319,6 @@ func openBlockDB(backend string, dataDir string, unprunedBlocks uint64) (blockdb
 	switch backend {
 	case "mem":
 		return memblockdb.NewMemBlockDB(), nil
-	case "pebble":
-		return pebbleblockdb.Open(context.Background(), filepath.Join(dataDir, "pebble-blockdb"))
 	default:
 		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
 	}
