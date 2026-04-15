@@ -49,19 +49,8 @@ type Store interface {
 	// Has reports whether the key exists within the given module.
 	Has(moduleName string, key []byte) bool
 
-	// Iterator returns an iterator over [start, end) in memiavl key order.
-	// Pass nil for unbounded.
-	//
-	// EXPERIMENTAL: not used in production; only storage keys supported.
-	// Interface may change when Exporter/state-sync is implemented.
-	Iterator(start, end []byte) Iterator
-
-	// IteratorByPrefix iterates all keys with the given prefix (more efficient than Iterator).
-	// Currently only supports: StateKeyPrefix||addr (storage iteration).
-	//
-	// EXPERIMENTAL: not used in production; only storage keys supported.
-	// Interface may change when Exporter/state-sync is implemented.
-	IteratorByPrefix(prefix []byte) Iterator
+	// RawGlobalIterator returns an iterator for all keys across all underlying DBs
+	RawGlobalIterator() Iterator
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte

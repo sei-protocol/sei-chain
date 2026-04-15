@@ -1,15 +1,18 @@
 package composite
 
 import (
+	"encoding/binary"
 	"fmt"
 	"path/filepath"
 	"sync"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -258,29 +261,104 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 	return stripped
 }
 
-func normalizeSnapshotNode(node types.SnapshotNode) types.SnapshotNode {
-	if node.StoreKey == commonevm.EVMFlatKVStoreKey {
-		node.StoreKey = evm.EVMStoreKey
+// convertFlatKVNodes transforms a single FlatKV physical-key snapshot node
+// into one or more EVM SS nodes by stripping the module prefix from the key,
+// deserializing the vtype metadata from the value, and (for merged account
+// rows) splitting into separate nonce and codeHash nodes.
+func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
+	_, innerKey, err := ktype.StripModulePrefix(node.Key)
+	if err != nil {
+		return nil, fmt.Errorf("convertFlatKVNodes: %w", err)
 	}
-	return node
+
+	kind, strippedKey := keys.ParseEVMKey(innerKey)
+
+	switch kind {
+	case keys.EVMKeyNonce:
+		acct, err := vtype.DeserializeAccountData(node.Value)
+		if err != nil {
+			return nil, fmt.Errorf("convertFlatKVNodes account: %w", err)
+		}
+		var nodes []types.SnapshotNode
+		if nonce := acct.GetNonce(); nonce != 0 {
+			nonceBuf := make([]byte, 8)
+			binary.BigEndian.PutUint64(nonceBuf, nonce)
+			nodes = append(nodes, types.SnapshotNode{
+				StoreKey: evm.EVMStoreKey,
+				Key:      keys.BuildEVMKey(keys.EVMKeyNonce, strippedKey),
+				Value:    nonceBuf,
+			})
+		}
+		if codeHash := acct.GetCodeHash(); *codeHash != (vtype.CodeHash{}) {
+			nodes = append(nodes, types.SnapshotNode{
+				StoreKey: evm.EVMStoreKey,
+				Key:      keys.BuildEVMKey(keys.EVMKeyCodeHash, strippedKey),
+				Value:    append([]byte(nil), codeHash[:]...),
+			})
+		}
+		return nodes, nil
+
+	case keys.EVMKeyStorage:
+		sd, err := vtype.DeserializeStorageData(node.Value)
+		if err != nil {
+			return nil, fmt.Errorf("convertFlatKVNodes storage: %w", err)
+		}
+		return []types.SnapshotNode{
+			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: sd.GetValue()[:]},
+		}, nil
+
+	case keys.EVMKeyCode:
+		cd, err := vtype.DeserializeCodeData(node.Value)
+		if err != nil {
+			return nil, fmt.Errorf("convertFlatKVNodes code: %w", err)
+		}
+		return []types.SnapshotNode{
+			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: cd.GetBytecode()},
+		}, nil
+
+	case keys.EVMKeyLegacy:
+		ld, err := vtype.DeserializeLegacyData(node.Value)
+		if err != nil {
+			return nil, fmt.Errorf("convertFlatKVNodes legacy: %w", err)
+		}
+		return []types.SnapshotNode{
+			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: ld.GetValue()},
+		}, nil
+
+	default:
+		return nil, nil
+	}
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
-		// Normalize evm_flatkv → evm so downstream routing and storage work
-		// correctly regardless of whether the snapshot was exported with the
-		// FlatKV module or only the legacy evm module.
-		normalized := make(chan types.SnapshotNode, cap(ch))
+		// FlatKV nodes carry physical keys and vtype-serialized values that
+		// Cosmos SS cannot interpret directly. Convert them into standard
+		// EVM-format nodes before forwarding.
+		converted := make(chan types.SnapshotNode, cap(ch))
+		var convertErr error
 		go func() {
-			defer close(normalized)
+			defer close(converted)
 			for node := range ch {
-				normalized <- normalizeSnapshotNode(node)
+				if node.StoreKey == keys.FlatKVStoreKey {
+					nodes, err := convertFlatKVNodes(node)
+					if err != nil {
+						convertErr = fmt.Errorf("import: %w", err)
+						return
+					}
+					for _, n := range nodes {
+						converted <- n
+					}
+					continue
+				}
+				converted <- node
 			}
 		}()
-		return s.cosmosStore.Import(version, normalized)
+		if err := s.cosmosStore.Import(version, converted); err != nil {
+			return err
+		}
+		return convertErr
 	}
-
-	splitWrite := s.config.WriteMode == config.SplitWrite
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
 	evmCh := make(chan types.SnapshotNode, 100)
@@ -345,19 +423,32 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 	}
 
 	for node := range ch {
-		node = normalizeSnapshotNode(node)
 		drainImportErr()
 		if importErr != nil {
 			continue
 		}
 
+		if node.StoreKey == keys.FlatKVStoreKey {
+			converted, err := convertFlatKVNodes(node)
+			if err != nil {
+				importErr = fmt.Errorf("import: %w", err)
+				closeImportChans()
+				continue
+			}
+			for _, n := range converted {
+				if err := sendNode(evmCh, n); err != nil {
+					break
+				}
+			}
+			continue
+		}
+
 		isEVM := node.StoreKey == evm.EVMStoreKey
-		if !isEVM || !splitWrite {
+		if !isEVM {
 			if err := sendNode(cosmosCh, node); err != nil {
 				continue
 			}
-		}
-		if isEVM {
+		} else {
 			if err := sendNode(evmCh, node); err != nil {
 				continue
 			}
