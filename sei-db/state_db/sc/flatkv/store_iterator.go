@@ -24,16 +24,16 @@ type sequentialIterator struct {
 
 // openCurrent opens an iterator on dbs[dbIdx]. Returns false if no more DBs.
 func (s *sequentialIterator) openCurrent() bool {
-	for s.dbIdx < len(s.dbs) {
-		it, err := s.dbs[s.dbIdx].NewIter(nil)
-		if err != nil {
-			s.err = err
-			return false
-		}
-		s.iter = it
-		return true
+	if s.dbIdx >= len(s.dbs) {
+		return false
 	}
-	return false
+	it, err := s.dbs[s.dbIdx].NewIter(nil)
+	if err != nil {
+		s.err = err
+		return false
+	}
+	s.iter = it
+	return true
 }
 
 // advanceDB closes the current iterator and moves to the next DB,

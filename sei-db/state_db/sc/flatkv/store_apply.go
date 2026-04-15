@@ -139,7 +139,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 	}
 
 	for _, cs := range changeSets {
-		if cs.Changeset.Pairs == nil || len(cs.Changeset.Pairs) == 0 {
+		if len(cs.Changeset.Pairs) == 0 {
 			continue
 		}
 

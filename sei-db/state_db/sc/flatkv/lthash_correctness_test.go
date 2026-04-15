@@ -1222,7 +1222,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	srcHash := s.RootHash()
 
 	// Export
-	exp, err := s.Exporter(0)
+	exp, err := s.Exporter(1)
 	require.NoError(t, err)
 	var nodes []*scTypes.SnapshotNode
 	for {

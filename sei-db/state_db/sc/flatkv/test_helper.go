@@ -2,6 +2,9 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"path/filepath"
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -11,8 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
-	"path/filepath"
-	"testing"
 )
 
 // =============================================================================

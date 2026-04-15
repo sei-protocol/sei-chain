@@ -779,7 +779,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	originalHash := s.RootHash()
 
 	// Export.
-	exp, err := s.Exporter(0)
+	exp, err := s.Exporter(1)
 	require.NoError(t, err)
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())

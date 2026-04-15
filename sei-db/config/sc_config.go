@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
