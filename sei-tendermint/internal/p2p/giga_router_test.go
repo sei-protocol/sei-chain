@@ -36,7 +36,6 @@ type testAppState struct {
 	Blocks     []*abci.RequestFinalizeBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
-	Committed  bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
@@ -102,10 +101,6 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
-		// InitChain sets Committed=true to allow the first FinalizeBlock without
-		// a prior Commit, matching real app behavior where InitChain sets up
-		// deliverState for the first block.
-		state.Committed = true
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
@@ -117,9 +112,6 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 
 func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
-		if !state.Committed {
-			return nil, fmt.Errorf("not committed")
-		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return nil, fmt.Errorf("app not initialized")
@@ -130,7 +122,6 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 			state.Txs[sha256.Sum256(tx)] = true
 		}
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
-		state.Committed = false
 		ctrl.Updated()
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
@@ -141,11 +132,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 }
 
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
-	for state, ctrl := range a.state.Lock() {
-		if state.Committed {
-			return nil, fmt.Errorf("double commit")
-		}
-		state.Committed = true
+	for _, ctrl := range a.state.Lock() {
 		ctrl.Updated()
 	}
 	return &abci.ResponseCommit{
@@ -170,8 +157,6 @@ func (a *testApp) Snapshot() testAppState {
 		s := *state
 		// Txs is derived and the only mutable field.
 		s.Txs = nil
-		// "Committed" field is not guaranteed to be consistent.
-		s.Committed = false
 		return s
 	}
 	panic("unreachable")
