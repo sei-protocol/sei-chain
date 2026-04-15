@@ -30,15 +30,11 @@ func NewBatch(storage *pebble.DB, version int64) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
-	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(version))
-
 	b := &Batch{
 		storage: storage,
 		version: version,
 		ops:     make([]batchOp, 0, 16),
 	}
-	b.appendSet([]byte(latestVersionKey), versionBz[:])
 	return b, nil
 }
 
@@ -102,7 +98,15 @@ func (b *Batch) Write() (err error) {
 			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
 		}
 	}
-	return batch.Commit(defaultWriteOpts)
+	if err := batch.Commit(defaultWriteOpts); err != nil {
+		return err
+	}
+	var versionBz [VersionSize]byte
+	binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version))
+	if err := b.storage.Set([]byte(latestVersionKey), versionBz[:], defaultWriteOpts); err != nil {
+		return fmt.Errorf("failed to update latest version after batch commit: %w", err)
+	}
+	return nil
 }
 
 // For writing kv pairs in any order of version
