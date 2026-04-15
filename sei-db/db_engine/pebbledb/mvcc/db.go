@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"sync"
@@ -53,7 +54,31 @@ var (
 
 type tracedDatabase struct {
 	*Database
-	collector types.ReadTraceCollector
+	collector   types.ReadTraceCollector
+	readSession *historicalReadSession
+}
+
+type readTraceCloserRegistry interface {
+	AddReadTraceCloser(io.Closer)
+}
+
+type historicalReadSession struct {
+	snapshot  *pebble.Snapshot
+	iterators map[string]*pebble.Iterator
+	cache     map[historicalReadCacheKey]historicalReadCacheValue
+	mu        sync.Mutex
+	closed    bool
+}
+
+type historicalReadCacheKey struct {
+	storeKey string
+	version  int64
+	key      string
+}
+
+type historicalReadCacheValue struct {
+	value []byte
+	found bool
 }
 
 type Database struct {
@@ -370,30 +395,7 @@ func (db *Database) getWithCollector(storeKey string, targetVersion int64, key [
 		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
 	}
 
-	valBz, tombBz, ok := SplitMVCCKey(prefixedVal)
-	if !ok {
-		return nil, fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
-	}
-
-	// A tombstone of zero or a target version that is less than the tombstone
-	// version means the key is not deleted at the target version.
-	if len(tombBz) == 0 {
-		return valBz, nil
-	}
-
-	tombstone, err := decodeUint64Ascending(tombBz)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
-	}
-
-	// A tombstone of zero or a target version that is less than the tombstone
-	// version means the key is not deleted at the target version.
-	if targetVersion < tombstone {
-		return valBz, nil
-	}
-
-	// the value is considered deleted
-	return nil, nil
+	return visibleValueAtVersion(prefixedVal, targetVersion)
 }
 
 func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) (_err error) {
@@ -1039,19 +1041,163 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 	return clonedValue, nil
 }
 
+func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) ([]byte, error) {
+	totalStart := time.Now()
+	defer func() {
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "getMVCCSlice",
+			DurationNanos: time.Since(totalStart).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
+	}()
+
+	if version < math.MaxInt64 {
+		version++
+	}
+
+	prefixedKey := prependStoreKey(storeKey, key)
+	seekKey := MVCCEncode(prefixedKey, version)
+
+	itr, created, iterDuration, err := session.getOrCreateIterator(storeKey)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "pebble",
+			Operation:     "newIter",
+			DurationNanos: iterDuration.Nanoseconds(),
+			Start:         slices.Clone(MVCCEncode(prependStoreKey(storeKey, nil), 0)),
+			End:           slices.Clone(iteratorUpperBoundForStore(storeKey)),
+		})
+	}
+
+	seekStart := time.Now()
+	session.mu.Lock()
+	ok := itr.SeekLT(seekKey)
+	var (
+		rawIterKey   []byte
+		rawIterValue []byte
+	)
+	if ok {
+		rawIterKey = slices.Clone(itr.Key())
+		rawIterValue = slices.Clone(itr.Value())
+	}
+	iterErr := itr.Error()
+	session.mu.Unlock()
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "seekLT",
+		DurationNanos: time.Since(seekStart).Nanoseconds(),
+		Key:           slices.Clone(seekKey),
+		Reverse:       true,
+	})
+	if iterErr != nil {
+		return nil, iterErr
+	}
+	if !ok {
+		return nil, errorutils.ErrRecordNotFound
+	}
+
+	keyReadStart := time.Now()
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "iterKey",
+		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
+		Key:           rawIterKey,
+		Reverse:       true,
+	})
+
+	splitKeyStart := time.Now()
+	userKey, vBz, ok := SplitMVCCKey(rawIterKey)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "splitKey",
+		DurationNanos: time.Since(splitKeyStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
+	if !ok {
+		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
+	}
+	if !bytes.Equal(userKey, prefixedKey) {
+		return nil, errorutils.ErrRecordNotFound
+	}
+
+	decodeVersionStart := time.Now()
+	keyVersion, err := decodeUint64Ascending(vBz)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "decodeKeyVersion",
+		DurationNanos: time.Since(decodeVersionStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key version: %w", err)
+	}
+	if keyVersion > version {
+		return nil, fmt.Errorf("key version too large: %d", keyVersion)
+	}
+
+	valueReadStart := time.Now()
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "pebble",
+		Operation:     "iterValue",
+		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
+		Key:           rawIterKey,
+		Reverse:       true,
+	})
+
+	valueCloneStart := time.Now()
+	clonedValue := slices.Clone(rawIterValue)
+	recordReadTrace(collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "cloneValue",
+		DurationNanos: time.Since(valueCloneStart).Nanoseconds(),
+		Key:           rawIterKey,
+	})
+
+	return clonedValue, nil
+}
+
 func (db *Database) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
 	if collector == nil {
 		return db
 	}
-	return &tracedDatabase{Database: db, collector: collector}
+	session := newHistoricalReadSession(db.storage)
+	traced := &tracedDatabase{Database: db, collector: collector, readSession: session}
+	if registry, ok := collector.(readTraceCloserRegistry); ok {
+		registry.AddReadTraceCloser(session)
+	}
+	return traced
 }
 
 func (db *tracedDatabase) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	return db.Database.getWithCollector(storeKey, version, key, db.collector)
+	return db.getWithSession(storeKey, version, key)
 }
 
 func (db *tracedDatabase) Has(storeKey string, version int64, key []byte) (bool, error) {
-	return db.Database.hasWithCollector(storeKey, version, key, db.collector)
+	start := time.Now()
+	defer recordReadTrace(db.collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "has",
+		DurationNanos: time.Since(start).Nanoseconds(),
+		Key:           slices.Clone(key),
+	})
+	val, err := db.getWithSession(storeKey, version, key)
+	if err != nil {
+		return false, err
+	}
+	return val != nil, nil
 }
 
 func (db *tracedDatabase) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -1067,6 +1213,164 @@ func recordReadTrace(collector types.ReadTraceCollector, event types.ReadTraceEv
 		return
 	}
 	collector.RecordReadTrace(event)
+}
+
+func (db *tracedDatabase) getWithSession(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.getLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("store", storeKey),
+			),
+		)
+		recordReadTrace(db.collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "get",
+			DurationNanos: time.Since(startTime).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
+	}()
+	if targetVersion < db.GetEarliestVersion() {
+		return nil, nil
+	}
+
+	if val, found := db.readSession.lookup(storeKey, targetVersion, key); found {
+		recordReadTrace(db.collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "readCacheHit",
+			DurationNanos: 0,
+			Key:           slices.Clone(key),
+		})
+		return val, nil
+	}
+	recordReadTrace(db.collector, types.ReadTraceEvent{
+		StoreKey:      storeKey,
+		Layer:         "mvcc",
+		Operation:     "readCacheMiss",
+		DurationNanos: 0,
+		Key:           slices.Clone(key),
+	})
+
+	prefixedVal, err := getMVCCSliceWithSession(db.readSession, storeKey, key, targetVersion, db.collector)
+	if err != nil {
+		if errors.Is(err, errorutils.ErrRecordNotFound) {
+			db.readSession.store(storeKey, targetVersion, key, nil)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
+	}
+
+	val, err := visibleValueAtVersion(prefixedVal, targetVersion)
+	if err != nil {
+		return nil, err
+	}
+	db.readSession.store(storeKey, targetVersion, key, val)
+	return val, nil
+}
+
+func visibleValueAtVersion(prefixedVal []byte, targetVersion int64) ([]byte, error) {
+	valBz, tombBz, ok := SplitMVCCKey(prefixedVal)
+	if !ok {
+		return nil, fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
+	}
+	if len(tombBz) == 0 {
+		return valBz, nil
+	}
+	tombstone, err := decodeUint64Ascending(tombBz)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
+	}
+	if targetVersion < tombstone {
+		return valBz, nil
+	}
+	return nil, nil
+}
+
+func newHistoricalReadSession(db *pebble.DB) *historicalReadSession {
+	session := &historicalReadSession{
+		snapshot:  db.NewSnapshot(),
+		iterators: map[string]*pebble.Iterator{},
+		cache:     map[historicalReadCacheKey]historicalReadCacheValue{},
+	}
+	return session
+}
+
+func (s *historicalReadSession) lookup(storeKey string, version int64, key []byte) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.cache[historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}]
+	if !ok {
+		return nil, false
+	}
+	if !entry.found {
+		return nil, true
+	}
+	return slices.Clone(entry.value), true
+}
+
+func (s *historicalReadSession) store(storeKey string, version int64, key []byte, value []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cacheValue := historicalReadCacheValue{found: value != nil}
+	if value != nil {
+		cacheValue.value = slices.Clone(value)
+	}
+	s.cache[historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}] = cacheValue
+}
+
+func (s *historicalReadSession) getOrCreateIterator(storeKey string) (*pebble.Iterator, bool, time.Duration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if itr, ok := s.iterators[storeKey]; ok {
+		return itr, false, 0, nil
+	}
+	start := time.Now()
+	itr, err := s.snapshot.NewIter(&pebble.IterOptions{
+		LowerBound: MVCCEncode(prependStoreKey(storeKey, nil), 0),
+		UpperBound: iteratorUpperBoundForStore(storeKey),
+	})
+	if err != nil {
+		return nil, false, 0, err
+	}
+	s.iterators[storeKey] = itr
+	return itr, true, time.Since(start), nil
+}
+
+func (s *historicalReadSession) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	var lastErr error
+	for _, itr := range s.iterators {
+		if err := itr.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	if s.snapshot != nil {
+		if err := s.snapshot.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	s.iterators = nil
+	s.cache = nil
+	s.snapshot = nil
+	return lastErr
+}
+
+func iteratorUpperBoundForStore(storeKey string) []byte {
+	upperStorePrefix := prefixEnd(storePrefix(storeKey))
+	if upperStorePrefix == nil {
+		return nil
+	}
+	return MVCCEncode(upperStorePrefix, 0)
 }
 
 func valTombstoned(value []byte) bool {

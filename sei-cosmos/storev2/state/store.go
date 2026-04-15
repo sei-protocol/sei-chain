@@ -24,10 +24,11 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store       seidbtypes.StateStore
-	activeStore seidbtypes.StateStore
-	storeKey    types.StoreKey
-	version     int64
+	store              seidbtypes.StateStore
+	activeStore        seidbtypes.StateStore
+	readTraceCollector seidbtypes.ReadTraceCollector
+	storeKey           types.StoreKey
+	version            int64
 }
 
 func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64) *Store {
@@ -151,7 +152,11 @@ func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 }
 
 func (st *Store) SetReadTraceCollector(collector seidbtypes.ReadTraceCollector) {
+	if st.readTraceCollector == collector {
+		return
+	}
 	st.activeStore = st.store
+	st.readTraceCollector = collector
 	if collector == nil {
 		return
 	}

@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"slices"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ const (
 type StoreTracer struct {
 	Modules        map[string]*ModuleTrace
 	nextIteratorID int
+	readClosers    []io.Closer
 	mu             *sync.Mutex
 }
 
@@ -81,8 +83,9 @@ func (o OpType) String() string {
 
 func NewStoreTracer() *StoreTracer {
 	return &StoreTracer{
-		Modules: map[string]*ModuleTrace{},
-		mu:      &sync.Mutex{},
+		Modules:     map[string]*ModuleTrace{},
+		readClosers: []io.Closer{},
+		mu:          &sync.Mutex{},
 	}
 }
 
@@ -219,6 +222,7 @@ func (st *StoreTracer) Clear() {
 	defer st.mu.Unlock()
 	st.Modules = map[string]*ModuleTrace{}
 	st.nextIteratorID = 0
+	st.readClosers = nil
 }
 
 type OperationSummary struct {
@@ -378,4 +382,28 @@ func (st *StoreTracer) RecordReadTrace(event seidbtypes.ReadTraceEvent) {
 		End:           slices.Clone(event.End),
 		Reverse:       event.Reverse,
 	})
+}
+
+func (st *StoreTracer) AddReadTraceCloser(closer io.Closer) {
+	if closer == nil {
+		return
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.readClosers = append(st.readClosers, closer)
+}
+
+func (st *StoreTracer) CloseReadTraceResources() error {
+	st.mu.Lock()
+	closers := st.readClosers
+	st.readClosers = nil
+	st.mu.Unlock()
+
+	var lastErr error
+	for _, closer := range closers {
+		if err := closer.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
