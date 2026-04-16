@@ -1213,6 +1213,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Use the clean context for gas validation only. We cannot reassign
 	// ctx because ProcessBlock writes to ctx's store downstream.
 	checkCtx := app.GetProcessProposalCleanContext()
+
+	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
+	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
@@ -1758,7 +1761,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	var typedTxs []sdk.Tx
-	if len(preDecoded) == len(txs) && preDecoded != nil {
+	if len(preDecoded) == len(txs) {
 		typedTxs = preDecoded
 		app.FinalizeDecodedTransactionsConcurrently(ctx, typedTxs)
 	} else {
