@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 const (
@@ -152,7 +152,7 @@ type CryptoSimConfig struct {
 	DeleteLogDirOnShutdown bool
 
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
-	FlatKVConfig *flatkv.Config
+	FlatKVConfig *flatkvConfig.Config
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
@@ -198,7 +198,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteLogDirOnStartup:             false,
 		DeleteDataDirOnShutdown:           false,
 		DeleteLogDirOnShutdown:            false,
-		FlatKVConfig:                      flatkv.DefaultConfig(),
+		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
 		BlockChannelCapacity:              8,
 	}
 

@@ -7,6 +7,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -23,13 +24,13 @@ func versionToBytes(v int64) []byte {
 }
 
 // loadLocalMeta loads per-DB metadata by reading separate keys.
-func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
-	meta := &LocalMeta{}
+func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
+	meta := &ktype.LocalMeta{}
 
-	versionData, err := db.Get(metaVersionKey)
+	versionData, err := db.Get(ktype.MetaVersionKey)
 	if err != nil {
 		if errorutils.IsNotFound(err) {
-			return &LocalMeta{CommittedVersion: 0}, nil
+			return &ktype.LocalMeta{CommittedVersion: 0}, nil
 		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
 	}
@@ -38,7 +39,7 @@ func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 	}
 	meta.CommittedVersion = int64(binary.BigEndian.Uint64(versionData)) //nolint:gosec // version won't exceed int64 max
 
-	hashData, err := db.Get(metaLtHashKey)
+	hashData, err := db.Get(ktype.MetaLtHashKey)
 	if err != nil && !errorutils.IsNotFound(err) {
 		return nil, fmt.Errorf("could not read meta hash: %w", err)
 	}
@@ -55,11 +56,11 @@ func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
 
 // writeLocalMetaToBatch writes per-DB metadata (version + LtHash) as separate keys.
 func writeLocalMetaToBatch(batch types.Batch, version int64, ltHash *lthash.LtHash) error {
-	if err := batch.Set(metaVersionKey, versionToBytes(version)); err != nil {
+	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
 		return fmt.Errorf("set meta version: %w", err)
 	}
 	if ltHash != nil {
-		if err := batch.Set(metaLtHashKey, ltHash.Marshal()); err != nil {
+		if err := batch.Set(ktype.MetaLtHashKey, ltHash.Marshal()); err != nil {
 			return fmt.Errorf("set meta hash: %w", err)
 		}
 	}
@@ -69,7 +70,7 @@ func writeLocalMetaToBatch(batch types.Batch, version int64, ltHash *lthash.LtHa
 // loadGlobalVersion reads the global committed version from metadata DB.
 // Returns 0 if not found (fresh start).
 func (s *CommitStore) loadGlobalVersion() (int64, error) {
-	data, err := s.metadataDB.Get(metaVersionKey)
+	data, err := s.metadataDB.Get(ktype.MetaVersionKey)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
 	}
@@ -89,7 +90,7 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
 func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
-	data, err := s.metadataDB.Get(metaLtHashKey)
+	data, err := s.metadataDB.Get(ktype.MetaLtHashKey)
 	if errorutils.IsNotFound(err) {
 		return nil, nil
 	}
@@ -106,10 +107,10 @@ func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) e
 	batch := s.metadataDB.NewBatch()
 	defer func() { _ = batch.Close() }()
 
-	if err := batch.Set(metaVersionKey, versionToBytes(version)); err != nil {
+	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
 		return fmt.Errorf("failed to set global version: %w", err)
 	}
-	if err := batch.Set(metaLtHashKey, hash.Marshal()); err != nil {
+	if err := batch.Set(ktype.MetaLtHashKey, hash.Marshal()); err != nil {
 		return fmt.Errorf("failed to set global lthash: %w", err)
 	}
 

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
@@ -18,8 +18,8 @@ func TestStateStoreWrapperApplyChangesetsAsyncPreservesHistoricalState(t *testin
 
 	wrapper := NewStateStoreWrapper(store)
 
-	keyV1AndV2 := commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyNonce, bytes.Repeat([]byte{0x11}, 20))
-	keyV2Only := commonevm.BuildMemIAVLEVMKey(commonevm.EVMKeyCodeHash, bytes.Repeat([]byte{0x22}, 20))
+	keyV1AndV2 := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, bytes.Repeat([]byte{0x11}, 20))
+	keyV2Only := commonevm.BuildEVMKey(commonevm.EVMKeyCodeHash, bytes.Repeat([]byte{0x22}, 20))
 
 	require.NoError(t, wrapper.ApplyChangeSets(changelogEntry(1, []*proto.NamedChangeSet{
 		{

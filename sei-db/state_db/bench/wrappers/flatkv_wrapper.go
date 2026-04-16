@@ -1,7 +1,7 @@
 package wrappers
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -62,7 +62,7 @@ func (f *flatKVWrapper) Close() error {
 }
 
 func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
-	val, ok := f.base.Get(evm.EVMStoreKey, key)
+	val, ok := f.base.Get(keys.EVMStoreKey, key)
 	return val, ok, nil
 }
 
