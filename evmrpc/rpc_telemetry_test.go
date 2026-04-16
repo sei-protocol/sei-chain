@@ -13,6 +13,4 @@ func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	recordRPCRequest(ctx, endpoint, "http", true)
 	recordRPCLatency(ctx, endpoint, "http", true, time.Now().Add(-2*time.Millisecond))
 	recordWebsocketConnect(ctx)
-	recordFilterLogFetchBatchComplete(ctx, "logs")
-	recordFilterLogFetchBatchComplete(ctx, "blocks")
 }

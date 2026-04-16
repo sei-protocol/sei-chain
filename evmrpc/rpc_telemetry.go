@@ -17,10 +17,9 @@ var (
 	rpcTelemetryMeter = otel.Meter("evmrpc_rpc")
 
 	rpcTelemetryMetrics = struct {
-		requests              metric.Int64Counter
-		requestLatencyMs      metric.Float64Histogram
-		websocketConnects     metric.Int64Counter
-		filterLogFetchBatches metric.Int64Counter
+		requests          metric.Int64Counter
+		requestLatencyMs  metric.Float64Histogram
+		websocketConnects metric.Int64Counter
 	}{
 		requests: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_rpc_requests_total",
@@ -36,11 +35,6 @@ var (
 			"evmrpc_websocket_connects_total",
 			metric.WithDescription("Number of new websocket connections"),
 			metric.WithUnit("{count}"),
-		)),
-		filterLogFetchBatches: must(rpcTelemetryMeter.Int64Counter(
-			"evmrpc_filter_log_fetch_batches_total",
-			metric.WithDescription("Internal filter/getLogs block batches completed (per pipeline path, not per RPC)"),
-			metric.WithUnit("{batch}"),
 		)),
 	}
 )
@@ -68,10 +62,4 @@ func recordRPCLatency(ctx context.Context, endpoint, connection string, success 
 
 func recordWebsocketConnect(ctx context.Context) {
 	rpcTelemetryMetrics.websocketConnects.Add(ctx, 1)
-}
-
-func recordFilterLogFetchBatchComplete(ctx context.Context, pipeline string) {
-	rpcTelemetryMetrics.filterLogFetchBatches.Add(ctx, 1,
-		metric.WithAttributes(attribute.String("pipeline", pipeline)),
-	)
 }

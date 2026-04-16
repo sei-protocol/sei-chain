@@ -792,11 +792,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	var submitError error
 
 	processBatch := func(batch []*coretypes.ResultBlock) {
-		defer func() {
-			// Add metrics for log processing
-			recordFilterLogFetchBatchComplete(ctx, "logs")
-			wg.Done()
-		}()
+		defer wg.Done()
 		// Each worker gets a clean slice from the pool
 		localLogs := f.globalLogSlicePool.Get()
 
@@ -1231,10 +1227,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 // Batch processing function for blocks
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
-	defer func() {
-		recordFilterLogFetchBatchComplete(ctx, "blocks")
-	}()
-
 	wpMetrics := GetGlobalMetrics()
 
 	for height := start; height <= end; height++ {
