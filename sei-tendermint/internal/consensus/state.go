@@ -1150,7 +1150,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 
 	// If this validator is the proposer of this round, and the previous block time is later than
 	// our local clock time, wait to propose until our local clock time has passed the block time.
-	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.proposer()==key {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.proposer() == key {
 		proposerWaitTime := proposerWaitTime(tmtime.DefaultSource{}, cs.state.LastBlockTime)
 		if proposerWaitTime > 0 {
 			cs.scheduleTimeout(proposerWaitTime, height, round, cstypes.RoundStepNewRound)
@@ -1203,7 +1203,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 		return
 	}
 
-	if cs.proposer()==privValidatorPubKey {
+	if cs.proposer() == privValidatorPubKey {
 		logger.Debug(
 			"propose step; our turn to propose",
 			"proposer", addr,
@@ -1995,7 +1995,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		var (
 			commitSize = block.LastCommit.Size()
 			valSetLen  = len(cs.roundState.LastValidators().Validators)
-			address    types.Address
+			pubKey     crypto.PubKey
 		)
 		if commitSize != valSetLen {
 			logger.Error("commit size doesn't match valset length",
@@ -2009,7 +2009,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 				// Metrics won't be updated, but it's not critical.
 				logger.Error("recordMetrics", "err", errPubKeyIsNotSet)
 			} else {
-				address = key.Address()
+				pubKey = key
 			}
 		}
 
@@ -2023,7 +2023,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 				cs.metrics.MissingValidatorsPower.With("validator_address", val.Address.String()).Set(0)
 			}
 
-			if bytes.Equal(val.Address, address) {
+			if val.PubKey == pubKey {
 				label := []string{
 					"validator_address", val.Address.String(),
 				}

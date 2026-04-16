@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -120,7 +119,7 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	lastBlockHeight, vals := env.ConsensusState.GetValidators()
 	if lastBlockHeight == h {
 		for _, val := range vals {
-			if bytes.Equal(val.Address, privValAddress) {
+			if val.PubKey == k {
 				return utils.Some(val)
 			}
 		}

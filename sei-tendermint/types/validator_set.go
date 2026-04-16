@@ -102,7 +102,7 @@ func (vals *ValidatorSet) ValidateBasic() error {
 	}
 
 	for _, val := range vals.Validators {
-		if bytes.Equal(val.Address, vals.Proposer.Address) {
+		if val.PubKey == vals.Proposer.PubKey {
 			return nil
 		}
 	}

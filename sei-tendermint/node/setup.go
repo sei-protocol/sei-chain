@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -138,8 +137,8 @@ func onlyValidatorIsUs(state sm.State, pubKey utils.Option[crypto.PubKey]) bool 
 	if state.Validators.Size() != 1 {
 		return false
 	}
-	addr, _, ok := state.Validators.GetByIndex(0)
-	return ok && bytes.Equal(k.Address(), addr)
+	_, val, ok := state.Validators.GetByIndex(0)
+	return ok && k == val.PubKey
 }
 
 func createMempoolReactor(

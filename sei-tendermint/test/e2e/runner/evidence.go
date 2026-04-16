@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -306,7 +305,7 @@ func mutateValidatorSet(ctx context.Context, privVals []types.MockPV, vals *type
 	for idx, val := range newVals.Validators {
 		found := false
 		for _, p := range append(privVals, newPrivVal.(types.MockPV)) {
-			if bytes.Equal(p.PrivKey.Public().Address(), val.Address) {
+			if p.PrivKey.Public() == val.PubKey {
 				pv[idx] = p
 				found = true
 				break

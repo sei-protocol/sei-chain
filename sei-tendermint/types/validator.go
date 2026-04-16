@@ -22,7 +22,7 @@ type Validator struct {
 	VotingPower      int64
 	ProposerPriority int64
 	// Derived from PubKey
-	Address []byte
+	Address Address
 }
 
 type validatorJSON struct {
@@ -57,7 +57,7 @@ func (v *Validator) UnmarshalJSON(data []byte) error {
 	v.Address = v.PubKey.Address()
 	v.VotingPower = val.VotingPower
 	v.ProposerPriority = val.ProposerPriority
-	if !bytes.Equal(val.Address,v.Address) {
+	if !bytes.Equal(val.Address, v.Address) {
 		return fmt.Errorf("address does not match the key")
 	}
 	return nil
@@ -69,7 +69,7 @@ func NewValidator(pubKey crypto.PubKey, votingPower int64) *Validator {
 		PubKey:           pubKey,
 		VotingPower:      votingPower,
 		ProposerPriority: 0,
-		Address: pubKey.Address(),
+		Address:          pubKey.Address(),
 	}
 }
 
@@ -186,13 +186,13 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := &Validator {
-		PubKey: pk,
-		VotingPower: vp.GetVotingPower(),
+	v := &Validator{
+		PubKey:           pk,
+		VotingPower:      vp.GetVotingPower(),
 		ProposerPriority: vp.GetProposerPriority(),
-		Address: pk.Address(),
+		Address:          pk.Address(),
 	}
-	if !bytes.Equal(v.Address,vp.GetAddress()) {
+	if !bytes.Equal(v.Address, vp.GetAddress()) {
 		return nil, fmt.Errorf("address does not match the key")
 	}
 	return v, nil
