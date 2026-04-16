@@ -31,12 +31,13 @@ import (
 const (
 	VersionSize = 8
 
-	PrefixStore        = "s/k:"
-	LenPrefixStore     = 4
-	StorePrefixTpl     = "s/k:%s/" // s/k:<storeKey>
-	latestVersionKey   = "s/_latest"
-	earliestVersionKey = "s/_earliest"
-	tombstoneVal       = "TOMBSTONE"
+	PrefixStore          = "s/k:"
+	LenPrefixStore       = 4
+	StorePrefixTpl       = "s/k:%s/" // s/k:<storeKey>
+	LatestStorePrefixTpl = "s/l:%s/" // s/l:<storeKey>
+	latestVersionKey     = "s/_latest"
+	earliestVersionKey   = "s/_earliest"
+	tombstoneVal         = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -384,6 +385,12 @@ func (db *Database) getWithCollector(storeKey string, targetVersion int64, key [
 	}()
 	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
+	}
+
+	if value, found, err := getLatestIndexedValue(db.storage, storeKey, key, targetVersion, db.GetEarliestVersion(), db.config.KeepLastVersion, collector); err != nil {
+		return nil, err
+	} else if found {
+		return value, nil
 	}
 
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion, collector)
@@ -744,6 +751,9 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 		var counter int
 		for entry := range ch {
+			if entry.StoreKey == "" || len(entry.Key) == 0 {
+				continue
+			}
 			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
 			if err != nil {
 				panic(err)
@@ -883,7 +893,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 }
 
 func isMetadataKey(key []byte) bool {
-	return bytes.HasPrefix(key, []byte("s/_"))
+	return bytes.HasPrefix(key, []byte("s/_")) || bytes.HasPrefix(key, []byte("s/l:"))
 }
 
 func storePrefix(storeKey string) []byte {
@@ -1233,6 +1243,13 @@ func (db *tracedDatabase) getWithSession(storeKey string, targetVersion int64, k
 		return nil, nil
 	}
 
+	if val, found, err := getLatestIndexedValueFromSession(db.readSession, storeKey, key, targetVersion, db.GetEarliestVersion(), db.collector); err != nil {
+		return nil, err
+	} else if found {
+		db.readSession.store(storeKey, targetVersion, key, val)
+		return val, nil
+	}
+
 	if val, found := db.readSession.lookup(storeKey, targetVersion, key); found {
 		recordReadTrace(db.collector, types.ReadTraceEvent{
 			StoreKey:      storeKey,
@@ -1374,6 +1391,93 @@ func iteratorUpperBoundForLogicalKey(key []byte) []byte {
 		return nil
 	}
 	return MVCCEncode(upperKeyPrefix, 0)
+}
+
+func latestIndexPrefix(storeKey string) []byte {
+	return []byte(fmt.Sprintf(LatestStorePrefixTpl, storeKey))
+}
+
+func latestIndexKey(storeKey string, key []byte) []byte {
+	return append(latestIndexPrefix(storeKey), key...)
+}
+
+func encodeLatestIndexValue(version int64, prefixedVal []byte) []byte {
+	var versionBz [VersionSize]byte
+	binary.LittleEndian.PutUint64(versionBz[:], uint64(version))
+	return append(versionBz[:], prefixedVal...)
+}
+
+func decodeLatestIndexValue(bz []byte) (int64, []byte, error) {
+	if len(bz) < VersionSize {
+		return 0, nil, fmt.Errorf("latest index entry too short: %d", len(bz))
+	}
+	version := binary.LittleEndian.Uint64(bz[:VersionSize])
+	if version > math.MaxInt64 {
+		return 0, nil, fmt.Errorf("latest index version overflows int64: %d", version)
+	}
+	return int64(version), bz[VersionSize:], nil
+}
+
+func getLatestIndexedValue(db *pebble.DB, storeKey string, key []byte, targetVersion int64, earliestVersion int64, keepLastVersion bool, collector types.ReadTraceCollector) ([]byte, bool, error) {
+	if storeKey == "" || len(key) == 0 {
+		return nil, false, nil
+	}
+	latestKey := latestIndexKey(storeKey, key)
+	val, closer, err := db.Get(latestKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed latest-index lookup: %w", err)
+	}
+	defer func() { _ = closer.Close() }()
+
+	latestVersion, prefixedVal, err := decodeLatestIndexValue(utils.Clone(val))
+	if err != nil {
+		return nil, false, err
+	}
+	if latestVersion < earliestVersion && !keepLastVersion {
+		return nil, false, nil
+	}
+	if latestVersion > targetVersion {
+		return nil, false, nil
+	}
+	value, err := visibleValueAtVersion(prefixedVal, targetVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	return value, true, nil
+}
+
+func getLatestIndexedValueFromSession(session *historicalReadSession, storeKey string, key []byte, targetVersion int64, earliestVersion int64, collector types.ReadTraceCollector) ([]byte, bool, error) {
+	if storeKey == "" || len(key) == 0 {
+		return nil, false, nil
+	}
+	latestKey := latestIndexKey(storeKey, key)
+	val, closer, err := session.snapshot.Get(latestKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed latest-index lookup: %w", err)
+	}
+	defer func() { _ = closer.Close() }()
+
+	latestVersion, prefixedVal, err := decodeLatestIndexValue(utils.Clone(val))
+	if err != nil {
+		return nil, false, err
+	}
+	if latestVersion < earliestVersion {
+		return nil, false, nil
+	}
+	if latestVersion > targetVersion {
+		return nil, false, nil
+	}
+	value, err := visibleValueAtVersion(prefixedVal, targetVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	return value, true, nil
 }
 
 func valTombstoned(value []byte) bool {
