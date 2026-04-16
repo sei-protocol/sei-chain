@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,7 +11,13 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
 )
+
+func TestConstants(t *testing.T) {
+	require.Equal(t, -32600, invalidRequestCode)
+	require.Equal(t, -32603, internalErrorCode)
+}
 
 func TestBuildSeiLegacyEnabledSet_Empty(t *testing.T) {
 	s := BuildSeiLegacyEnabledSet(nil)
@@ -296,7 +303,7 @@ func TestWrapSeiLegacyHTTP_BatchTrailingNonObjectDoesNotBypassGate(t *testing.T)
 		t.Fatalf("slot 0 should be legacy gate error: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 should be JSON-RPC invalid request (-32600): %+v", batch[1])
 	}
 }
@@ -319,7 +326,7 @@ func TestWrapSeiLegacyHTTP_BatchLeadingNonObjectDoesNotBypassGate(t *testing.T) 
 		t.Fatalf("want 2 entries, got %d", len(batch))
 	}
 	err0, _ := batch[0]["error"].(map[string]any)
-	if err0 == nil || int(err0["code"].(float64)) != -32600 {
+	if err0 == nil || int(err0["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 0 should be -32600 invalid request: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
@@ -393,8 +400,141 @@ func TestWrapSeiLegacyHTTP_BatchInvalidNonObjectNotForwarded(t *testing.T) {
 		t.Fatalf("slot 0: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 want -32600: %+v", batch[1])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchNotificationOmittedFromMergedResponse(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 2 {
+			t.Fatalf("inner should receive notification + call, got %q err=%v", b, err)
+		}
+		if _, ok := fwd[0]["id"]; ok {
+			t.Fatalf("first forwarded item should be notification (no id): %#v", fwd[0])
+		}
+		if fwd[1]["id"] == nil {
+			t.Fatalf("second item should have id: %#v", fwd[1])
+		}
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":1,"result":"0xaa"}]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("want 1 response (notification omitted), got %d: %s", len(batch), rec.Body.String())
+	}
+	if batch[0]["result"] != "0xaa" {
+		t.Fatalf("expected inner result: %+v", batch[0])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchLeadingNotificationMergedWithBlockedCall(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 1 {
+			t.Fatalf("inner should receive only the notification, got %q", b)
+		}
+		// Inner stack: no JSON objects for an all-notification forward (JSON-RPC 2.0).
+		_, _ = w.Write([]byte(`[]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":7,"method":"sei_getBlockByNumber","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("want 1 entry (notification omitted + blocked error), got %d: %s", len(batch), rec.Body.String())
+	}
+	err0, _ := batch[0]["error"].(map[string]any)
+	if err0 == nil || err0["data"] != "legacy_sei_deprecated" {
+		t.Fatalf("want legacy gate error: %+v", batch[0])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchInvalidThenNotificationOneResponse(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// Second item is a notification (no id) but gated sei_* — blocked and not forwarded; still no JSON-RPC response for it.
+	body := `[42,{"jsonrpc":"2.0","method":"sei_getBlockByNumber","params":[]}]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("want 1 entry (-32600 only; notification omitted), got %d: %s", len(batch), rec.Body.String())
+	}
+	err0, _ := batch[0]["error"].(map[string]any)
+	if err0 == nil || int(err0["code"].(float64)) != invalidRequestCode {
+		t.Fatalf("want -32600: %+v", batch[0])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchAllBlockedNotificationsEmptyHTTPBody(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","method":"sei_getBlockByNumber","params":[]},
+		{"jsonrpc":"2.0","method":"sei_getSeiAddress","params":["0x0000000000000000000000000000000000000001"]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	if len(bytes.TrimSpace(rec.Body.Bytes())) != 0 {
+		t.Fatalf("JSON-RPC 2.0 forbids empty batch array; want empty body, got %q", rec.Body.String())
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchSingleBlockedNotificationEmptyHTTPBody(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner must not run: blocked notification must not be forwarded")
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// Single notification (no id) for a gated method: blocked AND a notification,
+	// so no response entry and nothing forwarded — expect empty HTTP body, not [].
+	body := `[{"jsonrpc":"2.0","method":"sei_getBlockByNumber","params":[]}]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	if len(bytes.TrimSpace(rec.Body.Bytes())) != 0 {
+		t.Fatalf("JSON-RPC 2.0 forbids empty batch array; want empty body, got %q", rec.Body.String())
 	}
 }
 
@@ -462,7 +602,7 @@ func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	if err2 == nil {
 		t.Fatal("slot 2 should be JSON-RPC error")
 	}
-	if int(err2["code"].(float64)) != -32603 {
+	if int(err2["code"].(float64)) != internalErrorCode {
 		t.Fatalf("want -32603, got %+v", err2)
 	}
 }
@@ -496,7 +636,7 @@ func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
 		if errObj == nil {
 			t.Fatalf("slot %d expected error, got %+v", i, batch[i])
 		}
-		if int(errObj["code"].(float64)) != -32603 {
+		if int(errObj["code"].(float64)) != internalErrorCode {
 			t.Fatalf("slot %d: %+v", i, errObj)
 		}
 	}

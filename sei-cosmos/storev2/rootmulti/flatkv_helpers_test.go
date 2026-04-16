@@ -10,16 +10,20 @@ package rootmulti
 //   flatkv_modes_test.go     - shadow mode, SS query + proofs, SS async restart
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	scmemiavl "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -325,4 +329,84 @@ func verifyFlatKVSelfConsistent(t *testing.T, dir string, cfg seidbconfig.StateC
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
 	require.NoError(t, flatkv.VerifyLtHash(ro))
 	require.NoError(t, ro.Close())
+}
+
+// ---------------------------------------------------------------------------
+// DualWrite equivalence helpers
+// ---------------------------------------------------------------------------
+//
+// These helpers power the memiavl<->flatkv differential oracle in
+// flatkv_equivalence_test.go. DualWrite mirrors every EVM write into both
+// backends; any divergence between them at the end of a workload points to a
+// FlatKV bug (memiavl is treated as ground truth for this oracle).
+
+// collectCommitKVStore iterates a memiavl child store in full and returns a
+// snapshot map keyed by memiavl-format key.
+func collectCommitKVStore(t *testing.T, s sctypes.CommitKVStore) map[string][]byte {
+	t.Helper()
+	out := make(map[string][]byte)
+	it := s.Iterator(nil, nil, true)
+	defer func() { require.NoError(t, it.Close()) }()
+	for ; it.Valid(); it.Next() {
+		out[string(bytes.Clone(it.Key()))] = bytes.Clone(it.Value())
+	}
+	require.NoError(t, it.Error())
+	return out
+}
+
+// collectFlatKVEVM opens FlatKV at dir and drains its Exporter at the given
+// version (0 = latest), returning a snapshot map in the same memiavl-format
+// key/value shape as collectCommitKVStore. The rootmulti store at dir must
+// already be closed.
+func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) map[string][]byte {
+	t.Helper()
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = filepath.Join(dir, "data", "flatkv")
+
+	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	if _, err := s.LoadVersion(0, false); err != nil {
+		require.NoError(t, err)
+	}
+
+	exp, err := s.Exporter(version)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, exp.Close()) }()
+
+	out := make(map[string][]byte)
+	for {
+		item, err := exp.Next()
+		if err != nil {
+			require.True(t, errors.Is(err, errorutils.ErrorExportDone),
+				"unexpected exporter error: %v", err)
+			break
+		}
+		node, ok := item.(*sctypes.SnapshotNode)
+		require.Truef(t, ok, "expected *SnapshotNode, got %T", item)
+		out[string(bytes.Clone(node.Key))] = bytes.Clone(node.Value)
+	}
+	return out
+}
+
+// requireSameEVMKVSet asserts that two snapshot maps are byte-for-byte equal
+// in both directions — the forward check catches "FlatKV missing / stale",
+// the reverse catches "FlatKV has extra rows memiavl never saw".
+func requireSameEVMKVSet(t *testing.T, memMap, flatMap map[string][]byte) {
+	t.Helper()
+	require.Equalf(t, len(memMap), len(flatMap),
+		"evm entry count mismatch: memiavl=%d flatkv=%d", len(memMap), len(flatMap))
+
+	for k, mv := range memMap {
+		fv, ok := flatMap[k]
+		require.Truef(t, ok, "flatkv missing memiavl key %x", []byte(k))
+		require.Equalf(t, mv, fv,
+			"value mismatch for key %x:\n  memiavl: %x\n  flatkv:  %x",
+			[]byte(k), mv, fv)
+	}
+	for k := range flatMap {
+		_, ok := memMap[k]
+		require.Truef(t, ok, "memiavl missing key %x (flatkv has it)", []byte(k))
+	}
 }
