@@ -453,7 +453,7 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	defer tearDown(t)
 	val1VotingPower := int64(10)
 	val1PubKey := ed25519.GenerateSecretKey().Public()
-	val1 := &types.Validator{Address: val1PubKey.Address(), PubKey: val1PubKey, VotingPower: val1VotingPower}
+	val1 := types.NewValidator(val1PubKey, val1VotingPower)
 
 	state.Validators = types.NewValidatorSet([]*types.Validator{val1})
 	state.NextValidators = state.Validators
@@ -494,9 +494,9 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	assert.NoError(t, err)
 
 	require.Equal(t, len(updatedState2.NextValidators.Validators), 2)
-	_, updatedVal1, ok := updatedState2.NextValidators.GetByAddress(val1PubKey.Address())
+	_, updatedVal1, ok := updatedState2.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, addedVal2, ok := updatedState2.NextValidators.GetByAddress(val2PubKey.Address())
+	_, addedVal2, ok := updatedState2.NextValidators.GetByKey(val2PubKey)
 	require.True(t, ok)
 
 	// adding a validator should not lead to a ProposerPriority equal to zero (unless the combination of averaging and
@@ -538,13 +538,13 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	assert.NoError(t, err)
 
 	require.Equal(t, len(updatedState3.NextValidators.Validators), 2)
-	_, prevVal1, ok := updatedState3.Validators.GetByAddress(val1PubKey.Address())
+	_, prevVal1, ok := updatedState3.Validators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, prevVal2, ok := updatedState3.Validators.GetByAddress(val2PubKey.Address())
+	_, prevVal2, ok := updatedState3.Validators.GetByKey(val2PubKey)
 	require.True(t, ok)
-	_, updatedVal1, ok = updatedState3.NextValidators.GetByAddress(val1PubKey.Address())
+	_, updatedVal1, ok = updatedState3.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, updatedVal2, ok := updatedState3.NextValidators.GetByAddress(val2PubKey.Address())
+	_, updatedVal2, ok := updatedState3.NextValidators.GetByKey(val2PubKey)
 	require.True(t, ok)
 
 	// 2. Scale
@@ -582,7 +582,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	defer tearDown(t)
 	val1VotingPower := int64(10)
 	val1PubKey := ed25519.GenerateSecretKey().Public()
-	val1 := &types.Validator{Address: val1PubKey.Address(), PubKey: val1PubKey, VotingPower: val1VotingPower}
+	val1 := types.NewValidator(val1PubKey, val1VotingPower)
 
 	// reset state validators to above validator
 	state.Validators = types.NewValidatorSet([]*types.Validator{val1})
@@ -635,11 +635,11 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	assert.Equal(t, updatedState2.Validators.Proposer.Address, val1PubKey.Address())
 	assert.Equal(t, updatedState2.NextValidators.Proposer.Address, val1PubKey.Address())
 
-	_, updatedVal1, ok := updatedState2.NextValidators.GetByAddress(val1PubKey.Address())
+	_, updatedVal1, ok := updatedState2.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, oldVal1, ok := updatedState2.Validators.GetByAddress(val1PubKey.Address())
+	_, oldVal1, ok := updatedState2.Validators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, updatedVal2, ok := updatedState2.NextValidators.GetByAddress(val2PubKey.Address())
+	_, updatedVal2, ok := updatedState2.NextValidators.GetByKey(val2PubKey)
 	require.True(t, ok)
 
 	// 1. Add
@@ -678,9 +678,9 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	assert.Equal(t, updatedState3.Validators.Proposer.Address, updatedState3.NextValidators.Proposer.Address)
 
 	assert.Equal(t, updatedState3.Validators, updatedState2.NextValidators)
-	_, updatedVal1, ok = updatedState3.NextValidators.GetByAddress(val1PubKey.Address())
+	_, updatedVal1, ok = updatedState3.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
-	_, updatedVal2, ok = updatedState3.NextValidators.GetByAddress(val2PubKey.Address())
+	_, updatedVal2, ok = updatedState3.NextValidators.GetByKey(val2PubKey)
 	require.True(t, ok)
 
 	// val1 will still be proposer:
@@ -749,9 +749,9 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 		)
 		assert.Equal(t, oldState.Validators.Proposer.Address, updatedState.NextValidators.Proposer.Address, "iter: %v", i)
 
-		_, updatedVal1, ok = updatedState.NextValidators.GetByAddress(val1PubKey.Address())
+		_, updatedVal1, ok = updatedState.NextValidators.GetByKey(val1PubKey)
 		require.True(t, ok)
-		_, updatedVal2, ok = updatedState.NextValidators.GetByAddress(val2PubKey.Address())
+		_, updatedVal2, ok = updatedState.NextValidators.GetByKey(val2PubKey)
 		require.True(t, ok)
 
 		if i%2 == 0 {
@@ -775,11 +775,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	genesisVotingPower := types.MaxTotalVotingPower / 1000
 	genesisPubKey := ed25519.GenerateSecretKey().Public()
 	// fmt.Println("genesis addr: ", genesisPubKey.Address())
-	genesisVal := &types.Validator{
-		Address:     genesisPubKey.Address(),
-		PubKey:      genesisPubKey,
-		VotingPower: genesisVotingPower,
-	}
+	genesisVal := types.NewValidator(genesisPubKey, genesisVotingPower)
 	// reset state validators to above validator
 	state.Validators = types.NewValidatorSet([]*types.Validator{genesisVal})
 	state.NextValidators = state.Validators
@@ -872,9 +868,9 @@ func TestLargeGenesisValidator(t *testing.T) {
 	require.True(t, ok)
 	_, newGenesisVal, ok := state.NextValidators.GetByAddress(genesisVal.Address)
 	require.True(t, ok)
-	_, addedOldVal, ok := oldState.NextValidators.GetByAddress(firstAddedValPubKey.Address())
+	_, addedOldVal, ok := oldState.NextValidators.GetByKey(firstAddedValPubKey)
 	require.True(t, ok)
-	_, addedNewVal, ok := state.NextValidators.GetByAddress(firstAddedValPubKey.Address())
+	_, addedNewVal, ok := state.NextValidators.GetByKey(firstAddedValPubKey)
 	require.True(t, ok)
 	// expect large negative proposer priority for both (genesis validator decreased, 2nd validator increased):
 	assert.True(t, oldGenesisVal.ProposerPriority > newGenesisVal.ProposerPriority)
@@ -1053,14 +1049,14 @@ func TestManyValidatorChangesSaveLoad(t *testing.T) {
 	v0, err := stateStore.LoadValidators(nextHeight)
 	assert.NoError(t, err)
 	assert.Equal(t, valSetSize, v0.Size())
-	_, _, ok = v0.GetByAddress(pubkeyOld.Address())
+	_, _, ok = v0.GetByKey(pubkeyOld)
 	require.True(t, ok)
 
 	// Load nextheight+1, it should be the new pubkey.
 	v1, err := stateStore.LoadValidators(nextHeight + 1)
 	assert.NoError(t, err)
 	assert.Equal(t, valSetSize, v1.Size())
-	_, _, ok = v1.GetByAddress(pubkey.Address())
+	_, _, ok = v1.GetByKey(pubkey)
 	require.True(t, ok)
 }
 

@@ -113,8 +113,6 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	if env.ConsensusState == nil {
 		return none
 	}
-	privValAddress := k.Address()
-
 	// If we're still at height h, search in the current validator set.
 	lastBlockHeight, vals := env.ConsensusState.GetValidators()
 	if lastBlockHeight == h {
@@ -125,7 +123,7 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 		}
 	}
 
-	_, val, ok := valsWithH.GetByAddress(privValAddress)
+	_, val, ok := valsWithH.GetByKey(k)
 	if ok {
 		return utils.Some(val)
 	}

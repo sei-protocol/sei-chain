@@ -226,7 +226,7 @@ func generateDuplicateVoteEvidence(
 func getRandomValidatorIndex(privVals []types.MockPV, vals *types.ValidatorSet) (types.MockPV, int32, error) {
 	for _, idx := range rand.Perm(len(privVals)) {
 		pv := privVals[idx]
-		valIdx, _, ok := vals.GetByAddress(pv.PrivKey.Public().Address())
+		valIdx, _, ok := vals.GetByKey(pv.PrivKey.Public())
 		if ok {
 			return pv, valIdx, nil
 		}

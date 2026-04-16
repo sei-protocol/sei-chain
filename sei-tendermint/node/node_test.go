@@ -508,7 +508,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	for i := 0; i < types.MaxVotesCount; i++ {
 		pubKey, err := privVals[i].GetPubKey(ctx)
 		require.NoError(t, err)
-		valIdx, val, ok := state.Validators.GetByAddress(pubKey.Address())
+		valIdx, val, ok := state.Validators.GetByKey(pubKey)
 		require.True(t, ok)
 
 		vote := &types.Vote{

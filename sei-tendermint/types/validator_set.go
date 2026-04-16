@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
@@ -280,6 +281,17 @@ func (vals *ValidatorSet) HasAddress(address []byte) bool {
 func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator, ok bool) {
 	for idx, val := range vals.Validators {
 		if bytes.Equal(val.Address, address) {
+			return int32(idx), val.Copy(), true //nolint:gosec // validator set size is consensus-bounded, fits in int32
+		}
+	}
+	return 0, nil, false
+}
+
+// GetByKey returns an index of the validator with pubkey and validator
+// itself (copy) if found. Otherwise, -1 and nil are returned.
+func (vals *ValidatorSet) GetByKey(pubKey crypto.PubKey) (index int32, val *Validator, ok bool) {
+	for idx, val := range vals.Validators {
+		if val.PubKey == pubKey {
 			return int32(idx), val.Copy(), true //nolint:gosec // validator set size is consensus-bounded, fits in int32
 		}
 	}

@@ -544,7 +544,7 @@ func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, h
 
 func initializeValidatorState(ctx context.Context, t *testing.T, privVal types.PrivValidator, height int64) sm.Store {
 	pubKey, _ := privVal.GetPubKey(ctx)
-	validator := &types.Validator{Address: pubKey.Address(), VotingPower: 10, PubKey: pubKey}
+	validator := types.NewValidator(pubKey, 10)
 
 	// create validator set and state
 	valSet := &types.ValidatorSet{
