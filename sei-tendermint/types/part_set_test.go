@@ -90,6 +90,30 @@ func TestWrongProof(t *testing.T) {
 	}
 }
 
+func TestAddPartWithSwappedProof(t *testing.T) {
+	// Create a part set with multiple parts
+	data := tmrand.Bytes(testPartSize * 4)
+	partSet := NewPartSetFromData(data, testPartSize)
+
+	// Get two different parts
+	part0 := partSet.GetPart(0)
+	part1 := partSet.GetPart(1)
+
+	// Create a malicious part: part0's index with part1's proof.
+	// The proof is cryptographically valid (it proves part1.Bytes is in the tree)
+	// but it's for a different index position.
+	maliciousPart := &Part{
+		Index: part0.Index,
+		Bytes: part1.Bytes,
+		Proof: part1.Proof,
+	}
+
+	// ValidateBasic should reject this because Part.Index != Proof.Index
+	err := maliciousPart.ValidateBasic()
+	assert.Error(t, err, "ValidateBasic should reject part with mismatched proof index")
+	assert.Contains(t, err.Error(), "does not match proof index")
+}
+
 func TestPartSetHeaderValidateBasic(t *testing.T) {
 	testCases := []struct {
 		testName              string
