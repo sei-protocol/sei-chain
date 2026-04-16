@@ -36,6 +36,11 @@ type testAppState struct {
 	Blocks     []*abci.RequestFinalizeBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
+	// Committed tracks whether FinalizeBlock is allowed.
+	// Set to true by InitChain (so FinalizeBlock can follow without Commit,
+	// matching the CometBFT handshaker flow) and by Commit.
+	// Cleared by FinalizeBlock.
+	Committed bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
@@ -108,6 +113,7 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
+		state.Committed = true
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
@@ -119,6 +125,9 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 
 func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
+		if !state.Committed {
+			return nil, fmt.Errorf("FinalizeBlock before Commit")
+		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return nil, fmt.Errorf("app not initialized")
@@ -129,6 +138,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 			state.Txs[sha256.Sum256(tx)] = true
 		}
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
+		state.Committed = false
 		ctrl.Updated()
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
@@ -139,7 +149,11 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 }
 
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
-	for _, ctrl := range a.state.Lock() {
+	for state, ctrl := range a.state.Lock() {
+		if state.Committed {
+			return nil, fmt.Errorf("double commit")
+		}
+		state.Committed = true
 		ctrl.Updated()
 	}
 	return &abci.ResponseCommit{
@@ -162,8 +176,9 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
 		s := *state
-		// Txs is derived and the only mutable field.
+		// Txs is derived and Committed is not deterministic.
 		s.Txs = nil
+		s.Committed = false
 		return s
 	}
 	panic("unreachable")
@@ -182,9 +197,10 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	}
 }
 
-// TestInitChainCommitThenFinalize verifies the autobahn block execution flow:
-// the CometBFT handshaker calls InitChain (no Commit), then GigaRouter.runExecute()
-// calls FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
+// TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
+// that testApp supports the autobahn block execution flow where the CometBFT
+// handshaker calls InitChain (no Commit), then GigaRouter.runExecute() calls
+// FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
 // followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
@@ -272,14 +288,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
 				return fmt.Errorf("app.InitChain(): %w", err)
 			}
-			mempoolCfg := mempool.TestConfig()
-			// Disable TTL purging: txs enter the mempool at height=-1 (the mempool's
-			// initial height) but the first block is at InitialHeight (random, up to
-			// 100001). With TTLNumBlocks=10, purgeExpiredTxs would instantly evict all
-			// txs on the first Update call because -1 < InitialHeight-10.
-			mempoolCfg.TTLNumBlocks = 0
-			mempoolCfg.TTLDuration = 0
-			txMempool := mempool.NewTxMempool(mempoolCfg, app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
