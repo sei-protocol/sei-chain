@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -122,15 +123,15 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := infoApi.Accounts()
+	accounts, _ := infoApi.Accounts(context.Background())
 	account := accounts[0]
-	signed, err := txApi.Sign(account, []byte("data"))
+	signed, err := txApi.Sign(context.Background(), account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
 
 	// Test signing with address that doesn't have hosted key
 	nonExistentAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
-	_, err = txApi.Sign(nonExistentAddr, []byte("data"))
+	_, err = txApi.Sign(context.Background(), nonExistentAddr, []byte("data"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "address does not have hosted key")
 }

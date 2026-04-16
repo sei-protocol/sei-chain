@@ -60,7 +60,7 @@ func TestAccounts(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := api.Accounts()
+	accounts, _ := api.Accounts(context.Background())
 	require.Equal(t, 1, len(accounts))
 }
 
@@ -468,7 +468,7 @@ func TestBlockNumberWatermarkDirect(t *testing.T) {
 	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProvider, nil, "", 1024, evmrpc.ConnectionTypeHTTP, nil, wm)
 	require.NotPanics(t, func() {
-		_ = api.BlockNumber()
+		_ = api.BlockNumber(context.Background())
 	})
 }
 
