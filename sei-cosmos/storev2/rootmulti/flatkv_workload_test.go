@@ -10,7 +10,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/stretchr/testify/require"
 )
@@ -87,7 +87,7 @@ func TestFlatKVDualWriteReadConsistency(t *testing.T) {
 	}
 
 	// Has() for a non-existent key should return false
-	fakeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, make([]byte, 52))
+	fakeKey := keys.BuildEVMKey(keys.EVMKeyStorage, make([]byte, 52))
 	require.False(t, evmChild.Has(fakeKey))
 }
 
@@ -165,7 +165,7 @@ func TestFlatKVDualWriteDataEquivalence(t *testing.T) {
 	defer func() { require.NoError(t, ro.Close()) }()
 
 	for _, w := range allWrites {
-		flatkvVal, found := ro.Get(evm.EVMStoreKey, w.key)
+		flatkvVal, found := ro.Get(keys.EVMStoreKey, w.key)
 		require.Truef(t, found, "flatkv missing key %x", w.key)
 		require.Equalf(t, memiavlValues[string(w.key)], flatkvVal,
 			"memiavl vs flatkv divergence for key %x:\n  memiavl: %x\n  flatkv:  %x",
@@ -355,7 +355,7 @@ func TestFlatKVMultiAccountWorkload(t *testing.T) {
 			copy(internal[:20], addr[:])
 			copy(internal[20:], slot[:])
 			allAddrs[i].extra = append(allAddrs[i].extra, evmTestData{
-				storKey: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal),
+				storKey: keys.BuildEVMKey(keys.EVMKeyStorage, internal),
 			})
 		}
 	}
@@ -462,7 +462,7 @@ func TestFlatKVSplitWriteReadRouting(t *testing.T) {
 	// FlatKV should have the data.
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
 	for _, w := range finalWrites {
-		val, found := ro.Get(evm.EVMStoreKey, w.key)
+		val, found := ro.Get(keys.EVMStoreKey, w.key)
 		require.Truef(t, found, "flatkv should contain key %x in SplitWrite mode", w.key)
 		require.Equalf(t, w.value, val, "flatkv value mismatch for key %x", w.key)
 	}

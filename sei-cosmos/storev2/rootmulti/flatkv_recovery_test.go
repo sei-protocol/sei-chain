@@ -11,7 +11,7 @@ package rootmulti
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,7 +139,7 @@ func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
 	require.NoError(t, store2.Close())
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
 	expected := makeSlot(0x03, 0xAA) // block=3 => first byte 0x03
-	got, found := ro.Get(evm.EVMStoreKey, evmData.storKey)
+	got, found := ro.Get(keys.EVMStoreKey, evmData.storKey)
 	require.True(t, found, "flatkv should still hold EVM key after crash + reconcile")
 	require.Equal(t, expected, got,
 		"flatkv value at reconciled v3 should equal block-3 value, not block-5 pre-crash value")
@@ -247,7 +247,7 @@ func TestFlatKVSplitWriteReverseCrashRecovery(t *testing.T) {
 	// FlatKV must hold the v3 value, not the pre-crash v5 value.
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
 	expected := makeSlot(0x03, 0xAA)
-	got, found := ro.Get(evm.EVMStoreKey, evmData.storKey)
+	got, found := ro.Get(keys.EVMStoreKey, evmData.storKey)
 	require.True(t, found, "flatkv should hold EVM key at reconciled v3")
 	require.Equal(t, expected, got,
 		"flatkv value must be rewound to v3 (not v5) after reverse reconciliation")

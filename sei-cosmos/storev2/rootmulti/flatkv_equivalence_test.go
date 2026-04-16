@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,19 +47,19 @@ func storageKeyAt(addrSeed byte, slotIdx uint64) []byte {
 	internal := make([]byte, 52)
 	copy(internal[:20], addr20(addrSeed))
 	binary.BigEndian.PutUint64(internal[44:], slotIdx)
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal)
+	return keys.BuildEVMKey(keys.EVMKeyStorage, internal)
 }
 
 func nonceKeyOf(addrSeed byte) []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr20(addrSeed))
+	return keys.BuildEVMKey(keys.EVMKeyNonce, addr20(addrSeed))
 }
 
 func codeHashKeyOf(addrSeed byte) []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr20(addrSeed))
+	return keys.BuildEVMKey(keys.EVMKeyCodeHash, addr20(addrSeed))
 }
 
 func codeKeyOf(addrSeed byte) []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr20(addrSeed))
+	return keys.BuildEVMKey(keys.EVMKeyCode, addr20(addrSeed))
 }
 
 func makeCodeHash(pattern byte) []byte {

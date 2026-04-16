@@ -187,6 +187,76 @@ func TestFlatKVQueryWithSSAndReadMode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Query for non-existent keys — read path error / empty-value semantics
+//
+// TestFlatKVQueryWithSSAndReadMode covers the happy path for Query; this
+// test pins the rootmulti Query behavior for keys that were never written,
+// across the three interesting code paths: cosmos module (acc), EVM module
+// via the SS path (Prove=false), and EVM module via the SC path
+// (Prove=true, which falls back to SC since SS cannot produce proofs). A
+// regression in any of these that started returning stale values or a
+// non-zero error code for a missing key would be a silent consensus /
+// client-compat bug, so we assert Code=0 and Value=nil explicitly.
+// ---------------------------------------------------------------------------
+
+func TestFlatKVQueryNonExistentKey(t *testing.T) {
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 0
+
+	store, storeKeys := newTestRootMultiWithSS(t, t.TempDir(), scCfg, ssCfg)
+	defer func() { require.NoError(t, store.Close()) }()
+
+	// Commit one block so the store has a version > 0 to query against.
+	// We write to acc/evm so the queried keys below are genuinely absent
+	// (not just "pre-any-write").
+	evmData := newEVMTestData(0x99)
+	cms := store.CacheMultiStore()
+	cms.GetKVStore(storeKeys["acc"]).Set([]byte("acct1"), []byte{1})
+	cms.GetKVStore(storeKeys["evm"]).Set(evmData.storKey, makeSlot(0x01, 0xAA))
+	cms.Write()
+	c1 := finalizeBlock(t, store)
+	require.Equal(t, int64(1), c1.version)
+
+	waitUntilSSVersion(t, store, c1.version)
+
+	// Missing acc key — cosmos module path, no proof.
+	resp := store.Query(abci.RequestQuery{
+		Path:   "/acc/key",
+		Data:   []byte("missing-acct"),
+		Height: c1.version,
+		Prove:  false,
+	})
+	require.EqualValuesf(t, 0, resp.Code, "non-existent acc query should succeed: %s", resp.Log)
+	require.Nil(t, resp.Value, "non-existent acc key should return nil value")
+
+	// Missing evm key — SS path, no proof. Uses an evm storage-kind key that
+	// was never written.
+	missingEVM := newEVMTestData(0xAA)
+	resp = store.Query(abci.RequestQuery{
+		Path:   "/evm/key",
+		Data:   missingEVM.storKey,
+		Height: c1.version,
+		Prove:  false,
+	})
+	require.EqualValuesf(t, 0, resp.Code, "non-existent evm query should succeed: %s", resp.Log)
+	require.Nil(t, resp.Value, "non-existent evm key should return nil value")
+
+	// Missing evm key — SC path, proof requested. ics23 should produce an
+	// absence proof; Code=0 with nil Value is the expected shape.
+	resp = store.Query(abci.RequestQuery{
+		Path:   "/evm/key",
+		Data:   missingEVM.storKey,
+		Height: c1.version,
+		Prove:  true,
+	})
+	require.EqualValuesf(t, 0, resp.Code, "non-existent evm proof query should succeed: %s", resp.Log)
+	require.Nil(t, resp.Value, "non-existent evm key should return nil value even with proof")
+	require.NotNilf(t, resp.ProofOps, "absence proof should be present for Prove=true")
+}
+
+// ---------------------------------------------------------------------------
 // TestFlatKVSSAsyncRestartConsistency: SS async writes + restart
 //
 // TestFlatKVQueryWithSSAndReadMode keeps SS in synchronous mode

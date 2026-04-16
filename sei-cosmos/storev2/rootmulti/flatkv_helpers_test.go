@@ -19,9 +19,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scmemiavl "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
@@ -93,9 +95,9 @@ func newEVMTestData(seed byte) evmTestData {
 	copy(internal[20:], slot[:])
 
 	return evmTestData{
-		storKey: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal),
-		nonKey:  evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
-		codeKey: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+		storKey: keys.BuildEVMKey(keys.EVMKeyStorage, internal),
+		nonKey:  keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
+		codeKey: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 	}
 }
 
@@ -122,7 +124,7 @@ func makeSlot(prefix ...byte) []byte {
 // storageMemIAVLKeys returns count distinct EVM storage memiavl keys for one
 // address prefix (52-byte internal: 20 addr + 32 slot).
 func storageMemIAVLKeys(addrSeed byte, count int) [][]byte {
-	keys := make([][]byte, count)
+	out := make([][]byte, count)
 	var addr [20]byte
 	addr[0] = addrSeed
 	for i := 0; i < count; i++ {
@@ -131,9 +133,9 @@ func storageMemIAVLKeys(addrSeed byte, count int) [][]byte {
 		internal := make([]byte, 52)
 		copy(internal[:20], addr[:])
 		copy(internal[20:], slot[:])
-		keys[i] = evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, internal)
+		out[i] = keys.BuildEVMKey(keys.EVMKeyStorage, internal)
 	}
-	return keys
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +360,13 @@ func collectCommitKVStore(t *testing.T, s sctypes.CommitKVStore) map[string][]by
 // version (0 = latest), returning a snapshot map in the same memiavl-format
 // key/value shape as collectCommitKVStore. The rootmulti store at dir must
 // already be closed.
+//
+// Post PR #3250 the FlatKV Exporter emits raw physical keys
+// ("evm/" + prefixByte + strippedKey) and vtype-serialized values. This helper
+// mirrors the conversion logic in convertFlatKVNodes (sei-db/state_db/ss/
+// composite/store.go) to re-materialize the EVM rows in memiavl format so the
+// downstream equivalence assertion can compare them byte-for-byte against the
+// memiavl child store.
 func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) map[string][]byte {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
@@ -385,9 +394,55 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 		}
 		node, ok := item.(*sctypes.SnapshotNode)
 		require.Truef(t, ok, "expected *SnapshotNode, got %T", item)
-		out[string(bytes.Clone(node.Key))] = bytes.Clone(node.Value)
+		addFlatKVNodeToMap(t, out, node)
 	}
 	return out
+}
+
+// addFlatKVNodeToMap converts a single raw-physical FlatKV exporter node into
+// one or more memiavl-format (key, value) entries and inserts them into out.
+// Non-EVM modules are unexpected in this test suite and fail the test.
+func addFlatKVNodeToMap(t *testing.T, out map[string][]byte, node *sctypes.SnapshotNode) {
+	t.Helper()
+
+	moduleName, innerKey, err := ktype.StripModulePrefix(node.Key)
+	require.NoError(t, err)
+	require.Equalf(t, keys.EVMStoreKey, moduleName,
+		"unexpected non-EVM module %q in FlatKV export (key=%x)", moduleName, node.Key)
+
+	kind, strippedKey := keys.ParseEVMKey(innerKey)
+	switch kind {
+	case keys.EVMKeyNonce:
+		acct, err := vtype.DeserializeAccountData(node.Value)
+		require.NoErrorf(t, err, "deserialize AccountData for key %x", node.Key)
+		if !acct.IsDelete() {
+			nonceBuf := make([]byte, 8)
+			binary.BigEndian.PutUint64(nonceBuf, acct.GetNonce())
+			out[string(keys.BuildEVMKey(keys.EVMKeyNonce, strippedKey))] = nonceBuf
+		}
+		if codeHash := acct.GetCodeHash(); *codeHash != (vtype.CodeHash{}) {
+			out[string(keys.BuildEVMKey(keys.EVMKeyCodeHash, strippedKey))] = bytes.Clone(codeHash[:])
+		}
+
+	case keys.EVMKeyStorage:
+		sd, err := vtype.DeserializeStorageData(node.Value)
+		require.NoErrorf(t, err, "deserialize StorageData for key %x", node.Key)
+		v := sd.GetValue()
+		out[string(bytes.Clone(innerKey))] = bytes.Clone(v[:])
+
+	case keys.EVMKeyCode:
+		cd, err := vtype.DeserializeCodeData(node.Value)
+		require.NoErrorf(t, err, "deserialize CodeData for key %x", node.Key)
+		out[string(bytes.Clone(innerKey))] = bytes.Clone(cd.GetBytecode())
+
+	case keys.EVMKeyLegacy:
+		ld, err := vtype.DeserializeLegacyData(node.Value)
+		require.NoErrorf(t, err, "deserialize LegacyData for key %x", node.Key)
+		out[string(bytes.Clone(innerKey))] = bytes.Clone(ld.GetValue())
+
+	default:
+		t.Fatalf("unexpected EVM key kind %v in FlatKV export (key=%x)", kind, node.Key)
+	}
 }
 
 // requireSameEVMKVSet asserts that two snapshot maps are byte-for-byte equal

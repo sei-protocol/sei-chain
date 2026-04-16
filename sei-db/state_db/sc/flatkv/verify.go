@@ -5,14 +5,19 @@ import (
 	"fmt"
 
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // VerifyLtHash performs a full-scan recomputation of the LtHash over all four
-// data DBs and compares the result against the store's current RootHash.
+// data DBs and compares the result against the store's committed LtHash.
 // Returns nil when they match; otherwise a descriptive error.
 //
-// The store should be opened (readonly or read-write) at the version to verify.
+// The store should be opened (readonly or read-write) at the version to
+// verify. Read-write stores with pending ApplyChangeSets writes that have
+// not yet been committed are rejected: the on-disk scan reflects committed
+// state only, so comparing it against an advanced workingLtHash would
+// produce a spurious mismatch.
 func VerifyLtHash(s Store) error {
 	cs, ok := s.(*CommitStore)
 	if !ok {
@@ -22,6 +27,19 @@ func VerifyLtHash(s Store) error {
 }
 
 func verifyLtHashInternal(cs *CommitStore) error {
+	// A read-write store between ApplyChangeSets and Commit has
+	// workingLtHash != committedLtHash. The full scan below reads only
+	// persisted DB contents, so there is no way to validate the in-memory
+	// pending state against disk here. Fail loudly rather than masquerade
+	// a pending-writes situation as an integrity error.
+	if !cs.readOnly && !cs.workingLtHash.Equal(cs.committedLtHash) {
+		return fmt.Errorf(
+			"VerifyLtHash: store has uncommitted writes at version %d; "+
+				"commit or reopen readonly before verifying",
+			cs.committedVersion,
+		)
+	}
+
 	var pairs []lthash.KVPairWithLastValue
 
 	for _, db := range []seidbtypes.KeyValueDB{cs.accountDB, cs.codeDB, cs.storageDB, cs.legacyDB} {
@@ -33,7 +51,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 			return fmt.Errorf("VerifyLtHash: open iterator: %w", err)
 		}
 		for iter.First(); iter.Valid(); iter.Next() {
-			if isMetaKey(iter.Key()) {
+			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}
 			pairs = append(pairs, lthash.KVPairWithLastValue{
@@ -51,13 +69,15 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	fullScan, _ := lthash.ComputeLtHash(nil, pairs)
 	fullChecksum := fullScan.Checksum()
 
-	// Readonly stores have no pending batch: workingLtHash matches committedLtHash.
-	incremental := cs.workingLtHash.Checksum()
+	// Full scan reflects on-disk (committed) state, so the only correct
+	// reference is committedLtHash. workingLtHash may include uncommitted
+	// ApplyChangeSets updates that have not yet been persisted.
+	committed := cs.committedLtHash.Checksum()
 
-	if fullChecksum != incremental {
+	if fullChecksum != committed {
 		return fmt.Errorf(
-			"VerifyLtHash: mismatch at version %d\n  incremental: %x\n  full-scan:   %x",
-			cs.committedVersion, incremental, fullChecksum,
+			"VerifyLtHash: mismatch at version %d\n  committed: %x\n  full-scan: %x",
+			cs.committedVersion, committed, fullChecksum,
 		)
 	}
 	return nil
