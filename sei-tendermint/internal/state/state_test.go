@@ -588,7 +588,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	state.Validators = types.NewValidatorSet([]*types.Validator{val1})
 	state.NextValidators = state.Validators
 	// we only have one validator:
-	assert.Equal(t, val1PubKey.Address(), state.Validators.Proposer.Address)
+	assert.Equal(t, val1PubKey, state.Validators.Proposer.PubKey)
 
 	block := statefactory.MakeBlock(state, state.LastBlockHeight+1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -611,7 +611,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	totalPower := val1VotingPower
 	wantVal1Prio := 0 + val1VotingPower - totalPower
 	assert.Equal(t, wantVal1Prio, updatedState.NextValidators.Validators[0].ProposerPriority)
-	assert.Equal(t, val1PubKey.Address(), updatedState.NextValidators.Proposer.Address)
+	assert.Equal(t, val1PubKey, updatedState.NextValidators.Proposer.PubKey)
 
 	// add a validator with the same voting power as the first
 	val2PubKey := ed25519.GenerateSecretKey().Public()
@@ -630,10 +630,10 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	assert.Equal(t, updatedState2.Validators, updatedState.NextValidators)
 
 	// val1 will still be proposer as val2 just got added:
-	assert.Equal(t, val1PubKey.Address(), updatedState.NextValidators.Proposer.Address)
-	assert.Equal(t, updatedState2.Validators.Proposer.Address, updatedState2.NextValidators.Proposer.Address)
-	assert.Equal(t, updatedState2.Validators.Proposer.Address, val1PubKey.Address())
-	assert.Equal(t, updatedState2.NextValidators.Proposer.Address, val1PubKey.Address())
+	assert.Equal(t, val1PubKey, updatedState.NextValidators.Proposer.PubKey)
+	assert.Equal(t, updatedState2.Validators.Proposer.PubKey, updatedState2.NextValidators.Proposer.PubKey)
+	assert.Equal(t, updatedState2.Validators.Proposer.PubKey, val1PubKey)
+	assert.Equal(t, updatedState2.NextValidators.Proposer.PubKey, val1PubKey)
 
 	_, updatedVal1, ok := updatedState2.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
@@ -675,7 +675,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	updatedState3, err := updatedState2.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	assert.NoError(t, err)
 
-	assert.Equal(t, updatedState3.Validators.Proposer.Address, updatedState3.NextValidators.Proposer.Address)
+	assert.Equal(t, updatedState3.Validators.Proposer.PubKey, updatedState3.NextValidators.Proposer.PubKey)
 
 	assert.Equal(t, updatedState3.Validators, updatedState2.NextValidators)
 	_, updatedVal1, ok = updatedState3.NextValidators.GetByKey(val1PubKey)
@@ -684,7 +684,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	require.True(t, ok)
 
 	// val1 will still be proposer:
-	assert.Equal(t, val1PubKey.Address(), updatedState3.NextValidators.Proposer.Address)
+	assert.Equal(t, val1PubKey, updatedState3.NextValidators.Proposer.PubKey)
 
 	// check if expected proposer prio is matched:
 	// Increment
@@ -742,12 +742,12 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 		// alternate (and cyclic priorities):
 		assert.NotEqual(
 			t,
-			updatedState.Validators.Proposer.Address,
-			updatedState.NextValidators.Proposer.Address,
+			updatedState.Validators.Proposer.PubKey,
+			updatedState.NextValidators.Proposer.PubKey,
 			"iter: %v",
 			i,
 		)
-		assert.Equal(t, oldState.Validators.Proposer.Address, updatedState.NextValidators.Proposer.Address, "iter: %v", i)
+		assert.Equal(t, oldState.Validators.Proposer.PubKey, updatedState.NextValidators.Proposer.PubKey, "iter: %v", i)
 
 		_, updatedVal1, ok = updatedState.NextValidators.GetByKey(val1PubKey)
 		require.True(t, ok)
@@ -755,11 +755,11 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 		require.True(t, ok)
 
 		if i%2 == 0 {
-			assert.Equal(t, updatedState.Validators.Proposer.Address, val2PubKey.Address())
+			assert.Equal(t, updatedState.Validators.Proposer.PubKey, val2PubKey)
 			assert.Equal(t, expectedVal1Prio, updatedVal1.ProposerPriority) // -19
 			assert.Equal(t, expectedVal2Prio, updatedVal2.ProposerPriority) // 0
 		} else {
-			assert.Equal(t, updatedState.Validators.Proposer.Address, val1PubKey.Address())
+			assert.Equal(t, updatedState.Validators.Proposer.PubKey, val1PubKey)
 			assert.Equal(t, expectedVal1Prio2, updatedVal1.ProposerPriority) // -9
 			assert.Equal(t, expectedVal2Prio2, updatedVal2.ProposerPriority) // -10
 		}
@@ -946,7 +946,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 		h := merkle.HashFromByteSlices(rs)
 		curState, err = curState.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 		require.NoError(t, err)
-		if !bytes.Equal(curState.Validators.Proposer.Address, curState.NextValidators.Proposer.Address) {
+		if curState.Validators.Proposer.PubKey != curState.NextValidators.Proposer.PubKey {
 			isProposerUnchanged = false
 		}
 		count++

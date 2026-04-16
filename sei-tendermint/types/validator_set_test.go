@@ -69,7 +69,7 @@ func TestValidatorSetBasic(t *testing.T) {
 	assert.Equal(t, val.VotingPower, vset.TotalVotingPower())
 	assert.NotNil(t, vset.Hash())
 	assert.NotPanics(t, func() { vset.IncrementProposerPriority(1) })
-	assert.Equal(t, val.Address, vset.GetProposer().Address)
+	assert.Equal(t, val.PubKey, vset.GetProposer().PubKey)
 
 	// update
 	val = randModuloValidator(vset.TotalVotingPower())
@@ -357,10 +357,10 @@ func TestProposerSelection3(t *testing.T) {
 		j int32
 	)
 	for ; i < 10000; i++ {
-		got := vset.GetProposer().Address
-		expected := proposerOrder[j%4].Address
-		if !bytes.Equal(got, expected) {
-			t.Fatalf("vset.Proposer (%X) does not match expected proposer (%X) for (%d, %d)", got, expected, i, j)
+		got := vset.GetProposer().PubKey
+		expected := proposerOrder[j%4].PubKey
+		if got != expected {
+			t.Fatalf("vset.Proposer (%v) does not match expected proposer (%v) for (%d, %d)", got, expected, i, j)
 		}
 
 		// serialize, deserialize, check proposer
@@ -369,11 +369,11 @@ func TestProposerSelection3(t *testing.T) {
 
 		computed := vset.GetProposer() // findGetProposer()
 		if i != 0 {
-			if !bytes.Equal(got, computed.Address) {
+			if got != computed.PubKey {
 				t.Fatalf(
-					"vset.Proposer (%X) does not match computed proposer (%X) for (%d, %d)",
+					"vset.Proposer (%v) does not match computed proposer (%v) for (%d, %d)",
 					got,
-					computed.Address,
+					computed.PubKey,
 					i,
 					j,
 				)
@@ -659,7 +659,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 	for i, tc := range tcs {
 		tc.vals.IncrementProposerPriority(tc.times)
 
-		assert.Equal(t, tc.wantProposer.Address, tc.vals.GetProposer().Address,
+		assert.Equal(t, tc.wantProposer.PubKey, tc.vals.GetProposer().PubKey,
 			"test case: %v",
 			i)
 

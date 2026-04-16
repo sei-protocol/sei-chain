@@ -2553,7 +2553,7 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 	round1Validators := round0Validators.CopyIncrementProposerPriority(1)
 	round1Proposer := round1Validators.GetProposer()
 	require.NotNil(t, round1Proposer)
-	require.False(t, bytes.Equal(round0Proposer.Address, round1Proposer.Address), "test requires different proposers across rounds")
+	require.NotEqual(t, round0Proposer.PubKey, round1Proposer.PubKey, "test requires different proposers across rounds")
 
 	round1ProposerStub := findValidatorStub(round1Proposer.Address)
 	require.NotNil(t, round1ProposerStub)
@@ -2578,7 +2578,7 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 	incrementRound(vss[1:]...)
 	round++
 	ensureNewRound(t, newRoundCh, height, round)
-	require.True(t, bytes.Equal(cs.GetRoundState().Validators.GetProposer().Address, round1Proposer.Address))
+	require.Equal(t, round1Proposer.PubKey, cs.GetRoundState().Validators.GetProposer().PubKey)
 
 	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), blockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, round1Proposer.Address)
 	require.False(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
