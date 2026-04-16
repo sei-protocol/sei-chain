@@ -47,6 +47,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	// catchup even if we fail here.
 	s.phaseTimer.SetPhase("commit_write_metadata")
 	committedLtHash := s.workingLtHash.Clone()
+	logger.Info(fmt.Sprintf("FlatKV commited lattice hash %X for block %d", committedLtHash, version))
 	if err := s.commitGlobalMetadata(version, committedLtHash); err != nil {
 		return 0, fmt.Errorf("metadata DB commit: %w", err)
 	}
