@@ -61,12 +61,11 @@ func SecretKeyFromSecretBytes(b []byte) (SecretKey, error) {
 		return SecretKey{}, fmt.Errorf("ed25519: bad private key length: got %d, want %d", got, want)
 	}
 	raw := utils.Alloc([ed25519.PrivateKeySize]byte(b))
-	runtime.AddCleanup(&raw, func(int) {
-		// Zero the memory to avoid leaking the secret.
-		for i := range raw {
-			raw[i] = 0
+	runtime.AddCleanup(&raw, func(p *[ed25519.PrivateKeySize]byte) {
+		for i := range p {
+			p[i] = 0
 		}
-	}, 0)
+	}, raw)
 	key := SecretKey{key: &raw}
 	// Zero the input slice to avoid leaking the secret.
 	for i := range b {
