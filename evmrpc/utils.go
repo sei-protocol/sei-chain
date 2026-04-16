@@ -293,7 +293,7 @@ func recordMetrics(apiMethod string, connectionType ConnectionType, startTime ti
 func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
 	// Automatically detect success/failure based on panic state
 	panicValue := recover()
-	success := panicValue == nil || err != nil
+	success := panicValue == nil && err == nil
 
 	// these are only metrics that are specifically typed errors for tracking.
 	if err != nil {
