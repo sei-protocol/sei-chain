@@ -27,7 +27,7 @@ const (
 	// goes back to the start of the list and begins sending the evidence again.
 	// Most evidence should be committed in the very next block that is why we wait
 	// just over the block production rate before sending evidence again.
-	broadcastEvidenceInterval = 10 * time.Second
+	broadcastEvidenceInterval = 60 * time.Second
 )
 
 // GetChannelDescriptor produces an instance of a descriptor for this
