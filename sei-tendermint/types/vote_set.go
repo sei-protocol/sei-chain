@@ -166,7 +166,7 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 	}
 
 	// Ensure that signer is a validator.
-	lookupAddr, val, ok := voteSet.valSet.GetByIndex(valIndex)
+	val, ok := voteSet.valSet.GetByIndex(valIndex)
 	if !ok {
 		return false, fmt.Errorf(
 			"cannot find validator %d in valSet of size %d: %w",
@@ -174,11 +174,11 @@ func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
 	}
 
 	// Ensure that the signer has the right address.
-	if !bytes.Equal(valAddr, lookupAddr) {
+	if !bytes.Equal(valAddr, val.Address) {
 		return false, fmt.Errorf(
 			"vote.ValidatorAddress (%X) does not match address (%X) for vote.ValidatorIndex (%d)\n"+
 				"Ensure the genesis file is correct across all validators: %w",
-			valAddr, lookupAddr, valIndex, ErrVoteInvalidValidatorAddress)
+			valAddr, val.Address, valIndex, ErrVoteInvalidValidatorAddress)
 	}
 
 	// If we already know of this vote, return false.

@@ -265,7 +265,7 @@ func TestOneValidatorChangesSaveLoad(t *testing.T) {
 	// with the right validator set for each height.
 	highestHeight := changeHeights[N-1] + 5
 	changeIndex := 0
-	_, val, ok := state.Validators.GetByIndex(0)
+	val, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 	power := val.VotingPower
 	var err error
@@ -306,7 +306,7 @@ func TestOneValidatorChangesSaveLoad(t *testing.T) {
 		v, err := stateStore.LoadValidators(int64(i + 1 + 1)) // +1 because vset changes delayed by 1 block.
 		assert.NoError(t, err, fmt.Sprintf("expected no err at height %d", i))
 		assert.Equal(t, v.Size(), 1, "validator set size is greater than 1: %d", v.Size())
-		_, val, ok := v.GetByIndex(0)
+		val, ok := v.GetByIndex(0)
 		require.True(t, ok)
 
 		assert.Equal(t, val.VotingPower, power, fmt.Sprintf(`unexpected powerat
@@ -425,7 +425,7 @@ func testProposerFreq(t *testing.T, caseNum int, valSet *types.ValidatorSet) {
 
 	// assert frequencies match expected (max off by 1)
 	for i, freq := range freqs {
-		_, val, ok := valSet.GetByIndex(int32(i))
+		val, ok := valSet.GetByIndex(int32(i))
 		if !ok {
 			panic("validator missing")
 		}
@@ -1028,7 +1028,7 @@ func TestManyValidatorChangesSaveLoad(t *testing.T) {
 	err := stateStore.Save(state)
 	require.NoError(t, err)
 
-	_, valOld, ok := state.Validators.GetByIndex(0)
+	valOld, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 	var pubkeyOld = valOld.PubKey
 	pubkey := ed25519.GenerateSecretKey().Public()

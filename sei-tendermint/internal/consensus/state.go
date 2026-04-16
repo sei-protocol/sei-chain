@@ -2494,7 +2494,7 @@ func (cs *State) addVote(
 	}
 	if vote.Round == cs.roundState.Round() {
 		vals := cs.state.Validators
-		_, val, ok := vals.GetByIndex(vote.ValidatorIndex)
+		val, ok := vals.GetByIndex(vote.ValidatorIndex)
 		if !ok {
 			panic(fmt.Errorf("validator index %v out of range", vote.ValidatorIndex))
 		}

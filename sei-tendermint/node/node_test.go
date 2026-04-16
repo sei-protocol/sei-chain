@@ -280,7 +280,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	maxEvidenceBytes := int64(maxBytes / 2)
 	state.ConsensusParams.Block.MaxBytes = int64(maxBytes)
 	state.ConsensusParams.Evidence.MaxBytes = maxEvidenceBytes
-	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	proposer, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 	mp := mempool.NewTxMempool(
 		cfg.Mempool,
@@ -335,7 +335,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		height,
 		state,
 		commit,
-		proposerAddr,
+		proposer.Address,
 	)
 	require.NoError(t, err)
 
@@ -373,7 +373,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	const maxBytes int64 = 16384
 	const partSize uint32 = 256
 	state.ConsensusParams.Block.MaxBytes = maxBytes
-	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	proposer, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 
 	// Make Mempool
@@ -409,7 +409,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		height,
 		state,
 		commit,
-		proposerAddr,
+		proposer.Address,
 	)
 	require.NoError(t, err)
 
@@ -438,7 +438,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	const maxBytes int64 = 1024 * 1024 * 2
 	state.ConsensusParams.Block.MaxBytes = maxBytes
-	proposerAddr, _, ok := state.Validators.GetByIndex(0)
+	proposer, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
 
 	// Make Mempool

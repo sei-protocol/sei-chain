@@ -84,7 +84,7 @@ func makeValidCommit(
 	sigs := make([]types.CommitSig, vals.Size())
 	votes := make([]*types.Vote, vals.Size())
 	for i := 0; i < vals.Size(); i++ {
-		_, val, ok := vals.GetByIndex(int32(i))
+		val, ok := vals.GetByIndex(int32(i))
 		if !ok {
 			panic("validator missing")
 		}
@@ -156,7 +156,7 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	block := sf.MakeBlock(state, state.LastBlockHeight+1, new(types.Commit))
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
-	_, val, ok := state.NextValidators.GetByIndex(0)
+	val, ok := state.NextValidators.GetByIndex(0)
 	if !ok {
 		panic("validator missing")
 	}
@@ -184,7 +184,7 @@ func makeHeaderPartsResponsesValPowerChange(
 	finalizeBlockResponses := &abci.ResponseFinalizeBlock{}
 
 	// If the pubkey is new, remove the old and add the new.
-	_, val, ok := state.NextValidators.GetByIndex(0)
+	val, ok := state.NextValidators.GetByIndex(0)
 	if !ok {
 		panic("validator missing")
 	}

@@ -290,12 +290,11 @@ func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Valida
 // index.
 // It returns nil values if index is less than 0 or greater or equal to
 // len(ValidatorSet.Validators).
-func (vals *ValidatorSet) GetByIndex(index int32) (address []byte, val *Validator, ok bool) {
+func (vals *ValidatorSet) GetByIndex(index int32) (val *Validator, ok bool) {
 	if index < 0 || int(index) >= len(vals.Validators) {
-		return nil, nil, false
+		return nil, false
 	}
-	val = vals.Validators[index]
-	return val.Address, val.Copy(), true
+	return vals.Validators[index].Copy(), true
 }
 
 // Size returns the length of the validator set.
