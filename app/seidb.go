@@ -62,6 +62,8 @@ func SetupSeiDB(
 		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
 	}
 	scConfig := parseSCConfigs(appOpts)
+	scConfig.WriteMode = config.DualWrite
+	scConfig.EnableLatticeHash = true
 	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
