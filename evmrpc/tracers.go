@@ -450,6 +450,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if err != nil {
 		return nil, err
 	}
+	defer closeStoreTraceResources(stateDB)
 	response := StateAccessResponse{
 		AppState:        state.GetDBImpl(stateDB).Ctx().StoreTracer().DerivePrestateToJson(),
 		TendermintState: tendermintTraces.MustMarshalToJson(),

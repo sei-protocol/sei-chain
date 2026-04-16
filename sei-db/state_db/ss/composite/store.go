@@ -166,6 +166,23 @@ func (s *CompositeStateStore) Close() error {
 	return s.closeErr
 }
 
+func (s *CompositeStateStore) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
+	traced := &CompositeStateStore{
+		cosmosStore: s.cosmosStore,
+		evmStore:    s.evmStore,
+		config:      s.config,
+	}
+	if traceable, ok := s.cosmosStore.(types.TraceableStateStore); ok {
+		traced.cosmosStore = traceable.WithReadTraceCollector(collector)
+	}
+	if s.evmStore != nil {
+		if traceable, ok := s.evmStore.(types.TraceableStateStore); ok {
+			traced.evmStore = traceable.WithReadTraceCollector(collector)
+		}
+	}
+	return traced
+}
+
 // =============================================================================
 // Write path
 // =============================================================================

@@ -156,6 +156,71 @@ func TestTraceStateAccess(t *testing.T) {
 	)
 }
 
+func TestTraceTransactionProfile(t *testing.T) {
+	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	txData := callWasmIter(0, cwIter)
+	signedTx := signTxWithMnemonic(txData, mnemonic1)
+	txBz := encodeEvmTx(txData, signedTx)
+
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), cwIterInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceTransactionProfile", signedTx.Hash().Hex(), map[string]interface{}{
+				"timeout": "60s",
+			})
+			result := res["result"].(map[string]interface{})
+			require.Contains(t, result, "trace")
+
+			profile := result["profile"].(map[string]interface{})
+			require.Greater(t, profile["totalNanos"].(float64), float64(0))
+			require.Greater(t, profile["historicalDbLookupNanos"].(float64), float64(0))
+
+			store := profile["store"].(map[string]interface{})
+			modules := store["modules"].(map[string]interface{})
+			foundIteratorTrace := false
+			foundLowLevelPebbleTrace := false
+			foundLowLevelGetPathTrace := false
+			foundAnyLowLevelStats := false
+			for _, module := range modules {
+				moduleMap := module.(map[string]interface{})
+				iterators, ok := moduleMap["iterators"].([]interface{})
+				if ok && len(iterators) > 0 {
+					foundIteratorTrace = true
+				}
+				lowLevelStats, ok := moduleMap["lowLevelStats"].(map[string]interface{})
+				if ok {
+					foundAnyLowLevelStats = true
+					if _, ok := lowLevelStats["pebble.last"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.seekLT"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.first"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.seekGE"]; ok {
+						foundLowLevelPebbleTrace = true
+					}
+					if _, ok := lowLevelStats["mvcc.getMVCCSlice"]; ok {
+						foundLowLevelGetPathTrace = true
+					}
+					if _, ok := lowLevelStats["pebble.iterValue"]; ok {
+						foundLowLevelGetPathTrace = true
+					}
+					if _, ok := lowLevelStats["mvcc.decodeKeyVersion"]; ok {
+						foundLowLevelGetPathTrace = true
+					}
+				}
+			}
+			require.True(t, foundIteratorTrace, "expected at least one iterator sample in the store trace")
+			if foundAnyLowLevelStats {
+				require.True(t, foundLowLevelPebbleTrace, "expected low-level pebble iterator timings in the store trace")
+				require.True(t, foundLowLevelGetPathTrace, "expected low-level getMVCCSlice timings in the store trace")
+			}
+		},
+	)
+}
+
 func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
 	maxUseiInWei := sdk.NewInt(math.MaxInt64).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	insufficientFundsTx := signAndEncodeTx(sendAmount(0, maxUseiInWei), mnemonic1)
