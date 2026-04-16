@@ -154,12 +154,7 @@ func setupTendermintStateDB(t *testing.T, tempDir string, height int64) *tmconfi
 	// We need at least one validator for rollback to work
 	valPrivKey := ed25519.GenerateSecretKey()
 	valPubKey := valPrivKey.Public()
-	validator := &tmtypes.Validator{
-		Address:          valPubKey.Address(),
-		PubKey:           valPubKey,
-		VotingPower:      100,
-		ProposerPriority: 0,
-	}
+	validator := tmtypes.NewValidator(valPubKey,100)
 	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{validator})
 
 	// Convert validator set to proto

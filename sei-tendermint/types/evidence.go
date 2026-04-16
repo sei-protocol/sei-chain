@@ -522,7 +522,7 @@ func (l *LightClientAttackEvidence) ValidateABCI(
 	}
 
 	for idx, val := range validators {
-		if !bytes.Equal(l.ByzantineValidators[idx].Address, val.Address) {
+		if l.ByzantineValidators[idx].PubKey != val.PubKey {
 			return fmt.Errorf(
 				"evidence contained an unexpected byzantine validator address; expected: %v, got: %v",
 				val.Address, l.ByzantineValidators[idx].Address,

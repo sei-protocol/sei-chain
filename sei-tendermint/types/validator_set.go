@@ -332,24 +332,14 @@ func (vals *ValidatorSet) TotalVotingPower() int64 {
 
 // GetProposer returns the current proposer. If the validator set is empty, nil
 // is returned.
-func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
+func (vals *ValidatorSet) GetProposer() *Validator {
 	if len(vals.Validators) == 0 {
 		return nil
 	}
 	if vals.Proposer == nil {
-		vals.Proposer = vals.findProposer()
+		vals.Proposer = vals.getValWithMostPriority()
 	}
 	return vals.Proposer.Copy()
-}
-
-func (vals *ValidatorSet) findProposer() *Validator {
-	var proposer *Validator
-	for _, val := range vals.Validators {
-		if proposer == nil || !bytes.Equal(val.Address, proposer.Address) {
-			proposer = proposer.CompareProposerPriority(val)
-		}
-	}
-	return proposer
 }
 
 // Hash returns the Merkle root hash build using validators (as leaves) in the

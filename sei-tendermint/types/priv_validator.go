@@ -110,11 +110,7 @@ func (pv MockPV) SignProposal(ctx context.Context, chainID string, proposal *tmp
 
 func (pv MockPV) ExtractIntoValidator(ctx context.Context, votingPower int64) *Validator {
 	pubKey, _ := pv.GetPubKey(ctx)
-	return &Validator{
-		Address:     pubKey.Address(),
-		PubKey:      pubKey,
-		VotingPower: votingPower,
-	}
+	return NewValidator(pubKey,votingPower)
 }
 
 // String returns a string representation of the MockPV.

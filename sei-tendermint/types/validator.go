@@ -18,10 +18,11 @@ import (
 // NOTE: The ProposerPriority is not included in Validator.Hash();
 // make sure to update that method if changes are made here
 type Validator struct {
-	Address          Address
 	PubKey           crypto.PubKey
 	VotingPower      int64
 	ProposerPriority int64
+	// Derived from PubKey
+	Address []byte
 }
 
 type validatorJSON struct {
@@ -33,7 +34,7 @@ type validatorJSON struct {
 
 func (v Validator) MarshalJSON() ([]byte, error) {
 	val := validatorJSON{
-		Address:          v.Address,
+		Address:          v.PubKey.Address(),
 		VotingPower:      v.VotingPower,
 		ProposerPriority: v.ProposerPriority,
 	}
@@ -53,19 +54,22 @@ func (v *Validator) UnmarshalJSON(data []byte) error {
 	if err := jsontypes.Unmarshal(val.PubKey, &v.PubKey); err != nil {
 		return err
 	}
-	v.Address = val.Address
+	v.Address = v.PubKey.Address()
 	v.VotingPower = val.VotingPower
 	v.ProposerPriority = val.ProposerPriority
+	if !bytes.Equal(val.Address,v.Address) {
+		return fmt.Errorf("address does not match the key")
+	}
 	return nil
 }
 
 // NewValidator returns a new validator with the given pubkey and voting power.
 func NewValidator(pubKey crypto.PubKey, votingPower int64) *Validator {
 	return &Validator{
-		Address:          pubKey.Address(),
 		PubKey:           pubKey,
 		VotingPower:      votingPower,
 		ProposerPriority: 0,
+		Address: pubKey.Address(),
 	}
 }
 
@@ -81,11 +85,6 @@ func (v *Validator) ValidateBasic() error {
 	if v.VotingPower < 0 {
 		return ErrNegativeVotingPower
 	}
-
-	if len(v.Address) != crypto.AddressSize {
-		return fmt.Errorf("%w: %v", ErrBadAddressSize, v.Address)
-	}
-
 	return nil
 }
 
@@ -183,17 +182,19 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	if vp == nil {
 		return nil, errors.New("nil validator")
 	}
-
 	pk, err := crypto.PubKeyFromProto(vp.PubKey)
 	if err != nil {
 		return nil, err
 	}
-	v := new(Validator)
-	v.Address = vp.GetAddress()
-	v.PubKey = pk
-	v.VotingPower = vp.GetVotingPower()
-	v.ProposerPriority = vp.GetProposerPriority()
-
+	v := &Validator {
+		PubKey: pk,
+		VotingPower: vp.GetVotingPower(),
+		ProposerPriority: vp.GetProposerPriority(),
+		Address: pk.Address(),
+	}
+	if !bytes.Equal(v.Address,vp.GetAddress()) {
+		return nil, fmt.Errorf("address does not match the key")
+	}
 	return v, nil
 }
 
