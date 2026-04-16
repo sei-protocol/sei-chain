@@ -286,11 +286,11 @@ func filterTransactions(
 	return txs
 }
 
-func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
-	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
+func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
+	recordMetricsWithError(ctx, apiMethod, connectionType, startTime, nil)
 }
 
-func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
+func recordMetricsWithError(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
 	// Automatically detect success/failure based on panic state
 	panicValue := recover()
 	success := panicValue == nil && err == nil
@@ -300,8 +300,8 @@ func recordMetricsWithError(apiMethod string, connectionType ConnectionType, sta
 		metrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	recordRPCRequest(apiMethod, string(connectionType), success)
-	recordRPCLatency(apiMethod, string(connectionType), success, startTime)
+	recordRPCRequest(ctx, apiMethod, string(connectionType), success)
+	recordRPCLatency(ctx, apiMethod, string(connectionType), success, startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {

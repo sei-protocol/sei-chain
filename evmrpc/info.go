@@ -48,7 +48,7 @@ type FeeHistoryResult struct {
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
+	defer recordMetrics(context.Background(), "eth_BlockNumber", i.connectionType, startTime)
 	height, err := i.latestHeight(context.Background())
 	if err != nil {
 		height = i.ctxProvider(LatestCtxHeight).BlockHeight()
@@ -59,19 +59,19 @@ func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics("eth_ChainId", i.connectionType, startTime)
+	defer recordMetrics(context.Background(), "eth_ChainId", i.connectionType, startTime)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_Coinbase", i.connectionType, startTime, err)
+	defer recordMetricsWithError(context.Background(), "eth_Coinbase", i.connectionType, startTime, err)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
 func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_Accounts", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(context.Background(), "eth_Accounts", i.connectionType, startTime, returnErr)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -84,7 +84,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_GasPrice", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_GasPrice", i.connectionType, startTime, returnErr)
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
@@ -121,7 +121,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_feeHistory", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr)
 	result = &FeeHistoryResult{}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
@@ -242,7 +242,7 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	// Otherwise, since the previous block has low gas used, a user shouldn't need to tip a high amount to get included,
 	// so a default value is returned.
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr)
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 
 func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_BlobBaseFee", i.connectionType, startTime, returnErr)
 	return nil, &ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
 }
 
@@ -275,7 +275,7 @@ func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnE
 // false or a sync object; Sei does not expose sync semantics on this API.
 func (i *InfoAPI) Syncing() (result any, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_Syncing", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(context.Background(), "eth_Syncing", i.connectionType, startTime, returnErr)
 	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 

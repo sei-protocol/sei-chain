@@ -45,8 +45,7 @@ var (
 	}
 )
 
-func recordRPCRequest(endpoint, connection string, success bool) {
-	ctx := context.Background()
+func recordRPCRequest(ctx context.Context, endpoint, connection string, success bool) {
 	rpcTelemetryMetrics.requests.Add(ctx, 1,
 		metric.WithAttributes(
 			attribute.String("endpoint", endpoint),
@@ -56,8 +55,7 @@ func recordRPCRequest(endpoint, connection string, success bool) {
 	)
 }
 
-func recordRPCLatency(endpoint, connection string, success bool, start time.Time) {
-	ctx := context.Background()
+func recordRPCLatency(ctx context.Context, endpoint, connection string, success bool, start time.Time) {
 	ms := float64(time.Since(start).Nanoseconds()) / float64(time.Millisecond)
 	rpcTelemetryMetrics.requestLatencyMs.Record(ctx, ms,
 		metric.WithAttributes(
@@ -68,12 +66,11 @@ func recordRPCLatency(endpoint, connection string, success bool, start time.Time
 	)
 }
 
-func recordWebsocketConnect() {
-	rpcTelemetryMetrics.websocketConnects.Add(context.Background(), 1)
+func recordWebsocketConnect(ctx context.Context) {
+	rpcTelemetryMetrics.websocketConnects.Add(ctx, 1)
 }
 
-func recordFilterLogFetchBatchComplete(pipeline string) {
-	ctx := context.Background()
+func recordFilterLogFetchBatchComplete(ctx context.Context, pipeline string) {
 	rpcTelemetryMetrics.filterLogFetchBatches.Add(ctx, 1,
 		metric.WithAttributes(attribute.String("pipeline", pipeline)),
 	)

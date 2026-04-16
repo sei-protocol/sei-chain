@@ -42,7 +42,7 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getBalance", a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr)
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getCode", a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr)
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getStorageAt", a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr)
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ type ProofResult struct {
 
 func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getProof", a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_getProof", a.connectionType, startTime, returnErr)
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -189,9 +189,9 @@ func findQueryableKVStore(s sdk.KVStore) (storetypes.Queryable, error) {
 	return nil, fmt.Errorf("%w: exceeded unwrap depth", errNoProofCapableQueryableKVStore)
 }
 
-func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
+func (a *StateAPI) GetNonce(ctx context.Context, address common.Address) uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_getNonce", a.connectionType, startTime)
+	defer recordMetrics(ctx, "eth_getNonce", a.connectionType, startTime)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 

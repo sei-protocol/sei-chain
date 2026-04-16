@@ -391,7 +391,7 @@ func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err)
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
@@ -412,7 +412,7 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err)
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
@@ -430,9 +430,10 @@ func (a *FilterAPI) NewBlockFilter(
 }
 
 func (a *FilterAPI) NewPendingTransactionFilter(
+	ctx context.Context,
 	_ *bool,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
 	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
 
@@ -440,7 +441,7 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err)
 
 	// Read filter with read lock
 	a.filtersMu.RLock()
@@ -502,7 +503,7 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err)
 
 	// Read filter with read lock
 	a.filtersMu.RLock()
@@ -534,7 +535,7 @@ func (a *FilterAPI) GetFilterLogs(
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err)
+	defer recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err)
 
 	latest, err := a.logFetcher.latestHeight(ctx)
 	if err != nil {
@@ -641,10 +642,10 @@ func (a *FilterAPI) getBlockHeadersAfter(
 }
 
 func (a *FilterAPI) UninstallFilter(
-	_ context.Context,
+	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
+	defer recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
 
 	// Check if filter exists
 	a.filtersMu.RLock()
@@ -793,7 +794,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	processBatch := func(batch []*coretypes.ResultBlock) {
 		defer func() {
 			// Add metrics for log processing
-			recordFilterLogFetchBatchComplete("logs")
+			recordFilterLogFetchBatchComplete(ctx, "logs")
 			wg.Done()
 		}()
 		// Each worker gets a clean slice from the pool
@@ -1231,7 +1232,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 // Batch processing function for blocks
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	defer func() {
-		recordFilterLogFetchBatchComplete("blocks")
+		recordFilterLogFetchBatchComplete(ctx, "blocks")
 	}()
 
 	wpMetrics := GetGlobalMetrics()

@@ -9,7 +9,7 @@ type wsConnectionHandler struct {
 }
 
 func (h *wsConnectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	recordWebsocketConnect()
+	recordWebsocketConnect(r.Context())
 	h.underlying.ServeHTTP(w, r)
 }
 
