@@ -49,11 +49,8 @@ func (b *Batch) Reset() {
 func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
 	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
 	prefixedVal := MVCCEncode(value, tombstone)
-	latestKey := latestIndexKey(storeKey, key)
-	latestVal := encodeLatestIndexValue(b.version, prefixedVal)
 
 	b.appendSet(prefixedKey, prefixedVal)
-	b.appendSet(latestKey, latestVal)
 	return nil
 }
 
@@ -133,11 +130,8 @@ func (b *RawBatch) Reset() {
 func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, version int64) error {
 	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version)
 	prefixedVal := MVCCEncode(value, tombstone)
-	latestKey := latestIndexKey(storeKey, key)
-	latestVal := encodeLatestIndexValue(version, prefixedVal)
 
 	b.appendSet(prefixedKey, prefixedVal)
-	b.appendSet(latestKey, latestVal)
 	return nil
 }
 
