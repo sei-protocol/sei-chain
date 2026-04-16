@@ -46,10 +46,10 @@ type FeeHistoryResult struct {
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
 }
 
-func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
+func (i *InfoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics(context.Background(), "eth_BlockNumber", i.connectionType, startTime)
-	height, err := i.latestHeight(context.Background())
+	defer recordMetrics(ctx, "eth_BlockNumber", i.connectionType, startTime)
+	height, err := i.latestHeight(ctx)
 	if err != nil {
 		height = i.ctxProvider(LatestCtxHeight).BlockHeight()
 	}
@@ -57,21 +57,21 @@ func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 }
 
 //nolint:revive
-func (i *InfoAPI) ChainId() *hexutil.Big {
+func (i *InfoAPI) ChainId(ctx context.Context) *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics(context.Background(), "eth_ChainId", i.connectionType, startTime)
+	defer recordMetrics(ctx, "eth_ChainId", i.connectionType, startTime)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
-func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
+func (i *InfoAPI) Coinbase(ctx context.Context) (addr common.Address, err error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(context.Background(), "eth_Coinbase", i.connectionType, startTime, err)
+	defer recordMetricsWithError(ctx, "eth_Coinbase", i.connectionType, startTime, err)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
-func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
+func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(context.Background(), "eth_Accounts", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_Accounts", i.connectionType, startTime, returnErr)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -273,9 +273,9 @@ func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnE
 // Syncing implements eth_syncing. It is intentionally registered (not removed): the RPC returns
 // JSON-RPC error -32000 with a clear message instead of -32601 method not found. Ethereum returns
 // false or a sync object; Sei does not expose sync semantics on this API.
-func (i *InfoAPI) Syncing() (result any, returnErr error) {
+func (i *InfoAPI) Syncing(ctx context.Context) (result any, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(context.Background(), "eth_Syncing", i.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_Syncing", i.connectionType, startTime, returnErr)
 	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 

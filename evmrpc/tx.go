@@ -172,9 +172,9 @@ func getTransactionReceipt(
 	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
 }
 
-func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
+func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(context.Background(), "eth_getVMError", t.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_getVMError", t.connectionType, startTime, returnErr)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -361,9 +361,9 @@ func replaceFrom(tx *export.RPCTransaction, receipt *types.Receipt) {
 	}
 }
 
-func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
+func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(context.Background(), "eth_sign", t.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(ctx, "eth_sign", t.connectionType, startTime, returnErr)
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err
