@@ -128,6 +128,10 @@ func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
 	if err != nil {
 		return false
 	}
+	// Never surface the sentinel latest-pointer entry through iteration.
+	if foundVersionDecoded == latestPointerVersion {
+		return false
+	}
 	return foundVersionDecoded <= itr.version
 }
 
