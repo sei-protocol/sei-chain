@@ -300,8 +300,8 @@ func recordMetricsWithError(apiMethod string, connectionType ConnectionType, sta
 		metrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+	recordRPCRequest(apiMethod, string(connectionType), success)
+	recordRPCLatency(apiMethod, string(connectionType), success, startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
@@ -414,4 +414,11 @@ func recoverAndLog() {
 			}
 		}
 	}
+}
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

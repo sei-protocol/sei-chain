@@ -23,7 +23,6 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -794,7 +793,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	processBatch := func(batch []*coretypes.ResultBlock) {
 		defer func() {
 			// Add metrics for log processing
-			metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
+			recordFilterLogFetchBatchComplete("logs")
 			wg.Done()
 		}()
 		// Each worker gets a clean slice from the pool
@@ -1232,7 +1231,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 // Batch processing function for blocks
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	defer func() {
-		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
+		recordFilterLogFetchBatchComplete("blocks")
 	}()
 
 	wpMetrics := GetGlobalMetrics()

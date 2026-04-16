@@ -2,8 +2,6 @@ package evmrpc
 
 import (
 	"net/http"
-
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type wsConnectionHandler struct {
@@ -11,7 +9,7 @@ type wsConnectionHandler struct {
 }
 
 func (h *wsConnectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	metrics.IncWebsocketConnects()
+	recordWebsocketConnect()
 	h.underlying.ServeHTTP(w, r)
 }
 
