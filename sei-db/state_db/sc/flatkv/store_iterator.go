@@ -5,13 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
-// RawGlobalIterator returns an iterator that walks each data DB sequentially
-// in fixed order (account → code → storage → legacy). Within each DB the
-// keys are returned in PebbleDB's natural order. Per-DB _meta/* keys are
-// skipped. Pending writes are not visible. metadataDB is not included.
-func (s *CommitStore) RawGlobalIterator() Iterator {
-	return &sequentialIterator{dbs: s.dataDBs()}
-}
+var _ Iterator = (*sequentialIterator)(nil)
 
 // sequentialIterator iterates through a slice of DBs one at a time.
 // It fully drains the current DB before moving to the next.
@@ -142,3 +136,11 @@ func (s *sequentialIterator) Last() bool         { return false }
 func (s *sequentialIterator) SeekGE([]byte) bool { return false }
 func (s *sequentialIterator) SeekLT([]byte) bool { return false }
 func (s *sequentialIterator) Prev() bool         { return false }
+
+// RawGlobalIterator returns an iterator that walks each data DB sequentially
+// in fixed order (account → code → storage → legacy). Within each DB the
+// keys are returned in PebbleDB's natural order. Per-DB _meta/* keys are
+// skipped. Pending writes are not visible. metadataDB is not included.
+func (s *CommitStore) RawGlobalIterator() Iterator {
+	return &sequentialIterator{dbs: s.dataDBs()}
+}

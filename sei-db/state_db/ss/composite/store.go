@@ -272,7 +272,7 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	moduleName, innerKey, err := ktype.StripModulePrefix(node.Key)
 	if err != nil {
-		return nil, fmt.Errorf("convertFlatKVNodes: %w", err)
+		return nil, fmt.Errorf("convertFlatKVNodes failed: %w", err)
 	}
 
 	kind, strippedKey := keys.ParseEVMKey(innerKey)
@@ -281,10 +281,10 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	case keys.EVMKeyNonce:
 		acct, err := vtype.DeserializeAccountData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("convertFlatKVNodes account: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeAccountData: %w", err)
 		}
 		var nodes []types.SnapshotNode
-		if nonce := acct.GetNonce(); nonce != 0 {
+		if nonce := acct.GetNonce(); !acct.IsDelete() {
 			nonceBuf := make([]byte, 8)
 			binary.BigEndian.PutUint64(nonceBuf, nonce)
 			nodes = append(nodes, types.SnapshotNode{
@@ -305,7 +305,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	case keys.EVMKeyStorage:
 		sd, err := vtype.DeserializeStorageData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("convertFlatKVNodes storage: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeStorageData: %w", err)
 		}
 		return []types.SnapshotNode{
 			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: sd.GetValue()[:]},
@@ -314,7 +314,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	case keys.EVMKeyCode:
 		cd, err := vtype.DeserializeCodeData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("convertFlatKVNodes code: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeCodeData: %w", err)
 		}
 		return []types.SnapshotNode{
 			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: cd.GetBytecode()},
@@ -323,14 +323,14 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	case keys.EVMKeyLegacy:
 		ld, err := vtype.DeserializeLegacyData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("convertFlatKVNodes legacy: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeLegacyData legacy: %w", err)
 		}
 		return []types.SnapshotNode{
 			{StoreKey: moduleName, Key: innerKey, Value: ld.GetValue()},
 		}, nil
 
 	default:
-		return nil, nil
+		return nil, fmt.Errorf("got unexpected type of keys when convertFlatKVNodes")
 	}
 }
 
@@ -389,7 +389,7 @@ func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode
 		if node.StoreKey == keys.FlatKVStoreKey {
 			converted, err := convertFlatKVNodes(node)
 			if err != nil {
-				routeErr = fmt.Errorf("import: %w", err)
+				routeErr = fmt.Errorf("SS import failure: %w", err)
 				continue
 			}
 			nodes = converted

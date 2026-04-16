@@ -46,6 +46,11 @@ func newDBWorker(dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *d
 // buffer reaches importBatchSize. If done fires, the worker abandons
 // remaining work and exits immediately.
 func (w *dbWorker) run(done <-chan struct{}) error {
+	defer func() {
+		if w.batch != nil {
+			_ = w.batch.Close()
+		}
+	}()
 	for {
 		select {
 		case kv, ok := <-w.ch:
@@ -76,6 +81,7 @@ func (w *dbWorker) flush() error {
 		return nil
 	}
 
+	// TODO:In theory, we could offload lattice hash calculation to a work pool and get parallelism between DB operations and hash calculations. Cryptosim performance makes me think we could probably get a 2-3x speedup from this, assuming receiving data from the network isn't the bottleneck.
 	newHash, _ := lthash.ComputeLtHash(w.ltHash, w.ltPairs)
 	w.ltHash = newHash
 
