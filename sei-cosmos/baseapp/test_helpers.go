@@ -50,6 +50,15 @@ func (app *BaseApp) NewUncachedContext(isCheckTx bool, header tmproto.Header) sd
 	return sdk.NewContext(app.cms, header, isCheckTx)
 }
 
+// DeliverContext returns the current deliverState context, or nil if not in a deliver block.
+// Useful for reading uncommitted state (e.g. after InitChain before Commit).
+func (app *BaseApp) DeliverContext() *sdk.Context {
+	if app.deliverState == nil {
+		return nil
+	}
+	return &app.deliverState.ctx
+}
+
 func (app *BaseApp) GetContextForDeliverTx(txBytes []byte) sdk.Context {
 	return app.getContextForTx(runTxModeDeliver, txBytes)
 }
