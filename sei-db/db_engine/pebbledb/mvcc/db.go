@@ -35,7 +35,12 @@ const (
 	StorePrefixTpl     = "s/k:%s/" // s/k:<storeKey>
 	latestVersionKey   = "s/_latest"
 	earliestVersionKey = "s/_earliest"
-	tombstoneVal       = "TOMBSTONE"
+	// descendingMVCCMarkerKey flags that the DB was initialized with the
+	// descending-version MVCC encoding. Its absence on a populated DB means
+	// the data was written by the legacy ascending-version build and is not
+	// safe to read with this code.
+	descendingMVCCMarkerKey = "s/_mvcc_descending"
+	tombstoneVal            = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -140,6 +145,11 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
+	if err := assertDescendingMVCCOrCreate(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
@@ -238,6 +248,34 @@ func (db *Database) GetLatestVersion() int64 {
 }
 
 // Retrieve latestVersion from db, if not found, return 0.
+// assertDescendingMVCCOrCreate refuses to open a populated DB that lacks the
+// descendingMVCCMarkerKey sentinel (i.e. one written by the legacy
+// ascending-version build). Empty DBs are marked and allowed through.
+func assertDescendingMVCCOrCreate(db *pebble.DB) error {
+	if _, closer, err := db.Get([]byte(descendingMVCCMarkerKey)); err == nil {
+		_ = closer.Close()
+		return nil
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return fmt.Errorf("reading descending-MVCC marker: %w", err)
+	}
+
+	if _, closer, err := db.Get([]byte(latestVersionKey)); err == nil {
+		_ = closer.Close()
+		return fmt.Errorf(
+			"pebbledb at this path was created with ascending-version MVCC and " +
+				"is incompatible with this build's descending-version encoding; " +
+				"state sync required to rebuild the state store",
+		)
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return fmt.Errorf("reading latest version marker: %w", err)
+	}
+
+	if err := db.Set([]byte(descendingMVCCMarkerKey), []byte{1}, defaultWriteOpts); err != nil {
+		return fmt.Errorf("writing descending-MVCC marker: %w", err)
+	}
+	return nil
+}
+
 func retrieveLatestVersion(db *pebble.DB) (int64, error) {
 	bz, closer, err := db.Get([]byte(latestVersionKey))
 	defer func() {
