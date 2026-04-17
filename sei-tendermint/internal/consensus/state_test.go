@@ -2630,7 +2630,7 @@ func TestStatePropagatesStatelessLeaderElectionToRoundState(t *testing.T) {
 	require.NoError(t, err)
 	cfg.Consensus.StatelessLeaderElection = true
 
-	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{})
+	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{Validators: 1})
 	cs := newStateWithConfig(ctx, cfg, state, privVals[0], kvstore.NewApplication())
 
 	require.True(t, cs.GetRoundState().StatelessLeaderElection)
