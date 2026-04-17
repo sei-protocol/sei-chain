@@ -71,7 +71,6 @@ const (
 	IteratorValue
 )
 
-// String returns the JSON/report-friendly name for the op.
 func (o OpType) String() string {
 	switch o {
 	case Get:
@@ -102,7 +101,6 @@ func NewStoreTracer() *StoreTracer {
 	}
 }
 
-// Get records a KVStore.Get access against module.
 func (st *StoreTracer) Get(key []byte, value []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Get,
@@ -112,7 +110,6 @@ func (st *StoreTracer) Get(key []byte, value []byte, module string, duration tim
 	})
 }
 
-// Set records a KVStore.Set access against module.
 func (st *StoreTracer) Set(key []byte, value []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Set,
@@ -122,7 +119,6 @@ func (st *StoreTracer) Set(key []byte, value []byte, module string, duration tim
 	})
 }
 
-// Has records a KVStore.Has access against module.
 func (st *StoreTracer) Has(key []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Has,
@@ -131,7 +127,6 @@ func (st *StoreTracer) Has(key []byte, module string, duration time.Duration) {
 	})
 }
 
-// Delete records a KVStore.Delete access against module.
 func (st *StoreTracer) Delete(key []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Delete,
