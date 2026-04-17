@@ -227,6 +227,38 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.True(t, boundary.Equals(NewMigrationBoundary("bank", []byte("d"))))
 	})
 
+	t.Run("NextBatchZeroReturnsError", func(t *testing.T) {
+		data := map[string]map[string][]byte{
+			"bank": {"a": []byte("v1")},
+		}
+		iter := factory(t, data)
+
+		_, boundary, err := iter.NextBatch(0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "batch size must be positive")
+		require.True(t, boundary.Equals(MigrationBoundaryNotStarted),
+			"boundary must not advance on error")
+
+		// A subsequent valid call must still work (no state corruption).
+		batch, _, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 1)
+		requireEntry(t, batch[0], "bank", "a", "v1")
+	})
+
+	t.Run("NextBatchNegativeReturnsError", func(t *testing.T) {
+		data := map[string]map[string][]byte{
+			"bank": {"a": []byte("v1")},
+		}
+		iter := factory(t, data)
+
+		_, boundary, err := iter.NextBatch(-5)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "batch size must be positive")
+		require.True(t, boundary.Equals(MigrationBoundaryNotStarted),
+			"boundary must not advance on error")
+	})
+
 	t.Run("SetBoundaryNotStartedResetsToBeginning", func(t *testing.T) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1"), "b": []byte("v2")},

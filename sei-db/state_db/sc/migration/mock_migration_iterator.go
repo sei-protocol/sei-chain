@@ -2,6 +2,7 @@ package migration
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -47,6 +48,9 @@ func (m *MapMigrationIterator) Rebuild() {
 }
 
 func (m *MapMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
+	if size <= 0 {
+		return nil, m.boundary, fmt.Errorf("batch size must be positive, got %d", size)
+	}
 	if m.autoRebuild {
 		m.Rebuild()
 	}

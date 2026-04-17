@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -270,4 +271,88 @@ func randomExistingKey(rng *rand.Rand, kvs map[string][]byte) string {
 	}
 	sort.Strings(keys)
 	return keys[rng.Intn(len(keys))]
+}
+
+// TestMemiavlIteratorSurvivesSnapshotRewrite exercises the Issue 10 fix:
+// a snapshot rewrite between NextBatch calls replaces the memiavl internal
+// tree state, and the iterator (which re-resolves *Tree by name per call)
+// must continue producing batches matching the reference MapMigrationIterator.
+func TestMemiavlIteratorSurvivesSnapshotRewrite(t *testing.T) {
+	const (
+		keysPerStore   = 50
+		iterBatchSize  = 7
+		storesPerTable = 3
+	)
+	storeNames := []string{"auth", "bank", "staking"}
+
+	data := make(map[string]map[string][]byte, storesPerTable)
+	for _, name := range storeNames {
+		kvs := make(map[string][]byte, keysPerStore)
+		for j := 0; j < keysPerStore; j++ {
+			k := fmt.Sprintf("key_%04d", j)
+			kvs[k] = []byte(fmt.Sprintf("%s-%s", name, k))
+		}
+		data[name] = kvs
+	}
+
+	db, err := memiavl.OpenDB(0, memiavl.Options{
+		Config: memiavl.Config{
+			SnapshotInterval:        1,
+			SnapshotMinTimeInterval: 0,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   storeNames,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	var changeSets []*proto.NamedChangeSet
+	for name, kvs := range data {
+		pairs := make([]*proto.KVPair, 0, len(kvs))
+		for k, v := range kvs {
+			pairs = append(pairs, &proto.KVPair{Key: []byte(k), Value: v})
+		}
+		changeSets = append(changeSets, &proto.NamedChangeSet{
+			Name:      name,
+			Changeset: proto.ChangeSet{Pairs: pairs},
+		})
+	}
+	require.NoError(t, db.ApplyChangeSets(changeSets))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	mockIter := NewMapMigrationIterator(copyData(data), false)
+	memiavlIter := NewMemiavlMigrationIterator(db)
+
+	// Pull a couple of batches before forcing a rewrite.
+	for i := 0; i < 2; i++ {
+		mockBatch, mockBound, err := mockIter.NextBatch(iterBatchSize)
+		require.NoError(t, err)
+		memiavlBatch, memiavlBound, err := memiavlIter.NextBatch(iterBatchSize)
+		require.NoError(t, err)
+		requireBatchesEqual(t, mockBatch, memiavlBatch)
+		require.True(t, mockBound.Equals(memiavlBound))
+	}
+
+	// Force a background snapshot rewrite and wait for it to complete.
+	// The next Commit call will pick up the result via checkAsyncTasks
+	// and swap in the new MultiTree (which ReplaceWith's each tree).
+	require.NoError(t, db.RewriteSnapshotBackground())
+	time.Sleep(500 * time.Millisecond)
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	// Drain to completion in lockstep and assert every batch still matches.
+	for {
+		mockBatch, mockBound, err := mockIter.NextBatch(iterBatchSize)
+		require.NoError(t, err)
+		memiavlBatch, memiavlBound, err := memiavlIter.NextBatch(iterBatchSize)
+		require.NoError(t, err, "memiavl iterator must survive snapshot rewrite")
+		requireBatchesEqual(t, mockBatch, memiavlBatch)
+		require.True(t, mockBound.Equals(memiavlBound))
+		if len(mockBatch) == 0 {
+			break
+		}
+	}
 }

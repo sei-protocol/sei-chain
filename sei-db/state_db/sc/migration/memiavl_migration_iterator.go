@@ -1,24 +1,23 @@
 package migration
 
 import (
+	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
-// MemiavlMigrationIterator is a MigrationIterator that walks a memiavl.DB in
-// lexicographic (moduleName, key) order. It caches the tree list at
-// construction time and creates/closes short-lived tree iterators within each
-// NextBatch call, so no resources are held between calls.
+// MemiavlMigrationIterator is a MigrationIterator that walks a memiavl.DB.
+//
+// The set of trees to migrate is fixed at construction time. Trees added
+// to the DB after construction are not migrated; a tree that was present
+// at construction but later disappears causes NextBatch to return an
+// error.
 type MemiavlMigrationIterator struct {
-	// Snapshot of the DB's trees, cached at construction time and assumed static
-	// (i.e. assumed that trees are not added/removed)
-	trees []memiavl.NamedTree
-	// Index into trees for the next tree to scan.
-	treeIdx int
-	// Tracks how far the migration has progressed; updated after each NextBatch.
-	boundary MigrationBoundary
+	db        *memiavl.DB
+	treeNames []string
+	treeIdx   int
+	boundary  MigrationBoundary
 }
 
 var _ MigrationIterator = (*MemiavlMigrationIterator)(nil)
@@ -26,19 +25,28 @@ var _ MigrationIterator = (*MemiavlMigrationIterator)(nil)
 // NewMemiavlMigrationIterator creates a MemiavlMigrationIterator positioned at
 // the start of the given DB (boundary defaults to MigrationBoundaryNotStarted).
 func NewMemiavlMigrationIterator(db *memiavl.DB) *MemiavlMigrationIterator {
+	namedTrees := db.Trees()
+	treeNames := make([]string, len(namedTrees))
+	for i, nt := range namedTrees {
+		treeNames[i] = nt.Name
+	}
 	return &MemiavlMigrationIterator{
-		trees:    db.Trees(),
-		treeIdx:  0,
-		boundary: MigrationBoundaryNotStarted,
+		db:        db,
+		treeNames: treeNames,
+		treeIdx:   0,
+		boundary:  MigrationBoundaryNotStarted,
 	}
 }
 
 func (m *MemiavlMigrationIterator) SetBoundary(boundary MigrationBoundary) {
 	m.boundary = boundary
-	m.treeIdx = computeStartTreeIndex(m.trees, boundary)
+	m.treeIdx = computeStartTreeIndex(m.treeNames, boundary)
 }
 
 func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
+	if size <= 0 {
+		return nil, m.boundary, fmt.Errorf("batch size must be positive, got %d", size)
+	}
 	if m.boundary.Equals(MigrationBoundaryComplete) {
 		return nil, MigrationBoundaryComplete, nil
 	}
@@ -46,28 +54,35 @@ func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, Migrat
 	batch := make([]ValueToMigrate, 0, size)
 	firstKey := true
 
-	for m.treeIdx < len(m.trees) && len(batch) < size {
-		tree := m.trees[m.treeIdx]
+	for m.treeIdx < len(m.treeNames) && len(batch) < size {
+		name := m.treeNames[m.treeIdx]
+		tree := m.db.TreeByName(name)
+		if tree == nil {
+			return nil, m.boundary, fmt.Errorf("tree %q no longer exists in db", name)
+		}
 
 		var start []byte
-		if firstKey && m.boundary.Status() == MigrationInProgress && m.boundary.ModuleName() == tree.Name {
-			// Start just past the boundary key. Appending 0x00 makes the
-			// start key strictly greater than boundary.Key() because the
-			// memiavl iterator's start bound is inclusive.
-			start = append(m.boundary.Key(), 0x00) //nolint:gocritic // intentional append to copy
+		if firstKey && m.boundary.Status() == MigrationInProgress && m.boundary.ModuleName() == name {
+			// tree.Iterator's start bound is inclusive, so append a 0x00
+			// byte to get a start key strictly greater than boundary.Key().
+			key := m.boundary.Key()
+			start = make([]byte, len(key)+1)
+			copy(start, key)
 		}
 		firstKey = false
 
 		iter := tree.Iterator(start, nil, true)
 		for ; iter.Valid() && len(batch) < size; iter.Next() {
 			batch = append(batch, ValueToMigrate{
-				ModuleName: tree.Name,
+				ModuleName: name,
 				Key:        copyBytes(iter.Key()),
 				Value:      copyBytes(iter.Value()),
 			})
 		}
 		exhausted := !iter.Valid()
-		_ = iter.Close()
+		if err := iter.Close(); err != nil {
+			return nil, m.boundary, fmt.Errorf("failed to close tree iterator for %s: %w", name, err)
+		}
 
 		if exhausted {
 			m.treeIdx++
@@ -86,15 +101,15 @@ func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, Migrat
 
 // computeStartTreeIndex returns the index of the first tree that may contain
 // unmigrated keys according to the given boundary.
-func computeStartTreeIndex(trees []memiavl.NamedTree, boundary MigrationBoundary) int {
-	if boundary.Status() == MigrationNotStarted {
+func computeStartTreeIndex(treeNames []string, boundary MigrationBoundary) int {
+	switch boundary.Status() {
+	case MigrationNotStarted:
 		return 0
+	case MigrationComplete:
+		return len(treeNames)
 	}
-	if boundary.Status() == MigrationComplete {
-		return len(trees)
-	}
-	return sort.Search(len(trees), func(i int) bool {
-		return strings.Compare(trees[i].Name, boundary.ModuleName()) >= 0
+	return sort.Search(len(treeNames), func(i int) bool {
+		return treeNames[i] >= boundary.ModuleName()
 	})
 }
 

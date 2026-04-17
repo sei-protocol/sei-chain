@@ -1,9 +1,11 @@
 package migration
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -126,7 +128,7 @@ func TestNewMigrationManager_ResumesFromPersistedBoundary(t *testing.T) {
 	require.True(t, mgr.boundary.Equals(saved))
 
 	// Should resume past bank/b, only migrating bank/c.
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 
 	val, ok := newDB.get("bank", "c")
@@ -223,7 +225,7 @@ func TestApplyChangeSets_MigratesKeysAndPersistsBoundary(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 
 	// bank/a and bank/b migrated to newDB.
@@ -269,7 +271,7 @@ func TestApplyChangeSets_RoutesIncomingWrites(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("a"), Value: []byte("updated_a")},
 		}}},
@@ -306,7 +308,7 @@ func TestApplyChangeSets_IncomingWriteOverridesMigratedKey(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("a"), Value: []byte("overwritten")},
 		}}},
@@ -338,7 +340,7 @@ func TestApplyChangeSets_IncomingDeleteOnMigratedKey(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("a"), Delete: true},
 		}}},
@@ -369,7 +371,7 @@ func TestApplyChangeSets_MultiPairChangeSetSplit(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("a"), Value: []byte("new_a")},
 			{Key: []byte("b"), Value: []byte("new_b")},
@@ -409,7 +411,7 @@ func TestApplyChangeSets_ProducesOneChangeSetPerStore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 
 	require.Len(t, newDB.writeLog, 1)
@@ -456,17 +458,17 @@ func TestApplyChangeSets_FullMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call 1: migrates bank/a, bank/b.
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
 
 	// Call 2: migrates staking/x.
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
 
 	// Call 3: nothing left.
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 
@@ -506,7 +508,7 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr1.ApplyChangeSets(nil)
+	err = mgr1.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationInProgress, mgr1.boundary.Status())
 
@@ -531,7 +533,7 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 
 	// Drive the new manager to completion.
 	for mgr2.boundary.Status() != MigrationComplete {
-		err = mgr2.ApplyChangeSets(nil)
+		err = mgr2.ApplyChangeSets(context.Background(), nil)
 		require.NoError(t, err)
 	}
 
@@ -575,20 +577,47 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 
-	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{
+	changesets := []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("a"), Value: []byte("val")},
 		}}},
-	})
+	}
+	err = mgr.ApplyChangeSets(context.Background(), changesets)
 	require.NoError(t, err)
 
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("val"), val, "all writes should go to newDB when migration is complete")
 
-	// Old writer was called but with no changesets.
-	require.Len(t, oldDB.writeLog, 1)
-	require.Empty(t, oldDB.writeLog[0])
+	// Short-circuit: new DB receives the caller's changesets verbatim (no
+	// injected MigrationStore boundary re-write) and the old DB writer is
+	// not called at all.
+	require.Empty(t, oldDB.writeLog, "old DB writer should not be called after migration completes")
+	require.Len(t, newDB.writeLog, 1)
+	require.Equal(t, changesets, newDB.writeLog[0])
+}
+
+func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {FlatKVMigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+	})
+	iter := NewMapMigrationIterator(nil, false)
+
+	mgr, err := NewMigrationManager(
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	err = mgr.ApplyChangeSets(context.Background(), nil)
+	require.NoError(t, err)
+
+	require.Empty(t, oldDB.writeLog, "old DB writer should not be called after migration completes")
+	require.Len(t, newDB.writeLog, 1)
+	require.Empty(t, newDB.writeLog[0])
 }
 
 func TestApplyChangeSets_OldWriterError(t *testing.T) {
@@ -603,7 +632,7 @@ func TestApplyChangeSets_OldWriterError(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "old disk full")
 }
@@ -620,7 +649,7 @@ func TestApplyChangeSets_NewWriterError(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = mgr.ApplyChangeSets(nil)
+	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "new disk full")
 }
@@ -668,7 +697,7 @@ func TestMigrationManagerRandomized(t *testing.T) {
 
 		fuzzApplyToReference(reference, changesets)
 
-		err := mgr.ApplyChangeSets(changesets)
+		err := mgr.ApplyChangeSets(context.Background(), changesets)
 		require.NoError(t, err, "round %d", round)
 
 		// Every read through the migration manager must match the reference.
@@ -689,7 +718,7 @@ func TestMigrationManagerRandomized(t *testing.T) {
 
 	// Drive migration to completion with no further mutations.
 	for mgr.boundary.Status() != MigrationComplete {
-		err := mgr.ApplyChangeSets(nil)
+		err := mgr.ApplyChangeSets(context.Background(), nil)
 		require.NoError(t, err)
 	}
 
@@ -761,4 +790,291 @@ func fuzzApplyToReference(ref map[string]map[string][]byte, changesets []*proto.
 			}
 		}
 	}
+}
+
+// --- Constructor validation (Issue 2, Issue 11) ---
+
+func TestNewMigrationManager_RejectsNonPositiveBatchSize(t *testing.T) {
+	cases := []int{0, -1, -100}
+	for _, size := range cases {
+		t.Run(fmt.Sprintf("size=%d", size), func(t *testing.T) {
+			oldDB := newMockDB()
+			newDB := newMockDB()
+			iter := NewMapMigrationIterator(nil, false)
+
+			_, err := NewMigrationManager(
+				oldDB.reader(), oldDB.writer(),
+				newDB.reader(), newDB.writer(),
+				iter, size,
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "batch size must be positive")
+		})
+	}
+}
+
+func TestNewMigrationManager_NilDependencies(t *testing.T) {
+	iter := NewMapMigrationIterator(nil, false)
+	oldDB := newMockDB()
+	newDB := newMockDB()
+
+	validReader := oldDB.reader()
+	validWriter := oldDB.writer()
+	validNewReader := newDB.reader()
+	validNewWriter := newDB.writer()
+
+	cases := []struct {
+		name         string
+		oldReader    DBReader
+		oldWriter    DBWriter
+		newReader    DBReader
+		newWriter    DBWriter
+		iter         MigrationIterator
+		wantContains string
+	}{
+		{"nil oldDBReader", nil, validWriter, validNewReader, validNewWriter, iter, "oldDBReader"},
+		{"nil oldDBWriter", validReader, nil, validNewReader, validNewWriter, iter, "oldDBWriter"},
+		{"nil newDBReader", validReader, validWriter, nil, validNewWriter, iter, "newDBReader"},
+		{"nil newDBWriter", validReader, validWriter, validNewReader, nil, iter, "newDBWriter"},
+		{"nil iterator", validReader, validWriter, validNewReader, validNewWriter, nil, "iterator"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewMigrationManager(
+				tc.oldReader, tc.oldWriter,
+				tc.newReader, tc.newWriter,
+				tc.iter, 10,
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantContains)
+		})
+	}
+}
+
+// --- Issue 7: old-DB changeset grouping ---
+
+func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
+	data := map[string]map[string][]byte{
+		"auth": {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")},
+		"bank": {"x": []byte("X"), "y": []byte("Y")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMapMigrationIterator(copyData(data), false)
+
+	// batch=2 -> migrates auth/a, auth/b; boundary sits at auth/b.
+	mgr, err := NewMigrationManager(
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 2,
+	)
+	require.NoError(t, err)
+
+	// Multiple incoming pairs per store, across two stores, all unmigrated
+	// (below and after the boundary respectively). Combined with migration
+	// deletes, we should still see exactly one old-DB changeset per store.
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+		{Name: "auth", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("c"), Value: []byte("updated_c")},
+		}}},
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("x"), Value: []byte("updated_x")},
+			{Key: []byte("y"), Value: []byte("updated_y")},
+		}}},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, oldDB.writeLog, 1)
+	oldCS := oldDB.writeLog[0]
+
+	// Exactly one NamedChangeSet per store, sorted by name.
+	require.Len(t, oldCS, 2)
+	require.Equal(t, "auth", oldCS[0].Name)
+	require.Equal(t, "bank", oldCS[1].Name)
+
+	// auth: deletes for a, b (migration deletes, iterator order) followed
+	// by the incoming pair for c.
+	require.Len(t, oldCS[0].Changeset.Pairs, 3)
+	require.Equal(t, []byte("a"), oldCS[0].Changeset.Pairs[0].Key)
+	require.True(t, oldCS[0].Changeset.Pairs[0].Delete)
+	require.Equal(t, []byte("b"), oldCS[0].Changeset.Pairs[1].Key)
+	require.True(t, oldCS[0].Changeset.Pairs[1].Delete)
+	require.Equal(t, []byte("c"), oldCS[0].Changeset.Pairs[2].Key)
+	require.False(t, oldCS[0].Changeset.Pairs[2].Delete)
+	require.Equal(t, []byte("updated_c"), oldCS[0].Changeset.Pairs[2].Value)
+
+	// bank: no migration deletes yet (boundary is at auth/b), only the
+	// two incoming pairs in input order.
+	require.Len(t, oldCS[1].Changeset.Pairs, 2)
+	require.Equal(t, []byte("x"), oldCS[1].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("updated_x"), oldCS[1].Changeset.Pairs[0].Value)
+	require.Equal(t, []byte("y"), oldCS[1].Changeset.Pairs[1].Key)
+	require.Equal(t, []byte("updated_y"), oldCS[1].Changeset.Pairs[1].Value)
+}
+
+// --- Issue 9: MigrationStore routing & rejection ---
+
+func TestRead_MigrationStoreAlwaysRoutesToNewDB(t *testing.T) {
+	// An old-DB reader that always fails: if Read ever consults it for
+	// MigrationStore the test will surface the error.
+	oldReader := failReader(fmt.Errorf("old DB must not be read for MigrationStore"))
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	// Seed a sentinel value under a non-boundary key to avoid colliding
+	// with the constructor's boundary deserialization path.
+	const sentinelKey = "sentinel"
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {sentinelKey: []byte("secret-value")},
+	})
+
+	iter := NewMapMigrationIterator(nil, false)
+	mgr, err := NewMigrationManager(
+		oldReader, oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	// Exercise all three boundary statuses.
+	cases := []struct {
+		name     string
+		boundary MigrationBoundary
+	}{
+		{"NotStarted", MigrationBoundaryNotStarted},
+		{"InProgress_beforeMigration", NewMigrationBoundary("auth", []byte("x"))},
+		{"InProgress_afterMigration", NewMigrationBoundary("zzzzz", []byte("x"))},
+		{"Complete", MigrationBoundaryComplete},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr.boundary = tc.boundary
+			val, ok, err := mgr.Read(MigrationStore, []byte(sentinelKey))
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, []byte("secret-value"), val)
+		})
+	}
+}
+
+func TestApplyChangeSets_RejectsMigrationStoreWrites(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	iter := NewMapMigrationIterator(map[string]map[string][]byte{
+		"bank": {"a": []byte("1")},
+	}, false)
+
+	mgr, err := NewMigrationManager(
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	err = mgr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+		{Name: MigrationStore, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("x"), Value: []byte("y")},
+		}}},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), MigrationStore)
+
+	// No writes should have reached either DB.
+	require.Empty(t, oldDB.writeLog, "old DB writer must not run when request is rejected")
+	require.Empty(t, newDB.writeLog, "new DB writer must not run when request is rejected")
+}
+
+// --- Issue 5: context cancellation ---
+
+// blockingWriter returns a DBWriter that blocks until unblock is closed (or
+// ctx.Done fires via the embedded handling). It's used to simulate a hung
+// writer so we can verify that ApplyChangeSets returns when the caller
+// cancels the ctx it passed in.
+func blockingWriter(unblock <-chan struct{}) DBWriter {
+	return func(_ []*proto.NamedChangeSet) error {
+		<-unblock
+		return nil
+	}
+}
+
+func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
+	unblock := make(chan struct{})
+	defer close(unblock)
+
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMapMigrationIterator(copyData(data), false)
+
+	mgr, err := NewMigrationManager(
+		oldDB.reader(), blockingWriter(unblock),
+		newDB.reader(), blockingWriter(unblock),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var applyErr error
+	go func() {
+		defer wg.Done()
+		applyErr = mgr.ApplyChangeSets(ctx, nil)
+	}()
+
+	// Give the goroutines a moment to start and park on the blocking writer.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	doneCh := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(doneCh)
+	}()
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
+	}
+
+	require.ErrorIs(t, applyErr, context.Canceled)
+}
+
+func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
+	unblock := make(chan struct{})
+	defer close(unblock)
+
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	iter := NewMapMigrationIterator(copyData(data), false)
+
+	mgr, err := NewMigrationManager(
+		oldDB.reader(), blockingWriter(unblock),
+		newDB.reader(), blockingWriter(unblock),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	doneCh := make(chan struct{})
+	var applyErr error
+	go func() {
+		applyErr = mgr.ApplyChangeSets(ctx, nil)
+		close(doneCh)
+	}()
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ApplyChangeSets did not return with a pre-cancelled ctx")
+	}
+
+	require.ErrorIs(t, applyErr, context.Canceled)
 }

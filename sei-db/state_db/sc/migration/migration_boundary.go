@@ -42,6 +42,9 @@ var (
 )
 
 // Create a new migration boundary with the given key.
+//
+// The key slice is stored by reference; callers must not mutate it after
+// this call.
 func NewMigrationBoundary(
 	// The module name of the highest migrated key.
 	moduleName string,
@@ -72,7 +75,8 @@ func (mb *MigrationBoundary) ModuleName() string {
 	return mb.moduleName
 }
 
-// Key returns the highest migrated key.
+// Key returns the highest migrated key. The returned slice aliases the
+// boundary's internal state and must not be mutated.
 func (mb *MigrationBoundary) Key() []byte {
 	return mb.key
 }
@@ -111,7 +115,9 @@ func (mb *MigrationBoundary) IsMigrated(moduleName string, key []byte) bool {
 	}
 }
 
-// Serialize encodes the boundary as a byte slice.
+// Serialize encodes the boundary as a byte slice. The returned slice is
+// freshly allocated and independent of the boundary.
+//
 // For notStarted/complete: [status byte]
 // For inProgress: [status byte] [4-byte BE moduleName length] [moduleName] [key]
 func (mb *MigrationBoundary) Serialize() []byte {
@@ -132,6 +138,7 @@ func (mb *MigrationBoundary) Serialize() []byte {
 }
 
 // DeserializeMigrationBoundary decodes a byte slice produced by Serialize.
+// The returned boundary owns its key and is independent of the input slice.
 func DeserializeMigrationBoundary(data []byte) (MigrationBoundary, error) {
 	if len(data) == 0 {
 		return MigrationBoundary{}, fmt.Errorf("empty migration boundary data")

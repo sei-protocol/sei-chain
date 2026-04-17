@@ -4,9 +4,9 @@ package migration
 type ValueToMigrate struct {
 	// The module name of the value (part of the logical key).
 	ModuleName string
-	// The key of the value.
+	// The key of the value. Must not be mutated by the caller.
 	Key []byte
-	// The value to migrate.
+	// The value to migrate. Must not be mutated by the caller.
 	Value []byte
 }
 
@@ -28,5 +28,8 @@ type MigrationIterator interface {
 	// migration boundary after the batch. Fewer than size values may be
 	// returned if there are not enough remaining. When zero values are
 	// returned, the migration is complete.
+	//
+	// size must be > 0; otherwise an error is returned and iterator state
+	// is unchanged.
 	NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error)
 }
