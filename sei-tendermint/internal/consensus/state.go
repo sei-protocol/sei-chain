@@ -1150,7 +1150,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 
 	// If this validator is the proposer of this round, and the previous block time is later than
 	// our local clock time, wait to propose until our local clock time has passed the block time.
-	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.isProposer(key.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.roundState.Leader() == key {
 		proposerWaitTime := proposerWaitTime(tmtime.DefaultSource{}, cs.state.LastBlockTime)
 		if proposerWaitTime > 0 {
 			cs.scheduleTimeout(proposerWaitTime, height, round, cstypes.RoundStepNewRound)
@@ -1203,7 +1203,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 		return
 	}
 
-	if cs.isProposer(addr) {
+	if cs.roundState.Leader() == privValidatorPubKey {
 		logger.Debug(
 			"propose step; our turn to propose",
 			"proposer", addr,
@@ -1216,10 +1216,6 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 			"proposer", cs.roundState.Validators().GetProposer().Address,
 		)
 	}
-}
-
-func (cs *State) isProposer(address []byte) bool {
-	return bytes.Equal(cs.roundState.Validators().GetProposer().Address, address)
 }
 
 func (cs *State) decideProposal(ctx context.Context, height int64, round int32, privValidator types.PrivValidator, privValidatorPubKey crypto.PubKey) {
@@ -2281,7 +2277,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return false
 	}
 	// For some reason we only attempt that on non-proposing validators.
-	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.isProposer(key.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.roundState.Leader() == key {
 		return false
 	}
 	proposal := cs.roundState.Proposal()

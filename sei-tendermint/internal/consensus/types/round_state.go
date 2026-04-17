@@ -184,6 +184,12 @@ func (s *SafeRoundState) Validators() *types.ValidatorSet {
 	return s.internal.Validators
 }
 
+func (s *SafeRoundState) Leader() crypto.PubKey {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Leader()
+}
+
 func (s *SafeRoundState) SetValidators(v *types.ValidatorSet) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
