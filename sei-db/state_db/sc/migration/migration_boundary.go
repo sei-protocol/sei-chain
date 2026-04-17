@@ -7,18 +7,6 @@ import (
 	"strings"
 )
 
-// MigrationStatus is the lifecycle status of a migration.
-type MigrationStatus int
-
-const (
-	// MigrationNotStarted means the migration has not yet started. All keys are considered unmigrated.
-	MigrationNotStarted MigrationStatus = iota
-	// MigrationInProgress means the migration is in progress. Some keys are migrated, some are not.
-	MigrationInProgress MigrationStatus = iota
-	// MigrationComplete means the migration is complete. All keys are considered migrated.
-	MigrationComplete MigrationStatus = iota
-)
-
 //nolint:godot
 /*
                         <-- Lexographically ordered keys -->

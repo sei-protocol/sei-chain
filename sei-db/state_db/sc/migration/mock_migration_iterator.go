@@ -22,14 +22,16 @@ type MapMigrationIterator struct {
 var _ MigrationIterator = (*MapMigrationIterator)(nil)
 
 // NewMapMigrationIterator creates a MapMigrationIterator from the given data,
-// positioned just past the provided boundary.
-func NewMapMigrationIterator(
-	data map[string]map[string][]byte,
-	boundary MigrationBoundary,
-) *MapMigrationIterator {
-	m := &MapMigrationIterator{Data: data, boundary: boundary}
+// positioned at the start (boundary defaults to MigrationBoundaryNotStarted).
+func NewMapMigrationIterator(data map[string]map[string][]byte) *MapMigrationIterator {
+	m := &MapMigrationIterator{Data: data, boundary: MigrationBoundaryNotStarted}
 	m.Rebuild()
 	return m
+}
+
+func (m *MapMigrationIterator) SetBoundary(boundary MigrationBoundary) {
+	m.boundary = boundary
+	m.Rebuild()
 }
 
 // Rebuild re-flattens and re-sorts the Data map, then repositions the

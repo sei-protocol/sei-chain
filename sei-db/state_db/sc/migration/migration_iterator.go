@@ -19,6 +19,11 @@ type ValueToMigrate struct {
 // be observed when the iterator reaches them.
 type MigrationIterator interface {
 
+	// SetBoundary repositions the iterator so that subsequent NextBatch calls
+	// resume just past the given boundary. This may be called at any time
+	// between NextBatch calls.
+	SetBoundary(boundary MigrationBoundary)
+
 	// NextBatch returns the next batch of values to be migrated and the new
 	// migration boundary after the batch. Fewer than size values may be
 	// returned if there are not enough remaining. When zero values are

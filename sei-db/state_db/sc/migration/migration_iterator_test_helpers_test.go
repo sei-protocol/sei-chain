@@ -8,12 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// openMemiavlIterator creates a memiavl DB from the given data and returns the
-// DB (for applying mutations) along with a MemiavlMigrationIterator.
-func openMemiavlIterator(
+// openMemiavlDB creates a memiavl DB populated with the given data and returns
+// the DB (for applying mutations) along with a MemiavlMigrationIterator.
+func openMemiavlDB(
 	t *testing.T,
 	data map[string]map[string][]byte,
-	boundary MigrationBoundary,
 ) (*memiavl.DB, *MemiavlMigrationIterator) {
 	t.Helper()
 	stores := make([]string, 0, len(data))
@@ -47,7 +46,7 @@ func openMemiavlIterator(
 	_, err = db.Commit()
 	require.NoError(t, err)
 
-	return db, NewMemiavlMigrationIterator(db, boundary)
+	return db, NewMemiavlMigrationIterator(db)
 }
 
 // copyData returns a deep copy of a nested map so mock and memiavl start from

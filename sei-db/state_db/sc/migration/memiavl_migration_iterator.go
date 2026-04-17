@@ -23,19 +23,19 @@ type MemiavlMigrationIterator struct {
 
 var _ MigrationIterator = (*MemiavlMigrationIterator)(nil)
 
-// NewMemiavlMigrationIterator creates a MemiavlMigrationIterator that will
-// walk the given DB starting just past the provided boundary.
-func NewMemiavlMigrationIterator(
-	db *memiavl.DB,
-	boundary MigrationBoundary,
-) *MemiavlMigrationIterator {
-	trees := db.Trees()
-	treeIdx := computeStartTreeIndex(trees, boundary)
+// NewMemiavlMigrationIterator creates a MemiavlMigrationIterator positioned at
+// the start of the given DB (boundary defaults to MigrationBoundaryNotStarted).
+func NewMemiavlMigrationIterator(db *memiavl.DB) *MemiavlMigrationIterator {
 	return &MemiavlMigrationIterator{
-		trees:    trees,
-		treeIdx:  treeIdx,
-		boundary: boundary,
+		trees:    db.Trees(),
+		treeIdx:  0,
+		boundary: MigrationBoundaryNotStarted,
 	}
+}
+
+func (m *MemiavlMigrationIterator) SetBoundary(boundary MigrationBoundary) {
+	m.boundary = boundary
+	m.treeIdx = computeStartTreeIndex(m.trees, boundary)
 }
 
 func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {

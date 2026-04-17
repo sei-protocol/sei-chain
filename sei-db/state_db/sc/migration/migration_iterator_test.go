@@ -6,15 +6,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type iteratorFactory func(t *testing.T, data map[string]map[string][]byte, boundary MigrationBoundary) MigrationIterator
+type iteratorFactory func(t *testing.T, data map[string]map[string][]byte) MigrationIterator
 
-func mapFactory(_ *testing.T, data map[string]map[string][]byte, boundary MigrationBoundary) MigrationIterator {
-	return NewMapMigrationIterator(data, boundary)
+func mapFactory(_ *testing.T, data map[string]map[string][]byte) MigrationIterator {
+	return NewMapMigrationIterator(data)
 }
 
-func memiavlFactory(t *testing.T, data map[string]map[string][]byte, boundary MigrationBoundary) MigrationIterator {
+func memiavlFactory(t *testing.T, data map[string]map[string][]byte) MigrationIterator {
 	t.Helper()
-	_, iter := openMemiavlIterator(t, data, boundary)
+	_, iter := openMemiavlDB(t, data)
 	return iter
 }
 
@@ -33,7 +33,7 @@ func TestMigrationIterator(t *testing.T) {
 func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 	t.Run("EmptyData", func(t *testing.T) {
 		data := map[string]map[string][]byte{}
-		iter := factory(t, data, MigrationBoundaryNotStarted)
+		iter := factory(t, data)
 		batch, boundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)
@@ -44,7 +44,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3")},
 		}
-		iter := factory(t, data, MigrationBoundaryNotStarted)
+		iter := factory(t, data)
 
 		batch, boundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
@@ -64,7 +64,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3")},
 		}
-		iter := factory(t, data, MigrationBoundaryNotStarted)
+		iter := factory(t, data)
 
 		batch, boundary, err := iter.NextBatch(2)
 		require.NoError(t, err)
@@ -91,7 +91,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 			"bank": {"a": []byte("ba"), "b": []byte("bb")},
 			"gov":  {"p": []byte("gp")},
 		}
-		iter := factory(t, data, MigrationBoundaryNotStarted)
+		iter := factory(t, data)
 
 		batch, _, err := iter.NextBatch(3)
 		require.NoError(t, err)
@@ -112,13 +112,13 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
-	t.Run("ResumeFromSavedBoundary", func(t *testing.T) {
+	t.Run("SetBoundaryResumesFromMiddle", func(t *testing.T) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3")},
 			"gov":  {"x": []byte("gx")},
 		}
-		boundary := NewMigrationBoundary("bank", []byte("b"))
-		iter := factory(t, data, boundary)
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("bank", []byte("b")))
 
 		batch, newBoundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
@@ -133,11 +133,12 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.True(t, newBoundary.Equals(MigrationBoundaryComplete))
 	})
 
-	t.Run("CompleteBoundaryReturnsEmpty", func(t *testing.T) {
+	t.Run("SetBoundaryCompleteReturnsEmpty", func(t *testing.T) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1")},
 		}
-		iter := factory(t, data, MigrationBoundaryComplete)
+		iter := factory(t, data)
+		iter.SetBoundary(MigrationBoundaryComplete)
 
 		batch, boundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
@@ -151,7 +152,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 			"bank": {"k2": []byte("v2")},
 			"gov":  {"k3": []byte("v3")},
 		}
-		iter := factory(t, data, MigrationBoundaryNotStarted)
+		iter := factory(t, data)
 
 		expected := []struct {
 			mod, key, val string
@@ -173,14 +174,13 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
-	t.Run("ResumeFromModuleBoundaryStart", func(t *testing.T) {
+	t.Run("SetBoundaryToModuleBoundary", func(t *testing.T) {
 		data := map[string]map[string][]byte{
 			"auth": {"z": []byte("az")},
 			"bank": {"a": []byte("ba"), "b": []byte("bb")},
 		}
-		// Boundary is at the last key of "auth", so "bank" should start fresh.
-		boundary := NewMigrationBoundary("auth", []byte("z"))
-		iter := factory(t, data, boundary)
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("auth", []byte("z")))
 
 		batch, _, err := iter.NextBatch(10)
 		require.NoError(t, err)
@@ -189,17 +189,67 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[1], "bank", "b", "bb")
 	})
 
-	t.Run("ResumeFromMiddleOfModule", func(t *testing.T) {
+	t.Run("SetBoundaryToMiddleOfModule", func(t *testing.T) {
 		data := map[string]map[string][]byte{
 			"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3"), "d": []byte("v4")},
 		}
-		boundary := NewMigrationBoundary("bank", []byte("b"))
-		iter := factory(t, data, boundary)
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("bank", []byte("b")))
 
 		batch, _, err := iter.NextBatch(2)
 		require.NoError(t, err)
 		require.Len(t, batch, 2)
 		requireEntry(t, batch[0], "bank", "c", "v3")
 		requireEntry(t, batch[1], "bank", "d", "v4")
+	})
+
+	t.Run("SetBoundaryAfterPartialIteration", func(t *testing.T) {
+		data := map[string]map[string][]byte{
+			"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3"), "d": []byte("v4")},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(2)
+		require.NoError(t, err)
+		require.Len(t, batch, 2)
+		requireEntry(t, batch[0], "bank", "a", "v1")
+		requireEntry(t, batch[1], "bank", "b", "v2")
+
+		// Rewind to before "b" by setting boundary to "a".
+		iter.SetBoundary(NewMigrationBoundary("bank", []byte("a")))
+
+		batch, boundary, err = iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 3)
+		requireEntry(t, batch[0], "bank", "b", "v2")
+		requireEntry(t, batch[1], "bank", "c", "v3")
+		requireEntry(t, batch[2], "bank", "d", "v4")
+		require.True(t, boundary.Equals(NewMigrationBoundary("bank", []byte("d"))))
+	})
+
+	t.Run("SetBoundaryNotStartedResetsToBeginning", func(t *testing.T) {
+		data := map[string]map[string][]byte{
+			"bank": {"a": []byte("v1"), "b": []byte("v2")},
+		}
+		iter := factory(t, data)
+
+		// Iterate everything.
+		batch, _, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 2)
+
+		// Confirm exhausted.
+		batch, _, err = iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+
+		// Reset to beginning.
+		iter.SetBoundary(MigrationBoundaryNotStarted)
+
+		batch, _, err = iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 2)
+		requireEntry(t, batch[0], "bank", "a", "v1")
+		requireEntry(t, batch[1], "bank", "b", "v2")
 	})
 }
