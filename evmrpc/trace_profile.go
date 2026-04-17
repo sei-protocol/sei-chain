@@ -85,7 +85,6 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 	if err != nil {
 		return nil, err
 	}
-	defer closeStoreTraceResources(statedb)
 
 	blockContextStart := time.Now()
 	blockCtx, err := tracingBackend.GetBlockContext(ctx, block, statedb, tracingBackend)
@@ -146,16 +145,6 @@ func dumpStoreTrace(statedb vm.StateDB) *sdk.StoreTraceDump {
 		return &dump
 	}
 	return nil
-}
-
-func closeStoreTraceResources(statedb vm.StateDB) {
-	typedStateDB := state.GetDBImpl(statedb)
-	if typedStateDB == nil || typedStateDB.Ctx().StoreTracer() == nil {
-		return
-	}
-	if closer, ok := typedStateDB.Ctx().StoreTracer().(interface{ CloseReadTraceResources() error }); ok {
-		_ = closer.CloseReadTraceResources()
-	}
 }
 
 func historicalLookupNanos(storeDump *sdk.StoreTraceDump) int64 {

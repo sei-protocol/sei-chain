@@ -3,7 +3,6 @@ package types
 import (
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"slices"
 	"sync"
 	"time"
@@ -11,19 +10,30 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
+// Per-tx tracer caps. Bound memory and wire size so a pathological tx (huge
+// iterator scans, many opened iterators) can't make the profile response
+// unbounded. Values picked to comfortably cover normal EVM txs while
+// capping worst-case overhead at a few MB per module.
 const (
 	maxStoreTraceIterators    = 16
 	maxStoreTraceIteratorKeys = 64
 	maxLowLevelReadSamples    = 128
 )
 
+// StoreTracer collects every KVStore access (Get/Has/Set/Delete/iterator)
+// performed under a debug_traceTransactionProfile call, grouped by module.
+// One tracer is attached to the sdk.Context for the duration of the traced
+// tx; callers must treat it as single-tx-scoped. All methods are safe for
+// concurrent use.
 type StoreTracer struct {
 	Modules        map[string]*ModuleTrace
 	nextIteratorID int
-	readClosers    []io.Closer
 	mu             *sync.Mutex
 }
 
+// ModuleTrace holds every access event for a single module within a trace,
+// plus a per-iterator roll-up and a bounded sample of low-level read events
+// emitted by the underlying state store.
 type ModuleTrace struct {
 	Accesses        []Access
 	Iterators       []*IteratorTrace
@@ -31,6 +41,9 @@ type ModuleTrace struct {
 	iteratorIndexBy map[int]int
 }
 
+// IteratorTrace aggregates one opened iterator: its bounds, direction, the
+// keys it surfaced to the tx (capped at maxStoreTraceIteratorKeys; Truncated
+// flags overflow), and cumulative Next() count + time.
 type IteratorTrace struct {
 	Start         []byte
 	End           []byte
@@ -41,6 +54,8 @@ type IteratorTrace struct {
 	Truncated     bool
 }
 
+// Access is a single access event in a module's chronological log. Value is
+// only populated for Get/Set/IteratorValue; other ops leave it nil.
 type Access struct {
 	Op            OpType
 	Key           []byte
@@ -48,6 +63,7 @@ type Access struct {
 	DurationNanos int64
 }
 
+// OpType tags an Access with the operation the tx performed.
 type OpType int
 
 const (
@@ -60,6 +76,7 @@ const (
 	IteratorValue
 )
 
+// String returns the JSON/report-friendly name for the op.
 func (o OpType) String() string {
 	switch o {
 	case Get:
@@ -81,14 +98,16 @@ func (o OpType) String() string {
 	}
 }
 
+// NewStoreTracer returns an empty StoreTracer ready to record per-module
+// access events for a single debug_traceTransactionProfile call.
 func NewStoreTracer() *StoreTracer {
 	return &StoreTracer{
-		Modules:     map[string]*ModuleTrace{},
-		readClosers: []io.Closer{},
-		mu:          &sync.Mutex{},
+		Modules: map[string]*ModuleTrace{},
+		mu:      &sync.Mutex{},
 	}
 }
 
+// Get records a KVStore.Get access against module.
 func (st *StoreTracer) Get(key []byte, value []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Get,
@@ -98,6 +117,7 @@ func (st *StoreTracer) Get(key []byte, value []byte, module string, duration tim
 	})
 }
 
+// Set records a KVStore.Set access against module.
 func (st *StoreTracer) Set(key []byte, value []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Set,
@@ -107,6 +127,7 @@ func (st *StoreTracer) Set(key []byte, value []byte, module string, duration tim
 	})
 }
 
+// Has records a KVStore.Has access against module.
 func (st *StoreTracer) Has(key []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Has,
@@ -115,6 +136,7 @@ func (st *StoreTracer) Has(key []byte, module string, duration time.Duration) {
 	})
 }
 
+// Delete records a KVStore.Delete access against module.
 func (st *StoreTracer) Delete(key []byte, module string, duration time.Duration) {
 	st.recordAccess(module, Access{
 		Op:            Delete,
@@ -123,6 +145,11 @@ func (st *StoreTracer) Delete(key []byte, module string, duration time.Duration)
 	})
 }
 
+// StartIterator records the opening of an iterator over [start, end) and
+// allocates a tracer-scoped iteratorID the caller uses to tag subsequent
+// Next/Value events. Past maxStoreTraceIterators the IteratorTrace record is
+// dropped (the access-log event is still recorded) and the returned ID lets
+// later calls no-op gracefully.
 func (st *StoreTracer) StartIterator(start, end []byte, ascending bool, module string, duration time.Duration) int {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -153,6 +180,10 @@ func (st *StoreTracer) StartIterator(start, end []byte, ascending bool, module s
 	return iteratorID
 }
 
+// RecordIteratorValue records that the tx read the current key/value from
+// the iterator identified by iteratorID. Beyond maxStoreTraceIteratorKeys the
+// iterator is flagged Truncated and further keys are dropped from the
+// per-iterator sample (the access-log event is still recorded).
 func (st *StoreTracer) RecordIteratorValue(iteratorID int, key []byte, value []byte, module string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -176,6 +207,8 @@ func (st *StoreTracer) RecordIteratorValue(iteratorID int, key []byte, value []b
 	it.Keys = append(it.Keys, slices.Clone(key))
 }
 
+// RecordIteratorNext records a Next() advance on the iterator identified by
+// iteratorID, adding to its cumulative step count and stepping time.
 func (st *StoreTracer) RecordIteratorNext(iteratorID int, module string, duration time.Duration) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -217,12 +250,13 @@ func (st *StoreTracer) recordAccess(module string, access Access) {
 	mt.Accesses = append(mt.Accesses, access)
 }
 
+// Clear resets the tracer to its empty state so a single StoreTracer can be
+// reused across successive trace requests on the same connection.
 func (st *StoreTracer) Clear() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.Modules = map[string]*ModuleTrace{}
 	st.nextIteratorID = 0
-	st.readClosers = nil
 }
 
 type OperationSummary struct {
@@ -264,6 +298,10 @@ type ReadTraceEventDump struct {
 	Reverse    bool   `json:"reverse,omitempty"`
 }
 
+// Dump materializes the tracer's accumulated per-module accesses into a
+// wire-shaped StoreTraceDump. Reads that were later overwritten by a Set or
+// Delete during the same tx are excluded so the Reads map reflects the
+// pre-state the tx observed.
 func (st *StoreTracer) Dump() StoreTraceDump {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -353,6 +391,8 @@ func updateSummary(stats map[string]OperationSummary, op OpType, durationNanos i
 	stats[key] = summary
 }
 
+// DerivePrestateToJson returns a JSON encoding of the current trace state,
+// used by debug_traceTransaction to attach AppState to the response.
 func (st *StoreTracer) DerivePrestateToJson() []byte {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -364,6 +404,10 @@ func (st *StoreTracer) DerivePrestateToJson() []byte {
 	return bz
 }
 
+// RecordReadTrace implements seidbtypes.ReadTraceCollector so a state store
+// backend can attach this tracer via WithReadTraceCollector and emit
+// low-level read events (e.g. pebble Gets and iterator seeks) during a trace.
+// Samples are capped at maxLowLevelReadSamples per module.
 func (st *StoreTracer) RecordReadTrace(event seidbtypes.ReadTraceEvent) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -382,28 +426,4 @@ func (st *StoreTracer) RecordReadTrace(event seidbtypes.ReadTraceEvent) {
 		End:           slices.Clone(event.End),
 		Reverse:       event.Reverse,
 	})
-}
-
-func (st *StoreTracer) AddReadTraceCloser(closer io.Closer) {
-	if closer == nil {
-		return
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.readClosers = append(st.readClosers, closer)
-}
-
-func (st *StoreTracer) CloseReadTraceResources() error {
-	st.mu.Lock()
-	closers := st.readClosers
-	st.readClosers = nil
-	st.mu.Unlock()
-
-	var lastErr error
-	for _, closer := range closers {
-		if err := closer.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
 }
