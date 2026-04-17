@@ -38,7 +38,7 @@ func TestValidatorSetBasic(t *testing.T) {
 	require.False(t, ok)
 	idx, val, ok = vset.GetByKey(ed25519.GenerateSecretKey().Public())
 	require.False(t, ok)
-	val, ok := vset.GetByIndex(-100)
+	val, ok = vset.GetByIndex(-100)
 	require.False(t, ok)
 	val, ok = vset.GetByIndex(0)
 	require.False(t, ok)
@@ -94,7 +94,7 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 	val2, _, err := randValidator(ctx, false, 1)
 	require.NoError(t, err)
 
-	badVal := &Validator{}
+	badVal := &Validator{VotingPower: -1}
 
 	testCases := []struct {
 		vals ValidatorSet
@@ -121,7 +121,7 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 				Validators: []*Validator{badVal},
 				Proposer:   val,
 			},
-			err: utils.Some(ErrBadAddressSize),
+			err: utils.Some(ErrNegativeVotingPower),
 		},
 		{
 			vals: ValidatorSet{
@@ -333,18 +333,21 @@ func TestProposerSelection2(t *testing.T) {
 }
 
 func TestProposerSelection3(t *testing.T) {
+	keys := []crypto.PubKey{
+		ed25519.GenerateSecretKey().Public(),
+		ed25519.GenerateSecretKey().Public(),
+		ed25519.GenerateSecretKey().Public(),
+		ed25519.GenerateSecretKey().Public(),
+	}
 	vset := NewValidatorSet([]*Validator{
-		newValidator([]byte("avalidator_address12"), 1),
-		newValidator([]byte("bvalidator_address12"), 1),
-		newValidator([]byte("cvalidator_address12"), 1),
-		newValidator([]byte("dvalidator_address12"), 1),
+		NewValidator(keys[0], 1),
+		NewValidator(keys[1], 1),
+		NewValidator(keys[2], 1),
+		NewValidator(keys[3], 1),
 	})
 
 	proposerOrder := make([]*Validator, 4)
 	for i := range 4 {
-		// need to give all validators to have keys
-		pk := ed25519.GenerateSecretKey().Public()
-		vset.Validators[i].PubKey = pk
 		proposerOrder[i] = vset.GetProposer()
 		vset.IncrementProposerPriority(1)
 	}

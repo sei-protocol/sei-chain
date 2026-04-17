@@ -1103,10 +1103,7 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("EnsureValidHeadersAndValSets", func(t *testing.T) {
-		emptyValSet := &types.ValidatorSet{
-			Validators: nil,
-			Proposer:   nil,
-		}
+		emptyValSet := types.NewValidatorSet(nil)
 
 		testCases := []struct {
 			headers map[int64]*types.SignedHeader

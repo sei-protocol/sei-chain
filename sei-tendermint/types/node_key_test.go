@@ -18,7 +18,8 @@ func TestLoadOrGenNodeKey(t *testing.T) {
 
 	nodeKey2, err := types.LoadOrGenNodeKey(filePath)
 	require.NoError(t, err)
-	require.Equal(t, nodeKey, nodeKey2)
+	require.Equal(t, nodeKey.ID, nodeKey2.ID)
+	require.Equal(t, nodeKey.PubKey().Bytes(), nodeKey2.PubKey().Bytes())
 }
 
 func TestLoadNodeKey(t *testing.T) {

@@ -66,20 +66,6 @@ func TestValidatorValidateBasic(t *testing.T) {
 			val: NewValidator(pubKey, -1),
 			err: utils.Some(ErrNegativeVotingPower),
 		},
-		{
-			val: &Validator{
-				PubKey:  pubKey,
-				Address: nil,
-			},
-			err: utils.Some(ErrBadAddressSize),
-		},
-		{
-			val: &Validator{
-				PubKey:  pubKey,
-				Address: []byte{'a'},
-			},
-			err: utils.Some(ErrBadAddressSize),
-		},
 	}
 
 	for _, tc := range testCases {

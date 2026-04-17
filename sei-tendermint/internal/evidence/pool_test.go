@@ -547,10 +547,7 @@ func initializeValidatorState(ctx context.Context, t *testing.T, privVal types.P
 	validator := types.NewValidator(pubKey, 10)
 
 	// create validator set and state
-	valSet := &types.ValidatorSet{
-		Validators: []*types.Validator{validator},
-		Proposer:   validator,
-	}
+	valSet := types.NewValidatorSet([]*types.Validator{validator})
 
 	return initializeStateFromValidatorSet(t, valSet, height)
 }

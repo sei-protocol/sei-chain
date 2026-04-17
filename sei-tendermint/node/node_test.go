@@ -534,7 +534,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		math.MaxInt64,
 		state,
 		voteSet.MakeCommit(),
-		proposerAddr,
+		proposer.Address,
 	)
 	require.NoError(t, err)
 	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)

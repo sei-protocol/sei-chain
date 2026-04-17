@@ -11,11 +11,9 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -195,11 +193,8 @@ func TestPruneStates(t *testing.T) {
 
 			// Generate a bunch of state data. Validators change for heights ending with 3, and
 			// parameters when ending with 5.
-			validator := &types.Validator{Address: tmrand.Bytes(crypto.AddressSize), VotingPower: 100, PubKey: pk}
-			validatorSet := &types.ValidatorSet{
-				Validators: []*types.Validator{validator},
-				Proposer:   validator,
-			}
+			validator := types.NewValidator(pk, 100)
+			validatorSet := types.NewValidatorSet([]*types.Validator{validator})
 			valsChanged := int64(0)
 			paramsChanged := int64(0)
 
