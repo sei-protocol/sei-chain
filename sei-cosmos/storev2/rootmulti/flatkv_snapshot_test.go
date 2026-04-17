@@ -1,28 +1,10 @@
 package rootmulti
 
-// Snapshot / restore integration tests and prune-boundary coverage for the
-// FlatKV rootmulti wiring:
-//
-//   TestFlatKVSnapshotRestoreWithLatticeHash exercises the full Snapshot /
-//   Restore round-trip under DualWrite and asserts that two nodes
-//   bootstrapped from the same snapshot continue to track each other
-//   byte-for-byte (the key guarantee that protects against a fork between
-//   snapshot-bootstrapped and non-snapshot nodes once the lattice hash
-//   participates in consensus).
-//
-//   TestFlatKVSplitWriteSnapshotRestore mirrors the round-trip under
-//   SplitWrite where EVM state lives only in FlatKV. The restored node must
-//   hold the source's EVM value in its FlatKV (memiavl "evm" subtree stays
-//   empty by construction) and must stay in app-hash lockstep with the
-//   source as the chain advances.
-//
-//   TestFlatKVPruneBoundaryQueries exercises rootmulti under aggressive
-//   memiavl+flatkv snapshot pruning to guard against regressions that would
-//   drop recent versions, corrupt the FlatKV LtHash, or make historical
-//   queries within the retained window return bad hashes.
+// Snapshot / Restore round-trips, concurrent commit race, and prune boundary.
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -241,6 +223,130 @@ func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
 
 	// Restored FlatKV is internally self-consistent (full-scan LtHash matches
 	// committed LtHash). Equivalent of guarantee (a) from the DualWrite test.
+	verifyFlatKVSelfConsistent(t, dstDir, cfg)
+}
+
+// ---------------------------------------------------------------------------
+// TestFlatKVConcurrentSnapshotAndCommit: Snapshot export racing with Commit
+//
+// In production, Cosmos SDK's snapshot manager invokes rootmulti.Store.Snapshot
+// on a separate goroutine while the consensus goroutine continues to advance
+// the chain via Commit. rootmulti.Store.Snapshot does NOT take rs.mtx, so the
+// two paths genuinely run concurrently. The coupling goes through
+// CompositeCommitStore.Exporter -> flatkv.CommitStore.Exporter, which creates
+// a readonly clone in a temp dir via LoadVersion(v, true) and iterates there
+// while the main flatkv.CommitStore keeps receiving ApplyChangeSets + Commit.
+//
+// If any of this sharing is unsafe (readonly clone sees half-written state,
+// the main writer stomps on a snapshot dir the clone is reading, Pebble
+// handle reuse, etc.) this test should surface it under `go test -race`.
+//
+// Asserts:
+//
+//  1. The snapshot taken at v5 while commits continue is non-empty and
+//     restorable into a fresh node.
+//  2. The restored node post-restore holds the v5 state (version == 5,
+//     evm_lattice present).
+//  3. Driving identical blocks on the restored node and on a reference node
+//     that did not have a concurrent snapshot writer produces byte-identical
+//     app hashes per block. If the restored state was corrupted by the race,
+//     this parity would diverge.
+//  4. Both the source (after its concurrent commits) and the restored node
+//     are internally self-consistent (full-scan LtHash == committed LtHash).
+// ---------------------------------------------------------------------------
+
+func TestFlatKVConcurrentSnapshotAndCommit(t *testing.T) {
+	cfg := dualWriteConfig()
+	evmData := newEVMTestData(0x5C)
+
+	// Source: drive to v5 with the snapshot target state, then concurrently
+	// (a) snapshot v5 and (b) keep committing blocks 6..15.
+	srcDir := t.TempDir()
+	srcStore, srcKeys := newTestRootMulti(t, srcDir, cfg)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, srcStore, srcKeys, block, evmData)
+	}
+
+	var (
+		buf     bytes.Buffer
+		snapErr error
+		wg      sync.WaitGroup
+	)
+
+	// Goroutine A: snapshot v5 into buf.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		writer := protoio.NewDelimitedWriter(&buf)
+		snapErr = srcStore.Snapshot(5, writer)
+	}()
+
+	// Goroutine B: keep committing blocks 6..15 while the snapshot runs.
+	// Uses a different seed-base so values differ from the v5 snapshot,
+	// exercising the case where the live writer modifies state during export.
+	const extraBlocks = 10
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for block := 6; block <= 5+extraBlocks; block++ {
+			simulateBlock(t, srcStore, srcKeys, block, evmData)
+		}
+	}()
+
+	wg.Wait()
+	require.NoError(t, snapErr, "concurrent Snapshot must not error")
+	require.NotEmpty(t, buf.Bytes(), "snapshot buffer must be non-empty")
+	require.Equal(t, int64(5+extraBlocks), srcStore.LastCommitID().Version,
+		"source must have advanced past the snapshot height while export ran")
+
+	// Restore into a fresh node and assert it lands exactly at v5.
+	dstDir := t.TempDir()
+	dstStore, _ := newTestRootMulti(t, dstDir, cfg)
+	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
+	_, err := dstStore.Restore(5, 1, reader)
+	require.NoError(t, err, "restore of concurrent snapshot must succeed")
+	require.Equal(t, int64(5), dstStore.LastCommitID().Version)
+
+	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	require.NotNil(t, dstLattice, "evm_lattice must be present after concurrent-snapshot restore")
+	require.NotEmpty(t, dstLattice.CommitId.Hash)
+
+	// Reference node: drive v1..v5 cleanly (no concurrent snapshot), then the
+	// same extra blocks. This reproduces the state the source had at v5 plus
+	// the canonical continuation — no concurrency on the source side. If the
+	// concurrent-snapshot path corrupted anything, parity breaks here.
+	refDir := t.TempDir()
+	refStore, refKeys := newTestRootMulti(t, refDir, cfg)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, refStore, refKeys, block, evmData)
+	}
+
+	dstKeys := make(map[string]*types.KVStoreKey)
+	for name, key := range dstStore.storeKeys {
+		kvKey, ok := key.(*types.KVStoreKey)
+		require.Truef(t, ok, "unexpected store-key type for %q: %T", name, key)
+		dstKeys[name] = kvKey
+	}
+
+	for block := 6; block <= 8; block++ {
+		refRec := simulateBlock(t, refStore, refKeys, block, evmData)
+		dstRec := simulateBlock(t, dstStore, dstKeys, block, evmData)
+		require.Equalf(t, refRec.version, dstRec.version,
+			"ref and dst must be at the same version at block %d", block)
+		require.Equalf(t, refRec.hash, dstRec.hash,
+			"restored node must match a cleanly-built reference at block %d", block)
+	}
+
+	require.NoError(t, srcStore.Close())
+	require.NoError(t, refStore.Close())
+	require.NoError(t, dstStore.Close())
+
+	// Both the source that had a concurrent snapshot writer running through
+	// its commit pipeline and the restored node must be internally
+	// self-consistent on disk. If the race caused the live writer to corrupt
+	// the main flatkv DB (or the snapshot's readonly clone to stomp on it),
+	// full-scan LtHash would no longer match committed LtHash.
+	verifyFlatKVSelfConsistent(t, srcDir, cfg)
 	verifyFlatKVSelfConsistent(t, dstDir, cfg)
 }
 

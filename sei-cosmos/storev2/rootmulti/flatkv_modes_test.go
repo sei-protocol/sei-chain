@@ -1,22 +1,6 @@
 package rootmulti
 
-// Mode and query-path integration tests:
-//
-//   TestFlatKVShadowModeNoLatticeInAppHash — shadow mode (DualWrite,
-//   EnableLatticeHash=false) must keep FlatKV's on-disk LtHash bit-identical
-//   to the lattice-enabled run, so that flipping EnableLatticeHash true on a
-//   shadow node cannot fork the chain.
-//
-//   TestFlatKVQueryWithSSAndReadMode — Query path with SS enabled (no proof)
-//   plus ics23 proof verification against the returned app hash.
-//
-//   TestFlatKVSSAsyncRestartConsistency — exercises SS with AsyncWriteBuffer
-//   > 0 and asserts that after a clean restart the SS + FlatKV + memiavl
-//   triplet agrees on historical EVM and cosmos values, so that the SS WAL
-//   replay wired into composite.NewCompositeStateStore does not regress for
-//   DualWrite. A true SIGKILL "crash" is out of scope at the integration
-//   layer; the lower-level SS crash paths are covered by
-//   sei-db/state_db/ss/composite/recovery_test.go.
+// WriteMode / Query path coverage: Shadow, SS, proof, missing-key, async restart.
 
 import (
 	"fmt"

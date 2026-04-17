@@ -1,23 +1,6 @@
 package rootmulti
 
-// DualWrite equivalence oracle — leverages DualWrite mode as a cross-backend
-// differential test. In DualWrite, every EVM changeset is mirrored into both
-// memiavl (the canonical Cosmos backend, treated here as ground truth) and
-// FlatKV. Any byte-for-byte divergence at the end of a workload points to a
-// FlatKV bug.
-//
-// Production migrations do not use DualWrite; these tests use it purely as a
-// testing oracle. Non-EVM writes (acc, bank) are written too as a control:
-// the composite store only routes the "evm" module changeset to FlatKV, so
-// FlatKV must contain exactly the EVM subset of memiavl state — nothing
-// more, nothing less.
-//
-// Equivalence is asserted in BOTH directions:
-//
-//   forward  — every memiavl evm key is present in FlatKV with the same
-//              value (catches "FlatKV missed / stale").
-//   reverse  — every node emitted by FlatKV's Exporter maps to an identical
-//              memiavl entry (catches "FlatKV produced phantom rows").
+// DualWrite cross-backend differential oracle (memiavl == flatkv).
 
 import (
 	"encoding/binary"

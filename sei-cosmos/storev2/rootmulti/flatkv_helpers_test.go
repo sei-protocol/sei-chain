@@ -1,13 +1,6 @@
 package rootmulti
 
-// This file hosts the shared fixtures, configuration factories, and helpers
-// used by the flatkv integration test suite split across:
-//
-//   flatkv_hash_test.go      - hash determinism / sensitivity / empty-block tests
-//   flatkv_recovery_test.go  - crash recovery, rollback, reopen cycles
-//   flatkv_workload_test.go  - large / realistic write workloads and equivalence
-//   flatkv_snapshot_test.go  - snapshot/restore round-trip + prune boundary
-//   flatkv_modes_test.go     - shadow mode, SS query + proofs, SS async restart
+// Shared fixtures, config factories, and assertion helpers for the flatkv_*_test.go suite.
 
 import (
 	"bytes"

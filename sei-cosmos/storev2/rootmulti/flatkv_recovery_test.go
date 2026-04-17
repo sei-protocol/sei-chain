@@ -1,12 +1,6 @@
 package rootmulti
 
-// Crash / rollback / reopen integration tests for the FlatKV rootmulti
-// wiring. Covers rollback with lattice hash, crash recovery in both
-// directions (FlatKV behind cosmos and cosmos behind FlatKV), multi-cycle
-// close/reopen, rollback boundaries, sequential rollbacks, rollback followed
-// by a simulated crash, and two SplitWrite-specific crash variants
-// (TestFlatKVSplitWriteCrashRecovery, TestFlatKVSplitWriteReverseCrashRecovery)
-// that mirror the DualWrite crash/reverse-crash cases.
+// Crash / rollback / reopen recovery under DualWrite and SplitWrite.
 
 import (
 	"testing"

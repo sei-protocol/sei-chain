@@ -1,8 +1,6 @@
 package rootmulti
 
-// Hash-focused integration tests for the FlatKV rootmulti wiring: lattice
-// hash determinism, sensitivity, double flush, and cosmos-only / mixed block
-// sequences.
+// Lattice hash behavior: determinism, sensitivity, double-flush, mode parity.
 
 import (
 	"testing"
@@ -188,38 +186,12 @@ func TestFlatKVDualWriteDoubleFlush(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Empty EVM blocks — lattice hash stays stable
-// ---------------------------------------------------------------------------
-
-func TestFlatKVEmptyEVMBlocks(t *testing.T) {
-	store, storeKeys := newTestRootMulti(t, t.TempDir(), dualWriteConfig())
-	defer func() { require.NoError(t, store.Close()) }()
-
-	evmData := newEVMTestData(0x44)
-
-	rec1 := simulateBlock(t, store, storeKeys, 1, evmData)
-	lattice1 := findStoreInfo(rec1.infos, "evm_lattice")
-	require.NotNil(t, lattice1)
-
-	// Blocks 2-4: cosmos only — no EVM writes
-	for block := 2; block <= 4; block++ {
-		rec := simulateCosmosOnlyBlock(t, store, storeKeys, block)
-		lattice := findStoreInfo(rec.infos, "evm_lattice")
-		require.NotNil(t, lattice)
-		require.Equalf(t, lattice1.CommitId.Hash, lattice.CommitId.Hash,
-			"lattice hash should not change without EVM writes (block %d)", block)
-	}
-
-	// Block 5: write EVM data again — lattice hash must change
-	rec5 := simulateBlock(t, store, storeKeys, 5, evmData)
-	lattice5 := findStoreInfo(rec5.infos, "evm_lattice")
-	require.NotNil(t, lattice5)
-	require.NotEqual(t, lattice1.CommitId.Hash, lattice5.CommitId.Hash,
-		"lattice hash must change when EVM data changes again")
-}
-
-// ---------------------------------------------------------------------------
 // Mixed cosmos+EVM blocks — selective lattice hash changes
+//
+// Also subsumes a standalone "empty EVM blocks" case: the per-block assertions
+// below pin both directions of the invariant — lattice hash stays byte-equal
+// across cosmos-only blocks and must change across EVM-write blocks — so a
+// separate fixed-sequence test adds no additional signal.
 // ---------------------------------------------------------------------------
 
 func TestFlatKVMixedCosmosAndEVMBlocks(t *testing.T) {
