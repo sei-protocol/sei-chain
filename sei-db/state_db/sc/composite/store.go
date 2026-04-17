@@ -222,7 +222,7 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 		if cosmosVersion != flatkvVersion {
 			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, flatkvVersion)
 		}
-		logger.Info("flatkv st ate committed",
+		logger.Info("flatkv state committed",
 			"height", flatkvVersion,
 			"latticeHash", hex.EncodeToString(cs.flatkvCommitter.CommittedRootHash()))
 	}

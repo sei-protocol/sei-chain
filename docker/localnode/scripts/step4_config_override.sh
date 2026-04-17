@@ -28,11 +28,15 @@ sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
 if [ "$GIGA_STORAGE" = "true" ]; then
   echo "Enabling Giga Storage for node $NODE_ID..."
 
-  # --- SC layer: split_write, split_read, lattice hash ---
+  # --- SC layer: dual_write + split_read + lattice hash ---
+  # SC must use dual_write (not split_write) because block execution reads
+  # EVM data from the memiavl tree via GetChildStoreByName. With split_write,
+  # EVM data only goes to FlatKV and the memiavl tree becomes stale.
+  # dual_write keeps memiavl up-to-date for reads while also populating FlatKV.
   if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-write-mode = .*/sc-write-mode = "split_write"/' ~/.sei/config/app.toml
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "dual_write"/' ~/.sei/config/app.toml
   else
-    sed -i '/^\[state-store\]/i sc-write-mode = "split_write"' ~/.sei/config/app.toml
+    sed -i '/^\[state-store\]/i sc-write-mode = "dual_write"' ~/.sei/config/app.toml
   fi
   if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
     sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
