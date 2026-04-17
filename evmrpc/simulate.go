@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -231,22 +230,7 @@ type Backend struct {
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
 	watermarks         *WatermarkManager
-	replayStateCacheMu *sync.Mutex
-	replayStateCache   *expirable.LRU[string, *blockReplayState]
 }
-
-// blockReplayState holds cached replay checkpoints for a single block, keyed
-// by tx index. Protected by its own mutex so entries for different blocks
-// can be updated independently.
-type blockReplayState struct {
-	mu          sync.Mutex
-	checkpoints map[int]sdk.Context
-}
-
-const (
-	replayStateCacheBlocks = 32
-	replayStateCacheTTL    = 10 * time.Minute
-)
 
 func NewBackend(
 	ctxProvider func(int64) sdk.Context,
@@ -273,10 +257,6 @@ func NewBackend(
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
 		watermarks:         watermarks,
-		replayStateCacheMu: &sync.Mutex{},
-		replayStateCache: expirable.NewLRU[string, *blockReplayState](
-			replayStateCacheBlocks, nil, replayStateCacheTTL,
-		),
 	}
 }
 
@@ -511,20 +491,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
 
-	startIdx := 0
-	if cachedCtx, cachedIdx, ok := b.getReplayState(block.Hash().Hex(), txIndex); ok {
-		// Always replay from a fresh branch of the cached checkpoint so the
-		// stored snapshot remains immutable across requests.
-		sdkCtx = sdkCtx.WithMultiStore(cachedCtx.MultiStore().CacheMultiStore())
-		startIdx = cachedIdx + 1
-	} else {
-		b.putReplayState(block.Hash().Hex(), -1, sdkCtx.WithTraceMode(true).WithMultiStore(sdkCtx.MultiStore().CacheMultiStore()))
-	}
-
 	for idx, tx := range tmBlock.Block.Txs {
-		if idx < startIdx {
-			continue
-		}
 		if idx > txIndex {
 			break
 		}
@@ -537,46 +504,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
-	finalCtx := sdkCtx.WithIsEVM(true)
-	b.putReplayState(block.Hash().Hex(), txIndex, finalCtx.WithTraceMode(true).WithMultiStore(finalCtx.MultiStore().CacheMultiStore()))
-	return state.NewDBImpl(finalCtx, b.keeper, true), tmBlock.Block.Txs, nil
-}
-
-func (b *Backend) getReplayState(blockHash string, txIndex int) (sdk.Context, int, bool) {
-	state, ok := b.replayStateCache.Get(blockHash)
-	if !ok {
-		return sdk.Context{}, 0, false
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	bestIdx := math.MinInt
-	var bestCtx sdk.Context
-	for idx, ctx := range state.checkpoints {
-		if idx <= txIndex && idx > bestIdx {
-			bestIdx = idx
-			bestCtx = ctx
-		}
-	}
-	if bestIdx == math.MinInt {
-		return sdk.Context{}, 0, false
-	}
-	return bestCtx, bestIdx, true
-}
-
-func (b *Backend) putReplayState(blockHash string, txIndex int, ctx sdk.Context) {
-	state, ok := b.replayStateCache.Get(blockHash)
-	if !ok {
-		b.replayStateCacheMu.Lock()
-		state, ok = b.replayStateCache.Get(blockHash)
-		if !ok {
-			state = &blockReplayState{checkpoints: map[int]sdk.Context{}}
-			b.replayStateCache.Add(blockHash, state)
-		}
-		b.replayStateCacheMu.Unlock()
-	}
-	state.mu.Lock()
-	state.checkpoints[txIndex] = ctx
-	state.mu.Unlock()
+	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
