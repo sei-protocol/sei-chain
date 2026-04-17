@@ -19,6 +19,18 @@ const (
 	migrationComplete migrationStatus = iota
 )
 
+//nolint:godot // diagram
+/*
+                        <-- Lexographically ordered keys -->
+
+      keys in this region migrated           keys in this region not migrated
+    |--------------------------------------|--------------------------------------|
+    ^                                      ^                                      ^
+    |                                      |                                      |
+  first key                       migration boundary                          last key
+                                --> moves each block -->
+*/
+
 // Defines the boundary between migrated and unmigrated keys.
 type MigrationBoundary struct {
 	// The status of the migration.
@@ -54,7 +66,8 @@ func NewMigrationBoundary(
 	}
 }
 
-// Checks to see if a key has been migrated yet.
+// Checks to see if a key has been migrated yet. Compares key against boundary, returning true if key is to the left
+// (or equal to) the boundary. Returns false if the key is to the right of the boundary.
 func (mb *MigrationBoundary) IsMigrated(moduleName string, key []byte) bool {
 	switch mb.status {
 	case migrationNotStarted:
