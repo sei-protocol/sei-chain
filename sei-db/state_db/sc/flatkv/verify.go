@@ -9,15 +9,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-// VerifyLtHash performs a full-scan recomputation of the LtHash over all four
-// data DBs and compares the result against the store's committed LtHash.
-// Returns nil when they match; otherwise a descriptive error.
+// VerifyLtHash full-scans all four data DBs and checks the recomputed LtHash
+// against the store's committedLtHash. Read-write stores with uncommitted
+// ApplyChangeSets writes are rejected (the on-disk scan cannot see them).
 //
-// The store should be opened (readonly or read-write) at the version to
-// verify. Read-write stores with pending ApplyChangeSets writes that have
-// not yet been committed are rejected: the on-disk scan reflects committed
-// state only, so comparing it against an advanced workingLtHash would
-// produce a spurious mismatch.
+// Buffers every KV in memory (peak RSS ~2-3x on-disk size) and is not
+// cancellable. Intended for tests and offline maintenance / cutover checks;
+// not suitable for online verification of production-sized state.
 func VerifyLtHash(s Store) error {
 	cs, ok := s.(*CommitStore)
 	if !ok {

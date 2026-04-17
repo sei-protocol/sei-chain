@@ -8,12 +8,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
-
-// codeHashLen must match vtype.CodeHashLen. Hardcoded here to avoid pulling
-// the vtype package into tests solely for one constant.
-const codeHashLen = 32
 
 // ---------------------------------------------------------------------------
 // Workload key builders
@@ -46,7 +43,7 @@ func codeKeyOf(addrSeed byte) []byte {
 }
 
 func makeCodeHash(pattern byte) []byte {
-	h := make([]byte, codeHashLen)
+	h := make([]byte, vtype.CodeHashLen)
 	h[0] = pattern
 	h[31] = 0xBB
 	return h
