@@ -154,25 +154,6 @@ type StateStore interface {
 	io.Closer
 }
 
-type ReadTraceEvent struct {
-	StoreKey      string
-	Layer         string
-	Operation     string
-	DurationNanos int64
-	Key           []byte
-	Start         []byte
-	End           []byte
-	Reverse       bool
-}
-
-type ReadTraceCollector interface {
-	RecordReadTrace(ReadTraceEvent)
-}
-
-type TraceableStateStore interface {
-	WithReadTraceCollector(ReadTraceCollector) StateStore
-}
-
 // DBIterator iterates over versioned key-value pairs.
 type DBIterator interface {
 	Domain() (start []byte, end []byte)

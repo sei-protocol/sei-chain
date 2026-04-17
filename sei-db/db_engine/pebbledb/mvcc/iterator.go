@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,30 +31,27 @@ type iterator struct {
 	reverse            bool
 	iterationCount     int64
 	storeKey           string
-	collector          types.ReadTraceCollector
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, collector types.ReadTraceCollector) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:    src,
-			prefix:    prefix,
-			start:     mvccStart,
-			end:       mvccEnd,
-			version:   version,
-			valid:     false,
-			reverse:   reverse,
-			storeKey:  storeKey,
-			collector: collector,
+			source:   src,
+			prefix:   prefix,
+			start:    mvccStart,
+			end:      mvccEnd,
+			version:  version,
+			valid:    false,
+			reverse:  reverse,
+			storeKey: storeKey,
 		}
 	}
 
 	// move the underlying PebbleDB iterator to the first key
 	var valid bool
-	positionStart := time.Now()
 	if reverse {
 		valid = src.Last()
 	} else {
@@ -63,20 +59,14 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:    src,
-		prefix:    prefix,
-		start:     mvccStart,
-		end:       mvccEnd,
-		version:   version,
-		valid:     valid,
-		reverse:   reverse,
-		storeKey:  storeKey,
-		collector: collector,
-	}
-	if reverse {
-		itr.recordPebbleOp("last", time.Since(positionStart), nil)
-	} else {
-		itr.recordPebbleOp("first", time.Since(positionStart), nil)
+		source:   src,
+		prefix:   prefix,
+		start:    mvccStart,
+		end:      mvccEnd,
+		version:  version,
+		valid:    valid,
+		reverse:  reverse,
+		storeKey: storeKey,
 	}
 
 	if valid {
@@ -107,9 +97,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 
 func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
 	seekKey := MVCCEncode(targetKey, itr.version)
-	seekStart := time.Now()
 	valid := itr.source.SeekGE(seekKey)
-	itr.recordPebbleOp("seekGE", time.Since(seekStart), seekKey)
 	if !valid {
 		return false
 	}
@@ -134,9 +122,7 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 		return nil, false
 	}
 	seekKey := MVCCEncode(nextKeyPrefix, math.MaxInt64)
-	seekStart := time.Now()
 	valid := itr.source.SeekGE(seekKey)
-	itr.recordPebbleOp("seekGE", time.Since(seekStart), seekKey)
 	if !valid {
 		return nil, false
 	}
@@ -149,9 +135,7 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 
 func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
 	seekKey := MVCCEncode(currKey, math.MaxInt64)
-	seekStart := time.Now()
 	valid := itr.source.SeekLT(seekKey)
-	itr.recordPebbleOp("seekLT", time.Since(seekStart), seekKey)
 	if !valid {
 		return nil, false
 	}
@@ -419,15 +403,4 @@ func (itr *iterator) DebugRawIterate() {
 			continue
 		}
 	}
-}
-
-func (itr *iterator) recordPebbleOp(operation string, duration time.Duration, key []byte) {
-	recordReadTrace(itr.collector, types.ReadTraceEvent{
-		StoreKey:      itr.storeKey,
-		Layer:         "pebble",
-		Operation:     operation,
-		DurationNanos: duration.Nanoseconds(),
-		Key:           slices.Clone(key),
-		Reverse:       itr.reverse,
-	})
 }
