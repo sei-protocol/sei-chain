@@ -552,10 +552,10 @@ func (db *Database) Prune(version int64) (_err error) {
 	defer func() { _ = batch.Close() }()
 
 	var (
-		counter            int
-		prevKey            []byte
-		prevVersionDecoded int64
-		prevStore          string
+		counter        int
+		prevKey        []byte
+		keptBelowPrune bool
+		prevStore      string
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -603,38 +603,42 @@ func (db *Database) Prune(version int64) (_err error) {
 			continue
 		}
 
-		// Seek to next key if we are at a version which is higher than prune height
-		// Do not seek to next key if KeepLastVersion is false and we need to delete the previous key in pruning
-		if currVersionDecoded > version && (db.config.KeepLastVersion || prevVersionDecoded > version) {
-			itr.NextPrefix()
-			continue
+		// Reset per-logical-key state when the logical key changes.
+		if !bytes.Equal(prevKey, currKey) {
+			prevKey = slices.Clone(currKey)
+			keptBelowPrune = false
+
+			// Fast path: under descending encoding, versions of a key are stored
+			// newest-first. When the newest real version is above the prune
+			// height, seek directly to the first version <= prune height for
+			// this key instead of iterating through every above-prune version.
+			if currVersionDecoded > version {
+				itr.SeekGE(MVCCEncode(currKey, version))
+				continue
+			}
 		}
 
-		// With descending MVCC ordering, the first version seen for a logical key is
-		// the newest one. Any later version for the same key is older and can be
-		// pruned once it falls below the prune height. If KeepLastVersion is false,
-		// even the first/only version at or below the prune height can be deleted.
-		if currVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || !db.config.KeepLastVersion) {
-			err = batch.Delete(currKeyEncoded, nil)
-			if err != nil {
-				return err
-			}
-
-			counter++
-			if counter >= PruneCommitBatchSize {
-				err = batch.Commit(defaultWriteOpts)
-				if err != nil {
+		// Descending iteration: for a given logical key we see newest→oldest.
+		// Versions > prune height are always kept. For versions <= prune
+		// height, keep only the newest one when KeepLastVersion is true;
+		// delete every other such version.
+		if currVersionDecoded <= version {
+			if db.config.KeepLastVersion && !keptBelowPrune {
+				keptBelowPrune = true
+			} else {
+				if err := batch.Delete(currKeyEncoded, nil); err != nil {
 					return err
 				}
-
-				counter = 0
-				batch.Reset()
+				counter++
+				if counter >= PruneCommitBatchSize {
+					if err := batch.Commit(defaultWriteOpts); err != nil {
+						return err
+					}
+					counter = 0
+					batch.Reset()
+				}
 			}
 		}
-
-		// Update prevKey and prevVersion for next iteration
-		prevKey = currKey
-		prevVersionDecoded = currVersionDecoded
 
 		itr.Next()
 	}

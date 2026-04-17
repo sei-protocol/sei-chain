@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -230,9 +231,22 @@ type Backend struct {
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
 	watermarks         *WatermarkManager
-	replayStateCacheMu sync.RWMutex
-	replayStateCache   map[string]map[int]sdk.Context
+	replayStateCacheMu sync.Mutex
+	replayStateCache   *expirable.LRU[string, *blockReplayState]
 }
+
+// blockReplayState holds cached replay checkpoints for a single block, keyed
+// by tx index. Protected by its own mutex so entries for different blocks
+// can be updated independently.
+type blockReplayState struct {
+	mu          sync.Mutex
+	checkpoints map[int]sdk.Context
+}
+
+const (
+	replayStateCacheBlocks = 32
+	replayStateCacheTTL    = 10 * time.Minute
+)
 
 func NewBackend(
 	ctxProvider func(int64) sdk.Context,
@@ -259,7 +273,9 @@ func NewBackend(
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
 		watermarks:         watermarks,
-		replayStateCache:   map[string]map[int]sdk.Context{},
+		replayStateCache: expirable.NewLRU[string, *blockReplayState](
+			replayStateCacheBlocks, nil, replayStateCacheTTL,
+		),
 	}
 }
 
@@ -526,15 +542,15 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 }
 
 func (b *Backend) getReplayState(blockHash string, txIndex int) (sdk.Context, int, bool) {
-	b.replayStateCacheMu.RLock()
-	defer b.replayStateCacheMu.RUnlock()
-	blockStates, ok := b.replayStateCache[blockHash]
+	state, ok := b.replayStateCache.Get(blockHash)
 	if !ok {
 		return sdk.Context{}, 0, false
 	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
 	bestIdx := math.MinInt
 	var bestCtx sdk.Context
-	for idx, ctx := range blockStates {
+	for idx, ctx := range state.checkpoints {
 		if idx <= txIndex && idx > bestIdx {
 			bestIdx = idx
 			bestCtx = ctx
@@ -547,12 +563,19 @@ func (b *Backend) getReplayState(blockHash string, txIndex int) (sdk.Context, in
 }
 
 func (b *Backend) putReplayState(blockHash string, txIndex int, ctx sdk.Context) {
-	b.replayStateCacheMu.Lock()
-	defer b.replayStateCacheMu.Unlock()
-	if _, ok := b.replayStateCache[blockHash]; !ok {
-		b.replayStateCache[blockHash] = map[int]sdk.Context{}
+	state, ok := b.replayStateCache.Get(blockHash)
+	if !ok {
+		b.replayStateCacheMu.Lock()
+		state, ok = b.replayStateCache.Get(blockHash)
+		if !ok {
+			state = &blockReplayState{checkpoints: map[int]sdk.Context{}}
+			b.replayStateCache.Add(blockHash, state)
+		}
+		b.replayStateCacheMu.Unlock()
 	}
-	b.replayStateCache[blockHash][txIndex] = ctx
+	state.mu.Lock()
+	state.checkpoints[txIndex] = ctx
+	state.mu.Unlock()
 }
 
 func snapshotReplayState(ctx sdk.Context) sdk.Context {
