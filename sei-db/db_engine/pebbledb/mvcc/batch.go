@@ -23,7 +23,6 @@ type batchOp struct {
 	key    []byte
 	value  []byte
 	delete bool
-	order  int
 }
 
 func NewBatch(storage *pebble.DB, version int64) (*Batch, error) {
@@ -190,7 +189,6 @@ func (b *Batch) appendSet(key, value []byte) {
 	b.ops = append(b.ops, batchOp{
 		key:   append([]byte(nil), key...),
 		value: append([]byte(nil), value...),
-		order: len(b.ops),
 	})
 }
 
@@ -198,7 +196,6 @@ func (b *Batch) appendDelete(key []byte) {
 	b.ops = append(b.ops, batchOp{
 		key:    append([]byte(nil), key...),
 		delete: true,
-		order:  len(b.ops),
 	})
 }
 
@@ -206,7 +203,6 @@ func (b *RawBatch) appendSet(key, value []byte) {
 	b.ops = append(b.ops, batchOp{
 		key:   append([]byte(nil), key...),
 		value: append([]byte(nil), value...),
-		order: len(b.ops),
 	})
 }
 

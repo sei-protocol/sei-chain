@@ -51,27 +51,24 @@ func TestReplayStateCache_GetPut(t *testing.T) {
 }
 
 // TestReplayStateCache_EvictsOldBlocks is the regression test for the
-// unbounded-memory-growth bug: distinct blocks beyond the cache cap must
+// unbounded-memory-growth bug: distinct blocks beyond the cache size must
 // be evicted, not retained forever.
 func TestReplayStateCache_EvictsOldBlocks(t *testing.T) {
-	const cap = 4
-	b := newTestBackend(cap, time.Hour)
+	const size = 4
+	b := newTestBackend(size, time.Hour)
 
-	// Insert more distinct blocks than the cap.
-	for i := 0; i < cap*3; i++ {
+	for i := 0; i < size*3; i++ {
 		hash := fmt.Sprintf("0x%d", i)
 		b.putReplayState(hash, 0, sdk.Context{}.WithBlockHeight(int64(i)))
 	}
 
-	require.LessOrEqual(t, b.replayStateCache.Len(), cap,
-		"cache must not grow beyond its configured cap")
+	require.LessOrEqual(t, b.replayStateCache.Len(), size,
+		"cache must not grow beyond its configured size")
 
-	// The earliest blocks are gone.
 	_, _, ok := b.getReplayState("0x0", 0)
 	require.False(t, ok, "oldest block must have been evicted")
 
-	// The most recent blocks are still present.
-	_, _, ok = b.getReplayState(fmt.Sprintf("0x%d", cap*3-1), 0)
+	_, _, ok = b.getReplayState(fmt.Sprintf("0x%d", size*3-1), 0)
 	require.True(t, ok, "most recently added block must still be cached")
 }
 

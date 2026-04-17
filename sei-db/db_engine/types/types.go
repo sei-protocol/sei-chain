@@ -2,7 +2,6 @@ package types
 
 import (
 	"io"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -172,15 +171,6 @@ type ReadTraceCollector interface {
 
 type TraceableStateStore interface {
 	WithReadTraceCollector(ReadTraceCollector) StateStore
-}
-
-func NewReadTraceEvent(storeKey, layer, operation string, duration time.Duration) ReadTraceEvent {
-	return ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         layer,
-		Operation:     operation,
-		DurationNanos: duration.Nanoseconds(),
-	}
 }
 
 // DBIterator iterates over versioned key-value pairs.

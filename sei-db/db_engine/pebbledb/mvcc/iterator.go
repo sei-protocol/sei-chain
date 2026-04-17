@@ -23,10 +23,7 @@ var _ types.DBIterator = (*iterator)(nil)
 // in the provided domain for a given version. If a key has been written at the
 // provided version, that key/value pair will be iterated over. Otherwise, the
 // latest version for that key/value pair will be iterated over s.t. it's less
-// than the provided version. Note:
-//
-// - The start key must not be empty.
-// - Currently, reverse iteration is NOT supported.
+// than the provided version. The start key must not be empty.
 type iterator struct {
 	source             *pebble.Iterator
 	prefix, start, end []byte

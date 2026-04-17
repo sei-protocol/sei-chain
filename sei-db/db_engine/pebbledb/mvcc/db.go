@@ -955,7 +955,6 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		DurationNanos: time.Since(iterStart).Nanoseconds(),
 		Start:         slices.Clone(lowerBound),
 		End:           slices.Clone(upperBound),
-		Reverse:       true,
 	})
 	defer func() {
 		closeStart := time.Now()
@@ -966,7 +965,6 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 			Operation:     "iterClose",
 			DurationNanos: time.Since(closeStart).Nanoseconds(),
 			Key:           slices.Clone(key),
-			Reverse:       true,
 		})
 	}()
 
@@ -991,7 +989,6 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		Operation:     "iterKey",
 		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
 		Key:           rawIterKey,
-		Reverse:       true,
 	})
 
 	splitKeyStart := time.Now()
@@ -1034,7 +1031,6 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, col
 		Operation:     "iterValue",
 		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
 		Key:           rawIterKey,
-		Reverse:       true,
 	})
 
 	valueCloneStart := time.Now()
@@ -1114,7 +1110,6 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 		Operation:     "iterKey",
 		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
 		Key:           rawIterKey,
-		Reverse:       true,
 	})
 
 	splitKeyStart := time.Now()
@@ -1156,7 +1151,6 @@ func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, ke
 		Operation:     "iterValue",
 		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
 		Key:           rawIterKey,
-		Reverse:       true,
 	})
 
 	valueCloneStart := time.Now()
