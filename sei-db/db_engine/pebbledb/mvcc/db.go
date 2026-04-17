@@ -348,13 +348,15 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 
 func (db *Database) hasWithCollector(storeKey string, version int64, key []byte, collector types.ReadTraceCollector) (bool, error) {
 	start := time.Now()
-	defer recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "has",
-		DurationNanos: time.Since(start).Nanoseconds(),
-		Key:           slices.Clone(key),
-	})
+	defer func() {
+		recordReadTrace(collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "has",
+			DurationNanos: time.Since(start).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
+	}()
 	if version < db.GetEarliestVersion() {
 		return false, nil
 	}
@@ -1218,13 +1220,15 @@ func (db *tracedDatabase) Get(storeKey string, version int64, key []byte) ([]byt
 
 func (db *tracedDatabase) Has(storeKey string, version int64, key []byte) (bool, error) {
 	start := time.Now()
-	defer recordReadTrace(db.collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "has",
-		DurationNanos: time.Since(start).Nanoseconds(),
-		Key:           slices.Clone(key),
-	})
+	defer func() {
+		recordReadTrace(db.collector, types.ReadTraceEvent{
+			StoreKey:      storeKey,
+			Layer:         "mvcc",
+			Operation:     "has",
+			DurationNanos: time.Since(start).Nanoseconds(),
+			Key:           slices.Clone(key),
+		})
+	}()
 	val, err := db.getWithSession(storeKey, version, key)
 	if err != nil {
 		return false, err
@@ -1233,11 +1237,11 @@ func (db *tracedDatabase) Has(storeKey string, version int64, key []byte) (bool,
 }
 
 func (db *tracedDatabase) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	return db.Database.iteratorWithCollector(storeKey, version, start, end, db.collector)
+	return db.iteratorWithCollector(storeKey, version, start, end, db.collector)
 }
 
 func (db *tracedDatabase) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	return db.Database.reverseIteratorWithCollector(storeKey, version, start, end, db.collector)
+	return db.reverseIteratorWithCollector(storeKey, version, start, end, db.collector)
 }
 
 func recordReadTrace(collector types.ReadTraceCollector, event types.ReadTraceEvent) {
@@ -1428,7 +1432,7 @@ func iteratorUpperBoundForLogicalKey(key []byte) []byte {
 // their requested version and decode tombstone/value info.
 func encodeLatestPointerValue(version int64, prefixedVal []byte) []byte {
 	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(version))
+	binary.LittleEndian.PutUint64(versionBz[:], uint64(version)) //nolint:gosec // block heights are non-negative and fit in int64
 	return append(versionBz[:], prefixedVal...)
 }
 

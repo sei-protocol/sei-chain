@@ -14,7 +14,8 @@ import (
 
 func newTestBackend(size int, ttl time.Duration) *Backend {
 	return &Backend{
-		replayStateCache: expirable.NewLRU[string, *blockReplayState](size, nil, ttl),
+		replayStateCacheMu: &sync.Mutex{},
+		replayStateCache:   expirable.NewLRU[string, *blockReplayState](size, nil, ttl),
 	}
 }
 

@@ -231,7 +231,7 @@ type Backend struct {
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
 	watermarks         *WatermarkManager
-	replayStateCacheMu sync.Mutex
+	replayStateCacheMu *sync.Mutex
 	replayStateCache   *expirable.LRU[string, *blockReplayState]
 }
 
@@ -273,6 +273,7 @@ func NewBackend(
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
 		watermarks:         watermarks,
+		replayStateCacheMu: &sync.Mutex{},
 		replayStateCache: expirable.NewLRU[string, *blockReplayState](
 			replayStateCacheBlocks, nil, replayStateCacheTTL,
 		),

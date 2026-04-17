@@ -107,7 +107,7 @@ func (b *Batch) Write() (err error) {
 		return err
 	}
 	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version))
+	binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
 	if err := b.storage.Set([]byte(latestVersionKey), versionBz[:], defaultWriteOpts); err != nil {
 		return fmt.Errorf("failed to update latest version after batch commit: %w", err)
 	}
