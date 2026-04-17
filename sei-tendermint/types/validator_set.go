@@ -826,7 +826,6 @@ func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 		return &tmproto.ValidatorSet{}, nil // validator set should never be nil
 	}
 
-	vp := new(tmproto.ValidatorSet)
 	valsProto := make([]*tmproto.Validator, len(vals.validators))
 	for i := 0; i < len(vals.validators); i++ {
 		valp, err := vals.validators[i].ToProto()
@@ -835,19 +834,19 @@ func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 		}
 		valsProto[i] = valp
 	}
-	vp.Validators = valsProto
 
 	valProposer, err := vals.GetProposer().ToProto()
 	if err != nil {
 		return nil, fmt.Errorf("toProto: validatorSet proposer error: %w", err)
 	}
-	vp.Proposer = valProposer
 
-	// NOTE: Sometimes we use the bytes of the proto form as a hash. This means that we need to
-	// be consistent with cached data
-	vp.TotalVotingPower = 0
-
-	return vp, nil
+	return &tmproto.ValidatorSet{
+		Validators: valsProto,
+		Proposer:   valProposer,
+		// NOTE: Sometimes we use the bytes of the proto form as a hash. This means that we need to
+		// be consistent with cached data
+		TotalVotingPower: 0,
+	}, nil
 }
 
 // ValidatorSetFromProto sets a protobuf ValidatorSet to the given pointer.
