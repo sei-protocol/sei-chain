@@ -139,7 +139,7 @@ func TestSerializeInProgress(t *testing.T) {
 	mb := NewMigrationBoundary("bank", []byte("hello"))
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x04}
+	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x04}
 	expected = append(expected, []byte("bank")...)
 	expected = append(expected, []byte("hello")...)
 	require.Equal(t, expected, data)
@@ -155,7 +155,7 @@ func TestSerializeInProgressEmptyKey(t *testing.T) {
 	mb := NewMigrationBoundary("mod", []byte{})
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x03}
+	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x03}
 	expected = append(expected, []byte("mod")...)
 	require.Equal(t, expected, data)
 
@@ -170,7 +170,7 @@ func TestSerializeInProgressEmptyModuleName(t *testing.T) {
 	mb := NewMigrationBoundary("", []byte("key"))
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x00}
+	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x00}
 	expected = append(expected, []byte("key")...)
 	require.Equal(t, expected, data)
 
@@ -184,7 +184,7 @@ func TestSerializeInProgressEmptyModuleName(t *testing.T) {
 func TestSerializeInProgressEmptyBoth(t *testing.T) {
 	mb := NewMigrationBoundary("", []byte{})
 	data := mb.Serialize()
-	require.Equal(t, []byte{byte(migrationInProgress), 0x00, 0x00}, data)
+	require.Equal(t, []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x00}, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
@@ -222,8 +222,8 @@ func TestSerializeKeyIsACopy(t *testing.T) {
 	require.NoError(t, err)
 
 	got.key[0] = 'z'
-	nameLen := int(binary.BigEndian.Uint16(data[1:3]))
-	require.Equal(t, byte('a'), data[3+nameLen], "mutating deserialized key must not affect serialized data")
+	nameLen := int(binary.BigEndian.Uint32(data[1:5]))
+	require.Equal(t, byte('a'), data[5+nameLen], "mutating deserialized key must not affect serialized data")
 }
 
 func TestDeserializeEmptyData(t *testing.T) {
@@ -253,14 +253,17 @@ func TestDeserializeCompleteWithTrailingData(t *testing.T) {
 
 func TestDeserializeInProgressTooShortForLength(t *testing.T) {
 	_, err := DeserializeMigrationBoundary([]byte{byte(migrationInProgress)})
-	require.Error(t, err, "only status byte, missing length")
+	require.Error(t, err, "only status byte, missing length bytes")
 
-	_, err = DeserializeMigrationBoundary([]byte{byte(migrationInProgress), 0x00})
-	require.Error(t, err, "only one length byte, need two")
+	_, err = DeserializeMigrationBoundary([]byte{byte(migrationInProgress), 0x00, 0x00})
+	require.Error(t, err, "only 2 of 4 length bytes")
+
+	_, err = DeserializeMigrationBoundary([]byte{byte(migrationInProgress), 0x00, 0x00, 0x00})
+	require.Error(t, err, "only 3 of 4 length bytes")
 }
 
 func TestDeserializeInProgressTruncatedModuleName(t *testing.T) {
-	data := []byte{byte(migrationInProgress), 0x00, 0x05, 'a', 'b'}
+	data := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x05, 'a', 'b'}
 	_, err := DeserializeMigrationBoundary(data)
 	require.Error(t, err, "declared name length 5 but only 2 bytes available")
 }

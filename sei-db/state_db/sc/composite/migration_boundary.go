@@ -19,7 +19,7 @@ const (
 	migrationComplete migrationStatus = iota
 )
 
-//nolint:godot // diagram
+//nolint:godot
 /*
                         <-- Lexographically ordered keys -->
 
@@ -87,18 +87,18 @@ func (mb *MigrationBoundary) IsMigrated(moduleName string, key []byte) bool {
 
 // Serialize encodes the boundary as a byte slice.
 // For notStarted/complete: [status byte]
-// For inProgress: [status byte] [2-byte BE moduleName length] [moduleName] [key]
+// For inProgress: [status byte] [4-byte BE moduleName length] [moduleName] [key]
 func (mb *MigrationBoundary) Serialize() []byte {
 	switch mb.status {
 	case migrationNotStarted, migrationComplete:
 		return []byte{byte(mb.status)}
 	case migrationInProgress:
 		nameBytes := []byte(mb.moduleName)
-		buf := make([]byte, 1+2+len(nameBytes)+len(mb.key))
+		buf := make([]byte, 1+4+len(nameBytes)+len(mb.key))
 		buf[0] = byte(mb.status)
-		binary.BigEndian.PutUint16(buf[1:3], uint16(len(nameBytes)))
-		copy(buf[3:3+len(nameBytes)], nameBytes)
-		copy(buf[3+len(nameBytes):], mb.key)
+		binary.BigEndian.PutUint32(buf[1:5], uint32(len(nameBytes))) //nolint:gosec // module names are short strings
+		copy(buf[5:5+len(nameBytes)], nameBytes)
+		copy(buf[5+len(nameBytes):], mb.key)
 		return buf
 	default:
 		panic(fmt.Sprintf("invalid migration status: %d", mb.status))
@@ -119,18 +119,18 @@ func DeserializeMigrationBoundary(data []byte) (MigrationBoundary, error) {
 		}
 		return MigrationBoundary{status: status}, nil
 	case migrationInProgress:
-		if len(data) < 3 {
+		if len(data) < 5 {
 			return MigrationBoundary{}, fmt.Errorf(
-				"in-progress data too short: need at least 3 bytes, got %d", len(data))
+				"in-progress data too short: need at least 5 bytes, got %d", len(data))
 		}
-		nameLen := int(binary.BigEndian.Uint16(data[1:3]))
-		if len(data) < 3+nameLen {
+		nameLen := int(binary.BigEndian.Uint32(data[1:5]))
+		if len(data) < 5+nameLen {
 			return MigrationBoundary{}, fmt.Errorf(
 				"in-progress data too short for module name of length %d: got %d bytes", nameLen, len(data))
 		}
-		moduleName := string(data[3 : 3+nameLen])
-		key := make([]byte, len(data)-3-nameLen)
-		copy(key, data[3+nameLen:])
+		moduleName := string(data[5 : 5+nameLen])
+		key := make([]byte, len(data)-5-nameLen)
+		copy(key, data[5+nameLen:])
 		return MigrationBoundary{status: status, moduleName: moduleName, key: key}, nil
 	default:
 		return MigrationBoundary{}, fmt.Errorf("invalid migration status: %d", status)
