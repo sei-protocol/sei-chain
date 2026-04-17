@@ -496,10 +496,12 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 
 	startIdx := 0
 	if cachedCtx, cachedIdx, ok := b.getReplayState(block.Hash().Hex(), txIndex); ok {
-		sdkCtx = sdkCtx.WithMultiStore(cachedCtx.MultiStore())
+		// Always replay from a fresh branch of the cached checkpoint so the
+		// stored snapshot remains immutable across requests.
+		sdkCtx = sdkCtx.WithMultiStore(cachedCtx.MultiStore().CacheMultiStore())
 		startIdx = cachedIdx + 1
 	} else {
-		b.putReplayState(block.Hash().Hex(), -1, sdkCtx.WithTraceMode(true))
+		b.putReplayState(block.Hash().Hex(), -1, snapshotReplayState(sdkCtx.WithTraceMode(true)))
 	}
 
 	for idx, tx := range tmBlock.Block.Txs {
@@ -519,7 +521,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
 	finalCtx := sdkCtx.WithIsEVM(true)
-	b.putReplayState(block.Hash().Hex(), txIndex, finalCtx.WithTraceMode(true))
+	b.putReplayState(block.Hash().Hex(), txIndex, snapshotReplayState(finalCtx.WithTraceMode(true)))
 	return state.NewDBImpl(finalCtx, b.keeper, true), tmBlock.Block.Txs, nil
 }
 
@@ -551,6 +553,10 @@ func (b *Backend) putReplayState(blockHash string, txIndex int, ctx sdk.Context)
 		b.replayStateCache[blockHash] = map[int]sdk.Context{}
 	}
 	b.replayStateCache[blockHash][txIndex] = ctx
+}
+
+func snapshotReplayState(ctx sdk.Context) sdk.Context {
+	return ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
