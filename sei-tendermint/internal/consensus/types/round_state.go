@@ -130,6 +130,12 @@ func (s *SafeRoundState) SetStartTime(t time.Time) {
 	s.internal.StartTime = t
 }
 
+func (s *SafeRoundState) SetStatelessLeaderElection(enabled bool) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.StatelessLeaderElection = enabled
+}
+
 func (s *SafeRoundState) CommitTime() time.Time {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
@@ -365,7 +371,8 @@ func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal
 // of the cs.receiveRoutine
 type RoundState struct {
 	HRS
-	StartTime time.Time
+	StartTime               time.Time
+	StatelessLeaderElection bool
 
 	// Subjective time when +2/3 precommits for Block at Round were found
 	CommitTime          time.Time
@@ -407,6 +414,9 @@ type RoundState struct {
 // equal to their voting poser.
 // Validator i is the leader of (height,round) <=> pos(height,round)%TotalVotingPower \in validator_interval[i]
 func (rs *RoundState) Leader() crypto.PubKey {
+	if !rs.StatelessLeaderElection {
+		return rs.Validators.GetProposer().PubKey
+	}
 	d := binary.BigEndian.AppendUint64(nil, uint64(rs.Height))
 	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))
 	h := sha256.Sum256(d)

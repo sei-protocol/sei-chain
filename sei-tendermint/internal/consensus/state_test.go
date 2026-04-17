@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
@@ -2621,6 +2622,18 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 	require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidHeaderProposer)
 	require.Nil(t, cs.roundState.Proposal())
+}
+
+func TestStatePropagatesStatelessLeaderElectionToRoundState(t *testing.T) {
+	ctx := t.Context()
+	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
+	require.NoError(t, err)
+	cfg.Consensus.StatelessLeaderElection = true
+
+	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{})
+	cs := newStateWithConfig(ctx, cfg, state, privVals[0], kvstore.NewApplication())
+
+	require.True(t, cs.GetRoundState().StatelessLeaderElection)
 }
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {

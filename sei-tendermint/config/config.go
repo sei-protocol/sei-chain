@@ -1117,6 +1117,8 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
+	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
+
 	// TODO: The following fields are all temporary overrides that should exist only
 	// for the duration of the v0.36 release. The below fields should be completely
 	// removed in the v0.37 release of Tendermint.
@@ -1176,6 +1178,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
+		StatelessLeaderElection: false,
 	}
 }
 
