@@ -13,22 +13,20 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/input"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server"
-	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/input"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 )
 
 const (
@@ -87,8 +85,9 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [moniker]",
 		Short: "Initialize private validator, p2p, genesis, and application configuration files",
-		Long:  `Initialize validators's and node's configuration files.`,
-		Args:  cobra.ExactArgs(1),
+		Long: `Initialize the node's configuration files. Default mode is "full" (RPC and P2P bind to all interfaces).
+For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P bind to localhost only.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			cdc := clientCtx.Codec
@@ -144,8 +143,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			genFile := tmConfig.GenesisFile()
 			overwrite, _ := cmd.Flags().GetBool(FlagOverwrite)
-			serverCtx := server.GetServerContextFromCmd(cmd)
-			genDoc, err := loadOrWriteGenesis(serverCtx.Logger, genFile, chainID, overwrite, mbm, cdc)
+			genDoc, err := loadOrWriteGenesis(genFile, chainID, overwrite, mbm, cdc)
 			if err != nil {
 				return err
 			}
@@ -159,6 +157,10 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			}
 
 			toPrint := newPrintInfo(tmConfig.Moniker, chainID, nodeID, "", genDoc.AppState)
+
+			if err := checkConfigOverwrite(configPath, overwrite); err != nil {
+				return err
+			}
 
 			// Write Tendermint config.toml
 			err = tmcfg.WriteConfigFile(tmConfig.RootDir, tmConfig)
@@ -174,8 +176,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			evmConfig := evmrpcconfig.DefaultConfig
 			params.SetEVMConfigByMode(&evmConfig, nodeMode)
 
-			appTomlPath := filepath.Join(configPath, "app.toml")
-
 			// Get custom template from root.go
 			customAppTemplate, _ := initAppConfig()
 			srvconfig.SetConfigTemplate(customAppTemplate)
@@ -183,6 +183,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			// Build custom app config with mode-specific values
 			customAppConfig := NewCustomAppConfig(appConfig, evmConfig)
 
+			appTomlPath := filepath.Join(configPath, "app.toml")
 			srvconfig.WriteConfigFile(appTomlPath, customAppConfig)
 
 			fmt.Fprintf(os.Stderr, "\nNode initialized with mode: %s\n", nodeMode)
@@ -193,7 +194,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	}
 
 	cmd.Flags().String(cli.HomeFlag, defaultNodeHome, "node's home directory")
-	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json file")
+	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json and existing config files (config.toml, app.toml)")
 	cmd.Flags().Bool(FlagRecover, false, "provide seed phrase to recover existing key instead of creating")
 	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will use sei")
 	cmd.Flags().String(FlagMode, "full", "node mode: validator, full, seed, or archive")
@@ -201,8 +202,20 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	return cmd
 }
 
+func checkConfigOverwrite(configPath string, overwrite bool) error {
+	if overwrite {
+		return nil
+	}
+	configTomlPath := filepath.Join(configPath, "config.toml")
+	appTomlPath := filepath.Join(configPath, "app.toml")
+	if tmos.FileExists(configTomlPath) || tmos.FileExists(appTomlPath) {
+		return fmt.Errorf("configuration files already exist in %s; if you intend to override them, use the --overwrite flag", configPath)
+	}
+	return nil
+}
+
 // loadOrWriteGenesis loads existing genesis at genFile if present and !overwrite, else writes embedded (well-known) or default.
-func loadOrWriteGenesis(logger log.Logger, genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
+func loadOrWriteGenesis(genFile, chainID string, overwrite bool, mbm module.BasicManager, cdc codec.JSONCodec) (*types.GenesisDoc, error) {
 	if !overwrite && tmos.FileExists(genFile) {
 		if err := ensureGenesisPathIsFile(genFile); err != nil {
 			return nil, err

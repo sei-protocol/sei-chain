@@ -3,10 +3,10 @@ package keeper_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -41,4 +41,17 @@ func TestNilCode(t *testing.T) {
 	require.Nil(t, k.GetCode(ctx, addr))
 	require.Equal(t, 0, k.GetCodeSize(ctx, addr))
 	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
+}
+
+func TestGetCodeHashWithNonceButZeroBalance(t *testing.T) {
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	_, addr := keeper.MockAddressPair()
+
+	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
+
+	k.SetNonce(ctx, addr, 1)
+
+	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
+	require.True(t, k.GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr)).Sign() == 0)
 }

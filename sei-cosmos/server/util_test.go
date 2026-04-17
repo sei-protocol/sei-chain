@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,15 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
 
-var cancelledInPreRun = errors.New("Cancelled in prerun")
+var errCancelledInPreRun = errors.New("cancelled in prerun")
 
 // Used in each test to run the function under test via Cobra
 // but to always halt the command
@@ -31,7 +29,7 @@ func preRunETestImpl(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return cancelledInPreRun
+	return errCancelledInPreRun
 }
 
 func TestInterceptConfigsPreRunHandlerCreatesConfigFilesWhenMissing(t *testing.T) {
@@ -45,7 +43,7 @@ func TestInterceptConfigsPreRunHandlerCreatesConfigFilesWhenMissing(t *testing.T
 
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
-	if err := cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -103,8 +101,7 @@ func TestInterceptConfigsPreRunHandlerReadsConfigToml(t *testing.T) {
 		t.Fatalf("creating config.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("db-backend = '%s'\n", testDbBackend))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "db-backend = '%s'\n", testDbBackend); err != nil {
 		t.Fatalf("Failed writing string to config.toml: %v", err)
 	}
 
@@ -122,7 +119,7 @@ func TestInterceptConfigsPreRunHandlerReadsConfigToml(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -144,8 +141,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 		t.Fatalf("creating app.toml file failed: %v", err)
 	}
 
-	_, err = writer.WriteString(fmt.Sprintf("halt-time = %d\n", testHaltTime))
-	if err != nil {
+	if _, err := fmt.Fprintf(writer, "halt-time = %d\n", testHaltTime); err != nil {
 		t.Fatalf("Failed writing string to app.toml: %v", err)
 	}
 
@@ -159,7 +155,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -187,7 +183,7 @@ func TestInterceptConfigsPreRunHandlerReadsFlags(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -222,7 +218,7 @@ func TestInterceptConfigsPreRunHandlerReadsEnvVars(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -308,8 +304,7 @@ func (v precedenceCommon) setAll(t *testing.T, setFlag *string, setEnvVar *strin
 			t.Fatalf("creating config.toml file failed: %v", err)
 		}
 
-		_, err = writer.WriteString(fmt.Sprintf("[rpc]\nladdr = \"%s\"\n", *setConfigFile))
-		if err != nil {
+		if _, err := fmt.Fprintf(writer, "[rpc]\nladdr = \"%s\"\n", *setConfigFile); err != nil {
 			t.Fatalf("Failed writing string to config.toml: %v", err)
 		}
 
@@ -326,7 +321,7 @@ func TestInterceptConfigsPreRunHandlerPrecedenceFlag(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := testCommon.cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := testCommon.cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -342,7 +337,7 @@ func TestInterceptConfigsPreRunHandlerPrecedenceEnvVar(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := testCommon.cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := testCommon.cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -358,7 +353,7 @@ func TestInterceptConfigsPreRunHandlerPrecedenceConfigFile(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := testCommon.cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := testCommon.cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
@@ -374,11 +369,11 @@ func TestInterceptConfigsPreRunHandlerPrecedenceConfigDefault(t *testing.T) {
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
 
-	if err := testCommon.cmd.ExecuteContext(ctx); err != cancelledInPreRun {
+	if err := testCommon.cmd.ExecuteContext(ctx); err != errCancelledInPreRun {
 		t.Fatalf("function failed with [%T] %v", err, err)
 	}
 
-	if "tcp://127.0.0.1:26657" != serverCtx.Config.RPC.ListenAddress {
+	if serverCtx.Config.RPC.ListenAddress != "tcp://127.0.0.1:26657" {
 		t.Error("RPCListenAddress is not using default")
 	}
 }
@@ -407,63 +402,28 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 }
 
 func TestWaitForQuitSignals(t *testing.T) {
-	t.Run("WithRestartChannelAndCanRestartAfterNotReached", func(t *testing.T) {
+	t.Run("WithRestartChannelAndCanRestart", func(t *testing.T) {
 		restartCh := make(chan struct{})
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			restartCh <- struct{}{}
 		}()
 
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-		}()
-
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-			time.Now().Add(500*time.Millisecond),
-		)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
-		}
-	})
-
-	t.Run("WithRestartChannelAndCanRestartAfterReached", func(t *testing.T) {
-		restartCh := make(chan struct{})
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			restartCh <- struct{}{}
-		}()
-
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			restartCh,
-			time.Now().Add(-100*time.Millisecond),
-		)
-		if errCode.Code != server.RestartErrorCode {
-			t.Errorf("Expected error code %d, got %d", server.RestartErrorCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), restartCh)
+		if !errors.Is(err, server.ErrShouldRestart) {
+			t.Errorf("Expected ErrShouldRestart, got %v", err)
 		}
 	})
 
 	t.Run("WithSIGINT", func(t *testing.T) {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT)
-
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 		}()
 
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-			time.Now(),
-		)
-		expectedCode := int(syscall.SIGINT) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -473,14 +433,9 @@ func TestWaitForQuitSignals(t *testing.T) {
 			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		}()
 
-		errCode := server.WaitForQuitSignals(
-			&server.Context{Logger: log.NewNopLogger()},
-			make(chan struct{}),
-			time.Now(),
-		)
-		expectedCode := int(syscall.SIGTERM) + 128
-		if errCode.Code != expectedCode {
-			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		err := server.WaitForQuitSignals(t.Context(), make(chan struct{}))
+		if err != nil {
+			t.Fatal(err)
 		}
 	})
 }

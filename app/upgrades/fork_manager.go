@@ -3,9 +3,12 @@ package upgrades
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/goutils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "upgrades")
 
 // Chain-ID constants for use in hard fork handlers.
 const (
@@ -78,20 +81,19 @@ func (hfm *HardForkManager) ExecuteForTargetHeight(ctx sdk.Context) {
 	}
 	for _, handler := range handlers {
 		handlerName := handler.GetName()
-		ctx.Logger().Info(fmt.Sprintf(
-			"Executing hard fork handler %s for chain ID %s at height %d",
-			handlerName,
-			handler.GetTargetChainID(),
-			handler.GetTargetHeight(),
-		))
+		logger.Info("Executing hard fork handler and chain ID at height",
+			"handler", handlerName,
+			"chain-id", handler.GetTargetChainID(),
+			"height", handler.GetTargetHeight(),
+		)
 		err := handler.ExecuteHandler(ctx)
 		if err != nil {
 			panic(err)
 		}
-		ctx.Logger().Info(fmt.Sprintf(
-			"Completed execution for hard fork handler %s",
-			handlerName,
-		))
+		logger.Info(
+			"Completed execution for hard fork handler",
+			"handler", handlerName,
+		)
 	}
 	// TODO: do we want to emit any events to the context event manager (for use in beginBlockResponse)
 }

@@ -6,6 +6,9 @@ const path = require('path');
 const { expectRevert } = require('@openzeppelin/test-helpers');
 const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer} = require("./lib");
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 describe("EVM Precompile Tester", function () {
 
@@ -173,7 +176,33 @@ describe("EVM Precompile Tester", function () {
         let staking;
 
         before(async function () {
-            validatorAddr = JSON.parse(await execute("seid q staking validators -o json")).validators[0].operator_address
+            const validatorsResponse = JSON.parse(await execute("seid q staking validators -o json"));
+            const validators = Array.isArray(validatorsResponse.validators) ? validatorsResponse.validators : [];
+
+            const isJailed = (validator) => validator?.jailed === true || validator?.jailed === "true";
+            const isBonded = (validator) => {
+                const status = validator?.status;
+                if (typeof status === "number") {
+                    return status === 3;
+                }
+                if (typeof status === "string") {
+                    const normalized = status.toUpperCase();
+                    return normalized === "BOND_STATUS_BONDED" || normalized === "3" || normalized.endsWith("BONDED");
+                }
+                return false;
+            };
+
+            const nonJailedValidators = validators.filter((validator) => !isJailed(validator));
+            const selectedValidator =
+                nonJailedValidators.find(isBonded) ??
+                nonJailedValidators[0] ??
+                validators[0];
+
+            if (!selectedValidator || !selectedValidator.operator_address) {
+                throw new Error("No validator available for staking precompile test");
+            }
+
+            validatorAddr = selectedValidator.operator_address;
             signer = accounts[0].signer;
 
             const contractABIPath = '../../precompiles/staking/abi.json';
@@ -190,44 +219,80 @@ describe("EVM Precompile Tester", function () {
             const receipt = await delegate.wait();
             expect(receipt.status).to.equal(1);
 
-            const delegation = await staking.delegation(accounts[0].evmAddress, validatorAddr);
-            expect(delegation).to.not.be.null;
-            expect(delegation[0][0]).to.equal(10000n);
+            let delegation;
+            for (let attempt = 0; attempt < 10; attempt++) {
+                try {
+                    delegation = await staking.delegation(accounts[0].evmAddress, validatorAddr);
+                    if (delegation && delegation[0] && delegation[0][0] > 0n) {
+                        break;
+                    }
+                } catch (_error) {
+                    // Delegation query can race right after delegate on CI.
+                }
+                await sleep(250);
+            }
 
-            // manually set gas limit to 500_000 because gas estimate for undelegate
-            // is not reliable (cost varies greatly block by block)
-            const undelegate = await staking.undelegate(validatorAddr, delegation[0][0],{
-                gasLimit: 500_000,
-            });
-            const undelegateReceipt = await undelegate.wait();
+            expect(delegation, "delegation should become queryable after delegate").to.not.be.undefined;
+            expect(delegation).to.not.be.null;
+            const delegatedAmount = delegation[0][0];
+            expect(delegatedAmount).to.equal(10000n);
+
+            // Extra-safe undelegate strategy: retry with larger gas ceilings since
+            // staking queue writes can fluctuate block-to-block in CI.
+            const undelegateGasLimits = [1_000_000, 2_000_000, 5_000_000];
+            let undelegateReceipt = null;
+            let undelegateError = null;
+
+            for (const gasLimit of undelegateGasLimits) {
+                try {
+                    const undelegate = await staking.undelegate(validatorAddr, delegatedAmount, {
+                        gasLimit,
+                    });
+                    undelegateReceipt = await undelegate.wait();
+                    if (undelegateReceipt.status === 1) {
+                        break;
+                    }
+                    undelegateError = new Error(`undelegate failed with status=${undelegateReceipt.status} gasLimit=${gasLimit}`);
+                } catch (error) {
+                    undelegateError = error;
+                }
+            }
+
+            if (!undelegateReceipt || undelegateReceipt.status !== 1) {
+                throw undelegateError || new Error("undelegate failed for all gas limits");
+            }
+
             expect(undelegateReceipt.status).to.equal(1);
 
-            try {
-                await staking.delegation(accounts[0].evmAddress, validatorAddr);
-                expect.fail("Expected an error here since we undelegated the amount and delegation should not exist anymore.");
-            } catch (error) {
-                expect(error).to.have.property('message').that.includes('execution reverted');
+            let delegationRemoved = false;
+            for (let attempt = 0; attempt < 10; attempt++) {
+                try {
+                    await staking.delegation(accounts[0].evmAddress, validatorAddr);
+                } catch (error) {
+                    expect(error).to.have.property('message').that.includes('execution reverted');
+                    delegationRemoved = true;
+                    break;
+                }
+                await sleep(250);
             }
+
+            expect(
+                delegationRemoved,
+                "delegation should eventually disappear after undelegate"
+            ).to.equal(true);
         });
     });
 
     describe("EVM Oracle Precompile Tester", function () {
         const OraclePrecompileContract = '0x0000000000000000000000000000000000001008';
         let oracle;
-        let twapsJSON;
-        let exchangeRatesJSON;
 
         before(async function() {
-            // this requires an oracle to run which does not happen outside of an integration test
+            // Oracle checks are only relevant in docker-based integration runs.
             if(!await isDocker()) {
                 this.skip()
                 return;
             }
-            const exchangeRatesContent = await execute("seid q oracle exchange-rates -o json")
-            const twapsContent = await execute("seid q oracle twaps 3600 -o json")
-
-            exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
-            twapsJSON = JSON.parse(twapsContent).oracle_twaps;
 
             const contractABIPath = '../../precompiles/oracle/abi.json';
             const contractABI = require(contractABIPath);
@@ -235,29 +300,26 @@ describe("EVM Precompile Tester", function () {
             oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
         });
 
-        it("Oracle Exchange Rates", async function () {
-            const exchangeRates = await oracle.getExchangeRates();
-            const exchangeRatesLen = exchangeRatesJSON.length;
-            expect(exchangeRates.length).to.equal(exchangeRatesLen);
-
-            for (let i = 0; i < exchangeRatesLen; i++) {
-                expect(exchangeRates[i].denom).to.equal(exchangeRatesJSON[i].denom);
-                expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
-                expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
-                expect(exchangeRates[i].oracleExchangeRateVal.lastUpdateTimestamp).to.exist.and.to.be.gt(0);
+        it("Oracle CLI TWAP query should fail without feeder data", async function () {
+            let error;
+            try {
+                await execute("seid q oracle twaps 3600 -o json");
+            } catch (e) {
+                error = e;
             }
+            expect(error, "twaps query should fail when no feeder is running").to.exist;
+            expect(error.message).to.include("No data for the twap calculation");
         });
 
-        it("Oracle Twaps", async function () {
-            const twaps = await oracle.getOracleTwaps(3600);
-            const twapsLen = twapsJSON.length
-            expect(twaps.length).to.equal(twapsLen);
-
-            for (let i = 0; i < twapsLen; i++) {
-                expect(twaps[i].denom).to.equal(twapsJSON[i].denom);
-                expect(twaps[i].twap).to.be.a('string').and.to.not.be.empty;
-                expect(twaps[i].lookbackSeconds).to.exist.and.to.be.gt(0);
+        it("Oracle precompile TWAP query should hard-fail without feeder data", async function () {
+            let error;
+            try {
+                await oracle.getOracleTwaps(3600);
+            } catch (e) {
+                error = e;
             }
+            expect(error, "precompile twaps query should hard-fail when oracle is retired").to.exist;
+            expect(error.message).to.include("oracle precompile is retired");
         });
     });
 

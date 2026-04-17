@@ -6,15 +6,14 @@ import (
 	"io"
 
 	"cosmossdk.io/errors"
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
+	seidbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 )
 
@@ -26,14 +25,12 @@ var (
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
 	tree      sctypes.CommitKVStore
-	logger    log.Logger
-	changeSet iavl.ChangeSet
+	changeSet seidbproto.ChangeSet
 }
 
-func NewStore(tree sctypes.CommitKVStore, logger log.Logger) *Store {
+func NewStore(tree sctypes.CommitKVStore) *Store {
 	return &Store{
-		tree:   tree,
-		logger: logger,
+		tree: tree,
 	}
 }
 
@@ -83,7 +80,7 @@ func (st *Store) CacheWrapWithTrace(k types.StoreKey, w io.Writer, tc types.Trac
 //
 // we assume Set is only called in `Commit`, so the written state is only visible after commit.
 func (st *Store) Set(key, value []byte) {
-	st.changeSet.Pairs = append(st.changeSet.Pairs, &iavl.KVPair{
+	st.changeSet.Pairs = append(st.changeSet.Pairs, &seidbproto.KVPair{
 		Key: key, Value: value,
 	})
 }
@@ -102,7 +99,7 @@ func (st *Store) Has(key []byte) bool {
 //
 // we assume Delete is only called in `Commit`, so the written state is only visible after commit.
 func (st *Store) Delete(key []byte) {
-	st.changeSet.Pairs = append(st.changeSet.Pairs, &iavl.KVPair{
+	st.changeSet.Pairs = append(st.changeSet.Pairs, &seidbproto.KVPair{
 		Key: key, Delete: true,
 	})
 }
@@ -123,9 +120,9 @@ func (st *Store) SetInitialVersion(_ int64) {
 }
 
 // PopChangeSet returns the change set and clear it
-func (st *Store) PopChangeSet() iavl.ChangeSet {
+func (st *Store) PopChangeSet() seidbproto.ChangeSet {
 	cs := st.changeSet
-	st.changeSet = iavl.ChangeSet{}
+	st.changeSet = seidbproto.ChangeSet{}
 	return cs
 }
 
@@ -159,7 +156,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		for ; iterator.Valid(); iterator.Next() {
 			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
 		}
-		iterator.Close()
+		_ = iterator.Close()
 
 		bz, err := pairs.Marshal()
 		if err != nil {
@@ -181,11 +178,13 @@ func (st *Store) VersionExists(version int64) bool {
 
 func (st *Store) DeleteAll(start, end []byte) error {
 	iter := st.Iterator(start, end)
-	keys := [][]byte{}
+	var keys [][]byte
 	for ; iter.Valid(); iter.Next() {
 		keys = append(keys, iter.Key())
 	}
-	iter.Close()
+	if err := iter.Close(); err != nil {
+		return err
+	}
 	for _, key := range keys {
 		st.Delete(key)
 	}
@@ -194,14 +193,14 @@ func (st *Store) DeleteAll(start, end []byte) error {
 
 func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	iter := st.Iterator(start, end)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
 	}
 	return
 }
 
-func (st *Store) GetChangedPairs(prefix []byte) (res []*iavl.KVPair) {
+func (st *Store) GetChangedPairs(prefix []byte) (res []*seidbproto.KVPair) {
 	// not sure if we can assume pairs are sorted or not, so be conservative
 	// here and iterate through everything
 	for _, p := range st.changeSet.Pairs {

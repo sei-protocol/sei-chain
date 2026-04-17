@@ -164,6 +164,26 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 	return r0, r1
 }
 
+// GetValidators provides a mock function with no fields
+func (_m *Application) GetValidators() []types.ValidatorUpdate {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetValidators")
+	}
+
+	var r0 []types.ValidatorUpdate
+	if rf, ok := ret.Get(0).(func() []types.ValidatorUpdate); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.ValidatorUpdate)
+		}
+	}
+
+	return r0
+}
+
 // Info provides a mock function with given fields: _a0, _a1
 func (_m *Application) Info(_a0 context.Context, _a1 *types.RequestInfo) (*types.ResponseInfo, error) {
 	ret := _m.Called(_a0, _a1)
@@ -306,36 +326,6 @@ func (_m *Application) OfferSnapshot(_a0 context.Context, _a1 *types.RequestOffe
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestOfferSnapshot) error); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// PrepareProposal provides a mock function with given fields: _a0, _a1
-func (_m *Application) PrepareProposal(_a0 context.Context, _a1 *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PrepareProposal")
-	}
-
-	var r0 *types.ResponsePrepareProposal
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error)); ok {
-		return rf(_a0, _a1)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestPrepareProposal) *types.ResponsePrepareProposal); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.ResponsePrepareProposal)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestPrepareProposal) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

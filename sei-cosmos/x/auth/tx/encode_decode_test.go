@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx"
-	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
 
 func TestDefaultTxDecoderError(t *testing.T) {
@@ -60,14 +60,13 @@ func TestUnknownFields(t *testing.T) {
 			shouldErr: false,
 		},
 		{
-			name: "non-critical fields in TxBody should not error on decode, but should error with amino",
+			name: "non-critical fields in TxBody should error on decode due to bloat rejection",
 			body: &testdata.TestUpdatedTxBody{
 				Memo:                         "foo",
 				SomeNewFieldNonCriticalField: "blah",
 			},
-			authInfo:       &testdata.TestUpdatedAuthInfo{},
-			shouldErr:      false,
-			shouldAminoErr: fmt.Sprintf("%s: %s", aminoNonCriticalFieldsError, sdkerrors.ErrInvalidRequest.Error()),
+			authInfo:  &testdata.TestUpdatedAuthInfo{},
+			shouldErr: true,
 		},
 		{
 			name: "critical fields in TxBody should error on decode",
@@ -171,6 +170,7 @@ func TestRejectNonADR027(t *testing.T) {
 	require.NoError(t, err)
 	authInfo := &testdata.TestUpdatedAuthInfo{Fee: &tx.Fee{GasLimit: 127}} // Look for "127" when debugging the bytes stream.
 	authInfoBz, err := authInfo.Marshal()
+	require.NoError(t, err)
 	txRaw := &tx.TxRaw{
 		BodyBytes:     bodyBz,
 		AuthInfoBytes: authInfoBz,

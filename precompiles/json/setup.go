@@ -11,6 +11,7 @@ import (
 	jsonv610 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v610"
 	jsonv614 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v614"
 	jsonv620 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v620"
+	jsonv630 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -26,6 +27,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.1.0":      check(jsonv610.NewPrecompile(keepers)),
 		"v6.1.4":      check(jsonv614.NewPrecompile(keepers)),
 		"v6.2.0":      check(jsonv620.NewPrecompile(keepers)),
+		"v6.3.0":      check(jsonv630.NewPrecompile(keepers)),
 	}
 }
 

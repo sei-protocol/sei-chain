@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -84,28 +84,23 @@ func StartTendermint(
 ) (service.Service, ServiceCloser, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	if kvApp, ok := app.(*kvstore.Application); ok {
+		genDoc, err := types.GenesisDocFromFile(conf.GenesisFile())
+		if err != nil {
+			return nil, func(_ context.Context) error { cancel(); return nil }, fmt.Errorf("types.GenesisDocFromFile(%q): %w", conf.GenesisFile(), err)
+		}
+		kvApp.SetValidators(genDoc.ValidatorUpdates())
+	}
+
 	nodeOpts := &Options{}
 	for _, opt := range opts {
 		opt(nodeOpts)
 	}
-	var logger log.Logger
-	if nodeOpts.suppressStdout {
-		logger = log.NewNopLogger()
-	} else {
-		var err error
-		logger, err = log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-		if err != nil {
-			return nil, func(_ context.Context) error { cancel(); return nil }, err
-		}
-
-	}
-	papp := abciclient.NewLocalClient(logger, app)
 	tmNode, err := node.New(
 		ctx,
 		conf,
-		logger,
-		make(chan struct{}),
-		papp,
+		func() {},
+		app,
 		nil,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),

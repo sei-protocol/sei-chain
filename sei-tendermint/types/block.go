@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -21,6 +22,13 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
+
+// SkipLastResultsHashValidation controls whether LastResultsHash validation
+// is skipped during block validation. This is set to true when the Giga
+// executor is enabled, since it may produce different gas used values.
+// Uses atomic.Bool for concurrency safety since NewApp may be called
+// multiple times simultaneously.
+var SkipLastResultsHashValidation atomic.Bool
 
 const (
 	// MaxHeaderBytes is a maximum header size.
@@ -81,7 +89,10 @@ func (b *Block) ValidateBasic() error {
 	}
 
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+		// Fall back to legacy hash calculation pre-6.4.
+		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
+			return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+		}
 	}
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
@@ -393,7 +404,7 @@ type Header struct {
 
 	// consensus info
 	EvidenceHash    tmbytes.HexBytes `json:"evidence_hash"`    // evidence included in the block
-	ProposerAddress Address          `json:"proposer_address"` // original proposer of the block
+	ProposerAddress Address          `json:"proposer_address"` // proposer recorded in the block header; preserved across re-proposals
 }
 
 // Populate the Header with state-derived data.
@@ -797,7 +808,10 @@ type Commit struct {
 // signature will not be present in the returned vote.
 // Returns nil if the precommit at valIdx is nil.
 // Panics if valIdx >= commit.Size().
-func (commit *Commit) GetVote(valIdx int32) *Vote {
+func (commit *Commit) GetVote(valIdx int32) (*Vote, bool) {
+	if int(valIdx) >= len(commit.Signatures) {
+		return nil, false
+	}
 	commitSig := commit.Signatures[valIdx]
 	return &Vote{
 		Type:             tmproto.PrecommitType,
@@ -808,7 +822,7 @@ func (commit *Commit) GetVote(valIdx int32) *Vote {
 		ValidatorAddress: commitSig.ValidatorAddress,
 		ValidatorIndex:   valIdx,
 		Signature:        commitSig.Signature,
-	}
+	}, true
 }
 
 // VoteSignBytes returns the bytes of the Vote corresponding to valIdx for
@@ -820,9 +834,12 @@ func (commit *Commit) GetVote(valIdx int32) *Vote {
 // Panics if valIdx >= commit.Size().
 //
 // See VoteSignBytes
-func (commit *Commit) VoteSignBytes(chainID string, valIdx int32) []byte {
-	v := commit.GetVote(valIdx).ToProto()
-	return VoteSignBytes(chainID, v)
+func (commit *Commit) VoteSignBytes(chainID string, valIdx int32) ([]byte, bool) {
+	v, ok := commit.GetVote(valIdx)
+	if !ok {
+		return nil, false
+	}
+	return VoteSignBytes(chainID, v.ToProto()), true
 }
 
 // Size returns the number of signatures in the commit.
@@ -980,7 +997,10 @@ func (commit *Commit) ToVoteSet(chainID string, vals *ValidatorSet) *VoteSet {
 		if cs.BlockIDFlag == BlockIDFlagAbsent {
 			continue // OK, some precommits can be missing.
 		}
-		vote := commit.GetVote(int32(idx)) //nolint:gosec // idx is bounded by commit.Signatures length which fits in int32
+		vote, ok := commit.GetVote(int32(idx)) //nolint:gosec // idx is bounded by commit.Signatures length which fits in int32
+		if !ok {
+			panic(fmt.Errorf("too many signatures"))
+		}
 		if err := vote.ValidateBasic(); err != nil {
 			panic(fmt.Errorf("failed to validate vote reconstructed from commit: %w", err))
 		}
@@ -1022,7 +1042,7 @@ func (ec *Commit) BitArray() *bits.BitArray {
 // GetByIndex returns the vote corresponding to a given validator index.
 // Panics if `index >= extCommit.Size()`.
 // Implements VoteSetReader.
-func (ec *Commit) GetByIndex(valIdx int32) *Vote {
+func (ec *Commit) GetByIndex(valIdx int32) (*Vote, bool) {
 	return ec.GetVote(valIdx)
 }
 
@@ -1030,6 +1050,25 @@ func (ec *Commit) GetByIndex(valIdx int32) *Vote {
 // Implements VoteSetReader.
 func (ec *Commit) IsCommit() bool {
 	return len(ec.Signatures) != 0
+}
+
+// legacyHash computes the commit hash using the pre-v6.4 algorithm, which
+// only includes signatures (not Height, Round, or BlockID). This is needed
+// to validate blocks that were created before the CommitHash change.
+func (commit *Commit) legacyHash() tmbytes.HexBytes {
+	if commit == nil {
+		return nil
+	}
+	bs := make([][]byte, len(commit.Signatures))
+	for i, commitSig := range commit.Signatures {
+		pbcs := commitSig.ToProto()
+		bz, err := pbcs.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		bs[i] = bz
+	}
+	return merkle.HashFromByteSlices(bs)
 }
 
 //-------------------------------------

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,7 +169,7 @@ func TestCalculateTheoreticalTPS(t *testing.T) {
 }
 
 func TestLogger_Increment(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	baseTime := time.Now()
 
@@ -205,7 +204,7 @@ func TestLogger_Increment(t *testing.T) {
 }
 
 func TestLogger_GetAndResetStats(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	baseTime := time.Now()
 	bl.lastFlushTime = baseTime
@@ -248,7 +247,7 @@ func TestLogger_GetAndResetStats(t *testing.T) {
 }
 
 func TestLogger_StartStop(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -284,7 +283,7 @@ func TestLogger_StartStop(t *testing.T) {
 }
 
 func TestLogger_ConcurrentIncrement(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	baseTime := time.Now()
 	numGoroutines := 10
@@ -312,7 +311,7 @@ func TestLogger_ConcurrentIncrement(t *testing.T) {
 }
 
 func TestLogger_BlockTimeCalculations(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	baseTime := time.Now()
 
@@ -335,7 +334,7 @@ func TestLogger_BlockTimeCalculations(t *testing.T) {
 }
 
 func TestLogger_FlushLog(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	baseTime := time.Now()
 	bl.lastFlushTime = baseTime
@@ -369,7 +368,7 @@ func TestLogger_FlushLog(t *testing.T) {
 }
 
 func TestLogger_RecordCommitTime(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	// Record some commit times
 	bl.RecordCommitTime(100 * time.Millisecond)
@@ -382,7 +381,7 @@ func TestLogger_RecordCommitTime(t *testing.T) {
 }
 
 func TestLogger_BlockProcessingTime(t *testing.T) {
-	bl := NewLogger(log.NewNopLogger())
+	bl := NewLogger()
 
 	// Start and end block processing
 	bl.StartBlockProcessing()

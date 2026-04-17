@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -31,7 +30,6 @@ var (
 
 type reactorTestSuite struct {
 	network        *p2p.TestNetwork
-	logger         log.Logger
 	reactors       map[types.NodeID]*evidence.Reactor
 	pools          map[types.NodeID]*evidence.Pool
 	nodes          []*p2p.TestNode
@@ -43,7 +41,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 	numStateStores := len(stateStores)
 	rts := &reactorTestSuite{
 		numStateStores: numStateStores,
-		logger:         log.NewNopLogger().With("testCase", t.Name()),
 		network:        p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numStateStores}),
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
@@ -52,7 +49,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 
 	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
-		logger := rts.logger.With("validator", idx)
 		evidenceDB := dbm.NewMemDB()
 		blockStore := &mocks.BlockStore{}
 		state, _ := stateStores[idx].Load()
@@ -62,15 +58,15 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 			}
 			return nil
 		})
-		eventBus := eventbus.NewDefault(logger)
+		eventBus := eventbus.NewDefault()
 		err := eventBus.Start(ctx)
 		require.NoError(t, err)
 
-		rts.pools[nodeID] = evidence.NewPool(logger, evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
+		rts.pools[nodeID] = evidence.NewPool(evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
 		startPool(t, rts.pools[nodeID], stateStores[idx])
 		rts.nodes = append(rts.nodes, node)
 
-		reactor, err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
+		reactor, err := evidence.NewReactor(node.Router, rts.pools[nodeID])
 		if err != nil {
 			t.Fatalf("evidence.NewReactor(): %v", err)
 		}
@@ -418,7 +414,7 @@ func TestEvidenceListSerialization(t *testing.T) {
 			BlockID: types.BlockID{
 				Hash: crypto.Checksum([]byte("blockID_hash")),
 				PartSetHeader: types.PartSetHeader{
-					Total: 1000000,
+					Total: types.MaxBlockPartsCount,
 					Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
 				},
 			},
@@ -448,7 +444,7 @@ func TestEvidenceListSerialization(t *testing.T) {
 	}{
 		"DuplicateVoteEvidence": {
 			[]types.Evidence{dupl},
-			"0a85020a82020a79080210031802224a0a208b01023386c371778ecb6368573e539afc3cc860ec3a2f614e54fe5652f4fc80122608c0843d122072db3d959635dff1bb567bedaa70573392c5159666a3f8caf11e413aac52207a2a0b08b1d381d20510809dca6f32146af1f4111082efb388211bc72c55bcd61e9ac3d538d5bb031279080110031802224a0a208b01023386c371778ecb6368573e539afc3cc860ec3a2f614e54fe5652f4fc80122608c0843d122072db3d959635dff1bb567bedaa70573392c5159666a3f8caf11e413aac52207a2a0b08b1d381d20510809dca6f32146af1f4111082efb388211bc72c55bcd61e9ac3d538d5bb03180a200a2a060880dbaae105",
+			"0a81020afe010a7708021003180222480a208b01023386c371778ecb6368573e539afc3cc860ec3a2f614e54fe5652f4fc8012240865122072db3d959635dff1bb567bedaa70573392c5159666a3f8caf11e413aac52207a2a0b08b1d381d20510809dca6f32146af1f4111082efb388211bc72c55bcd61e9ac3d538d5bb03127708011003180222480a208b01023386c371778ecb6368573e539afc3cc860ec3a2f614e54fe5652f4fc8012240865122072db3d959635dff1bb567bedaa70573392c5159666a3f8caf11e413aac52207a2a0b08b1d381d20510809dca6f32146af1f4111082efb388211bc72c55bcd61e9ac3d538d5bb03180a200a2a060880dbaae105",
 		},
 	}
 

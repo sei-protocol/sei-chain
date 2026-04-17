@@ -2,6 +2,7 @@ package errors
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -18,6 +19,14 @@ const (
 	internalABCICodespace        = UndefinedCodespace
 	internalABCICode      uint32 = 1
 )
+
+// safeIntFromUint64 converts uint64 to int64, capping at math.MaxInt64 to prevent overflow.
+func safeIntFromUint64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
+}
 
 // ABCIInfo returns the ABCI error information as consumed by the tendermint
 // client. Returned codespace, code, and log message should be used as a ABCI response.
@@ -46,7 +55,7 @@ func ResponseCheckTx(err error, gw, gu uint64, debug bool) abci.ResponseCheckTx 
 	return abci.ResponseCheckTx{
 		Codespace: space,
 		Code:      code,
-		GasWanted: int64(gw),
+		GasWanted: safeIntFromUint64(gw),
 	}
 }
 
@@ -58,8 +67,8 @@ func ResponseDeliverTx(err error, gw, gu uint64, debug bool) abci.ResponseDelive
 		Codespace: space,
 		Code:      code,
 		Log:       log,
-		GasWanted: int64(gw),
-		GasUsed:   int64(gu),
+		GasWanted: safeIntFromUint64(gw),
+		GasUsed:   safeIntFromUint64(gu),
 	}
 }
 
@@ -71,8 +80,8 @@ func ResponseDeliverTxWithEvents(err error, gw, gu uint64, events []abci.Event, 
 		Codespace: space,
 		Code:      code,
 		Log:       log,
-		GasWanted: int64(gw),
-		GasUsed:   int64(gu),
+		GasWanted: safeIntFromUint64(gw),
+		GasUsed:   safeIntFromUint64(gu),
 		Events:    events,
 	}
 }

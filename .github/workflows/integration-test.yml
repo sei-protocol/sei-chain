@@ -12,6 +12,10 @@ on:
     branches:
       - main
       - release/**
+  merge_group:
+    branches:
+      - main
+      - release/**
 
 defaults:
   run:
@@ -132,6 +136,25 @@ jobs:
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
             ]
           },
+          {
+            name: "EVM GIGA Mixed (Determinism)",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
+            ]
+          },
+          {
+            name: "EVM RPC .io/.iox (spec fixtures)",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
+            ]
+          },
+          {
+            name: "EVM Parquet Receipt Store",
+            env: "RECEIPT_BACKEND=parquet",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -150,7 +173,7 @@ jobs:
         run: sudo apt-get install -y jq
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
       - name: Login to Docker Hub

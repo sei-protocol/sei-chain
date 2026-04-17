@@ -7,17 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
@@ -51,7 +52,6 @@ func NewTestApp(t *testing.T) *App {
 		Time:            time.Now(),
 		ChainId:         "tendermint_test",
 		ConsensusParams: &cp,
-		Validators:      []types.ValidatorUpdate{},
 		InitialHeight:   1,
 		AppStateBytes:   gbz,
 	})
@@ -95,9 +95,11 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 		},
 		ByzantineValidators: []types.Misbehavior{},
 		Hash:                []byte("abc"), // no needed for application logic
-		Height:              a.height,
-		ProposerAddress:     getValAddress(a.GetProposer()),
-		Time:                time.Now(),
+		Header: &tmproto.Header{
+			Height:          a.height,
+			ProposerAddress: getValAddress(a.GetProposer()),
+			Time:            time.Now(),
+		},
 	})
 	if err != nil {
 		panic(err)

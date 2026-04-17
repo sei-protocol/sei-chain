@@ -9,8 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
@@ -135,22 +135,6 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		// Update vote targets
 		k.ApplyWhitelist(ctx, params.Whitelist, voteTargets)
 
-		priceSnapshotItems := []types.PriceSnapshotItem{}
-		k.IterateBaseExchangeRates(ctx, func(denom string, exchangeRate types.OracleExchangeRate) bool {
-			priceSnapshotItem := types.PriceSnapshotItem{
-				Denom:              denom,
-				OracleExchangeRate: exchangeRate,
-			}
-			priceSnapshotItems = append(priceSnapshotItems, priceSnapshotItem)
-			return false
-		})
-		if len(priceSnapshotItems) > 0 {
-			priceSnapshot := types.PriceSnapshot{
-				SnapshotTimestamp:  ctx.BlockTime().Unix(),
-				PriceSnapshotItems: priceSnapshotItems,
-			}
-			k.AddPriceSnapshot(ctx, priceSnapshot)
-		}
 	}
 
 }

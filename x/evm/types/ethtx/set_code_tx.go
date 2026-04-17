@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/holiman/uint256"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func NewSetCodeTx(tx *ethtypes.Transaction) (*SetCodeTx, error) {
@@ -215,6 +215,22 @@ func (tx SetCodeTx) Validate() error {
 		if err := ValidateAddress(tx.To); err != nil {
 			return errors.New("invalid to address")
 		}
+	}
+
+	if err := validateAccessList(tx.Accesses); err != nil {
+		return err
+	}
+	if err := validateAuthList(tx.AuthList); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("v", tx.V, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("r", tx.R, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("s", tx.S, 32); err != nil {
+		return err
 	}
 
 	chainID := tx.GetChainID()

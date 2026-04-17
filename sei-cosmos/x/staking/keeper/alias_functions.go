@@ -3,8 +3,8 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // Validator Set
@@ -14,7 +14,7 @@ func (k Keeper) IterateValidators(ctx sdk.Context, fn func(index int64, validato
 	store := ctx.KVStore(k.storeKey)
 
 	iterator := sdk.KVStorePrefixIterator(store, types.ValidatorsKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := int64(0)
 
@@ -35,7 +35,7 @@ func (k Keeper) IterateBondedValidatorsByPower(ctx sdk.Context, fn func(index in
 	maxValidators := k.MaxValidators(ctx)
 
 	iterator := sdk.KVStoreReversePrefixIterator(store, types.ValidatorsByPowerIndexKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := int64(0)
 	for ; iterator.Valid() && i < int64(maxValidators); iterator.Next() {
@@ -55,7 +55,7 @@ func (k Keeper) IterateBondedValidatorsByPower(ctx sdk.Context, fn func(index in
 // iterate through the active validator set and perform the provided function
 func (k Keeper) IterateLastValidators(ctx sdk.Context, fn func(index int64, validator types.ValidatorI) (stop bool)) {
 	iterator := k.LastValidatorsIterator(ctx)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	i := int64(0)
 
@@ -119,7 +119,7 @@ func (k Keeper) IterateDelegations(ctx sdk.Context, delAddr sdk.AccAddress,
 	delegatorPrefixKey := types.GetDelegationsKey(delAddr)
 
 	iterator := sdk.KVStorePrefixIterator(store, delegatorPrefixKey) // smallest to largest
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for i := int64(0); iterator.Valid(); iterator.Next() {
 		del := types.MustUnmarshalDelegation(k.cdc, iterator.Value())
@@ -138,7 +138,7 @@ func (k Keeper) GetAllSDKDelegations(ctx sdk.Context) (delegations []types.Deleg
 	store := ctx.KVStore(k.storeKey)
 
 	iterator := sdk.KVStorePrefixIterator(store, types.DelegationKey)
-	defer iterator.Close()
+	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
 		delegation := types.MustUnmarshalDelegation(k.cdc, iterator.Value())

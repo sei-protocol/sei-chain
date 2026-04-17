@@ -10,6 +10,7 @@ import (
 	pointerviewv610 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v610"
 	pointerviewv614 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v614"
 	pointerviewv620 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v620"
+	pointerviewv630 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -24,6 +25,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.1.0":      check(pointerviewv610.NewPrecompile(keepers)),
 		"v6.1.4":      check(pointerviewv614.NewPrecompile(keepers)),
 		"v6.2.0":      check(pointerviewv620.NewPrecompile(keepers)),
+		"v6.3.0":      check(pointerviewv630.NewPrecompile(keepers)),
 	}
 }
 

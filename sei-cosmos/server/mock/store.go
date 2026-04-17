@@ -3,10 +3,10 @@ package mock
 import (
 	"io"
 
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	protoio "github.com/gogo/protobuf/io"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -118,13 +118,6 @@ func (ms multiStore) GetStoreType() sdk.StoreType {
 }
 
 func (ms multiStore) SetInterBlockCache(_ sdk.MultiStorePersistentCache) {
-	panic("not implemented")
-}
-func (ms multiStore) SetIAVLCacheSize(size int) {
-	panic("not implemented")
-}
-
-func (ms multiStore) SetIAVLDisableFastNode(disable bool) {
 	panic("not implemented")
 }
 

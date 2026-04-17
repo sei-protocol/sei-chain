@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -153,7 +152,6 @@ func EncodeTxForApp(signedTx *ethtypes.Transaction) ([]byte, error) {
 		return nil, err
 	}
 	txBuilder.SetGasLimit(10000000000)
-	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000))))
 
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	if err != nil {

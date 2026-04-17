@@ -3,8 +3,6 @@ package memiavl
 import (
 	"errors"
 	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 )
 
 // Options contains all settings for opening a memiavl database.
@@ -24,8 +22,6 @@ type Options struct {
 	InitialStores []string
 	// ZeroCopy if true, get and iterator methods return slices pointing to mmaped blob files
 	ZeroCopy bool
-	// Logger is the memiavl logger
-	Logger logger.Logger
 	// LoadForOverwriting if true, rollbacks the state by truncating versions after TargetVersion
 	LoadForOverwriting bool
 	// OnlyAllowExportOnSnapshotVersion restricts export to snapshot versions only
@@ -77,9 +73,5 @@ func (opts *Options) FillDefaults() {
 
 	if opts.SnapshotPrefetchThreshold <= 0 || opts.SnapshotPrefetchThreshold > 1 {
 		opts.SnapshotPrefetchThreshold = DefaultSnapshotPrefetchThreshold
-	}
-
-	if opts.Logger == nil {
-		opts.Logger = logger.NewNopLogger()
 	}
 }

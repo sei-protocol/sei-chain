@@ -3,13 +3,14 @@ package tx
 import (
 	"fmt"
 
+	"github.com/gogo/protobuf/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/unknownproto"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/unknownproto"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
@@ -47,6 +48,10 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
+		if err := rejectBloatedBody(raw.BodyBytes, &body); err != nil {
+			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+		}
+
 		var authInfo tx.AuthInfo
 
 		// reject all unknown proto fields in AuthInfo
@@ -79,7 +84,7 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 func DefaultJSONTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		var theTx tx.Tx
-		err := cdc.UnmarshalJSON(txBytes, &theTx)
+		err := cdc.UnmarshalAsJSON(txBytes, &theTx)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -138,6 +143,21 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 		txBytes = txBytes[m:]
 	}
 
+	return nil
+}
+
+// rejectBloatedBody rejects tx bodies where the raw wire encoding is larger
+// than the canonical re-marshal of the decoded struct. This catches protobuf-level
+// bloat (e.g. padded sdk.Int fields, oversized Any.Value) that UnpackAny would
+// otherwise silently canonicalize away before validation runs.
+func rejectBloatedBody(rawBodyBytes []byte, body *tx.TxBody) error {
+	canonicalBytes, err := proto.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal tx body: %w", err)
+	}
+	if len(rawBodyBytes) != len(canonicalBytes) {
+		return fmt.Errorf("tx body wire size (%d) exceeds canonical size (%d)", len(rawBodyBytes), len(canonicalBytes))
+	}
 	return nil
 }
 

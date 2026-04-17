@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/evidence/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 
 	"github.com/gorilla/mux"
 )
@@ -47,7 +47,7 @@ func queryEvidenceHandler(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryEvidenceRequest(decodedHash)
-		bz, err := clientCtx.Codec.MarshalJSON(params)
+		bz, err := clientCtx.Codec.MarshalAsJSON(params)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to marshal query params: %s", err))
 			return
@@ -77,7 +77,7 @@ func queryAllEvidenceHandler(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		params := types.NewQueryAllEvidenceParams(page, limit)
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to marshal query params: %s", err))
 			return

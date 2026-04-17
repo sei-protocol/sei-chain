@@ -3,8 +3,8 @@ package multiversion
 import (
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/google/btree"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 const (

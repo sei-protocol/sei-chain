@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type uintTestSuite struct {
@@ -276,6 +276,16 @@ func (s *uintTestSuite) TestRelativePow() {
 		res := sdk.RelativePow(tc.args[0], tc.args[1], tc.args[2])
 		s.Require().Equal(tc.want, res, "unexpected result for test case %d, input: %v, got: %v", i, tc.args, res)
 	}
+}
+
+func (s *uintTestSuite) TestUintUnmarshalEmptyResetsReceiver() {
+	u := sdk.NewUint(42)
+	s.Require().NoError((&u).Unmarshal(nil))
+	s.Require().True(u.Equal(sdk.ZeroUint()), "nil protobuf bytes should reset Uint to zero")
+
+	u = sdk.NewUint(7)
+	s.Require().NoError((&u).Unmarshal([]byte{}))
+	s.Require().True(u.Equal(sdk.ZeroUint()), "empty protobuf bytes should reset Uint to zero")
 }
 
 func minuint(i1, i2 uint64) uint64 {

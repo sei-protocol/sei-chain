@@ -9,9 +9,9 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 func anteHandler(capKey sdk.StoreKey, storeKey []byte) sdk.AnteHandler {
@@ -43,7 +43,7 @@ func handlerKVStore(capKey sdk.StoreKey) sdk.Handler {
 		txIndex := ctx.TxIndex()
 
 		// Use the unique ID to get a specific key for this transaction
-		sharedKey := []byte(fmt.Sprintf("shared"))
+		sharedKey := []byte("shared")
 		txKey := []byte(fmt.Sprintf("tx-%d", txIndex))
 
 		// Similar steps as before: Get the store, retrieve a value, increment it, store back, emit an event

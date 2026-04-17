@@ -12,7 +12,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -31,8 +30,7 @@ func (e pubstring) ToLegacy() types.LegacyEventData { return e }
 func TestSubscribeWithArgs(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	t.Run("DefaultLimit", func(t *testing.T) {
 		sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
@@ -59,9 +57,8 @@ func TestSubscribeWithArgs(t *testing.T) {
 
 func TestObserver(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	done := make(chan struct{})
 	var got interface{}
@@ -80,9 +77,7 @@ func TestObserver(t *testing.T) {
 func TestObserverErrors(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	require.Error(t, s.Observe(ctx, nil, query.All))
 	require.NoError(t, s.Observe(ctx, func(pubsub.Message) error { return nil }))
@@ -92,9 +87,7 @@ func TestObserverErrors(t *testing.T) {
 func TestPublishDoesNotBlock(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -121,8 +114,7 @@ func TestPublishDoesNotBlock(t *testing.T) {
 func TestSubscribeErrors(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	t.Run("NegativeLimitErr", func(t *testing.T) {
 		_, err := s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
@@ -137,8 +129,7 @@ func TestSubscribeErrors(t *testing.T) {
 func TestSlowSubscriber(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -158,8 +149,7 @@ func TestSlowSubscriber(t *testing.T) {
 func TestDifferentClients(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	sub1 := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: "client-1",
@@ -212,8 +202,7 @@ func TestDifferentClients(t *testing.T) {
 func TestSubscribeDuplicateKeys(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	testCases := []struct {
 		query    string
@@ -267,8 +256,7 @@ func TestSubscribeDuplicateKeys(t *testing.T) {
 func TestClientSubscribesTwice(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	q := query.MustCompile(`tm.events.type='NewBlock'`)
 	events := []abci.Event{{
@@ -302,8 +290,7 @@ func TestClientSubscribesTwice(t *testing.T) {
 func TestUnsubscribe(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -326,8 +313,7 @@ func TestUnsubscribe(t *testing.T) {
 func TestClientUnsubscribesTwice(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -347,8 +333,7 @@ func TestClientUnsubscribesTwice(t *testing.T) {
 func TestResubscribe(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	args := pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -370,8 +355,7 @@ func TestResubscribe(t *testing.T) {
 func TestUnsubscribeAll(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
-	s := newTestServer(ctx, t, logger)
+	s := newTestServer(ctx, t)
 
 	sub1 := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: clientID,
@@ -391,8 +375,8 @@ func TestUnsubscribeAll(t *testing.T) {
 }
 
 func TestBufferCapacity(t *testing.T) {
-	logger := log.NewNopLogger()
-	s := pubsub.NewServer(logger, pubsub.BufferCapacity(2))
+
+	s := pubsub.NewServer(pubsub.BufferCapacity(2))
 
 	require.Equal(t, 2, s.BufferCapacity())
 
@@ -418,10 +402,10 @@ func TestBufferCapacity(t *testing.T) {
 
 }
 
-func newTestServer(ctx context.Context, t testing.TB, logger log.Logger) *pubsub.Server {
+func newTestServer(ctx context.Context, t testing.TB) *pubsub.Server {
 	t.Helper()
 
-	s := pubsub.NewServer(logger)
+	s := pubsub.NewServer()
 
 	require.NoError(t, s.Start(ctx))
 	t.Cleanup(s.Wait)

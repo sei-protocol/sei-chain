@@ -1,0 +1,4 @@
+// Self-contained: script deploys reverter contract; runner substitutes __REVERTER__ with its address.
+// Expects eth_call to return JSON-RPC error code 3 with ABI-encoded Error("user error").
+>> {"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"0x0000000000000000000000000000000000000000","gas":"0x186a0","input":"0x01","to":"__REVERTER__"},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted: user error","data":"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000a75736572206572726f72"}}

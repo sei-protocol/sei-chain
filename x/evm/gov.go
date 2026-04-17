@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("x", "evm")
 
 func HandleAddERCNativePointerProposalV2(ctx sdk.Context, k *keeper.Keeper, p *types.AddERCNativePointerProposalV2) error {
 	decimals := uint8(math.MaxUint8)
@@ -30,7 +33,7 @@ func HandleAddERCNativePointerProposalV2(ctx sdk.Context, k *keeper.Keeper, p *t
 
 func logNativeV2Error(ctx sdk.Context, p *types.AddERCNativePointerProposalV2, step string, err string) {
 	id := fmt.Sprintf("Title: %s, Description: %s, Token: %s", p.Title, p.Description, p.Token)
-	ctx.Logger().Error(fmt.Sprintf("proposal (%s) encountered error during (%s) due to (%s)", id, step, err))
+	logger.Error("Proposal encountered error during step", "id", id, "step", step, "err", err)
 }
 
 func HandleAddERCNativePointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddERCNativePointerProposal) error {

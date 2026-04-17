@@ -4,11 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
+	"github.com/stretchr/testify/require"
 )
 
 func mustReadLastChangelogEntry(t *testing.T, cs *CommitStore) proto.ChangelogEntry {
@@ -28,10 +25,9 @@ func TestNewCommitStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultConfig()
 	cfg.SnapshotInterval = 10
-	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := NewCommitStore(dir, cfg)
 	require.NotNil(t, cs)
-	require.NotNil(t, cs.logger)
-	require.True(t, cs.opts.ZeroCopy)
+	require.False(t, cs.opts.ZeroCopy)
 	require.Equal(t, uint32(10), cs.opts.SnapshotInterval)
 	require.True(t, cs.opts.CreateIfMissing)
 }
@@ -39,14 +35,14 @@ func TestNewCommitStore(t *testing.T) {
 func TestNewCommitStoreWithCustomDirectory(t *testing.T) {
 	customDir := t.TempDir()
 
-	cs := NewCommitStore(customDir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(customDir, Config{})
 	require.NotNil(t, cs)
 	require.Contains(t, cs.opts.Dir, customDir)
 }
 
 func TestInitialize(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 
 	stores := []string{"store1", "store2", "store3"}
 	cs.Initialize(stores)
@@ -56,7 +52,7 @@ func TestInitialize(t *testing.T) {
 
 func TestCommitStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// Load version 0 to initialize the DB
@@ -74,8 +70,8 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -100,7 +96,7 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 
 func TestApplyChangeSetsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -120,7 +116,7 @@ func TestApplyChangeSetsEmpty(t *testing.T) {
 
 func TestApplyUpgrades(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -153,7 +149,7 @@ func TestApplyUpgrades(t *testing.T) {
 
 func TestApplyUpgradesEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -173,7 +169,7 @@ func TestApplyUpgradesEmpty(t *testing.T) {
 
 func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -184,8 +180,8 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -211,7 +207,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 
 func TestCommitInfo(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -229,8 +225,8 @@ func TestCommitInfo(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -248,7 +244,7 @@ func TestCommitInfo(t *testing.T) {
 
 func TestGetModuleByName(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test", "other"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -269,7 +265,7 @@ func TestGetModuleByName(t *testing.T) {
 
 func TestExporterVersionValidation(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -292,7 +288,7 @@ func TestExporterVersionValidation(t *testing.T) {
 
 func TestImporterVersionValidation(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 
 	// Negative version should fail
 	_, err := cs.Importer(-1)
@@ -307,7 +303,7 @@ func TestImporterVersionValidation(t *testing.T) {
 
 func TestCommitStoreClose(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -327,7 +323,7 @@ func TestCommitStoreClose(t *testing.T) {
 
 func TestCommitStoreRollback(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -338,8 +334,8 @@ func TestCommitStoreRollback(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -362,7 +358,7 @@ func TestCommitStoreRollback(t *testing.T) {
 
 func TestMultipleCommits(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -377,8 +373,8 @@ func TestMultipleCommits(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key" + string(rune('0'+i))), Value: []byte("value")},
 					},
 				},
@@ -396,7 +392,7 @@ func TestMultipleCommits(t *testing.T) {
 
 func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -416,8 +412,8 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "newstore",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -437,7 +433,7 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 
 func TestSetInitialVersion(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -454,7 +450,7 @@ func TestSetInitialVersion(t *testing.T) {
 
 func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -465,8 +461,8 @@ func TestGetVersions(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value")},
 					},
 				},
@@ -479,7 +475,7 @@ func TestGetVersions(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Create new CommitStore to test GetLatestVersion
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs2 := NewCommitStore(dir, Config{})
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()
@@ -489,7 +485,7 @@ func TestGetVersions(t *testing.T) {
 
 func TestCreateWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -505,7 +501,7 @@ func TestCreateWAL(t *testing.T) {
 
 func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -516,8 +512,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 				},
 			},
@@ -531,8 +527,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
 			},
@@ -562,7 +558,7 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 
 func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load to create the DB
@@ -573,8 +569,8 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -609,7 +605,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 
 	// First session: write data
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -619,8 +615,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -635,8 +631,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key3"), Value: []byte("value3")},
 				},
 			},
@@ -650,7 +646,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Second session: reload and verify WAL replay
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs2 := NewCommitStore(dir, Config{})
 	cs2.Initialize([]string{"test"})
 
 	_, err = cs2.LoadVersion(0, false)
@@ -668,7 +664,7 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 
 func TestRollbackWithWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -679,8 +675,8 @@ func TestRollbackWithWAL(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -705,7 +701,7 @@ func TestRollbackWithWAL(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Reopen and verify rollback persisted
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs2 := NewCommitStore(dir, Config{})
 	cs2.Initialize([]string{"test"})
 
 	_, err = cs2.LoadVersion(0, false)
@@ -719,7 +715,7 @@ func TestRollbackWithWAL(t *testing.T) {
 
 func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// Load and commit
@@ -729,8 +725,8 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -744,7 +740,7 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// After Close(), create a new CommitStore (WAL creation happens in NewCommitStore)
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs2 := NewCommitStore(dir, Config{})
 	cs2.Initialize([]string{"test"})
 
 	// Rollback should work
@@ -754,7 +750,7 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 
 func TestCloseReleasesWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -772,7 +768,7 @@ func TestCloseReleasesWAL(t *testing.T) {
 
 func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load
@@ -785,8 +781,8 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -810,7 +806,7 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 
 func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	dir := t.TempDir()
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	// First load
@@ -821,8 +817,8 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -859,7 +855,7 @@ func TestWALTruncationOnCommit(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SnapshotInterval = 2
 	cfg.SnapshotKeepRecent = 1
-	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := NewCommitStore(dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -870,8 +866,8 @@ func TestWALTruncationOnCommit(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -919,7 +915,7 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	dir := t.TempDir()
 
 	// No snapshot interval configured, so no snapshots will be created
-	cs := NewCommitStore(dir, logger.NewNopLogger(), Config{})
+	cs := NewCommitStore(dir, Config{})
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -929,8 +925,8 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -959,7 +955,7 @@ func TestWALTruncationDelta(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SnapshotInterval = 2
 	cfg.SnapshotKeepRecent = 1
-	cs := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs := NewCommitStore(dir, cfg)
 	cs.Initialize([]string{"test"})
 
 	_, err := cs.LoadVersion(0, false)
@@ -974,8 +970,8 @@ func TestWALTruncationDelta(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -993,7 +989,7 @@ func TestWALTruncationDelta(t *testing.T) {
 	require.NoError(t, cs.Close())
 
 	// Reopen
-	cs2 := NewCommitStore(dir, logger.NewNopLogger(), cfg)
+	cs2 := NewCommitStore(dir, cfg)
 	cs2.Initialize([]string{"test"})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)

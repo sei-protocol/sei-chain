@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/giga/tests/harness"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -202,12 +202,13 @@ func (stc *StateTestContext) SetupSender(sender common.Address) {
 func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*abci.ExecTxResult, error) {
 	app.EnableOCC = stc.Mode == ModeV2withOCC || stc.Mode == ModeGigaOCC
 
+	header := stc.Ctx.BlockHeader()
 	req := &abci.RequestFinalizeBlock{
 		Txs:    txs,
-		Height: stc.Ctx.BlockHeader().Height,
+		Header: &header,
 	}
 
-	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, req, req.DecidedLastCommit, false)
+	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false)
 	return events, results, err
 }
 

@@ -1,0 +1,6 @@
+// Data-dependent: getVMError for a tx that reverted. We use deploy tx; if no VM error, node may return null/error. Spec-only.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind txHash = result.transactions.0.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getVMError","params":["${txHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":null}

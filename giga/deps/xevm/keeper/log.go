@@ -3,11 +3,11 @@ package keeper
 import (
 	"encoding/binary"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/bitutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -49,25 +49,21 @@ func (k *Keeper) GetLegacyBlockBloom(ctx sdk.Context, height int64) (res ethtype
 }
 
 func (k *Keeper) SetEvmOnlyBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
-	blockBloom := make([]byte, ethtypes.BloomByteLength)
-	for _, bloom := range blooms {
-		or := make([]byte, ethtypes.BloomByteLength)
-		bitutil.ORBytes(or, blockBloom, bloom[:])
-		blockBloom = or
-	}
 	store := k.GetKVStore(ctx)
-	store.Set(types.EvmOnlyBlockBloomPrefix, blockBloom)
+	store.Set(types.EvmOnlyBlockBloomPrefix, BloomsToBytes(blooms))
 }
 
 func (k *Keeper) SetBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
+	store := k.GetKVStore(ctx)
+	store.Set(types.BlockBloomPrefix, BloomsToBytes(blooms))
+}
+
+func BloomsToBytes(blooms []ethtypes.Bloom) []byte {
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, bloom := range blooms {
-		or := make([]byte, ethtypes.BloomByteLength)
-		bitutil.ORBytes(or, blockBloom, bloom[:])
-		blockBloom = or
+		bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 	}
-	store := k.GetKVStore(ctx)
-	store.Set(types.BlockBloomPrefix, blockBloom)
+	return blockBloom
 }
 
 func (k *Keeper) SetLegacyBlockBloomCutoffHeight(ctx sdk.Context) {

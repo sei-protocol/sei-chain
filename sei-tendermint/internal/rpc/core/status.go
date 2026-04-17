@@ -126,8 +126,8 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 		}
 	}
 
-	_, val := valsWithH.GetByAddress(privValAddress)
-	if val != nil {
+	_, val, ok := valsWithH.GetByAddress(privValAddress)
+	if ok {
 		return utils.Some(val)
 	}
 	return none

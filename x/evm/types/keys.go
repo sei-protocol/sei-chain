@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (
@@ -62,6 +62,7 @@ var (
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
 	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
+	NonceBumpPrefix                 = []byte{0x1f} // transient
 )
 
 var (

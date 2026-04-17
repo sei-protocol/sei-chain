@@ -86,6 +86,13 @@ func (c *MockClient) getBlock(i int64) *coretypes.ResultBlock {
 	}
 }
 
+func (c *MockClient) Header(_ context.Context, h *int64) (*coretypes.ResultHeader, error) {
+	if h == nil {
+		return &coretypes.ResultHeader{Header: mockBlockHeader(int64(len(c.blocks)))}, nil
+	}
+	return &coretypes.ResultHeader{Header: mockBlockHeader(*h)}, nil
+}
+
 func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
 	if c.mockedGenesis != nil {
 		return c.mockedGenesis, nil

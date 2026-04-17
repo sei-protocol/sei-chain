@@ -41,12 +41,14 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "internal", "pubsub")
+
 	// ErrSubscriptionNotFound is returned when a client tries to unsubscribe
 	// from not existing subscription.
 	ErrSubscriptionNotFound = errors.New("subscription not found")
@@ -90,7 +92,6 @@ func (args UnsubscribeArgs) Validate() error {
 // messages with or without events, and manages internal state.
 type Server struct {
 	service.BaseService
-	logger log.Logger
 
 	queue  chan item
 	done   <-chan struct{} // closed when server should exit
@@ -121,10 +122,10 @@ type Option func(*Server)
 // NewServer returns a new server. See the commentary on the Option functions
 // for a detailed description of how to configure buffering. If no options are
 // provided, the resulting server's queue is unbuffered.
-func NewServer(logger log.Logger, options ...Option) *Server {
-	s := &Server{logger: logger}
+func NewServer(options ...Option) *Server {
+	s := &Server{}
 
-	s.BaseService = *service.NewBaseService(logger, "PubSub", s)
+	s.BaseService = *service.NewBaseService("PubSub", s)
 	for _, opt := range options {
 		opt(s)
 	}
@@ -345,7 +346,7 @@ func (s *Server) run(ctx context.Context) {
 		// Sender: Service the queue and forward messages to subscribers.
 		for it := range queue {
 			if err := s.send(it.Data, it.Events); err != nil {
-				s.logger.Error("error sending event", "err", err)
+				logger.Error("error sending event", "err", err)
 			}
 		}
 		// Terminate all subscribers before exit.

@@ -4,18 +4,30 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	//nolint:gosec,G108
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
-	"path"
+	"path/filepath"
 	"runtime/pprof"
+	"sync"
 	"time"
 
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta"
+	crgserver "github.com/sei-protocol/sei-chain/sei-cosmos/server/rosetta/lib/server"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -24,19 +36,6 @@ import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
-
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server/api"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
-	"github.com/cosmos/cosmos-sdk/server/rosetta"
-	crgserver "github.com/cosmos/cosmos-sdk/server/rosetta/lib/server"
-	"github.com/cosmos/cosmos-sdk/server/types"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 const (
@@ -60,23 +59,10 @@ const (
 	FlagPruningKeepEvery  = "pruning-keep-every"
 	FlagPruningInterval   = "pruning-interval"
 
-	// New pruning config keys under [iavl] section (v6.3.0+)
-	// TODO: Remove legacy fallback once all nodes have migrated to v6.3.0+
-	FlagIAVLPruning           = "iavl.pruning"
-	FlagIAVLPruningKeepRecent = "iavl.pruning-keep-recent"
-	FlagIAVLPruningKeepEvery  = "iavl.pruning-keep-every"
-	FlagIAVLPruningInterval   = "iavl.pruning-interval"
-
-	FlagIndexEvents                  = "index-events"
-	FlagMinRetainBlocks              = "min-retain-blocks"
-	FlagIAVLCacheSize                = "iavl-cache-size"
-	FlagIAVLFastNode                 = "iavl-disable-fastnode"
-	FlagCompactionInterval           = "compaction-interval"
-	FlagSeparateOrphanStorage        = "separate-orphan-storage"
-	FlagSeparateOrphanVersionsToKeep = "separate-orphan-versions-to-keep"
-	FlagNumOrphanPerFile             = "num-orphan-per-file"
-	FlagOrphanDirectory              = "orphan-dir"
-	FlagConcurrencyWorkers           = "concurrency-workers"
+	FlagIndexEvents        = "index-events"
+	FlagMinRetainBlocks    = "min-retain-blocks"
+	FlagCompactionInterval = "compaction-interval"
+	FlagConcurrencyWorkers = "concurrency-workers"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -132,7 +118,9 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			// Bind flags to the Context's Viper so the app construction can set
 			// options accordingly.
-			serverCtx.Viper.BindPFlags(cmd.Flags())
+			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
 
 			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
 			return err
@@ -142,10 +130,16 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
 				go func() {
-					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-					err := http.ListenAndServe(":6060", nil)
+					logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+					// TODO: Should this be bound to all interfaces?
+					server := &http.Server{
+						Addr:              "localhost:6060",
+						ReadHeaderTimeout: 10 * time.Second,
+						//nolint:gosec // no read/write timeout to allow long running pprofs for debugging
+					}
+					err := server.ListenAndServe()
 					if err != nil {
-						serverCtx.Logger.Error("Error from profiling server", "error", err)
+						logger.Error("Error from profiling server", "error", err)
 					}
 				}()
 			}
@@ -171,17 +165,17 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
 			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
-				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
+				logger.Info("--tracing not passed in, tracing is not enabled")
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			// amino is needed here for backwards compatibility of REST routes
-			exitCode := RestartErrorCode
-
-			serverCtx.Logger.Info("Creating node metrics provider")
+			logger.Info("Creating node metrics provider")
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
 
-			config, _ := config.GetConfig(serverCtx.Viper)
+			config, err := config.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return err
+			}
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
@@ -193,33 +187,21 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				}
 			}
 
-			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
-			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
-			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
-
-			serverCtx.Logger.Info("Starting Process")
+			logger.Info("Starting Process")
 			for {
-				err = startInProcess(
+				err := startInProcess(
 					serverCtx,
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
 					nodeMetricsProvider,
 					apiMetrics,
-					canRestartAfter,
 				)
-				errCode, ok := err.(ErrorCode)
-				exitCode = errCode.Code
-				if !ok {
+				if !errors.Is(err, ErrShouldRestart) {
 					return err
 				}
-				if exitCode != RestartErrorCode {
-					break
-				}
-				serverCtx.Logger.Info("restarting node...")
-				canRestartAfter = time.Now().Add(restartCoolDownDuration)
+				logger.Info("restarting node...")
 			}
-			return nil
 		},
 	}
 
@@ -248,10 +230,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
-	cmd.Flags().Bool(FlagSeparateOrphanStorage, false, "Whether to store orphans outside main application levelDB")
-	cmd.Flags().Int64(FlagSeparateOrphanVersionsToKeep, 2, "Number of versions to keep if storing orphans separately")
-	cmd.Flags().Int(FlagNumOrphanPerFile, 100000, "Number of orphans to store on each file if storing orphans separately")
-	cmd.Flags().String(FlagOrphanDirectory, path.Join(defaultNodeHome, "orphans"), "Directory to store orphan files if storing orphans separately")
 	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
@@ -268,8 +246,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
 	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
 	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
-	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
-
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
 	// add support for all Tendermint-specific command line options
@@ -283,7 +259,6 @@ func startInProcess(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetricsProvider *node.NodeMetrics,
 	apiMetrics *telemetry.Metrics,
-	canRestartAfter time.Time,
 ) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
@@ -291,7 +266,7 @@ func startInProcess(
 	defer cancel()
 	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
-		f, err := os.Create(cpuProfile)
+		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
 			return fmt.Errorf("failed to create cpuProfile file %w", err)
 		}
@@ -301,17 +276,13 @@ func startInProcess(
 		}
 
 		cpuProfileCleanup = func() {
-			ctx.Logger.Info("stopping CPU profiler", "profile", cpuProfile)
+			logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
-			f.Close()
+			_ = f.Close()
 		}
 	}
 
 	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
-	db, err := openDB(home)
-	if err != nil {
-		return err
-	}
 
 	traceWriter, err := openTraceWriter(traceWriterFile)
 	if err != nil {
@@ -324,25 +295,32 @@ func startInProcess(
 	}
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
-		ctx.Logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
+		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
 
-	var (
-		tmNode    service.Service
-		restartCh chan struct{}
-		gRPCOnly  = ctx.Viper.GetBool(flagGRPCOnly)
-	)
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	var tmNode service.Service
 
-	restartCh = make(chan struct{})
+	var restartMtx sync.Mutex
+	restartCh := make(chan struct{})
+	restartEvent := func() {
+		restartMtx.Lock()
+		defer restartMtx.Unlock()
+		select {
+		case <-restartCh:
+		default:
+			close(restartCh)
+		}
+	}
 
 	if gRPCOnly {
-		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
+		logger.Info("starting node in gRPC only mode; Tendermint is disabled")
 		config.GRPC.Enable = true
 	} else {
-		ctx.Logger.Info("starting node with ABCI Tendermint in-process")
+		logger.Info("starting node with ABCI Tendermint in-process")
 		var gen *tmtypes.GenesisDoc
 		if config.Genesis.StreamImport {
 			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
@@ -360,9 +338,8 @@ func startInProcess(
 		tmNode, err = node.New(
 			goCtx,
 			ctx.Config,
-			ctx.Logger,
-			restartCh,
-			abciclient.NewLocalClient(ctx.Logger, app),
+			restartEvent,
+			app,
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
@@ -379,7 +356,7 @@ func startInProcess(
 	// service if API or gRPC is enabled, and avoid doing so in the general
 	// case, because it spawns a new local tendermint RPC client.
 	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		localClient, err := local.New(ctx.Logger, tmNode.(local.NodeService))
+		localClient, err := local.New(tmNode.(local.NodeService))
 		if err != nil {
 			return err
 		}
@@ -392,7 +369,7 @@ func startInProcess(
 	var apiSrv *api.Server
 	if config.API.Enable {
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
-		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
+		apiSrv = api.New(clientCtx)
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -424,7 +401,7 @@ func startInProcess(
 		if config.GRPCWeb.Enable {
 			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
 			if err != nil {
-				ctx.Logger.Error("failed to start grpc-web http server: ", err)
+				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
 		}
@@ -434,7 +411,7 @@ func startInProcess(
 	// we do not need to start Rosetta or handle any Tendermint related processes.
 	if gRPCOnly {
 		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+		return WaitForQuitSignals(goCtx, restartCh)
 	}
 
 	var rosettaSrv crgserver.Server
@@ -496,16 +473,16 @@ func startInProcess(
 		if grpcSrv != nil {
 			grpcSrv.Stop()
 			if grpcWebSrv != nil {
-				grpcWebSrv.Close()
+				_ = grpcWebSrv.Close()
 			}
 		}
 
-		ctx.Logger.Info("close any other open resource...")
+		logger.Info("close any other open resource...")
 		if err := app.Close(); err != nil {
-			ctx.Logger.Error("error closing database", "err", err)
+			logger.Error("error closing database", "err", err)
 		}
 	}()
 
 	// wait for signal capture and gracefully return
-	return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
+	return WaitForQuitSignals(goCtx, restartCh)
 }

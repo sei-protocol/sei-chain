@@ -14,10 +14,10 @@ import (
 	"github.com/gogo/protobuf/proto"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Context implements a typical context created in SDK modules for transaction
@@ -276,7 +276,7 @@ func (ctx Context) PrintBytes(o []byte) error {
 // will be JSON encoded using ctx.Codec. An error is returned upon failure.
 func (ctx Context) PrintProto(toPrint proto.Message) error {
 	// always serialize JSON initially because proto json can't be directly YAML encoded
-	out, err := ctx.Codec.MarshalJSON(toPrint)
+	out, err := ctx.Codec.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (ctx Context) PrintProto(toPrint proto.Message) error {
 // and uses amino JSON encoding.
 // Deprecated: It will be removed in the near future!
 func (ctx Context) PrintObjectLegacy(toPrint interface{}) error {
-	out, err := ctx.LegacyAmino.MarshalJSON(toPrint)
+	out, err := ctx.LegacyAmino.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
 	}

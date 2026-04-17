@@ -10,11 +10,11 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 type (
@@ -46,8 +46,6 @@ var (
 
 	coins     = sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
 	halfCoins = sdk.Coins{sdk.NewInt64Coin("foocoin", 5)}
-
-	sendMsg1 = types.NewMsgSend(addr1, addr2, coins)
 
 	multiSendMsg1 = &types.MsgMultiSend{
 		Inputs:  []types.Input{types.NewInput(addr1, coins)},
@@ -91,7 +89,8 @@ func TestSendNotEnoughBalance(t *testing.T) {
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
 
-	a.Commit(context.Background())
+	_, err := a.Commit(context.Background())
+	require.NoError(t, err)
 
 	res1 := a.AccountKeeper.GetAccount(ctx, addr1)
 	require.NotNil(t, res1)
@@ -101,9 +100,9 @@ func TestSendNotEnoughBalance(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin("foocoin", 100)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
+	_, _, err = app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
 
 	app.CheckBalance(t, a, addr1, sdk.Coins{sdk.NewInt64Coin("foocoin", 67)})
@@ -140,9 +139,9 @@ func TestSendReceiverNotInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
+	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), fmt.Sprintf("%s is not allowed to receive funds", addr2))
 
@@ -174,9 +173,9 @@ func TestSendSenderAndReceiverInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
+	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
 	require.NoError(t, err)
 
 	app.CheckBalance(t, a, addr1, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 90)})
@@ -208,9 +207,9 @@ func TestSendWithEmptyAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
+	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, true, true, priv1)
 	require.NoError(t, err)
 
 	app.CheckBalance(t, a, addr1, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 90)})
@@ -242,9 +241,9 @@ func TestSendSenderNotInAllowList(t *testing.T) {
 	origSeq := res1.GetSequence()
 
 	sendMsg := types.NewMsgSend(addr1, addr2, sdk.Coins{sdk.NewInt64Coin(factoryDenom, 10)})
-	header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+	header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 	txGen := app.MakeEncodingConfig().TxConfig
-	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, "", []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
+	_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, []sdk.Msg{sendMsg}, []uint64{origAccNum}, []uint64{origSeq}, false, false, priv1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), fmt.Sprintf("%s is not allowed to send funds", addr1))
 
@@ -294,9 +293,9 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		if tc.expPass {
 			require.NoError(t, err)
 		} else {
@@ -344,9 +343,9 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {
@@ -396,9 +395,9 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {
@@ -448,9 +447,9 @@ func TestMsgMultiSendDependent(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+		header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 		txGen := app.MakeEncodingConfig().TxConfig
-		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, "", tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
+		_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, tc.msgs, tc.accNums, tc.accSeqs, tc.expSimPass, tc.expPass, tc.privKeys...)
 		require.NoError(t, err)
 
 		for _, eb := range tc.expectedBalances {
@@ -673,9 +672,9 @@ func TestMultiSendAllowList(t *testing.T) {
 
 			a.Commit(context.Background())
 
-			header := tmproto.Header{Height: a.LastBlockHeight() + 1}
+			header := tmproto.Header{ChainID: a.ChainID, Height: a.LastBlockHeight() + 1}
 			txGen := app.MakeEncodingConfig().TxConfig
-			_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, msgs, "", tc.accNums, tc.accSeqs, !tc.expectedError, !tc.expectedError, tc.privKeys...)
+			_, _, err := app.SignCheckDeliver(t, txGen, a.BaseApp, header, msgs, tc.accNums, tc.accSeqs, !tc.expectedError, !tc.expectedError, tc.privKeys...)
 
 			if tc.expectedError {
 				require.Error(t, err, "expected an error but got none")

@@ -11,18 +11,22 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sei-protocol/seilog"
 	dbm "github.com/tendermint/tm-db"
+
+	"github.com/gogo/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "abci", "example", "kvstore")
+
 	stateKey        = []byte("stateKey")
 	kvPairPrefixKey = []byte("kvPairKey:")
 
@@ -77,7 +81,6 @@ type Application struct {
 	mu           sync.Mutex
 	state        State
 	RetainBlocks int64 // blocks to retain after commit (via ResponseCommit.RetainHeight)
-	logger       log.Logger
 
 	// validator set
 	ValUpdates         []types.ValidatorUpdate
@@ -86,24 +89,13 @@ type Application struct {
 
 func NewApplication() *Application {
 	return &Application{
-		logger:             log.NewNopLogger(),
 		state:              loadState(dbm.NewMemDB()),
 		valAddrToPubKeyMap: make(map[string]cryptoproto.PublicKey),
 	}
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	for _, v := range req.Validators {
-		r := app.updateValidator(v)
-		if r.IsErr() {
-			app.logger.Error("error updating validators", "r", r)
-			panic("problem updating validators")
-		}
-	}
-	return &types.ResponseInitChain{}, nil
+	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }
 
 func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
@@ -118,6 +110,10 @@ func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.
 	}, nil
 }
 
+func (app *Application) GetValidators() []types.ValidatorUpdate {
+	return app.Validators()
+}
+
 // tx is either "val:pubkey!power" or "key=value" or just arbitrary bytes
 func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	// if it starts with "val:", update the validator set
@@ -129,7 +125,7 @@ func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	}
 
 	if isPrepareTx(tx) {
-		return app.execPrepareTx(tx)
+		return &types.ExecTxResult{}
 	}
 
 	var key, value string
@@ -184,7 +180,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 					PubKey: pubKey,
 					Power:  ev.Validator.Power - 1,
 				})
-				app.logger.Info("Decreased val power by 1 because of the equivocation",
+				logger.Info("Decreased val power by 1 because of the equivocation",
 					"val", addr)
 			} else {
 				panic(fmt.Errorf("wanted to punish val %q but can't find it", addr))
@@ -283,15 +279,6 @@ func (app *Application) Query(_ context.Context, reqQuery *types.RequestQuery) (
 	return &resQuery, nil
 }
 
-func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	return &types.ResponsePrepareProposal{
-		TxRecords: app.substPrepareTx(req.Txs, req.MaxTxBytes),
-	}, nil
-}
-
 func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	for _, tx := range req.Txs {
 		if len(tx) == 0 {
@@ -304,6 +291,16 @@ func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcess
 //---------------------------------------------
 // update validators
 
+func (app *Application) SetValidators(validators []types.ValidatorUpdate) {
+	for _, v := range app.Validators() {
+		v.Power = 0
+		app.updateValidator(v)
+	}
+	for _, v := range validators {
+		app.updateValidator(v)
+	}
+}
+
 func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -315,8 +312,7 @@ func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	for ; itr.Valid(); itr.Next() {
 		if isValidatorTx(itr.Key()) {
 			validator := new(types.ValidatorUpdate)
-			err := types.ReadMessage(bytes.NewBuffer(itr.Value()), validator)
-			if err != nil {
+			if err := proto.Unmarshal(itr.Value(), validator); err != nil {
 				panic(err)
 			}
 			validators = append(validators, *validator)
@@ -408,13 +404,13 @@ func (app *Application) updateValidator(v types.ValidatorUpdate) *types.ExecTxRe
 		delete(app.valAddrToPubKeyMap, string(pubkey.Address()))
 	} else {
 		// add or update validator
-		value := bytes.NewBuffer(make([]byte, 0))
-		if err := types.WriteMessage(&v, value); err != nil {
+		bz, err := proto.Marshal(&v)
+		if err != nil {
 			return &types.ExecTxResult{
 				Code: code.CodeTypeEncodingError,
 				Log:  fmt.Sprintf("error encoding validator: %v", err)}
 		}
-		if err = app.state.db.Set(key, value.Bytes()); err != nil {
+		if err = app.state.db.Set(key, bz); err != nil {
 			panic(err)
 		}
 		app.valAddrToPubKeyMap[string(pubkey.Address())] = v.PubKey
@@ -433,43 +429,4 @@ const PreparePrefix = "prepare"
 
 func isPrepareTx(tx []byte) bool {
 	return bytes.HasPrefix(tx, []byte(PreparePrefix))
-}
-
-// execPrepareTx is noop. tx data is considered as placeholder
-// and is substitute at the PrepareProposal.
-func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
-	// noop
-	return &types.ExecTxResult{}
-}
-
-// substPrepareTx substitutes all the transactions prefixed with 'prepare' in the
-// proposal for transactions with the prefix stripped.
-// It marks all of the original transactions as 'REMOVED' so that
-// Tendermint will remove them from its mempool.
-func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*types.TxRecord {
-	trs := make([]*types.TxRecord, 0, len(blockData))
-	var removed []*types.TxRecord
-	var totalBytes int64
-	for _, tx := range blockData {
-		txMod := tx
-		action := types.TxRecord_UNMODIFIED
-		if isPrepareTx(tx) {
-			removed = append(removed, &types.TxRecord{
-				Tx:     tx,
-				Action: types.TxRecord_UNMODIFIED,
-			})
-			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_UNMODIFIED
-		}
-		totalBytes += int64(len(txMod))
-		if totalBytes > maxTxBytes {
-			break
-		}
-		trs = append(trs, &types.TxRecord{
-			Tx:     txMod,
-			Action: action,
-		})
-	}
-
-	return append(trs, removed...)
 }

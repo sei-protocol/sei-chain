@@ -1,0 +1,53 @@
+syntax = "proto3";
+package seiprotocol.seichain.admin.v0;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/admin/types";
+
+// AdminService provides runtime administration endpoints.
+service AdminService {
+  // SetLogLevel changes the log level for loggers matching a pattern.
+  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
+  // GetLogLevel returns the current log level for a specific logger.
+  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {}
+  // ListLoggers returns all registered loggers and their current levels.
+  rpc ListLoggers(ListLoggersRequest) returns (ListLoggersResponse) {}
+}
+
+message SetLogLevelRequest {
+  // pattern is a logger name, glob, or "*" for all loggers.
+  string pattern = 1;
+  // level is the desired log level (debug, info, warn, error).
+  string level = 2;
+}
+
+message SetLogLevelResponse {
+  string pattern = 1;
+  string level = 2;
+  int32 affected = 3;
+}
+
+message GetLogLevelRequest {
+  // logger is the exact logger name.
+  string logger = 1;
+}
+
+message GetLogLevelResponse {
+  string logger = 1;
+  string level = 2;
+}
+
+message ListLoggersRequest {
+  // prefix filters loggers by name prefix (optional).
+  string prefix = 1;
+}
+
+message ListLoggersResponse {
+  repeated LoggerInfo loggers = 1 [(gogoproto.nullable) = false];
+}
+
+message LoggerInfo {
+  string name = 1;
+  string level = 2;
+}

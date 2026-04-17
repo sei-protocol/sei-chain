@@ -16,5 +16,7 @@ permissions:
 jobs:
   backport:
     name: Backport
-    uses: sei-protocol/uci/.github/workflows/backport.yml@v0.0.6
+    uses: sei-protocol/uci/.github/workflows/backport.yml@v0.0.9
     secrets: inherit
+    with:
+      backport-team: 'sei-protocol/sei-core'

@@ -6,16 +6,15 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 )
 
-func NewTestInterfaceRegistry() types.InterfaceRegistry {
-	registry := types.NewInterfaceRegistry()
+func NewTestInterfaceRegistry() codectypes.InterfaceRegistry {
+	registry := codectypes.NewInterfaceRegistry()
 	registry.RegisterInterface("Animal", (*testdata.Animal)(nil))
 	registry.RegisterImplementations(
 		(*testdata.Animal)(nil),
@@ -26,7 +25,7 @@ func NewTestInterfaceRegistry() types.InterfaceRegistry {
 }
 
 func TestMarshalAny(t *testing.T) {
-	registry := types.NewInterfaceRegistry()
+	registry := codectypes.NewInterfaceRegistry()
 
 	cdc := codec.NewProtoCodec(registry)
 
@@ -53,7 +52,6 @@ func TestMarshalAny(t *testing.T) {
 	require.Equal(t, kitty, animal)
 
 	// nil should fail
-	registry = NewTestInterfaceRegistry()
 	err = cdc.UnmarshalInterface(bz, nil)
 	require.Error(t, err)
 }
@@ -68,11 +66,11 @@ func TestMarshalProtoPubKey(t *testing.T) {
 
 	pkAny, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(err)
-	bz, err := ccfg.Marshaler.MarshalJSON(pkAny)
+	bz, err := ccfg.Marshaler.MarshalAsJSON(pkAny)
 	require.NoError(err)
 
 	var pkAny2 codectypes.Any
-	err = ccfg.Marshaler.UnmarshalJSON(bz, &pkAny2)
+	err = ccfg.Marshaler.UnmarshalAsJSON(bz, &pkAny2)
 	require.NoError(err)
 	// Before getting a cached value we need to unpack it.
 	// Normally this happens in types which implement UnpackInterfaces
@@ -119,7 +117,7 @@ func TestMarshalProtoInterfacePubKey(t *testing.T) {
 	// Any can't implement UnpackInterfacesMessage interface. So Any is not
 	// automatically unpacked and we won't get a value.
 	var pkAny codectypes.Any
-	err = ccfg.Marshaler.UnmarshalJSON(bz, &pkAny)
+	err = ccfg.Marshaler.UnmarshalAsJSON(bz, &pkAny)
 	require.NoError(err)
 	ifc := pkAny.GetCachedValue()
 	require.Nil(ifc)

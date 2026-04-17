@@ -28,7 +28,7 @@ type Committer interface {
 
 	LastCommitInfo() *proto.CommitInfo
 
-	LoadVersion(targetVersion int64, copyExisting bool) (Committer, error)
+	LoadVersion(targetVersion int64, readOnly bool) (Committer, error)
 
 	Rollback(targetVersion int64) error
 

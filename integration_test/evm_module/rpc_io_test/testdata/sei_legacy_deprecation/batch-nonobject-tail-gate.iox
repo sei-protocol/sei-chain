@@ -1,0 +1,12 @@
+// Regression (PLT-227 / sei_legacy HTTP batch): a non-object batch element after a gated sei_* call
+// must not cause full-body passthrough past enabled_legacy_sei_apis.
+//
+// Docker localnet omits sei_sign from enabled_legacy_sei_apis (see docker/localnode/config/app.toml).
+// Correct behavior: slot 0 = legacy gate error (legacy_sei_deprecated); slot 1 = -32600 Invalid Request.
+// Buggy behavior (early return to inner on per-element unmarshal error): sei_sign can reach the inner
+// server and the response no longer contains legacy_sei_deprecated for that slot.
+>> [{"jsonrpc":"2.0","id":1,"method":"sei_sign","params":[]},42]
+<<
+@ expect_body_contains legacy_sei_deprecated
+@ expect_body_contains Invalid Request
+@ expect_body_contains -32600

@@ -3,7 +3,7 @@ package sr25519
 import (
 	"bytes"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 )
 

@@ -16,10 +16,10 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sei-protocol/seilog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	grpcprivval "github.com/sei-protocol/sei-chain/sei-tendermint/privval/grpc"
@@ -27,6 +27,8 @@ import (
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "cmd", "priv-val-server")
+
 	// Create a metrics registry.
 	reg = prometheus.NewRegistry()
 
@@ -47,13 +49,6 @@ func main() {
 		prometheusAddr   = flag.String("prometheus-addr", "", "address for prometheus endpoint (host:port)")
 	)
 	flag.Parse()
-
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to construct logger: %v", err)
-		os.Exit(1)
-	}
-	logger = logger.With("module", "priv_val")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -113,7 +108,7 @@ func main() {
 	// add prometheus metrics for unary RPC calls
 	opts = append(opts, grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor))
 
-	ss := grpcprivval.NewSignerServer(logger, *chainID, pv)
+	ss := grpcprivval.NewSignerServer(*chainID, pv)
 
 	protocol, address := tmnet.ProtocolAndAddress(*addr)
 

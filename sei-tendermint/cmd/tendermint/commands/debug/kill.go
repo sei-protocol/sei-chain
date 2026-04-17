@@ -15,11 +15,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 )
 
-func getKillCmd(logger log.Logger) *cobra.Command {
+func getKillCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "kill [pid] [compressed-output-file]",
 		Short: "Kill a Tendermint process while aggregating and packaging debugging data",

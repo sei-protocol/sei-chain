@@ -7,21 +7,20 @@ const StateCommitConfigTemplate = `
 ###############################################################################
 
 [state-commit]
-# Enable defines if the SeiDB should be enabled to override existing IAVL db backend.
+# Enable defines if the SeiDB state-commit should be enabled.
 sc-enable = {{ .StateCommit.Enable }}
 
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
 
-# WriteMode defines how EVM data writes are routed between backends.
-# Valid values: cosmos_only, dual_write, split_write, evm_only
-# defaults to cosmos_only
-sc-write-mode = "{{ .StateCommit.WriteMode }}"
+# Max concurrent historical proof queries (RPC /store path)
+sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
 
-# ReadMode defines how EVM data reads are routed between backends.
-# Valid values: cosmos_only, evm_first, split_read
-# defaults to cosmos_only
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
+# Historical proof query rate limit in req/sec (<=0 disables rate limiting)
+sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
+
+# Historical proof query burst size
+sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
@@ -51,6 +50,27 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+###############################################################################
+###                        FlatKV (EVM) Configuration                       ###
+###############################################################################
+
+[state-commit.flatkv]
+# Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
+# WAL always uses NoSync (matching memiavl); crash recovery relies on
+# WAL catchup, which is idempotent. Default: false.
+fsync = {{ .StateCommit.FlatKVConfig.Fsync }}
+
+# AsyncWriteBuffer defines the size of the async write buffer for data DBs.
+# Set <= 0 for synchronous writes.
+async-write-buffer = {{ .StateCommit.FlatKVConfig.AsyncWriteBuffer }}
+
+# SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint is taken.
+# 0 disables auto-snapshots. Default: 10000.
+snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
+
+# SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
+# 0 = keep only the current snapshot. Default: 2.
+snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
@@ -92,6 +112,23 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
+# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
+
+# WriteMode controls how EVM data writes are routed.
+# Supported values: "cosmos_only", "dual_write", "split_write"
+evm-ss-write-mode = "{{ .StateStore.WriteMode }}"
+
+# ReadMode controls how EVM data reads are routed.
+# Supported values: "cosmos_only", "evm_first", "split_read"
+evm-ss-read-mode = "{{ .StateStore.ReadMode }}"
+
+# SeparateEVMSubDBs controls whether EVM data is split across per-type DBs.
+# When false, all EVM data stays in one DB using the current unified layout.
+# When true, data is routed to separate DBs while preserving the same evm key prefix format.
+evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store
@@ -102,9 +139,28 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Backend defines the receipt store backend.
-# Supported backends: pebble (aka pebbledb)
+# Supported backends: pebble (aka pebbledb), parquet
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
+
+# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
+db-directory = "{{ .ReceiptStore.DBDirectory }}"
+
+# AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
+# Applies only when rs-backend = "pebbledb"; parquet ignores this setting.
+# Set <= 0 for synchronous writes.
+# defaults to 100
+async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
+
+# PruneIntervalSeconds defines the interval in seconds to trigger pruning.
+# Receipt retention is controlled by the global min-retain-blocks flag.
+# defaults to 600 seconds
+prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
+
+# TxIndexBackend selects the tx-hash index implementation for parquet receipts.
+# Set to "pebbledb" to enable the index, or "" to disable it.
+# Ignored unless rs-backend = "parquet".
+tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

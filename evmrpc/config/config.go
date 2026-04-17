@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"time"
 
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/spf13/cast"
 )
 
@@ -124,6 +124,9 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
+	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
+	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
+
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
 
@@ -134,6 +137,10 @@ type Config struct {
 	// WorkerQueueSize defines the size of the task queue in the worker pool.
 	// Set to 0 to use default: 1000
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
+
+	// EnabledLegacySeiApis lists which gated sei_* and sei2_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
+	// Set in app.toml [evm] as enabled_legacy_sei_apis (see ReadConfig and ConfigTemplate defaults).
+	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 }
 
 var DefaultConfig = Config{
@@ -162,9 +169,15 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
 	WorkerQueueSize:              DefaultWorkerQueueSize,                     // Default: 1000 tasks
+	EnabledLegacySeiApis: []string{
+		"sei_getSeiAddress",
+		"sei_getEVMAddress",
+		"sei_getCosmosTx",
+	},
 }
 
 const (
@@ -193,9 +206,11 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
 	flagWorkerQueueSize              = "evm.worker_queue_size"
+	flagEVMLegacySeiApis             = "evm.enabled_legacy_sei_apis"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -326,6 +341,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagEnableParallelizedBlockTrace); v != nil {
+		if cfg.EnableParallelizedBlockTrace, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagRPCStatsInterval); v != nil {
 		if cfg.RPCStatsInterval, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
@@ -338,6 +358,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagWorkerQueueSize); v != nil {
 		if cfg.WorkerQueueSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEVMLegacySeiApis); v != nil {
+		if cfg.EnabledLegacySeiApis, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -412,6 +437,59 @@ slow = {{ .EVM.Slow }}
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
+# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
+#
+# DEPRECATION: The sei_* and sei2_* JSON-RPC surfaces are deprecated and scheduled for removal. Do not
+# build new integrations on them; use eth_* / debug_* and documented replacements. HTTP 200;
+# gate errors use standard JSON-RPC error encoding (see evmrpc/AGENTS.md). Successful allowlisted
+# responses are unchanged; nodes may set HTTP header Sei-Legacy-RPC-Deprecation (see AGENTS.md).
+#
+# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable the three
+# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods (include
+# sei2_* block methods at the end of the list if you need them).
+enabled_legacy_sei_apis = [
+{{- range .EVM.EnabledLegacySeiApis }}
+  "{{ . }}",
+{{- end }}
+
+  # Optional legacy methods - uncomment to enable (same deprecation applies):
+  # "sei_associate",
+  # "sei_getBlockByHash",
+  # "sei_getBlockByHashExcludeTraceFail",
+  # "sei_getBlockByNumber",
+  # "sei_getBlockByNumberExcludeTraceFail",
+  # "sei_getBlockReceipts",
+  # "sei_getBlockTransactionCountByHash",
+  # "sei_getBlockTransactionCountByNumber",
+  # "sei_getEvmTx",
+  # "sei_getFilterChanges",
+  # "sei_getFilterLogs",
+  # "sei_getLogs",
+  # "sei_getTransactionByBlockHashAndIndex",
+  # "sei_getTransactionByBlockNumberAndIndex",
+  # "sei_getTransactionByHash",
+  # "sei_getTransactionCount",
+  # "sei_getTransactionErrorByHash",
+  # "sei_getTransactionReceipt",
+  # "sei_getTransactionReceiptExcludeTraceFail",
+  # "sei_getVMError",
+  # "sei_newBlockFilter",
+  # "sei_newFilter",
+  # "sei_sign",
+  # "sei_traceBlockByHashExcludeTraceFail",
+  # "sei_traceBlockByNumberExcludeTraceFail",
+  # "sei_uninstallFilter",
+  #
+  # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
+  # "sei2_getBlockByHash",
+  # "sei2_getBlockByHashExcludeTraceFail",
+  # "sei2_getBlockByNumber",
+  # "sei2_getBlockByNumberExcludeTraceFail",
+  # "sei2_getBlockReceipts",
+  # "sei2_getBlockTransactionCountByHash",
+  # "sei2_getBlockTransactionCountByNumber",
+]
+
 # max number of logs returned if block range is open-ended
 max_log_no_block = {{ .EVM.MaxLogNoBlock }}
 
@@ -431,6 +509,9 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+
+# Enable the parallelized default debug_traceBlock* path.
+enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}
 
 # WorkerPoolSize defines the number of workers in the worker pool.
 # Default: min(64, CPU cores × 2). Capped at 64 to prevent excessive goroutines on high-core machines.

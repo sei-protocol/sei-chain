@@ -13,9 +13,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -33,6 +30,9 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -261,10 +261,11 @@ func NewBackend(
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	height, isLatestBlock, err := b.getBlockHeight(ctx, blockNrOrHash)
+	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
+	height := tmBlock.Block.Height
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
@@ -273,7 +274,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 			return nil, nil, err
 		}
 	}
-	header := b.getHeader(big.NewInt(height))
+	header := b.getHeader(ctx, big.NewInt(height), tmBlock)
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
@@ -388,7 +389,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			})
 		}
 	}
-	header := b.getHeader(big.NewInt(blockNum))
+	header := b.getHeader(ctx, big.NewInt(blockNum), tmBlock)
 	block := &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
@@ -433,11 +434,12 @@ func (b *Backend) Engine() consensus.Engine {
 }
 
 func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
-	height, _, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	tmBlock, _, err := b.getBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
 	}
-	return b.getHeader(big.NewInt(height)), nil
+	height := tmBlock.Block.Height
+	return b.getHeader(ctx, big.NewInt(height), tmBlock), nil
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -552,7 +554,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
-	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+	header := b.getHeader(context.Background(), big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()), nil)
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
@@ -561,7 +563,9 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return utils.Big0, nil
 }
 
-func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, bool, error) {
+// getBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
+// (by hash or by number, including latest). Callers can pass tmBlock to getHeader to avoid a second block fetch.
+func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, bool, error) {
 	var (
 		block         *coretypes.ResultBlock
 		err           error
@@ -571,16 +575,16 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 	if blockNrOrHash.BlockHash != nil {
 		block, err = blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
-			return 0, false, err
+			return nil, false, err
 		}
-		return block.Block.Height, false, nil
+		return block, false, nil
 	}
 
 	var blockNumberPtr *int64
 	if blockNrOrHash.BlockNumber != nil {
 		blockNumberPtr, err = getBlockNumber(ctx, b.tmClient, *blockNrOrHash.BlockNumber)
 		if err != nil {
-			return 0, false, err
+			return nil, false, err
 		}
 		if blockNumberPtr == nil {
 			isLatestBlock = true
@@ -590,25 +594,30 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 	}
 	block, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
 	if err != nil {
-		return 0, false, err
+		return nil, false, err
 	}
-	return block.Block.Height, isLatestBlock, nil
+	return block, isLatestBlock, nil
 }
 
-func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+func (b *Backend) getHeader(ctx context.Context, blockNumber *big.Int, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
-	ctx := b.ctxProvider(blockNumber.Int64())
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+	sdkCtx := b.ctxProvider(blockNumber.Int64())
+	if sdkCtx.ChainID() == "pacific-1" && sdkCtx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(sdkCtx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		baseFee = nil
 	}
-	// Get block results to access consensus parameters
 	number := blockNumber.Int64()
-	block, blockErr := blockByNumberRespectingWatermarks(context.Background(), b.tmClient, b.watermarks, &number, 1)
+	var block *coretypes.ResultBlock
+	var blockErr error
+	if tmBlock != nil {
+		block = tmBlock
+	} else {
+		block, blockErr = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &number, 1)
+	}
 	var gasLimit uint64
 	if blockErr == nil {
 		// Try to get consensus parameters from block results
-		blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
+		blockRes, blockResErr := blockResultsWithRetry(ctx, b.tmClient, &number)
 		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
 			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 		} else {
@@ -648,6 +657,37 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	ctx = ctx.WithIsEVM(true)
 	if noSignatureSet(tx) {
 		// skip ante if no signature is set
+		return nil
+	}
+	txData, err := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to TxData due to %s", err)
+	}
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
+	}
+	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
+	_ = tb.SetMsgs(msg)
+	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	if err != nil {
+		return fmt.Errorf("transaction failed ante handler due to %s", err)
+	}
+	typedStateDB.WithCtx(newCtx)
+	return nil
+}
+
+// PrepareTxNoFlush is like PrepareTx but uses ResetForTracer instead of
+// CleanupForTracer, avoiding CacheMultiStore flushes. This is required in the
+// parallel block trace path where copies of the statedb are concurrently read
+// by worker goroutines; flushing would write to shared CacheMultiStore layers
+// and cause data races.
+func (b *Backend) PrepareTxNoFlush(statedb vm.StateDB, tx *ethtypes.Transaction) error {
+	typedStateDB := state.GetDBImpl(statedb)
+	typedStateDB.ResetForTracer()
+	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	ctx = ctx.WithIsEVM(true)
+	if noSignatureSet(tx) {
 		return nil
 	}
 	txData, err := ethtx.NewTxDataFromTx(tx)

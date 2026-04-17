@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v2"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type decimalTestSuite struct {
@@ -515,6 +515,16 @@ func (s *decimalTestSuite) TestDecEncoding() {
 		s.Require().NoError(err)
 		s.Require().Equal(tc.yamlStr, string(bz))
 	}
+}
+
+func (s *decimalTestSuite) TestDecUnmarshalEmptyResetsReceiver() {
+	d := sdk.NewDec(99)
+	s.Require().NoError((&d).Unmarshal(nil))
+	s.Require().True(d.Equal(sdk.ZeroDec()), "nil protobuf bytes should reset Dec to zero")
+
+	d = sdk.NewDec(5)
+	s.Require().NoError((&d).Unmarshal([]byte{}))
+	s.Require().True(d.Equal(sdk.ZeroDec()), "empty protobuf bytes should reset Dec to zero")
 }
 
 // Showcase that different orders of operations causes different results.

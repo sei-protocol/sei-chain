@@ -26,7 +26,7 @@ message AssociateTx {
 message SetCodeAuthorization {
   option (gogoproto.goproto_getters) = false;
   string chain_id = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "ChainID",
     (gogoproto.jsontag) = "chainID"
   ];
@@ -43,11 +43,11 @@ message LegacyTx {
   option (gogoproto.goproto_getters) = false;
 
   uint64 nonce = 1;
-  string gas_price = 2 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string gas_price = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   uint64 gas_limit = 3;
   string to = 4;
   string value = 5 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "Amount"
   ];
   bytes data = 6;
@@ -61,16 +61,16 @@ message AccessListTx {
   option (gogoproto.goproto_getters) = false;
 
   string chain_id = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "ChainID",
     (gogoproto.jsontag) = "chainID"
   ];
   uint64 nonce = 2;
-  string gas_price = 3 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string gas_price = 3 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   uint64 gas_limit = 4;
   string to = 5;
   string value = 6 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "Amount"
   ];
   bytes data = 7;
@@ -89,17 +89,17 @@ message SetCodeTx {
   option (gogoproto.goproto_getters) = false;
 
   string chain_id = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "ChainID",
     (gogoproto.jsontag) = "chainID"
   ];
   uint64 nonce = 2;
-  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
-  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
+  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   uint64 gas_limit = 5;
   string to = 6;
   string value = 7 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "Amount"
   ];
   bytes data = 8;
@@ -123,17 +123,17 @@ message DynamicFeeTx {
   option (gogoproto.goproto_getters) = false;
 
   string chain_id = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "ChainID",
     (gogoproto.jsontag) = "chainID"
   ];
   uint64 nonce = 2;
-  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
-  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
+  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   uint64 gas_limit = 5;
   string to = 6;
   string value = 7 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "Amount"
   ];
   bytes data = 8;
@@ -152,17 +152,17 @@ message BlobTx {
   option (gogoproto.goproto_getters) = false;
 
   string chain_id = 1 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "ChainID",
     (gogoproto.jsontag) = "chainID"
   ];
   uint64 nonce = 2;
-  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
-  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string gas_tip_cap = 3 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
+  string gas_fee_cap = 4 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   uint64 gas_limit = 5;
   string to = 6;
   string value = 7 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.customname) = "Amount"
   ];
   bytes data = 8;
@@ -171,7 +171,7 @@ message BlobTx {
     (gogoproto.jsontag) = "accessList",
     (gogoproto.nullable) = false
   ];
-  string blob_fee_cap = 10 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"];
+  string blob_fee_cap = 10 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int"];
   repeated bytes blob_hashes = 11;
   BlobTxSidecar sidecar = 12;
   // signature values

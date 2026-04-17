@@ -36,12 +36,12 @@ func (suite *TypesTestSuite) TestMarshalGenesisState() {
 
 	genesis := client.ExportGenesis(suite.chainA.GetContext(), suite.chainA.App.GetIBCKeeper().ClientKeeper)
 
-	bz, err := cdc.MarshalJSON(&genesis)
+	bz, err := cdc.MarshalAsJSON(&genesis)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(bz)
 
 	var gs types.GenesisState
-	err = cdc.UnmarshalJSON(bz, &gs)
+	err = cdc.UnmarshalAsJSON(bz, &gs)
 	suite.Require().NoError(err)
 }
 

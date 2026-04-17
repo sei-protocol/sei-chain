@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"time"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -76,6 +78,16 @@ type GenesisDoc struct {
 	AppState        json.RawMessage    `json:"app_state,omitempty"`
 }
 
+func (genDoc *GenesisDoc) ToRequestInitChain() *abci.RequestInitChain {
+	return &abci.RequestInitChain{
+		Time:            genDoc.GenesisTime,
+		ChainId:         genDoc.ChainID,
+		InitialHeight:   genDoc.InitialHeight,
+		ConsensusParams: utils.Alloc(genDoc.ConsensusParams.ToProto()),
+		AppStateBytes:   genDoc.AppState,
+	}
+}
+
 // SaveAs is a utility method for saving GenensisDoc as a JSON file.
 func (genDoc *GenesisDoc) SaveAs(file string) error {
 	genDocBytes, err := json.MarshalIndent(genDoc, "", "  ")
@@ -92,6 +104,14 @@ func (genDoc *GenesisDoc) ValidatorSet() *ValidatorSet {
 		vals[i] = NewValidator(v.PubKey, v.Power)
 	}
 	return NewValidatorSet(vals)
+}
+
+func (genDoc *GenesisDoc) ValidatorUpdates() []abci.ValidatorUpdate {
+	updates := make([]abci.ValidatorUpdate, len(genDoc.Validators))
+	for i, val := range genDoc.Validators {
+		updates[i] = TM2PB.ValidatorUpdate(NewValidator(val.PubKey, val.Power))
+	}
+	return updates
 }
 
 // ValidatorHash returns the hash of the validator set contained in the GenesisDoc

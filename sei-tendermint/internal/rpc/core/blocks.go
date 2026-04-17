@@ -34,7 +34,7 @@ func (env *Environment) BlockchainInfo(ctx context.Context, req *coretypes.Reque
 	if err != nil {
 		return nil, err
 	}
-	env.Logger.Debug("BlockchainInfo", "maxHeight", maxHeight, "minHeight", minHeight)
+	logger.Debug("BlockchainInfo", "maxHeight", maxHeight, "minHeight", minHeight)
 
 	blockMetas := make([]*types.BlockMeta, 0, maxHeight-minHeight+1)
 	for height := maxHeight; height >= minHeight; height-- {

@@ -12,11 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/net/netutil"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
+
+var logger = seilog.NewLogger("tendermint", "rpc", "jsonrpc", "server")
 
 // Config is a RPC server configuration.
 type Config struct {
@@ -57,9 +59,9 @@ func DefaultConfig() *Config {
 
 // Serve creates a http.Server and calls Serve with the given listener. It
 // wraps handler to recover panics and limit the request body size.
-func Serve(ctx context.Context, listener net.Listener, handler http.Handler, logger log.Logger, config *Config) error {
-	logger.Info(fmt.Sprintf("Starting RPC HTTP server on %s", listener.Addr()))
-	h := recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes), logger)
+func Serve(ctx context.Context, listener net.Listener, handler http.Handler, config *Config) error {
+	logger.Info("starting RPC HTTP server", "addr", listener.Addr())
+	h := recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes))
 	s := &http.Server{
 		Handler:        h,
 		ReadTimeout:    config.ReadTimeout,
@@ -88,14 +90,14 @@ func Serve(ctx context.Context, listener net.Listener, handler http.Handler, log
 // Serve creates a http.Server and calls ServeTLS with the given listener,
 // certFile and keyFile. It wraps handler to recover panics and limit the
 // request body size.
-func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, certFile, keyFile string, logger log.Logger, config *Config) error {
+func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, certFile, keyFile string, config *Config) error {
 	logger.Info("Starting RPC HTTPS server",
 		"listenterAddr", listener.Addr(),
 		"certFile", certFile,
 		"keyFile", keyFile)
 
 	s := &http.Server{
-		Handler:        recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes), logger),
+		Handler:        recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes)),
 		ReadTimeout:    config.ReadTimeout,
 		WriteTimeout:   config.WriteTimeout,
 		MaxHeaderBytes: config.MaxHeaderBytes,
@@ -132,7 +134,7 @@ func writeError(w http.ResponseWriter, statusCode int, err error) {
 // the response body is its error object; otherwise its responses is the result.
 //
 // Unless there is an error encoding the response, the status is 200 OK.
-func writeHTTPResponse(w http.ResponseWriter, log log.Logger, rsp rpctypes.RPCResponse) {
+func writeHTTPResponse(w http.ResponseWriter, rsp rpctypes.RPCResponse) {
 	var body []byte
 	var err error
 	if rsp.Error != nil {
@@ -141,7 +143,7 @@ func writeHTTPResponse(w http.ResponseWriter, log log.Logger, rsp rpctypes.RPCRe
 		body = rsp.Result
 	}
 	if err != nil {
-		log.Error("Error encoding RPC response: %w", err)
+		logger.Error("Error encoding RPC response", "err", err)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -161,7 +163,7 @@ func writeHTTPResponse(w http.ResponseWriter, log log.Logger, rsp rpctypes.RPCRe
 // (array) of response objects.
 //
 // Unless there is an error encoding the responses, the status is 200 OK.
-func writeRPCResponse(w http.ResponseWriter, log log.Logger, rsps ...rpctypes.RPCResponse) {
+func writeRPCResponse(w http.ResponseWriter, rsps ...rpctypes.RPCResponse) {
 	var body []byte
 	var err error
 	if len(rsps) == 1 {
@@ -170,7 +172,7 @@ func writeRPCResponse(w http.ResponseWriter, log log.Logger, rsps ...rpctypes.RP
 		body, err = json.Marshal(rsps)
 	}
 	if err != nil {
-		log.Error("Error encoding RPC response: %w", err)
+		logger.Error("Error encoding RPC response", "err", err)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -192,7 +194,7 @@ func writeRPCResponse(w http.ResponseWriter, log log.Logger, rsps ...rpctypes.RP
 // recoverAndLogHandler wraps an HTTP handler, adding error logging.  If the
 // inner handler panics, the wrapper recovers, logs, sends an HTTP 500 error
 // response to the client.
-func recoverAndLogHandler(handler http.Handler, logger log.Logger) http.Handler {
+func recoverAndLogHandler(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Capture the HTTP status written by the handler.
 		var httpStatus int

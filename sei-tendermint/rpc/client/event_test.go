@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -16,7 +17,41 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const waitForEventTimeout = 2 * time.Second
+const (
+	waitForEventTimeout        = 10 * time.Second
+	waitForEventAttemptTimeout = 2 * time.Second
+	waitForEventPollInterval   = 200 * time.Millisecond
+)
+
+func waitForOneEventEventually(
+	ctx context.Context,
+	t *testing.T,
+	c client.EventsClient,
+	query string,
+) types.EventData {
+	t.Helper()
+
+	var evt types.EventData
+	require.Eventually(t, func() bool {
+		attemptCtx, cancel := context.WithTimeout(ctx, waitForEventAttemptTimeout)
+		defer cancel()
+
+		e, err := client.WaitForOneEvent(attemptCtx, c, query)
+		if err != nil {
+			// During polling, these are expected until the tx is committed and indexed.
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return false
+			}
+			require.NoError(t, err)
+			return false
+		}
+
+		evt = e
+		return true
+	}, waitForEventTimeout, waitForEventPollInterval)
+
+	return evt
+}
 
 // MakeTxKV returns a text transaction, allong with expected key, value pair
 func MakeTxKV() ([]byte, []byte, []byte) {
@@ -51,16 +86,11 @@ func testTxEventsSent(ctx context.Context, t *testing.T, broadcastMethod string,
 		}
 	}()
 
-	// and wait for confirmation
-	ectx, cancel := context.WithTimeout(ctx, waitForEventTimeout)
-	defer cancel()
-
 	// Wait for the transaction we sent to be confirmed.
 	query := fmt.Sprintf(`tm.event = '%s' AND tx.hash = '%X'`,
 		types.EventTxValue, types.Tx(tx).Hash())
-	evt, err := client.WaitForOneEvent(ectx, c, query)
-	require.NoError(t, err)
 
+	evt := waitForOneEventEventually(ctx, t, c, query)
 	// and make sure it has the proper info
 	txe, ok := evt.(types.EventDataTx)
 	require.True(t, ok)

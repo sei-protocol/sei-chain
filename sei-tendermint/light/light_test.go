@@ -11,7 +11,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -31,8 +30,6 @@ func TestClientIntegration_Update(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
-
-	logger := log.NewNopLogger()
 
 	// Start a test application
 	app := kvstore.NewApplication()
@@ -71,7 +68,6 @@ func TestClientIntegration_Update(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -94,8 +90,6 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
-
-	logger := log.NewNopLogger()
 
 	// Start a test application
 	app := kvstore.NewApplication()
@@ -128,7 +122,6 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -205,7 +198,6 @@ func TestClientStatusRPC(t *testing.T) {
 		witnesses,
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(log.NewNopLogger()),
 	)
 	require.NoError(t, err)
 

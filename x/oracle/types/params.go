@@ -7,8 +7,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 // Parameter keys
@@ -40,7 +40,7 @@ var (
 		{Name: utils.MicroEthDenom},
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(0, 4) // 0.00%
-	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
+	DefaultMinValidPerWindow = sdk.ZeroDec()            // 0% now that Oracle Price Feeder is retired.
 	DefaultLookbackDuration  = uint64(3600)             // in seconds
 )
 

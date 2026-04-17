@@ -106,8 +106,8 @@ func NewDuplicateVoteEvidence(vote1, vote2 *Vote, blockTime time.Time, valSet *V
 	if valSet == nil {
 		return nil, errors.New("missing validator set")
 	}
-	idx, val := valSet.GetByAddress(vote1.ValidatorAddress)
-	if idx == -1 {
+	_, val, ok := valSet.GetByAddress(vote1.ValidatorAddress)
+	if !ok {
 		return nil, errors.New("validator not in validator set")
 	}
 
@@ -354,8 +354,8 @@ func (l *LightClientAttackEvidence) GetByzantineValidators(commonVals *Validator
 				continue
 			}
 
-			_, val := commonVals.GetByAddress(commitSig.ValidatorAddress)
-			if val == nil {
+			_, val, ok := commonVals.GetByAddress(commitSig.ValidatorAddress)
+			if !ok {
 				// validator wasn't in the common validator set
 				continue
 			}
@@ -379,7 +379,10 @@ func (l *LightClientAttackEvidence) GetByzantineValidators(commonVals *Validator
 				continue
 			}
 
-			_, val := l.ConflictingBlock.ValidatorSet.GetByAddress(sigA.ValidatorAddress)
+			_, val, ok := l.ConflictingBlock.ValidatorSet.GetByAddress(sigA.ValidatorAddress)
+			if !ok {
+				panic(fmt.Errorf("validator %v not in committee", sigA.ValidatorAddress))
+			}
 			validators = append(validators, val)
 		}
 		sort.Sort(ValidatorsByVotingPower(validators))
@@ -400,7 +403,7 @@ func (l *LightClientAttackEvidence) ConflictingHeaderIsInvalid(trustedHeader *He
 		!bytes.Equal(trustedHeader.NextValidatorsHash, l.ConflictingBlock.NextValidatorsHash) ||
 		!bytes.Equal(trustedHeader.ConsensusHash, l.ConflictingBlock.ConsensusHash) ||
 		!bytes.Equal(trustedHeader.AppHash, l.ConflictingBlock.AppHash) ||
-		!bytes.Equal(trustedHeader.LastResultsHash, l.ConflictingBlock.LastResultsHash)
+		(!SkipLastResultsHashValidation.Load() && !bytes.Equal(trustedHeader.LastResultsHash, l.ConflictingBlock.LastResultsHash))
 
 }
 

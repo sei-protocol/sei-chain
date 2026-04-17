@@ -8,15 +8,17 @@ import (
 	"io"
 	"sync"
 
-	"github.com/rs/zerolog/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 var (
+	logger = seilog.NewLogger("tendermint", "types")
+
 	ErrPartSetUnexpectedIndex = errors.New("error part set unexpected index")
 	ErrPartSetInvalidProof    = errors.New("error part set invalid proof")
 )
@@ -34,6 +36,9 @@ func (part *Part) ValidateBasic() error {
 	}
 	if err := part.Proof.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong Proof: %w", err)
+	}
+	if int64(part.Index) != part.Proof.Index {
+		return fmt.Errorf("part index %d does not match proof index %d", part.Index, part.Proof.Index)
 	}
 	return nil
 }
@@ -113,6 +118,10 @@ func (psh PartSetHeader) ValidateBasic() error {
 	if err := ValidateHash(psh.Hash); err != nil {
 		return fmt.Errorf("wrong Hash: %w", err)
 	}
+	// Check memory limits before acquiring lock or setting any state
+	if psh.Total > MaxBlockPartsCount {
+		return fmt.Errorf("Total = %v, want <=%v", psh.Total, MaxBlockPartsCount)
+	}
 	return nil
 }
 
@@ -170,7 +179,7 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 	parts := make([]*Part, total)
 	partsBytes := make([][]byte, total)
 	partsBitArray := bits.NewBitArray(int(total)) //nolint:gosec // total fits in int since it's derived from block-bounded data
-	for i := uint32(0); i < total; i++ {
+	for i := range total {
 		part := &Part{
 			Index: i,
 			Bytes: data[i*partSize : tmmath.MinInt(len(data), int((i+1)*partSize))], //nolint:gosec // partSize is small (4KB); product fits in uint32
@@ -197,7 +206,7 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 // Returns an empty PartSet ready to be populated.
 func NewPartSetFromHeader(header PartSetHeader) *PartSet {
 	if header.Total > MaxBlockPartsCount {
-		log.Warn().Msgf("Attempted to create PartSet with excessive Total: %d (max: %d). Creating minimal safe PartSet instead.", header.Total, MaxBlockPartsCount)
+		logger.Warn("Attempted to create PartSet with excessive Total. Creating minimal safe PartSet instead.", "total", header.Total, "max", MaxBlockPartsCount)
 		return &PartSet{
 			total:         1,           // Minimal safe size
 			hash:          header.Hash, // Keep original hash for compatibility

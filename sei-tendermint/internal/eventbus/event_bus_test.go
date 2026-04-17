@@ -14,14 +14,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestEventBusPublishEventTx(t *testing.T) {
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -73,7 +72,7 @@ func TestEventBusPublishEventTx(t *testing.T) {
 
 func TestEventBusPublishEventNewBlock(t *testing.T) {
 	ctx := t.Context()
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -126,7 +125,7 @@ func TestEventBusPublishEventNewBlock(t *testing.T) {
 
 func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 	ctx := t.Context()
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -243,7 +242,7 @@ func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 func TestEventBusPublishEventNewBlockHeader(t *testing.T) {
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -292,7 +291,7 @@ func TestEventBusPublishEventNewBlockHeader(t *testing.T) {
 func TestEventBusPublishEventEvidenceValidated(t *testing.T) {
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -333,7 +332,7 @@ func TestEventBusPublishEventEvidenceValidated(t *testing.T) {
 func TestEventBusPublishEventNewEvidence(t *testing.T) {
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -374,7 +373,7 @@ func TestEventBusPublishEventNewEvidence(t *testing.T) {
 func TestEventBusPublish(t *testing.T) {
 	ctx := t.Context()
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger())
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 
@@ -457,7 +456,7 @@ func benchmarkEventBus(ctx context.Context, numClients int, randQueries bool, ra
 	// for random* functions
 	mrand.Seed(time.Now().Unix())
 
-	eventBus := eventbus.NewDefault(log.NewNopLogger()) // set buffer capacity to 0 so we are not testing cache
+	eventBus := eventbus.NewDefault() // set buffer capacity to 0 so we are not testing cache
 	err := eventBus.Start(ctx)
 	if err != nil {
 		b.Error(err)

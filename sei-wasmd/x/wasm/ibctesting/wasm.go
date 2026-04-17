@@ -12,8 +12,8 @@ import (
 
 	wasmd "github.com/sei-protocol/sei-chain/sei-wasmd/app"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/stretchr/testify/require"

@@ -3,8 +3,8 @@ package multiversion
 import (
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
-	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	occtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 )
 
 // Iterates over iterKVCache items.
@@ -31,7 +31,7 @@ func (store *VersionIndexedStore) newMemIterator(
 
 	if err != nil {
 		if iter != nil {
-			iter.Close()
+			_ = iter.Close()
 		}
 		panic(err)
 	}
@@ -44,7 +44,7 @@ func (store *VersionIndexedStore) newMemIterator(
 
 // try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent
 func (mi *memIterator) Value() []byte {
-	key := mi.Iterator.Key()
+	key := mi.Key()
 	// TODO: verify that this is correct
 	return mi.mvkv.Get(key)
 }
@@ -80,7 +80,7 @@ func (store *Store) newMVSValidationIterator(
 
 	if err != nil {
 		if iter != nil {
-			iter.Close()
+			_ = iter.Close()
 		}
 		panic(err)
 	}
@@ -97,7 +97,7 @@ func (store *Store) newMVSValidationIterator(
 
 // try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent iterator
 func (vi *validationIterator) Value() []byte {
-	key := vi.Iterator.Key()
+	key := vi.Key()
 
 	// try fetch from writeset - return if exists
 	if val, ok := vi.writeset[string(key)]; ok {

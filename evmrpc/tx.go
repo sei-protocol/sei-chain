@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -21,6 +19,8 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -132,16 +132,17 @@ func getTransactionReceipt(
 		}
 		return nil, err
 	}
+	// Fetch block once — used both for ante-failure receipt population and encoding.
+	height := int64(receipt.BlockNumber) //nolint:gosec
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
+	if err != nil {
+		return nil, err
+	}
+
 	// Fill in the receipt if the transaction has failed and used 0 gas
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		receipt = cloneReceiptForMutation(receipt)
-		// Get the block
-		height := int64(receipt.BlockNumber) //nolint:gosec
-		block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
-		if err != nil {
-			return nil, err
-		}
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
@@ -167,11 +168,6 @@ func getTransactionReceipt(
 				break
 			}
 		}
-	}
-	height := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
-	if err != nil {
-		return nil, err
 	}
 	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
 }
@@ -240,8 +236,8 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			if etx != nil && etx.Hash() == hash {
 				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
 				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
-					sdkCtx.Logger().Error("failed to recover sender", "err", err, "tx", etx.Hash().Hex()) // codecov:ignore
-					return nil, err                                                                       // codecov:ignore
+					logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
+					return nil, err                                                        // codecov:ignore
 				}
 				v, r, s := etx.RawSignatureValues()
 				res := export.RPCTransaction{

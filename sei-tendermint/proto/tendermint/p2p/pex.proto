@@ -5,7 +5,7 @@ package tendermint.p2p;
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/p2p";
 
 message PexAddress {
-  reserved 2, 3; // See https://github.com/tendermint/spec/pull/352
+  reserved 2, 3;
   string url = 1;
 }
 
@@ -16,7 +16,7 @@ message PexResponse {
 }
 
 message PexMessage {
-  reserved 1, 2; // See https://github.com/tendermint/spec/pull/352
+  reserved 1, 2;
   oneof sum {
     PexRequest pex_request = 3;
     PexResponse pex_response = 4;

@@ -18,6 +18,8 @@ services:
       - MOCK_BALANCES
       - GIGA_EXECUTOR
       - GIGA_OCC
+      - RECEIPT_BACKEND
+      - AUTOBAHN
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -48,6 +50,8 @@ services:
       - UPGRADE_VERSION_LIST
       - GIGA_EXECUTOR
       - GIGA_OCC
+      - RECEIPT_BACKEND
+      - AUTOBAHN
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -74,6 +78,8 @@ services:
       - UPGRADE_VERSION_LIST
       - GIGA_EXECUTOR
       - GIGA_OCC
+      - RECEIPT_BACKEND
+      - AUTOBAHN
     ports:
       - "26662-26664:26656-26658"
       - "9094-9095:9090-9091"
@@ -104,6 +110,8 @@ services:
       - UPGRADE_VERSION_LIST
       - GIGA_EXECUTOR
       - GIGA_OCC
+      - RECEIPT_BACKEND
+      - AUTOBAHN
     ports:
       - "26665-26667:26656-26658"
       - "9096-9097:9090-9091"

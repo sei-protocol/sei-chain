@@ -6,12 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -24,7 +24,7 @@ func TestPriorityAnteDecorator(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with normal priority
 	newCtx, err := chainedHandler(
@@ -41,7 +41,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with too high priority, should be auto capped
 	newCtx, err := chainedHandler(
@@ -62,7 +62,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
-	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with zero priority, should be bumped up to oracle priority
 	newCtx, err := chainedHandler(

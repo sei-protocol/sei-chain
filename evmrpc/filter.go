@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -25,8 +26,11 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/seilog"
 	"golang.org/x/time/rate"
 )
+
+var logger = seilog.NewLogger("evmrpc")
 
 const TxSearchPerPage = 10
 
@@ -146,15 +150,6 @@ func setCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCach
 // logCollector interface for different collection strategies
 type logCollector interface {
 	Append(*ethtypes.Log)
-}
-
-// sliceCollector for direct slice append
-type sliceCollector struct {
-	logs []*ethtypes.Log
-}
-
-func (c *sliceCollector) Append(log *ethtypes.Log) {
-	c.logs = append(c.logs, log)
 }
 
 // pooledCollector for reused slice
@@ -433,6 +428,13 @@ func (a *FilterAPI) NewBlockFilter(
 		blockCursor: "",
 	}
 	return curFilterID, nil
+}
+
+func (a *FilterAPI) NewPendingTransactionFilter(
+	_ *bool,
+) (id ethrpc.ID, err error) {
+	defer recordMetricsWithError(fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
+	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
 
 func (a *FilterAPI) GetFilterChanges(
@@ -762,13 +764,18 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
-	// Try efficient range query first (supported by parquet/DuckDB backend)
-	// #nosec G115 -- begin and end are validated to be positive block heights above
-	if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
-		return logs, end, nil
-	} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
-		// If it's a real error (not just unsupported), return it
-		return nil, 0, rangeErr
+	// blockHash queries must use the hash-aware block fetch path below.
+	// Range-query receipt stores only constrain by numeric block range and
+	// do not enforce crit.BlockHash.
+	if crit.BlockHash == nil {
+		// Try efficient range query first (supported by parquet/DuckDB backend)
+		// #nosec G115 -- begin and end are validated to be positive block heights above
+		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
+			return logs, end, nil
+		} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
+			// If it's a real error (not just unsupported), return it
+			return nil, 0, rangeErr
+		}
 	}
 	// Fall back to block-by-block querying for backends that don't support range queries
 
@@ -919,7 +926,7 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
-func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
 		return nil, receipt.ErrRangeQueryNotSupported
@@ -934,15 +941,121 @@ func (f *LogFetcher) tryFilterLogsRange(_ context.Context, fromBlock, toBlock ui
 		return nil, err
 	}
 
-	// Sort logs by block number and index (should already be sorted from DuckDB, but ensure consistency)
-	sort.Slice(logs, func(i, j int) bool {
-		if logs[i].BlockNumber != logs[j].BlockNumber {
-			return logs[i].BlockNumber < logs[j].BlockNumber
+	if len(logs) == 0 {
+		return logs, nil
+	}
+
+	return f.normalizeRangeQueryLogs(ctx, logs, crit)
+}
+
+// normalizeRangeQueryLogs corrects BlockHash, TxIndex, and LogIndex on logs
+// returned from range-query backends.
+//
+// Range-query backends (parquet/cache) store logs with:
+//   - BlockHash = zero (unknown at receipt flush time)
+//   - TxIndex = raw Cosmos block position (includes non-EVM txs)
+//   - LogIndex = absolute position across ALL receipts (includes filtered-out txs)
+//
+// The RPC namespace expects:
+//   - BlockHash = actual block hash
+//   - TxIndex = position among EVM-visible transactions only
+//   - LogIndex = position counting only EVM-visible transaction logs
+//
+// This function fetches each block once and uses filterTransactions (which
+// caches receipts in globalBlockCache) to build the filtered tx mapping, then
+// reconstructs logs from cached receipts — avoiding the double receipt fetch
+// that a full collectLogs rebuild would require.
+func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	// Collect unique block numbers from range query results
+	blockSet := make(map[uint64]struct{})
+	blockNumbers := make([]uint64, 0, len(candidateLogs))
+	for _, lg := range candidateLogs {
+		if _, exists := blockSet[lg.BlockNumber]; exists {
+			continue
 		}
-		return logs[i].Index < logs[j].Index
+		blockSet[lg.BlockNumber] = struct{}{}
+		blockNumbers = append(blockNumbers, lg.BlockNumber)
+	}
+	sort.Slice(blockNumbers, func(i, j int) bool {
+		return blockNumbers[i] < blockNumbers[j]
 	})
 
-	return logs, nil
+	// For each block, rebuild logs using cached receipt data.
+	// getTxHashesFromBlock calls filterTransactions which caches all receipts
+	// in globalBlockCache via getOrSetCachedReceipt, so subsequent receipt
+	// lookups within the same block are cache hits.
+	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
+	var filterIndexes [][]BloomIndexes
+	if hasFilters {
+		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
+	}
+
+	rebuilt := make([]*ethtypes.Log, 0, len(candidateLogs))
+	collector := &pooledCollector{logs: &rebuilt}
+	for _, blockNumber := range blockNumbers {
+		// #nosec G115 -- block numbers fit within int64
+		height := int64(blockNumber)
+		block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch block at height %d for range query normalization: %w", height, err)
+		}
+
+		// filterTransactions caches receipts in globalBlockCache
+		txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+		if len(txHashes) == 0 {
+			continue
+		}
+
+		sdkCtx := f.ctxProvider(height)
+		blockHash := common.BytesToHash(block.BlockID.Hash)
+
+		var logIndex uint
+		for txIdx, txHashEntry := range txHashes {
+			// Try globalBlockCache first (populated by filterTransactions above),
+			// fall back to keeper only on cache miss.
+			var rcpt *evmtypes.Receipt
+			if f.globalBlockCache != nil {
+				rcpt, _ = getCachedReceipt(f.globalBlockCache, height, txHashEntry.hash)
+			}
+			if rcpt == nil {
+				var err error
+				rcpt, err = f.k.GetReceipt(sdkCtx, txHashEntry.hash)
+				if err != nil {
+					continue
+				}
+			}
+
+			if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
+				logIndex += uint(len(rcpt.Logs))
+				continue
+			}
+
+			for _, log := range rcpt.Logs {
+				// #nosec G115 -- blockHeight and txIdx are validated non-negative
+				ethLog := &ethtypes.Log{
+					Address:     common.HexToAddress(log.Address),
+					Data:        log.Data,
+					BlockNumber: uint64(height),
+					TxHash:      txHashEntry.hash,
+					TxIndex:     uint(txIdx),
+					BlockHash:   blockHash,
+					Index:       logIndex,
+					Removed:     false,
+				}
+				ethLog.Topics = make([]common.Hash, len(log.Topics))
+				for i, topic := range log.Topics {
+					ethLog.Topics[i] = common.HexToHash(topic)
+				}
+				logIndex++
+
+				if !MatchesCriteria(ethLog, crit) {
+					continue
+				}
+				collector.Append(ethLog)
+			}
+		}
+	}
+	return rebuilt, nil
 }
 
 // Pooled version that reuses slice allocation
@@ -965,7 +1078,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 
 	// Pre-encode bloom filter indexes for fast per-receipt filtering
 	hasFilters := len(crit.Addresses) != 0 || len(crit.Topics) != 0
-	var filterIndexes [][]bloomIndexes
+	var filterIndexes [][]BloomIndexes
 	if hasFilters {
 		filterIndexes = EncodeFilters(crit.Addresses, crit.Topics)
 	}
@@ -975,7 +1088,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s: %v", txHashEntry.hash.Hex(), err))
+			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
 		}
 
@@ -1004,7 +1117,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			}
 			logIndex++
 
-			if !matchesCriteria(ethLog, crit) {
+			if !MatchesCriteria(ethLog, crit) {
 				continue
 			}
 			collector.Append(ethLog)
@@ -1012,47 +1125,13 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	}
 }
 
-// matchesCriteria checks if a log matches the filter criteria
-func matchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
-	// Check address filter
-	if len(crit.Addresses) > 0 {
-		found := false
-		for _, addr := range crit.Addresses {
-			if log.Address == addr {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Check topics filter
-	for i, topicList := range crit.Topics {
-		if len(topicList) == 0 {
-			continue
-		}
-		if i >= len(log.Topics) {
-			return false
-		}
-		found := false
-		for _, topic := range topicList {
-			if log.Topics[i] == topic {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	return true
+// MatchesCriteria checks if a log matches the filter criteria.
+func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
+	return ethbloom.MatchesCriteria(log, crit)
 }
 
 // Optimized fetchBlocksByCrit with batch processing
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
 	if crit.BlockHash != nil {
 		// Check for invalid zero hash
 		zeroHash := common.Hash{}
@@ -1151,7 +1230,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 }
 
 // Batch processing function for blocks
-func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
 	defer func() {
 		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
 	}()

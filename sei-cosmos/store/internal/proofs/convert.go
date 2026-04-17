@@ -88,9 +88,9 @@ func getSplitPoint(length int64) int64 {
 	if length < 1 {
 		panic("Trying to split a tree with size < 1")
 	}
-	uLength := uint(length)
+	uLength := uint(length) //#nosec G115 -- length is validated positive above
 	bitlen := bits.Len(uLength)
-	k := int64(1 << uint(bitlen-1))
+	k := int64(1 << uint(bitlen-1)) //#nosec G115 -- bitlen derived from a positive int64, shift result fits in int64
 	if k == length {
 		k >>= 1
 	}

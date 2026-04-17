@@ -4,22 +4,21 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func initTestStores(t *testing.T) (types.KVStore, types.KVStore) {
 	db := dbm.NewMemDB()
-	ms := rootmulti.NewStore(db, log.NewNopLogger())
+	ms := rootmulti.NewStore(db)
 
 	key1 := types.NewKVStoreKey("store1")
 	key2 := types.NewKVStoreKey("store2")
-	require.NotPanics(t, func() { ms.MountStoreWithDB(key1, types.StoreTypeIAVL, db) })
-	require.NotPanics(t, func() { ms.MountStoreWithDB(key2, types.StoreTypeIAVL, db) })
+	require.NotPanics(t, func() { ms.MountStoreWithDB(key1, types.StoreTypeDB, nil) })
+	require.NotPanics(t, func() { ms.MountStoreWithDB(key2, types.StoreTypeDB, nil) })
 	require.NoError(t, ms.LoadLatestVersion())
 	return ms.GetKVStore(key1), ms.GetKVStore(key2)
 }

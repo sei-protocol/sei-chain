@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 func TestParseGasSetting(t *testing.T) {

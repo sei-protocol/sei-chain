@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -21,16 +20,16 @@ const DefaultRPCTimeout = 60 * time.Second
 
 // RegisterRPCFuncs adds a route to mux for each non-websocket function in the
 // funcMap, and also a root JSON-RPC POST handler.
-func RegisterRPCFuncs(mux *http.ServeMux, funcMap map[string]*RPCFunc, logger log.Logger) {
+func RegisterRPCFuncs(mux *http.ServeMux, funcMap map[string]*RPCFunc) {
 	for name, fn := range funcMap {
 		if fn.ws {
 			continue // skip websocket endpoints, not usable via GET calls
 		}
-		mux.HandleFunc("/"+name, ensureBodyClose(makeHTTPHandler(fn, logger)))
+		mux.HandleFunc("/"+name, ensureBodyClose(makeHTTPHandler(fn)))
 	}
 
 	// Endpoints for POST.
-	mux.HandleFunc("/", ensureBodyClose(handleInvalidJSONRPCPaths(makeJSONRPCHandler(funcMap, logger))))
+	mux.HandleFunc("/", ensureBodyClose(handleInvalidJSONRPCPaths(makeJSONRPCHandler(funcMap))))
 }
 
 // Function introspection

@@ -8,7 +8,6 @@ import (
 	"runtime"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -33,7 +32,7 @@ func NewMultiTreeExporter(dir string, version uint32, onlyAllowExportOnSnapshotV
 	)
 	opts := Options{ZeroCopy: true}
 	if !onlyAllowExportOnSnapshotVersion {
-		db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
+		db, err = OpenDB(int64(version), Options{
 			Config:   Config{SnapshotWriterLimit: runtime.NumCPU()},
 			Dir:      dir,
 			ZeroCopy: true,

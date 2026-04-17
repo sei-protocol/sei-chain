@@ -18,6 +18,5 @@ else
     echo "Building with standard configuration..."
     make build-linux
 fi
-make build-price-feeder-linux
 mkdir -p build/generated
 echo "DONE" > build/generated/build.complete

@@ -3,7 +3,7 @@ package cache
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func freshMgr() *CommitKVStoreCacheManager {

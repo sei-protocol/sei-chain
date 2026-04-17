@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -45,6 +47,9 @@ var cmpOpts = []cmp.Option{
 	protocmp.Transform(),
 	cmp.Exporter(isReadOnly),
 	cmpopts.EquateEmpty(),
+	// Optimization for comparing slices of bytes.
+	// Applies iff any of the slices is non-empty to avoid collision with EquateEmpty.
+	cmp.FilterValues(func(x, y []byte) bool { return len(x) > 0 || len(y) > 0 }, cmp.Comparer(bytes.Equal)),
 	cmp.Comparer(cmpComparer[big.Int]),
 }
 
@@ -158,6 +163,14 @@ func GenString(rng Rng, n int) string {
 	return string(s)
 }
 
+// Shuffle reorders the elements of s uniformly at random.
+func Shuffle[T any](rng Rng, s []T) {
+	for i := 1; i < len(s); i += 1 {
+		j := rng.Intn(i)
+		s[i], s[j] = s[j], s[i]
+	}
+}
+
 // GenBytes generates a random byte slice.
 func GenBytes(rng Rng, n int) []byte {
 	s := make([]byte, n)
@@ -218,4 +231,15 @@ func (c *ProtoConv[T, P]) Test(want T) error {
 		return fmt.Errorf("Decode(Encode()): %w", err)
 	}
 	return TestDiff(want, got)
+}
+
+// IgnoreAfterCancel silently drops the error if the context is already canceled.
+// Should be used for background tasks in tests, which cannot be guaranteed to exit gracefully.
+// For example - if you have a tcp connection, then during cleanup one end will disconnect faster than the other,
+// causing a race condition between context cancellation and disconnection error.
+func IgnoreAfterCancel(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
 }

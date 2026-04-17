@@ -3,9 +3,9 @@ package rest
 import (
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 // RegisterHandlers registers all x/bank transaction and query HTTP REST handlers

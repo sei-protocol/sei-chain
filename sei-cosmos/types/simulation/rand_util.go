@@ -7,7 +7,7 @@ import (
 	"time"
 	"unsafe"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 const (
@@ -28,7 +28,7 @@ func RandStringOfLength(r *rand.Rand, n int) string {
 		if remain == 0 {
 			cache, remain = r.Int63(), letterIdxMax
 		}
-		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+		if idx := int(cache & letterIdxMask); idx < len(letterBytes) { //nolint:gosec // letterIdxMask ensures idx is small and non-negative
 			b[i] = letterBytes[idx]
 			i--
 		}
@@ -36,7 +36,7 @@ func RandStringOfLength(r *rand.Rand, n int) string {
 		remain--
 	}
 
-	return *(*string)(unsafe.Pointer(&b))
+	return unsafe.String(unsafe.SliceData(b), len(b)) //nolint:gosec // intentional zero-alloc []byte to string conversion, b is not modified after
 }
 
 // RandPositiveInt get a rand positive sdk.Int

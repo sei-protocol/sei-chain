@@ -9,10 +9,9 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -31,12 +30,10 @@ type Tree struct {
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
 
-	logger logger.Logger
-
 	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
 
-	pendingChanges chan iavl.ChangeSet
+	pendingChanges chan proto.ChangeSet
 	pendingWg      *sync.WaitGroup
 }
 
@@ -73,7 +70,6 @@ func NewFromSnapshot(snapshot *Snapshot, opts Options) *Tree {
 		version:   snapshot.Version(),
 		snapshot:  snapshot,
 		zeroCopy:  opts.ZeroCopy,
-		logger:    opts.Logger,
 		mtx:       &sync.RWMutex{},
 		pendingWg: &sync.WaitGroup{},
 	}
@@ -116,7 +112,7 @@ func (t *Tree) Copy() *Tree {
 }
 
 // ApplyChangeSet apply the change set of a whole version, and update hashes.
-func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
+func (t *Tree) ApplyChangeSet(changeSet proto.ChangeSet) {
 	for _, pair := range changeSet.Pairs {
 		if pair.Delete {
 			t.Remove(pair.Key)
@@ -126,7 +122,7 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 	}
 }
 
-func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
+func (t *Tree) ApplyChangeSetAsync(changeSet proto.ChangeSet) {
 	if t.pendingChanges == nil {
 		t.StartBackgroundWrite()
 	}
@@ -135,7 +131,7 @@ func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
 
 func (t *Tree) StartBackgroundWrite() {
 	t.pendingWg.Add(1)
-	t.pendingChanges = make(chan iavl.ChangeSet, 1000)
+	t.pendingChanges = make(chan proto.ChangeSet, 1000)
 	go func() {
 		defer t.pendingWg.Done()
 		for nextChange := range t.pendingChanges {

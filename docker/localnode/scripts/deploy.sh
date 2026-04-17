@@ -64,13 +64,6 @@ do
   sleep 1
 done
 sleep 5
-echo "All $CLUSTER_SIZE Nodes started successfully, starting oracle price feeder..."
-
-# Step 6: Start oracle price feeder
-if ! /usr/bin/start_price_feeder.sh; then
-  echo "Failed to start oracle price feeder on node $NODE_ID" >&2
-  exit 1
-fi
-echo "Oracle price feeder is started"
+echo "All $CLUSTER_SIZE Nodes started successfully."
 
 tail -f /dev/null

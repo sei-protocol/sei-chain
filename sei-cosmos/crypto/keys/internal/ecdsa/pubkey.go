@@ -9,8 +9,8 @@ import (
 
 	tmcrypto "github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 
-	"github.com/cosmos/cosmos-sdk/types/address"
-	"github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 // signatureFromBytes function roughly copied from secp256k1_nocgo.go

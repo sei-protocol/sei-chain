@@ -7,7 +7,6 @@ import (
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -200,9 +199,9 @@ func TestTxStore_Size(t *testing.T) {
 	txStore := NewTxStore()
 	numTxs := 1000
 
-	for i := 0; i < numTxs; i++ {
+	for i := range numTxs {
 		txStore.SetTx(&WrappedTx{
-			tx:        []byte(fmt.Sprintf("test_tx_%d", i)),
+			tx:        fmt.Appendf(nil, "test_tx_%d", i),
 			priority:  int64(i),
 			timestamp: time.Now(),
 		})
@@ -271,7 +270,7 @@ func TestWrappedTxList(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsGood(t *testing.T) {
-	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
+	pendingTxs := NewPendingTxs(DefaultConfig())
 	for _, test := range []struct {
 		origLen    int
 		popIndices []int
@@ -334,7 +333,7 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsBad(t *testing.T) {
-	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
+	pendingTxs := NewPendingTxs(DefaultConfig())
 	// out of range
 	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
 	// out of order
@@ -345,7 +344,7 @@ func TestPendingTxsPopTxsBad(t *testing.T) {
 }
 
 func TestPendingTxs_InsertCondition(t *testing.T) {
-	mempoolCfg := config.TestMempoolConfig()
+	mempoolCfg := DefaultConfig()
 
 	// First test exceeding number of txs
 	mempoolCfg.PendingSize = 2

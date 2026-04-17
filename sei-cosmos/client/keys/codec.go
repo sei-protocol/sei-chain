@@ -1,8 +1,8 @@
 package keys
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 )
 
 // TODO: remove this file https://github.com/cosmos/cosmos-sdk/issues/8047
@@ -18,10 +18,10 @@ func init() {
 
 // marshal keys
 func MarshalJSON(o interface{}) ([]byte, error) {
-	return KeysCdc.MarshalJSON(o)
+	return KeysCdc.MarshalAsJSON(o)
 }
 
 // unmarshal json
 func UnmarshalJSON(bz []byte, ptr interface{}) error {
-	return KeysCdc.UnmarshalJSON(bz, ptr)
+	return KeysCdc.UnmarshalAsJSON(bz, ptr)
 }

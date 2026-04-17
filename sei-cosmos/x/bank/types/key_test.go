@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/address"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
 func cloneAppend(bz []byte, tail []byte) (res []byte) {
@@ -45,7 +45,7 @@ func TestAddressFromBalancesStore(t *testing.T) {
 			addr, err := types.AddressFromBalancesStore(tc.key)
 			if tc.wantErr {
 				assert.Error(t, err)
-				assert.True(t, errors.Is(types.ErrInvalidKey, err))
+				assert.True(t, errors.Is(err, types.ErrInvalidKey))
 			} else {
 				assert.NoError(t, err)
 			}

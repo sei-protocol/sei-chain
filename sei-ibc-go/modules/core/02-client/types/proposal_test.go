@@ -3,10 +3,10 @@ package types_test
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	ibctmtypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/07-tendermint/types"
@@ -79,12 +79,12 @@ func (suite *TypesTestSuite) TestMarshalClientUpdateProposalProposal() {
 
 	// marshal message
 	content := proposal.(*types.ClientUpdateProposal)
-	bz, err := cdc.MarshalJSON(content)
+	bz, err := cdc.MarshalAsJSON(content)
 	suite.Require().NoError(err)
 
 	// unmarshal proposal
 	newProposal := &types.ClientUpdateProposal{}
-	err = cdc.UnmarshalJSON(bz, newProposal)
+	err = cdc.UnmarshalAsJSON(bz, newProposal)
 	suite.Require().NoError(err)
 }
 
@@ -187,12 +187,12 @@ func (suite *TypesTestSuite) TestMarshalUpgradeProposal() {
 	cdc := codec.NewProtoCodec(ir)
 
 	// marshal message
-	bz, err := cdc.MarshalJSON(up)
+	bz, err := cdc.MarshalAsJSON(up)
 	suite.Require().NoError(err)
 
 	// unmarshal proposal
 	newUp := &types.UpgradeProposal{}
-	err = cdc.UnmarshalJSON(bz, newUp)
+	err = cdc.UnmarshalAsJSON(bz, newUp)
 	suite.Require().NoError(err)
 
 	// unpack client state

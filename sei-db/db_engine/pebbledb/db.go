@@ -2,41 +2,46 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
-	db *pebble.DB
+	db            *pebble.DB
+	metricsCancel context.CancelFunc
 }
 
-var _ db_engine.DB = (*pebbleDB)(nil)
+var _ types.KeyValueDB = (*pebbleDB)(nil)
 
-// Open opens (or creates) a Pebble-backed DB at path, returning the DB interface.
-func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
-	// Validate options before allocating resources to avoid leaks on validation failure
-	var cmp *pebble.Comparer
-	if opts.Comparer != nil {
-		var ok bool
-		cmp, ok = opts.Comparer.(*pebble.Comparer)
-		if !ok {
-			return nil, fmt.Errorf("OpenOptions.Comparer must be *pebble.Comparer, got %T", opts.Comparer)
-		}
+// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
+func Open(
+	ctx context.Context,
+	config *PebbleDBConfig,
+) (_ types.KeyValueDB, err error) {
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	cache := pebble.NewCache(1024 * 1024 * 512) // 512MB cache
-	defer cache.Unref()
+	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
+	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
-		Cache:    cache,
-		Comparer: cmp,
+		Cache:    pebbleCache,
+		Comparer: pebble.DefaultComparer,
 		// FormatMajorVersion is pinned to a specific version to prevent accidental
 		// breaking changes when updating the pebble dependency. Using FormatNewest
 		// would cause the on-disk format to silently upgrade when pebble is updated,
@@ -74,37 +79,91 @@ func Open(path string, opts db_engine.OpenOptions) (_ db_engine.DB, err error) {
 	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
 
-	db, err := pebble.Open(path, popts)
+	db, err := pebble.Open(config.DataDir, popts)
 	if err != nil {
 		return nil, err
 	}
 
-	return &pebbleDB{db: db}, nil
+	ctx, cancel := context.WithCancel(ctx)
+	if config.EnableMetrics {
+		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
+	}
+
+	return &pebbleDB{
+		db:            db,
+		metricsCancel: cancel,
+	}, nil
+}
+
+// OpenWithCache opens a Pebble-backed DB and wraps it with a read-through cache.
+// When cacheConfig.MaxSize is 0 a no-op (passthrough) cache is used.
+func OpenWithCache(
+	ctx context.Context,
+	config *PebbleDBConfig,
+	cacheConfig *dbcache.CacheConfig,
+	readPool threading.Pool,
+	miscPool threading.Pool,
+) (types.KeyValueDB, error) {
+	db, err := Open(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	cache, err := dbcache.BuildCache(ctx, cacheConfig, readPool, miscPool)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
+	return dbcache.NewCachedKeyValueDB(db, cache), nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
-	// Pebble returns a zero-copy view plus a closer; we copy and close internally.
 	val, closer, err := p.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, db_engine.ErrNotFound
+			return nil, errorutils.ErrNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get value from database: %w", err)
 	}
 	cloned := bytes.Clone(val)
 	_ = closer.Close()
 	return cloned, nil
 }
 
-func (p *pebbleDB) Set(key, value []byte, opts db_engine.WriteOptions) error {
-	return p.db.Set(key, value, toPebbleWriteOpts(opts))
+func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
+	for k := range keys {
+		val, err := p.Get([]byte(k))
+		if err != nil {
+			if errorutils.IsNotFound(err) {
+				keys[k] = types.BatchGetResult{}
+			} else {
+				keys[k] = types.BatchGetResult{Error: err}
+			}
+		} else {
+			keys[k] = types.BatchGetResult{Value: val}
+		}
+	}
+	return nil
 }
 
-func (p *pebbleDB) Delete(key []byte, opts db_engine.WriteOptions) error {
-	return p.db.Delete(key, toPebbleWriteOpts(opts))
+func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
+	err := p.db.Set(key, value, toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to set value in database: %w", err)
+	}
+	return nil
 }
 
-func (p *pebbleDB) NewIter(opts *db_engine.IterOptions) (db_engine.Iterator, error) {
+func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
+	err := p.db.Delete(key, toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to delete value in database: %w", err)
+	}
+	return nil
+}
+
+func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
 	var iopts *pebble.IterOptions
 	if opts != nil {
 		iopts = &pebble.IterOptions{
@@ -120,13 +179,32 @@ func (p *pebbleDB) NewIter(opts *db_engine.IterOptions) (db_engine.Iterator, err
 }
 
 func (p *pebbleDB) Flush() error {
-	return p.db.Flush()
+	err := p.db.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush database: %w", err)
+	}
+
+	return nil
 }
+
+func (p *pebbleDB) Checkpoint(destDir string) error {
+	if p.db == nil {
+		return errors.New("pebbleDB: checkpoint on closed database")
+	}
+	return p.db.Checkpoint(destDir, pebble.WithFlushedWAL())
+}
+
+var _ types.Checkpointable = (*pebbleDB)(nil)
 
 func (p *pebbleDB) Close() error {
 	// Make Close idempotent: Pebble panics if Close is called twice.
 	if p.db == nil {
 		return nil
+	}
+
+	if p.metricsCancel != nil {
+		p.metricsCancel()
+		p.metricsCancel = nil
 	}
 
 	db := p.db
@@ -135,7 +213,7 @@ func (p *pebbleDB) Close() error {
 	return db.Close()
 }
 
-func toPebbleWriteOpts(opts db_engine.WriteOptions) *pebble.WriteOptions {
+func toPebbleWriteOpts(opts types.WriteOptions) *pebble.WriteOptions {
 	if opts.Sync {
 		return pebble.Sync
 	}

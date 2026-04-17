@@ -1,0 +1,6 @@
+// Data-dependent: createAccessList for simple value transfer to 0xF87A (script recipient). Bind "from" from deploy receipt so the simulator uses a funded account.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind fromAddress = result.from
+>> {"jsonrpc":"2.0","id":1,"method":"eth_createAccessList","params":[{"from":"${fromAddress}","to":"0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52","value":"0x1"},"latest"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}

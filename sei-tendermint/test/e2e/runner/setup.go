@@ -19,7 +19,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -39,8 +38,8 @@ const (
 )
 
 // Setup sets up the testnet configuration.
-func Setup(logger log.Logger, testnet *e2e.Testnet) error {
-	logger.Info(fmt.Sprintf("Generating testnet files in %q", testnet.Dir))
+func Setup(testnet *e2e.Testnet) error {
+	logger.Info("generating testnet files", "dir", testnet.Dir)
 
 	err := os.MkdirAll(testnet.Dir, os.ModePerm)
 	if err != nil {
@@ -102,32 +101,28 @@ func Setup(logger log.Logger, testnet *e2e.Testnet) error {
 			continue
 		}
 
-		err = genesis.SaveAs(filepath.Join(nodeDir, "config", "genesis.json"))
-		if err != nil {
+		if err := genesis.SaveAs(filepath.Join(nodeDir, "config", "genesis.json")); err != nil {
 			return err
 		}
 
-		err = (&types.NodeKey{PrivKey: node.NodeKey}).SaveAs(filepath.Join(nodeDir, "config", "node_key.json"))
-		if err != nil {
+		if err := types.NodeKey(node.NodeKey).SaveAs(filepath.Join(nodeDir, "config", "node_key.json")); err != nil {
 			return err
 		}
 
-		err = (privval.NewFilePV(node.PrivvalKey,
+		if err := (privval.NewFilePV(node.PrivvalKey,
 			filepath.Join(nodeDir, PrivvalKeyFile),
 			filepath.Join(nodeDir, PrivvalStateFile),
-		)).Save()
-		if err != nil {
+		)).Save(); err != nil {
 			return err
 		}
 
 		// Set up a dummy validator. Tendermint requires a file PV even when not used, so we
 		// give it a dummy such that it will fail if it actually tries to use it.
 		dummyKey := ed25519.GenerateSecretKey()
-		err = (privval.NewFilePV(dummyKey,
+		if err := (privval.NewFilePV(dummyKey,
 			filepath.Join(nodeDir, PrivvalDummyKeyFile),
 			filepath.Join(nodeDir, PrivvalDummyStateFile),
-		)).Save()
-		if err != nil {
+		)).Save(); err != nil {
 			return err
 		}
 	}
@@ -334,7 +329,7 @@ func MakeConfig(node *e2e.Node) (*config.Config, error) {
 
 // MakeAppConfig generates an ABCI application config for a node.
 func MakeAppConfig(node *e2e.Node) ([]byte, error) {
-	cfg := map[string]interface{}{
+	cfg := map[string]any{
 		"chain_id":                  node.Testnet.Name,
 		"dir":                       "data/app",
 		"listen":                    AppAddressUNIX,

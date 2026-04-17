@@ -3,17 +3,16 @@ package consensus
 import (
 	"context"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestTicker(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		logger, _ := log.NewDefaultLogger("plain", "debug")
-		ticker := NewTimeoutTicker(logger)
+		ticker := NewTimeoutTicker()
 		ch := ticker.Chan()
 		s.SpawnBg(func() error {
 			err := ticker.Run(ctx)

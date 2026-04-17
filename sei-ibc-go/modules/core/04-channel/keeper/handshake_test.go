@@ -3,7 +3,7 @@ package keeper_test
 import (
 	"fmt"
 
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
@@ -743,6 +743,7 @@ func (suite *KeeperTestSuite) TestChanCloseInit() {
 			// create channel in init
 			path.SetChannelOrdered()
 			err = path.EndpointA.ChanOpenInit()
+			suite.Require().NoError(err)
 
 			// ensure channel capability check passes
 			suite.chainA.CreateChannelCapability(suite.chainA.GetSimApp().ScopedIBCMockKeeper, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)

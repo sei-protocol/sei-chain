@@ -28,7 +28,8 @@ func (suite *TendermintTestSuite) TestCheckMisbehaviourAndUpdateState() {
 	// Create alternative validator set with only altVal
 	altValSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{altVal})
 
-	_, suiteVal := suite.valSet.GetByIndex(0)
+	_, suiteVal, ok := suite.valSet.GetByIndex(0)
+	suite.Require().True(ok)
 
 	// Create signer array and ensure it is in same order as bothValSet
 	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)

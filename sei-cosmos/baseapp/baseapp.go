@@ -8,31 +8,30 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
-
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/server/config"
-	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
+	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 const (
@@ -62,6 +61,8 @@ const (
 )
 
 var (
+	logger = seilog.NewLogger("cosmos", "baseapp")
+
 	_ abci.Application = (*BaseApp)(nil)
 )
 
@@ -81,12 +82,10 @@ type (
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
 	// initialized on creation
-	logger            log.Logger
 	name              string // application name from abci.Info
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	prepareProposalHandler    sdk.PrepareProposalHandler
 	processProposalHandler    sdk.ProcessProposalHandler
 	finalizeBlocker           sdk.FinalizeBlocker
 	anteHandler               sdk.AnteHandler // ante handler for fee and auth
@@ -98,7 +97,6 @@ type BaseApp struct {
 
 	appStore
 	baseappVersions
-	peerFilters
 	snapshotData
 	abciData
 	moduleRouter
@@ -107,11 +105,11 @@ type BaseApp struct {
 	//
 	// checkState is set on InitChain and reset on Commit
 	// deliverState is set on InitChain and BeginBlock and set to nil on Commit
-	checkState           *state // for CheckTx
-	deliverState         *state // for DeliverTx
-	prepareProposalState *state
-	processProposalState *state
-	stateToCommit        *state
+	checkState              *state // for CheckTx
+	deliverState            *state // for DeliverTx
+	processProposalState    *state
+	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
+	stateToCommit           *state
 
 	// paramStore is used to query for ABCI consensus parameters from an
 	// application parameter store.
@@ -157,7 +155,6 @@ type BaseApp struct {
 
 	ChainID string
 
-	votesInfoLock    sync.RWMutex
 	commitLock       *sync.Mutex
 	checkTxStateLock *sync.RWMutex
 
@@ -197,9 +194,6 @@ type abciData struct {
 	initChainer sdk.InitChainer // initialize state with validators and state blob
 	midBlocker  sdk.MidBlocker  // logic to run after all txs, and to determine valset changes
 	endBlocker  sdk.EndBlocker  // logic to run after all txs, and to determine valset changes
-
-	// absent validators from begin block
-	voteInfos []abci.VoteInfo
 }
 
 type baseappVersions struct {
@@ -227,7 +221,7 @@ type snapshotData struct {
 //
 // NOTE: The db is used to store the version number for now.
 func NewBaseApp(
-	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
+	name string, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
 	cms := store.NewCommitMultiStore(db)
 	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
@@ -245,8 +239,8 @@ func NewBaseApp(
 	}
 
 	// Enable Tracing
-	tp := trace.NewNoopTracerProvider()
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	tp := noop.NewTracerProvider()
+	otel.SetTracerProvider(noop.NewTracerProvider())
 	tr := tp.Tracer("component-main")
 	tracingEnabled := cast.ToBool(appOpts.Get(tracing.FlagTracing))
 	if tracingEnabled {
@@ -258,8 +252,7 @@ func NewBaseApp(
 		tr = tp.Tracer("component-main")
 	}
 	app := &BaseApp{
-		logger: logger,
-		name:   name,
+		name: name,
 		appStore: appStore{
 			db:             db,
 			cms:            cms,
@@ -323,7 +316,7 @@ func (app *BaseApp) ConcurrencyWorkers() int {
 	return app.concurrencyWorkers
 }
 
-// OccEnabled returns the whether OCC is enabled for the BaseApp.
+// OccEnabled returns whether OCC is enabled for the BaseApp.
 func (app *BaseApp) OccEnabled() bool {
 	return app.occEnabled
 }
@@ -331,11 +324,6 @@ func (app *BaseApp) OccEnabled() bool {
 // Version returns the application's version string.
 func (app *BaseApp) Version() string {
 	return app.version
-}
-
-// Logger returns the logger of the BaseApp.
-func (app *BaseApp) Logger() log.Logger {
-	return app.logger
 }
 
 // Trace returns the boolean value for logging error stack traces.
@@ -546,7 +534,7 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // on Commit.
 func (app *BaseApp) setCheckState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices)
+	ctx := sdk.NewContext(ms, header, true).WithMinGasPrices(app.minGasPrices)
 	app.checkTxStateLock.Lock()
 	defer app.checkTxStateLock.Unlock()
 	if app.checkState == nil {
@@ -567,7 +555,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // Commit.
 func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
+	ctx := sdk.NewContext(ms, header, false)
 	if app.deliverState == nil {
 		app.deliverState = &state{
 			ms:  ms,
@@ -580,24 +568,9 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	app.deliverState.SetContext(ctx)
 }
 
-func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
-	if app.prepareProposalState == nil {
-		app.prepareProposalState = &state{
-			ms:  ms,
-			ctx: ctx,
-			mtx: &sync.RWMutex{},
-		}
-		return
-	}
-	app.prepareProposalState.SetMultiStore(ms)
-	app.prepareProposalState.SetContext(ctx)
-}
-
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
-	ctx := sdk.NewContext(ms, header, false, app.logger)
+	ctx := sdk.NewContext(ms, header, false)
 	if app.processProposalState == nil {
 		app.processProposalState = &state{
 			ms:  ms,
@@ -611,14 +584,9 @@ func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 }
 
 func (app *BaseApp) resetStatesExceptCheckState() {
-	app.prepareProposalState = nil
 	app.processProposalState = nil
 	app.deliverState = nil
 	app.stateToCommit = nil
-}
-
-func (app *BaseApp) setPrepareProposalHeader(header tmproto.Header) {
-	app.prepareProposalState.SetContext(app.prepareProposalState.Context().WithBlockHeader(header))
 }
 
 func (app *BaseApp) setProcessProposalHeader(header tmproto.Header) {
@@ -629,10 +597,12 @@ func (app *BaseApp) setDeliverStateHeader(header tmproto.Header) {
 	app.deliverState.SetContext(app.deliverState.Context().WithBlockHeader(header).WithBlockHeight(header.Height))
 }
 
-func (app *BaseApp) preparePrepareProposalState() {
-	if app.prepareProposalState.MultiStore().TracingEnabled() {
-		app.prepareProposalState.SetMultiStore(app.prepareProposalState.MultiStore().SetTracingContext(nil).(sdk.CacheMultiStore))
-	}
+// GetProcessProposalCleanContext returns a context snapshotted at the start of
+// ProcessProposal, before the handler runs. It has the correct store state,
+// consensus params, and header, but is immune to speculative writes from
+// optimistic processing.
+func (app *BaseApp) GetProcessProposalCleanContext() sdk.Context {
+	return app.processProposalCleanCtx
 }
 
 func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {
@@ -649,17 +619,6 @@ func (app *BaseApp) prepareDeliverState(headerHash []byte) {
 	app.deliverState.SetContext(app.deliverState.Context().
 		WithHeaderHash(headerHash).
 		WithConsensusParams(app.GetConsensusParams(app.deliverState.Context())))
-}
-
-func (app *BaseApp) setVotesInfo(votes []abci.VoteInfo) {
-	app.votesInfoLock.Lock()
-	defer app.votesInfoLock.Unlock()
-
-	app.voteInfos = votes
-}
-
-func (app *BaseApp) UnsafeGetVoteInfos() []abci.VoteInfo {
-	return app.voteInfos
 }
 
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
@@ -804,11 +763,8 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
 func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 
@@ -824,15 +780,12 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 }
 
 func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context {
-	app.votesInfoLock.RLock()
-	defer app.votesInfoLock.RUnlock()
 	mode := runTxModeCheck
 	if recheck {
 		mode = runTxModeReCheck
 	}
 	ctx := app.getState(mode).Context().
-		WithTxBytes(txBytes).
-		WithVoteInfos(app.voteInfos)
+		WithTxBytes(txBytes)
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }
@@ -896,11 +849,15 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	ms := ctx.MultiStore()
 
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
@@ -943,7 +900,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			// the instantiated gas meter in the AnteHandler, so we update the context
 			// prior to returning.
 			//
-			// This also replaces the GasMeter in the context where GasUsed was initalized 0
+			// This also replaces the GasMeter in the context where GasUsed was initialized 0
 			// and updated with gas consumed in the ante handler runs
 			// The GasMeter is a pointer and its passed to the RunMsg and tracks the consumed
 			// gas there too.
@@ -1002,7 +959,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 				VmError:       result.EvmError,
 			}
 		}
-		var events []abci.Event = []abci.Event{}
+		var events = []abci.Event{}
 		if result != nil {
 			events = sdk.MarkEventsToIndex(result.Events, app.IndexEvents)
 		}
@@ -1106,7 +1063,7 @@ func (app *BaseApp) RunMsgs(ctx sdk.Context, msgs []sdk.Msg) (*sdk.Result, error
 		events = events.AppendEvents(msgEvents)
 
 		txMsgData.Data = append(txMsgData.Data, &sdk.MsgData{MsgType: sdk.MsgTypeURL(msg), Data: msgResult.Data})
-		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents)) //nolint:gosec // loop range index
 
 		msgMsCache.Write()
 
@@ -1135,13 +1092,13 @@ func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
 	go func() {
 		if goleveldb, ok := db.(*dbm.GoLevelDB); ok {
 			for {
-				time.Sleep(time.Duration(app.compactionInterval) * time.Second)
+				time.Sleep(time.Duration(app.compactionInterval) * time.Second) //nolint:gosec // compactionInterval is a small config value
 				if err := goleveldb.DB().CompactRange(leveldbutils.Range{Start: nil, Limit: nil}); err != nil {
-					app.Logger().Error(fmt.Sprintf("error compacting DB: %s", err))
+					logger.Error("Failed to compact DB", "err", err)
 				}
 			}
 		} else {
-			app.Logger().Info("exit compaction routine because underlying DB does not support compaction")
+			logger.Info("Exit compaction routine because underlying DB does not support compaction")
 		}
 	}()
 }
@@ -1151,14 +1108,14 @@ func (app *BaseApp) Close() error {
 	// and metadata in a non-atomic way
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
-	if err := app.appStore.db.Close(); err != nil {
-		return err
+	if app.db != nil {
+		if err := app.db.Close(); err != nil {
+			return err
+		}
 	}
-	// close the underline database for storeV2
 	if err := app.cms.Close(); err != nil {
 		return err
 	}
-	// close snapshot manager if configured
 	if app.snapshotManager != nil {
 		if err := app.snapshotManager.Close(); err != nil {
 			return err
@@ -1168,22 +1125,6 @@ func (app *BaseApp) Close() error {
 		return nil
 	}
 	return app.closeHandler()
-}
-
-func (app *BaseApp) ReloadDB() error {
-	if err := app.db.Close(); err != nil {
-		return err
-	}
-	db, err := sdk.NewLevelDB("application", app.TmConfig.DBDir())
-	if err != nil {
-		return err
-	}
-	app.db = db
-	app.cms = store.NewCommitMultiStore(db)
-	if app.snapshotManager != nil {
-		app.snapshotManager.SetMultiStore(app.cms)
-	}
-	return nil
 }
 
 func (app *BaseApp) GetCheckCtx() sdk.Context {
@@ -1197,5 +1138,5 @@ func (app *BaseApp) RegisterDeliverTxHook(hook DeliverTxHook) {
 }
 
 func (app *BaseApp) InplaceTestnetInitialize(pk cryptotypes.PubKey) {
-	app.inplaceTestnetInitializer(pk)
+	_ = app.inplaceTestnetInitializer(pk)
 }

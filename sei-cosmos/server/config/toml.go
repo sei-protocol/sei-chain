@@ -3,8 +3,8 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"github.com/spf13/viper"
@@ -58,30 +58,10 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = {{ .BaseConfig.IndexEvents }}
 
-# IAVLDisableFastNode enables or disables the fast node feature of IAVL.
-# Default is true.
-iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
-
 # CompactionInterval sets (in seconds) the interval between forced levelDB
 # compaction. A value of 0 means no forced levelDB.
 # Default is 0.
 compaction-interval = {{ .BaseConfig.CompactionInterval }}
-
-# deprecated
-no-versioning = {{ .BaseConfig.NoVersioning }}
-
-# Whether to store orphan data (to-be-deleted data pointers) outside the main
-# application LevelDB
-separate-orphan-storage = {{ .BaseConfig.SeparateOrphanStorage }}
-
-# if separate-orphan-storage is true, how many versions of orphan data to keep
-separate-orphan-versions-to-keep = {{ .BaseConfig.SeparateOrphanVersionsToKeep }}
-
-# if separate-orphan-storage is true, how many orphans to store in each file
-num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
-
-# if separate-orphan-storage is true, where to store orphan data
-orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
 ###############################################################################
 ###                        State Sync Configuration                         ###
@@ -99,7 +79,7 @@ snapshot-interval = {{ .StateSync.SnapshotInterval }}
 snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 
 # snapshot-directory sets the directory for where state sync snapshots are persisted.
-# default is emtpy which will then store under the app home directory same as before.
+# default is empty which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 `
 
@@ -239,23 +219,6 @@ stream-import = {{ .Genesis.StreamImport }}
 # genesis-stream-file specifies the path of the genesis json file to stream from.
 genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
 
-###############################################################################
-###                    Legacy IAVL Settings (Auto-managed)                  ###
-###############################################################################
-
-[iavl]
-# Pruning Strategies:
-# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
-# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
-# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
-# Pruning strategy is completely ignored when seidb is enabled
-pruning = "{{ .BaseConfig.Pruning }}"
-
-# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
-pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
-pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
-pruning-interval = "{{ .BaseConfig.PruningInterval }}"
 `
 
 // DefaultConfigTemplate combines manual and auto-managed templates for backward compatibility
@@ -303,7 +266,7 @@ func WriteConfigFile(configFilePath string, config interface{}) {
 		panic(err)
 	}
 
-	if err := ioutil.WriteFile(configFilePath, buffer.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(filepath.Clean(configFilePath), buffer.Bytes(), 0600); err != nil {
 		fmt.Printf("MustWriteFile failed: %v\n", err)
 		os.Exit(1)
 	}

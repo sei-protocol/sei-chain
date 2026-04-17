@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"strconv"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
@@ -138,7 +138,7 @@ func (k Keeper) SendPacket(
 
 	EmitSendPacketEvent(ctx, packet, channel, timeoutHeight)
 
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet sent",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -312,7 +312,7 @@ func (k Keeper) RecvPacket(
 	}
 
 	// log that a packet has been received & executed
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet received",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -388,7 +388,7 @@ func (k Keeper) WriteAcknowledgement(
 	)
 
 	// log that a packet acknowledgement has been written
-	k.Logger(ctx).Info(
+	logger.Info(
 		"acknowledgement written",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
@@ -481,7 +481,7 @@ func (k Keeper) AcknowledgePacket(
 	packetCommitment := types.CommitPacket(k.cdc, packet)
 
 	var ack types.Acknowledgement
-	err := types.SubModuleCdc.UnmarshalJSON(acknowledgement, &ack)
+	err := types.SubModuleCdc.UnmarshalAsJSON(acknowledgement, &ack)
 	if err == nil {
 		ackBz := ack.Acknowledgement()
 		if !bytes.Equal(ackBz, acknowledgement) {
@@ -531,7 +531,7 @@ func (k Keeper) AcknowledgePacket(
 	k.deletePacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
 	// log that a packet has been acknowledged
-	k.Logger(ctx).Info(
+	logger.Info(
 		"packet acknowledged",
 		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),

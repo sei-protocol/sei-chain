@@ -10,12 +10,12 @@ import (
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // ValidatorInfo is info about the node's validator, same as Tendermint,
@@ -71,7 +71,7 @@ func StatusCommand() *cobra.Command {
 				},
 			}
 
-			output, err := clientCtx.LegacyAmino.MarshalJSON(statusWithPk)
+			output, err := clientCtx.LegacyAmino.MarshalAsJSON(statusWithPk)
 			if err != nil {
 				return err
 			}

@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/psql"
-	tmlog "github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	// Register the Postgre database driver.
@@ -41,9 +40,8 @@ var (
 func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	ctx := t.Context()
 
-	logger := tmlog.NewNopLogger()
 	// event bus
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(eventBus.Wait)
@@ -60,7 +58,6 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	assert.True(t, indexer.IndexingEnabled(eventSinks))
 
 	service := indexer.NewService(indexer.ServiceArgs{
-		Logger:   logger,
 		Sinks:    eventSinks,
 		EventBus: eventBus,
 	})

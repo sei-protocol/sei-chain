@@ -8,13 +8,12 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 func TestExample(t *testing.T) {
 	ctx := t.Context()
 
-	s := newTestServer(ctx, t, log.NewNopLogger())
+	s := newTestServer(ctx, t)
 
 	sub := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: "example-client",

@@ -15,21 +15,22 @@ import (
 
 	"github.com/gogo/protobuf/jsonpb"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	store "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/testutil"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 func TestLoadSnapshotChunk(t *testing.T) {
@@ -67,7 +68,6 @@ func TestLoadSnapshotChunk(t *testing.T) {
 }
 
 func TestOfferSnapshot_Errors(t *testing.T) {
-	// Set up app before test cases, since it's fairly expensive.
 	app := setupBaseAppWithSnapshots(t, 0, 0)
 
 	m := snapshottypes.Metadata{ChunkHashes: [][]byte{{1}, {2}, {3}}}
@@ -101,7 +101,6 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 		})
 	}
 
-	// Offering a snapshot after one has been accepted should error
 	resp, _ := app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
 		Height:   1,
 		Format:   snapshottypes.CurrentFormat,
@@ -126,19 +125,15 @@ func TestApplySnapshotChunk(t *testing.T) {
 
 	target := setupBaseAppWithSnapshots(t, 0, 0)
 
-	// Fetch latest snapshot to restore
 	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 	require.NotEmpty(t, respList.Snapshots)
 	snapshot := respList.Snapshots[0]
 
-	// Make sure the snapshot has at least 3 chunks
 	require.GreaterOrEqual(t, snapshot.Chunks, uint32(3), "Not enough snapshot chunks")
 
-	// Begin a snapshot restoration in the target
 	respOffer, _ := target.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: snapshot})
 	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, *respOffer)
 
-	// We should be able to pass an invalid chunk and get a verify failure, before reapplying it.
 	respApply, _ := target.ApplySnapshotChunk(context.Background(), &abci.RequestApplySnapshotChunk{
 		Index:  0,
 		Chunk:  []byte{9},
@@ -150,7 +145,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		RejectSenders: []string{"sender"},
 	}, *respApply)
 
-	// Fetch each chunk from the source and apply it to the target
 	for index := uint32(0); index < snapshot.Chunks; index++ {
 		respChunk, _ := source.LoadSnapshotChunk(context.Background(), &abci.RequestLoadSnapshotChunk{
 			Height: snapshot.Height,
@@ -167,7 +161,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		}, *respApply)
 	}
 
-	// The target should now have the same hash as the source
 	assert.Equal(t, source.LastCommitID(), target.LastCommitID())
 }
 
@@ -238,7 +231,6 @@ func TestWithRouter(t *testing.T) {
 func TestBaseApp_EndBlock(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
-	logger := defaultLogger()
 
 	cp := &tmproto.ConsensusParams{
 		Block: &tmproto.BlockParams{
@@ -247,7 +239,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	}
 
 	codec := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{})
+	app := NewBaseApp(name, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{})
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 	app.InitChain(context.Background(), &abci.RequestInitChain{
 		ConsensusParams: cp,
@@ -363,37 +355,6 @@ func TestGRPCQuery(t *testing.T) {
 	err = res.Unmarshal(resQuery.Value)
 	require.NoError(t, err)
 	require.Equal(t, "Hello foo!", res.Greeting)
-}
-
-// Test p2p filter queries
-func TestP2PQuery(t *testing.T) {
-	addrPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetAddrPeerFilter(func(addrport string) abci.ResponseQuery {
-			require.Equal(t, "1.1.1.1:8000", addrport)
-			return abci.ResponseQuery{Code: uint32(3)}
-		})
-	}
-
-	idPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetIDPeerFilter(func(id string) abci.ResponseQuery {
-			require.Equal(t, "testid", id)
-			return abci.ResponseQuery{Code: uint32(4)}
-		})
-	}
-
-	app := setupBaseApp(t, addrPeerFilterOpt, idPeerFilterOpt)
-
-	addrQuery := abci.RequestQuery{
-		Path: "/p2p/filter/addr/1.1.1.1:8000",
-	}
-	res, _ := app.Query(context.Background(), &addrQuery)
-	require.Equal(t, uint32(3), res.Code)
-
-	idQuery := abci.RequestQuery{
-		Path: "/p2p/filter/id/testid",
-	}
-	res, _ = app.Query(context.Background(), &idQuery)
-	require.Equal(t, uint32(4), res.Code)
 }
 
 // One call to DeliverTx should process all the messages, in order.
@@ -645,6 +606,23 @@ func TestRunInvalidTransaction(t *testing.T) {
 		_, err = app.txDecoder(txBytes)
 		require.NotNil(t, err)
 	}
+}
+
+func TestRunTxDecodeError(t *testing.T) {
+	app := setupBaseApp(t)
+
+	header := tmproto.Header{Height: 1}
+	app.setDeliverState(header)
+
+	// Consume some gas on the block-level meter to simulate prior operations
+	ctx := app.deliverState.ctx
+	ctx.GasMeter().ConsumeGas(5000, "simulated prior gas")
+
+	// A decode failure should not report block-level gas as its own
+	gInfo, _, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
+	require.Error(t, err)
+	require.Equal(t, uint64(0), gInfo.GasUsed)
+	require.Equal(t, uint64(0), gInfo.GasWanted)
 }
 
 // Test that transactions exceeding gas limits fail
@@ -1128,9 +1106,9 @@ func TestInitChainer(t *testing.T) {
 	// keep the db and logger ourselves so
 	// we can reload the same  app later
 	db := dbm.NewMemDB()
-	logger := defaultLogger()
+
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
+	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 	capKey := sdk.NewKVStoreKey("main")
 	capKey2 := sdk.NewKVStoreKey("key2")
 	app.MountStores(capKey, capKey2)
@@ -1186,7 +1164,7 @@ func TestInitChainer(t *testing.T) {
 
 	// reload app
 	cc = codec.NewLegacyAmino()
-	app = NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
+	app = NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 	app.SetInitChainer(initChainer)
 	app.MountStores(capKey, capKey2)
 	err = app.LoadLatestVersion() // needed to make stores non-nil
@@ -1210,9 +1188,9 @@ func TestInitChainer(t *testing.T) {
 func TestInitChain_WithInitialHeight(t *testing.T) {
 	name := t.Name()
 	db := dbm.NewMemDB()
-	logger := defaultLogger()
+
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
+	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 
 	app.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -1562,10 +1540,10 @@ func TestDeliverTxHooks(t *testing.T) {
 }
 
 func TestOptionFunction(t *testing.T) {
-	logger := defaultLogger()
+
 	db := dbm.NewMemDB()
 	cc := codec.NewLegacyAmino()
-	bap := NewBaseApp("starting name", logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, testChangeNameHelper("new name"))
+	bap := NewBaseApp("starting name", db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, testChangeNameHelper("new name"))
 	require.Equal(t, bap.name, "new name", "BaseApp should have had name changed via option function")
 }
 
@@ -1634,12 +1612,6 @@ func TestBaseAppOptionSeal(t *testing.T) {
 		app.SetAnteHandler(nil)
 	})
 	require.Panics(t, func() {
-		app.SetAddrPeerFilter(nil)
-	})
-	require.Panics(t, func() {
-		app.SetIDPeerFilter(nil)
-	})
-	require.Panics(t, func() {
 		app.SetFauxMerkleMode()
 	})
 	require.Panics(t, func() {
@@ -1651,12 +1623,12 @@ func TestBaseAppOptionSeal(t *testing.T) {
 }
 
 func TestVersionSetterGetter(t *testing.T) {
-	logger := defaultLogger()
+
 	pruningOpt := SetPruning(store.PruneDefault)
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	require.Equal(t, "", app.Version())
 	res, _ := app.Query(context.Background(), &abci.RequestQuery{Path: "app/version"})
@@ -1672,12 +1644,12 @@ func TestVersionSetterGetter(t *testing.T) {
 }
 
 func TestLoadVersionInvalid(t *testing.T) {
-	logger := log.NewNopLogger()
+
 	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	err := app.LoadLatestVersion()
 	require.Nil(t, err)
@@ -1693,7 +1665,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 
 	// create a new app with the stores mounted under the same cap key
 	cc = codec.NewLegacyAmino()
-	app = NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
+	app = NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// require we can load the latest version
 	err = app.LoadVersion(1)
@@ -1704,7 +1676,8 @@ func TestLoadVersionInvalid(t *testing.T) {
 	require.Error(t, err)
 }
 
-// simple one store baseapp with data and snapshots. Each tx is 1 MB in size (uncompressed).
+// simple one store baseapp with data and snapshots using storev2/rootmulti (memiavl).
+// Each tx is 1 MB in size (uncompressed).
 func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) *BaseApp {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
@@ -1721,7 +1694,17 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
 
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.SnapshotInterval = 1
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssConfig := seidbconfig.StateStoreConfig{}
+	cms := storev2rootmulti.NewStore(t.TempDir(), scConfig, ssConfig, nil)
+
+	cmsOpt := func(bapp *BaseApp) { bapp.SetCMS(cms) }
+
 	app := setupBaseApp(t, append(options,
+		cmsOpt,
 		SetSnapshotStore(snapshotStore),
 		SetSnapshotInterval(snapshotInterval),
 		SetPruning(sdk.PruningOptions{KeepEvery: 1}),
@@ -1786,12 +1769,12 @@ func TestMountStores(t *testing.T) {
 // Test that we can make commits and then reload old versions.
 // Test that LoadLatestVersion actually does.
 func TestLoadVersion(t *testing.T) {
-	logger := defaultLogger()
+
 	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	err := app.LoadLatestVersion() // needed to make stores non-nil
@@ -1823,7 +1806,7 @@ func useDefaultLoader(app *BaseApp) {
 }
 
 func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
-	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs := rootmulti.NewStore(db)
 	rs.SetPruning(store.PruneNothing)
 	key := sdk.NewKVStoreKey(storeKey)
 	rs.MountStoreWithDB(key, store.StoreTypeIAVL, nil)
@@ -1840,7 +1823,7 @@ func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
 }
 
 func checkStore(t *testing.T, db dbm.DB, ver int64, storeKey string, k, v []byte) {
-	rs := rootmulti.NewStore(db, log.NewNopLogger())
+	rs := rootmulti.NewStore(db)
 	rs.SetPruning(store.PruneDefault)
 	key := sdk.NewKVStoreKey(storeKey)
 	rs.MountStoreWithDB(key, store.StoreTypeIAVL, nil)
@@ -1889,7 +1872,7 @@ func TestSetLoader(t *testing.T) {
 				opts = append(opts, tc.setLoader)
 			}
 			cc := codec.NewLegacyAmino()
-			app := NewBaseApp(t.Name(), defaultLogger(), db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, opts...)
+			app := NewBaseApp(t.Name(), db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, opts...)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
 			err := app.LoadLatestVersion()
 			require.Nil(t, err)

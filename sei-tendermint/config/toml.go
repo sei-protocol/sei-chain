@@ -148,10 +148,6 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # Mechanism to connect to the ABCI application: socket | grpc
 abci = "{{ .BaseConfig.ABCI }}"
 
-# If true, query the ABCI app on connecting to a new peer
-# so the app can decide if we should keep the connection or not
-filter-peers = {{ .BaseConfig.FilterPeers }}
-
 #######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
@@ -658,6 +654,10 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
+
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
 `
 

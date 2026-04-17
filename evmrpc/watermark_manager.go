@@ -5,15 +5,19 @@ import (
 	"errors"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	sstypes "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var errNoHeightSource = errors.New("unable to determine height information")
+
+// ErrBlockHeightNotYetAvailable is returned when a concrete block height is above the
+// node's safe latest watermark. eth_getBlockByNumber maps this to result null (Ethereum spec).
+var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
@@ -22,14 +26,14 @@ var errNoHeightSource = errors.New("unable to determine height information")
 type WatermarkManager struct {
 	tmClient     rpcclient.Client
 	ctxProvider  func(int64) sdk.Context
-	stateStore   sstypes.StateStore
+	stateStore   types.StateStore
 	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
 	tmClient rpcclient.Client,
 	ctxProvider func(int64) sdk.Context,
-	stateStore sstypes.StateStore,
+	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
 ) *WatermarkManager {
 	return &WatermarkManager{
@@ -217,7 +221,7 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 
 func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
-		return fmt.Errorf("requested height %d is not yet available; safe latest is %d", height, latest)
+		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
 	}
 	if height < earliest {
 		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)

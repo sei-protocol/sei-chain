@@ -10,11 +10,11 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
 const custom = "custom"
@@ -30,7 +30,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 	require.NotNil(t, bz)
 
 	var depositParams types.DepositParams
-	require.NoError(t, cdc.UnmarshalJSON(bz, &depositParams))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &depositParams))
 
 	query = abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryParams, types.ParamVoting}, "/"),
@@ -42,7 +42,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 	require.NotNil(t, bz)
 
 	var votingParams types.VotingParams
-	require.NoError(t, cdc.UnmarshalJSON(bz, &votingParams))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &votingParams))
 
 	query = abci.RequestQuery{
 		Path: strings.Join([]string{custom, types.QuerierRoute, types.QueryParams, types.ParamTallying}, "/"),
@@ -54,7 +54,7 @@ func getQueriedParams(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, que
 	require.NotNil(t, bz)
 
 	var tallyParams types.TallyParams
-	require.NoError(t, cdc.UnmarshalJSON(bz, &tallyParams))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &tallyParams))
 
 	return depositParams, votingParams, tallyParams
 }
@@ -74,7 +74,7 @@ func getQueriedProposals(
 	require.NotNil(t, bz)
 
 	var proposals types.Proposals
-	require.NoError(t, cdc.UnmarshalJSON(bz, &proposals))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &proposals))
 
 	return proposals
 }
@@ -90,7 +90,7 @@ func getQueriedDeposit(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, qu
 	require.NotNil(t, bz)
 
 	var deposit types.Deposit
-	require.NoError(t, cdc.UnmarshalJSON(bz, &deposit))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &deposit))
 
 	return deposit
 }
@@ -106,7 +106,7 @@ func getQueriedDeposits(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, q
 	require.NotNil(t, bz)
 
 	var deposits []types.Deposit
-	require.NoError(t, cdc.UnmarshalJSON(bz, &deposits))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &deposits))
 
 	return deposits
 }
@@ -122,7 +122,7 @@ func getQueriedVote(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, queri
 	require.NotNil(t, bz)
 
 	var vote types.Vote
-	require.NoError(t, cdc.UnmarshalJSON(bz, &vote))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &vote))
 
 	return vote
 }
@@ -139,7 +139,7 @@ func getQueriedVotes(t *testing.T, ctx sdk.Context, cdc *codec.LegacyAmino, quer
 	require.NotNil(t, bz)
 
 	var votes []types.Vote
-	require.NoError(t, cdc.UnmarshalJSON(bz, &votes))
+	require.NoError(t, cdc.UnmarshalAsJSON(bz, &votes))
 
 	return votes
 }

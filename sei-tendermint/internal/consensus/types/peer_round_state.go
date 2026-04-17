@@ -31,6 +31,7 @@ type PeerRoundState struct {
 
 	StartTime time.Time // Estimated start of round 0 at this height
 
+	// WARNING: this only partially validated, so logic accessing it should be conservative.
 	Proposal                   bool // True if peer has proposal for this round
 	ProposalBlockPartSetHeader types.PartSetHeader
 	ProposalBlockParts         *bits.BitArray

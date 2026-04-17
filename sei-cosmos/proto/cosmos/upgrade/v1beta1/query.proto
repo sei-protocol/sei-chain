@@ -4,7 +4,7 @@ package cosmos.upgrade.v1beta1;
 import "cosmos/upgrade/v1beta1/upgrade.proto";
 import "google/api/annotations.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/upgrade/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types";
 
 // Query defines the gRPC upgrade querier service.
 service Query {

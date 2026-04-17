@@ -1,9 +1,9 @@
 package keeper_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	hosttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/host/types"
 	icatypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/27-interchain-accounts/types"
@@ -149,7 +149,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 				// attempt to downgrade version by reinitializing channel with version 1, but setting channel to version 2
 				metadata.Version = "ics27-2"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				channel.Version = string(versionBytes)
@@ -191,7 +191,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			func() {
 				metadata.Encoding = "invalid-encoding-format"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.ChannelConfig.Version = string(versionBytes)
@@ -203,7 +203,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			func() {
 				metadata.TxType = "invalid-tx-types"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.ChannelConfig.Version = string(versionBytes)
@@ -215,7 +215,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			func() {
 				metadata.ControllerConnectionId = "invalid-connnection-id"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.ChannelConfig.Version = string(versionBytes)
@@ -227,7 +227,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			func() {
 				metadata.HostConnectionId = "invalid-connnection-id"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.ChannelConfig.Version = string(versionBytes)
@@ -239,7 +239,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			func() {
 				metadata.Version = "invalid-version"
 
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 				suite.Require().NoError(err)
 
 				path.EndpointA.ChannelConfig.Version = string(versionBytes)
@@ -286,7 +286,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 
 			// default values
 			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "", icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
-			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+			versionBytes, err := icatypes.ModuleCdc.MarshalAsJSON(&metadata)
 			suite.Require().NoError(err)
 
 			counterparty := channeltypes.NewCounterparty(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)

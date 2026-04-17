@@ -4,24 +4,24 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/bitutil"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -33,6 +33,40 @@ const (
 	SeiNamespace  = "sei"
 	Sei2Namespace = "sei2"
 )
+
+// genesisBlockHashHex is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
+// must recognize this so that count/block-by-hash stay consistent with block-by-number.
+const genesisBlockHashHex = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"
+
+var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
+
+// genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
+var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
+
+func encodeGenesisBlock() map[string]any {
+	return map[string]any{
+		"number":           (*hexutil.Big)(big.NewInt(0)),
+		"hash":             genesisBlockHashHex,
+		"parentHash":       common.Hash{},
+		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
+		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		"logsBloom":        ethtypes.Bloom{},
+		"stateRoot":        common.Hash{},
+		"miner":            common.Address{},
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(0),
+		"gasUsed":          hexutil.Uint64(0),
+		"timestamp":        hexutil.Uint64(0),
+		"transactionsRoot": common.Hash{},
+		"receiptsRoot":     common.Hash{},
+		"size":             hexutil.Uint64(0),
+		"uncles":           []common.Hash{}, // inapplicable to Sei
+		"transactions":     []any{},
+		"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
+	}
+}
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -117,6 +151,10 @@ func NewSei2BlockAPI(
 }
 
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+	// Match eth_getBlockByNumber("0x0"): synthetic genesis, not the Tendermint block at height 0.
+	if number == 0 {
+		return encodeGenesisBlock(), nil
+	}
 	// exclude synthetic txs
 	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
 }
@@ -129,6 +167,9 @@ func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockH
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	if number == 0 {
+		return genesisBlockTxCount, nil
+	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -137,17 +178,20 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
+	return a.getEvmTxCount(block), nil
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
+	if blockHash == genesisBlockHash {
+		return genesisBlockTxCount, nil
+	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
+	return a.getEvmTxCount(block), nil
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -158,7 +202,18 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
+
+	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
+	if blockHash == (common.Hash{}) {
+		return nil, nil
+	}
+	if blockHash == genesisBlockHash {
+		return encodeGenesisBlock(), nil
+	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	if errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -181,28 +236,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
-		return map[string]interface{}{
-			"number":           (*hexutil.Big)(big.NewInt(0)),
-			"hash":             "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E",
-			"parentHash":       common.Hash{},
-			"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-			"mixHash":          common.Hash{},           // inapplicable to Sei
-			"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-			"logsBloom":        ethtypes.Bloom{},
-			"stateRoot":        common.Hash{},
-			"miner":            common.Address{},
-			"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-			"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-			"gasLimit":         hexutil.Uint64(0),
-			"gasUsed":          hexutil.Uint64(0),
-			"timestamp":        hexutil.Uint64(0),
-			"transactionsRoot": common.Hash{},
-			"receiptsRoot":     common.Hash{},
-			"size":             hexutil.Uint64(0),
-			"uncles":           []common.Hash{}, // inapplicable to Sei
-			"transactions":     []interface{}{},
-			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
-		}, nil
+		return encodeGenesisBlock(), nil
 	}
 	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, nil)
 }
@@ -228,6 +262,10 @@ func (a *BlockAPI) getBlockByNumber(
 	}
 
 	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -241,8 +279,23 @@ func (a *BlockAPI) getBlockByNumber(
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
+	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
+	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
+		return nil, nil
+	}
+	// Synthetic genesis (eth_getBlockByNumber("0x0")): empty receipts without TM/watermarks.
+	// Callers may pass the genesis hash or the literal block number 0x0 (parsed as number, not hash).
+	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == genesisBlockHash {
+		return []map[string]any{}, nil
+	}
+	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
+		return []map[string]any{}, nil
+	}
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
+	if errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +395,11 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
-			receipt, _ := k.GetReceipt(latestCtx, hash)
+			receipt, err := k.GetReceipt(latestCtx, hash)
+			if err != nil {
+				// tx doesn't have a receipt because of nonce mismatch
+				continue
+			}
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {
@@ -351,11 +408,9 @@ func EncodeTmBlock(
 				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
-			or := make([]byte, ethtypes.BloomByteLength)
-			bloom := ethtypes.Bloom{}
+			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(or, blockBloom, bloom[:])
-			blockBloom = or
+			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 			// derive gas used from receipt as TxResult.GasUsed may not be accurate
 			// for ante-failing EVM txs.
 			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
@@ -383,11 +438,9 @@ func EncodeTmBlock(
 					TransactionIndex: (*hexutil.Uint64)(&ti),
 				})
 			}
-			or := make([]byte, ethtypes.BloomByteLength)
-			bloom := ethtypes.Bloom{}
+			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
-			bitutil.ORBytes(or, blockBloom, bloom[:])
-			blockBloom = or
+			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
@@ -454,17 +507,49 @@ func FullBloom() ethtypes.Bloom {
 	return ethtypes.BytesToBloom(bz)
 }
 
-// filters out non-evm txs
-func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
-	cnt := 0
-	// Only count eth txs
-	for _, tx := range txs {
-		ethtx := getEthTxForTxBz(tx, a.txConfigProvider(height).TxDecoder())
-		if ethtx != nil {
-			cnt += 1
-		}
-
-	}
-	cntHex := hexutil.Uint(cnt) //nolint:gosec
+// getEvmTxCount returns the same transaction count as EncodeTmBlock exposes: filterTransactions
+// plus the same per-msg rules as EncodeTmBlock (EVM messages need GetReceipt to succeed).
+func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
+	n := countBlockTxsLikeEncodeTmBlock(
+		a.ctxProvider,
+		a.txConfigProvider,
+		block,
+		a.keeper,
+		a.includeShellReceipts,
+		a.includeBankTransfers,
+		a.cacheCreationMutex,
+		a.globalBlockCache,
+	)
+	cntHex := hexutil.Uint(n) //nolint:gosec
 	return &cntHex
+}
+
+func countBlockTxsLikeEncodeTmBlock(
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	block *coretypes.ResultBlock,
+	k *keeper.Keeper,
+	includeShellReceipts bool,
+	includeBankTransfers bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) int {
+	latestCtx := ctxProvider(LatestCtxHeight)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeShellReceipts, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	n := 0
+	for _, msg := range msgs {
+		switch m := msg.msg.(type) {
+		case *types.MsgEVMTransaction:
+			ethtx, _ := m.AsTransaction()
+			if _, err := k.GetReceipt(latestCtx, ethtx.Hash()); err != nil {
+				continue
+			}
+			n++
+		case *wasmtypes.MsgExecuteContract:
+			n++
+		case *banktypes.MsgSend:
+			n++
+		}
+	}
+	return n
 }

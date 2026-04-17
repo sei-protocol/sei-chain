@@ -657,6 +657,7 @@ func seenCommitKey() []byte {
 	return key
 }
 
+//lint:ignore U1000 Method retained for completeness
 func extCommitKey(height int64) []byte {
 	key, err := orderedcode.Append(nil, prefixExtCommit, height)
 	if err != nil {

@@ -131,7 +131,7 @@ func (m *ProposalMessage) String() string {
 	return fmt.Sprintf("[Proposal %v]", m.Proposal)
 }
 
-// ProposalPOLMessage is sent when a previous proposal is re-proposed.
+// ProposalPOLMessage is sent when a node needs POL round votes.
 type ProposalPOLMessage struct {
 	Height           int64
 	ProposalPOLRound int32

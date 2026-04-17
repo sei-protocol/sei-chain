@@ -7,18 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -47,7 +46,7 @@ func NewResponseWithHeight(height int64, result json.RawMessage) ResponseWithHei
 // ResponseWithHeight object.
 func ParseResponseWithHeight(cdc *codec.LegacyAmino, bz []byte) ([]byte, error) {
 	r := ResponseWithHeight{}
-	if err := cdc.UnmarshalJSON(bz, &r); err != nil {
+	if err := cdc.UnmarshalAsJSON(bz, &r); err != nil {
 		return nil, err
 	}
 
@@ -135,12 +134,12 @@ func (br BaseReq) ValidateBasic(w http.ResponseWriter) bool {
 // ReadRESTReq reads and unmarshals a Request's body to the the BaseReq struct.
 // Writes an error response to ResponseWriter and returns false if errors occurred.
 func ReadRESTReq(w http.ResponseWriter, r *http.Request, cdc *codec.LegacyAmino, req interface{}) bool {
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if CheckBadRequestError(w, err) {
 		return false
 	}
 
-	err = cdc.UnmarshalJSON(body, req)
+	err = cdc.UnmarshalAsJSON(body, req)
 	if err != nil {
 		WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to decode JSON payload: %s", err))
 		return false
@@ -202,7 +201,7 @@ func WriteErrorResponse(w http.ResponseWriter, status int, err string) {
 func WriteSimulationResponse(w http.ResponseWriter, cdc *codec.LegacyAmino, gas uint64) {
 	gasEst := GasEstimateResponse{GasEstimate: gas}
 
-	resp, err := cdc.MarshalJSON(gasEst)
+	resp, err := cdc.MarshalAsJSON(gasEst)
 	if CheckInternalServerError(w, err) {
 		return
 	}
@@ -279,7 +278,7 @@ func PostProcessResponseBare(w http.ResponseWriter, ctx client.Context, body int
 		resp = b
 
 	default:
-		resp, err = ctx.LegacyAmino.MarshalJSON(body)
+		resp, err = ctx.LegacyAmino.MarshalAsJSON(body)
 		if CheckInternalServerError(w, err) {
 			return
 		}
@@ -311,7 +310,7 @@ func PostProcessResponse(w http.ResponseWriter, ctx client.Context, resp interfa
 		result = res
 
 	default:
-		result, err = marshaler.MarshalJSON(resp)
+		result, err = marshaler.MarshalAsJSON(resp)
 		if CheckInternalServerError(w, err) {
 			return
 		}
@@ -319,7 +318,7 @@ func PostProcessResponse(w http.ResponseWriter, ctx client.Context, resp interfa
 
 	wrappedResp := NewResponseWithHeight(ctx.Height, result)
 
-	output, err := marshaler.MarshalJSON(wrappedResp)
+	output, err := marshaler.MarshalAsJSON(wrappedResp)
 	if CheckInternalServerError(w, err) {
 		return
 	}
@@ -417,7 +416,7 @@ func GetRequest(url string) ([]byte, error) {
 		return nil, err
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +436,7 @@ func PostRequest(url string, contentType string, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("error while sending post request: %w", err)
 	}
 
-	bz, err := ioutil.ReadAll(res.Body)
+	bz, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}

@@ -13,7 +13,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	service "github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
@@ -88,13 +87,13 @@ func DefaultMerkleKeyPathFn() KeyPathFunc {
 }
 
 // NewClient returns a new client.
-func NewClient(logger log.Logger, next rpcclient.Client, lc LightClient, opts ...Option) *Client {
+func NewClient(next rpcclient.Client, lc LightClient, opts ...Option) *Client {
 	c := &Client{
 		next: next,
 		lc:   lc,
 		prt:  merkle.DefaultProofRuntime(),
 	}
-	c.BaseService = *service.NewBaseService(logger, "Client", c)
+	c.BaseService = *service.NewBaseService("Client", c)
 	for _, o := range opts {
 		o(c)
 	}
@@ -247,10 +246,6 @@ func (c *Client) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconf
 
 func (c *Client) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultCheckTx, error) {
 	return c.next.CheckTx(ctx, tx)
-}
-
-func (c *Client) RemoveTx(ctx context.Context, txKey types.TxKey) error {
-	return c.next.RemoveTx(ctx, txKey)
 }
 
 func (c *Client) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, error) {
@@ -468,7 +463,7 @@ func (c *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.Re
 	mh := merkle.HashFromByteSlices(append([][]byte{bbeBytes}, rs...))
 
 	// Verify block results.
-	if !bytes.Equal(mh, trustedBlock.LastResultsHash) {
+	if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(mh, trustedBlock.LastResultsHash) {
 		return nil, fmt.Errorf("last results %X does not match with trusted last results %X",
 			mh, trustedBlock.LastResultsHash)
 	}

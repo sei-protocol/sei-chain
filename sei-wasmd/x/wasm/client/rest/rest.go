@@ -1,8 +1,8 @@
 package rest
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/gorilla/mux"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
 // RegisterRoutes registers staking-related REST handlers to a router

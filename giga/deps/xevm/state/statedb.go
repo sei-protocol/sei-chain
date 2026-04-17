@@ -1,7 +1,6 @@
 package state
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
@@ -9,8 +8,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	ethutils "github.com/ethereum/go-ethereum/trie/utils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("giga", "deps", "xevm", "state")
 
 // Initialized for each transaction individually
 type DBImpl struct {
@@ -98,6 +101,18 @@ func (s *DBImpl) CleanupForTracer() {
 	s.Snapshot()
 }
 
+// ResetForTracer resets in-memory state for a new transaction without flushing
+// the CacheMultiStore hierarchy. This is safe for concurrent use when copies of
+// this statedb are being read from other goroutines, since it never calls
+// CacheMultiStore.Write() on any shared store layer.
+func (s *DBImpl) ResetForTracer() {
+	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
+	s.coinbaseEvmAddress = feeCollector
+	s.tempState = NewTemporaryState()
+	s.journal = []journalEntry{}
+	s.Snapshot()
+}
+
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
@@ -157,9 +172,12 @@ func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
+	snapshots := make([]sdk.Context, len(s.snapshottedCtxs)+1)
+	copy(snapshots, s.snapshottedCtxs)
+	snapshots[len(s.snapshottedCtxs)] = s.ctx
 	return &DBImpl{
 		ctx:                newCtx,
-		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
+		snapshottedCtxs:    snapshots,
 		tempState:          s.tempState.DeepCopy(),
 		journal:            journal,
 		k:                  s.k,
@@ -173,7 +191,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 }
 
 func (s *DBImpl) Finalise(bool) {
-	s.ctx.Logger().Info("Finalise should only be called during simulation and will no-op")
+	logger.Info("Finalise should only be called during simulation and will no-op")
 }
 
 func (s *DBImpl) Commit(uint64, bool, bool) (common.Hash, error) {

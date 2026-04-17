@@ -9,19 +9,19 @@ import (
 	"testing"
 	"time"
 
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	abitypes "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	crptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -380,14 +380,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		caller             common.Address
 		callingContract    common.Address
 		validator          string
@@ -541,14 +538,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		caller             common.Address
 		callingContract    common.Address
 		validators         []string
@@ -702,14 +696,11 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		addressToSet       common.Address
 		caller             common.Address
 		callingContract    common.Address
@@ -1004,14 +995,11 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         utils.DistributionKeeper
-		evmKeeper                           utils.EVMKeeper
-		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm                *vm.EVM
 		delegatorAddress   common.Address
 		caller             common.Address
 		callingContract    common.Address

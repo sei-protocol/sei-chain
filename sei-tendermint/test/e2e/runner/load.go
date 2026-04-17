@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
@@ -16,7 +15,7 @@ import (
 
 // Load generates transactions against the network until the given context is
 // canceled.
-func Load(ctx context.Context, logger log.Logger, r *rand.Rand, testnet *e2e.Testnet) error {
+func Load(ctx context.Context, r *rand.Rand, testnet *e2e.Testnet) error {
 	// Since transactions are executed across all nodes in the network, we need
 	// to reduce transaction load for larger networks to avoid using too much
 	// CPU. This gives high-throughput small networks and low-throughput large ones.

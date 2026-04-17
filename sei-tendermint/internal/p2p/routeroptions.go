@@ -1,9 +1,7 @@
 package p2p
 
 import (
-	"context"
 	"fmt"
-	"net/netip"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -36,8 +34,17 @@ const (
 // RouterOptions specifies options for a PeerManager.
 type RouterOptions struct {
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
-	// If Hostname and Port are unset, Advertise() will include no self-announcement
 	SelfAddress utils.Option[NodeAddress]
+
+	// Whether node should participate in peer exchange during handshake.
+	// TODO(gprusak): the real intent behind disabling pex (on handshake and in general),
+	// is to prevent node from connecting to random peers.
+	// We should deprecate the "pex" flag in favor of setting "MaxConnected" to 0.
+	// TODO(gprusak): currently PEX is a separate reactor, while it should rather be
+	// a property of the router. To fix that, the whole pex package would have to be merged
+	// into p2p package (kinda ugly), or we would have to break the p2p package
+	// (it is getting large anyway) but thats a major refactor.
+	PexOnHandshake bool
 
 	// Whether sei giga connections should be established.
 	Giga utils.Option[*GigaRouterConfig]
@@ -53,21 +60,6 @@ type RouterOptions struct {
 	// IncomingConnectionWindow describes how often an IP address
 	// can attempt to create a new connection. Defaults to 100ms.
 	IncomingConnectionWindow utils.Option[time.Duration]
-
-	// FilterPeerByIP is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the remote IP of the incoming connection the port number as
-	// arguments. Functions should return an error to reject the
-	// peer.
-	FilterPeerByIP utils.Option[func(context.Context, netip.AddrPort) error]
-
-	// FilterPeerByID is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the NodeID of the node before completing the connection,
-	// but this occurs after the handshake is complete. Filter by
-	// IP address to filter before the handshake. Functions should
-	// return an error to reject the peer.
-	FilterPeerByID utils.Option[func(context.Context, types.NodeID) error]
 
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
@@ -104,19 +96,15 @@ type RouterOptions struct {
 	// consider private and never gossip.
 	PrivatePeers []types.NodeID
 
-	// MaxPeers is the maximum number of peers to track address information about.
-	// When exceeded, unreachable peers will be deleted.
-	// Defaults to 128.
-	MaxPeers utils.Option[int]
-
-	// MaxConnected is the maximum number of connected peers (inbound and outbound).
+	// MaxInbound is the maximum number of inbound connections.
 	// Persistent and unconditional connections are not counted towards this limit.
-	// Defaults to 64.
-	MaxConnected utils.Option[int]
+	// Defaults to 40.
+	MaxInbound utils.Option[int]
 
-	// MaxConcurrentDials limits the number of concurrent outbound connection handshakes.
-	// Defaults to 10.
-	MaxConcurrentDials utils.Option[int]
+	// MaxOutbound is the maximum number of outbound connections.
+	// Persistent and unconditional connections are not counted towards this limit.
+	// Defaults to 20.
+	MaxOutbound utils.Option[int]
 
 	// MaxConncurrentAccepts limites the number of concurrent inbound connection handshakes.
 	// Defaults to 10.
@@ -124,22 +112,18 @@ type RouterOptions struct {
 
 	// Per-connection config.
 	Connection conn.MConnConfig
+
+	// Frequency of dumping connected peers list to the db.
+	// Defaults to 10s.
+	PeerStoreInterval utils.Option[time.Duration]
 }
 
-func (o *RouterOptions) maxDials() int {
-	return o.MaxConcurrentDials.Or(10)
-}
+func (o *RouterOptions) maxAccepts() int  { return o.MaxConcurrentAccepts.Or(10) }
+func (o *RouterOptions) maxOutbound() int { return o.MaxOutbound.Or(20) }
+func (o *RouterOptions) maxInbound() int  { return o.MaxInbound.Or(40) }
 
-func (o *RouterOptions) maxAccepts() int {
-	return o.MaxConcurrentAccepts.Or(10)
-}
-
-func (o *RouterOptions) maxConns() int {
-	return o.MaxConnected.Or(64)
-}
-
-func (o *RouterOptions) maxPeers() int {
-	return o.MaxPeers.Or(128)
+func (o *RouterOptions) peerStoreInterval() time.Duration {
+	return o.PeerStoreInterval.Or(10 * time.Second)
 }
 
 // Validate validates the options.
@@ -186,18 +170,4 @@ func (o *RouterOptions) incomingConnectionWindow() time.Duration {
 
 func (o *RouterOptions) maxIncomingConnectionAttempts() uint {
 	return o.MaxIncomingConnectionAttempts.Or(100)
-}
-
-func (o *RouterOptions) filterPeerByIP(ctx context.Context, addrPort netip.AddrPort) error {
-	if f, ok := o.FilterPeerByIP.Get(); ok {
-		return f(ctx, addrPort)
-	}
-	return nil
-}
-
-func (o *RouterOptions) filterPeerByID(ctx context.Context, id types.NodeID) error {
-	if f, ok := o.FilterPeerByID.Get(); ok {
-		return f(ctx, id)
-	}
-	return nil
 }

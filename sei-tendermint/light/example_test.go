@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -19,11 +18,6 @@ import (
 func TestExampleClient(t *testing.T) {
 	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, "ExampleClient_VerifyLightBlockAtHeight")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +63,6 @@ func TestExampleClient(t *testing.T) {
 		[]provider.Provider{primary},
 		dbs.New(db),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -101,5 +94,5 @@ func TestExampleClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logger.Info("verified light block", "light-block", lb)
+	t.Log("verified light block", "light-block", lb)
 }

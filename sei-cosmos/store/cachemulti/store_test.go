@@ -2,10 +2,11 @@ package cachemulti
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -13,7 +14,7 @@ import (
 func TestStoreGetKVStore(t *testing.T) {
 	require := require.New(t)
 
-	s := Store{stores: map[types.StoreKey]types.CacheWrap{}}
+	s := Store{stores: map[types.StoreKey]types.CacheWrap{}, mu: &sync.RWMutex{}}
 	key := types.NewKVStoreKey("abc")
 	errMsg := fmt.Sprintf("kv store with key %v has not been registered in stores", key)
 

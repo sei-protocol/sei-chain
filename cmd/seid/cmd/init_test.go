@@ -1,20 +1,21 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 
-	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
@@ -55,9 +56,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.False(t, v.GetBool("state-store.ss-enable"), "StateStore should be disabled")
 				require.False(t, v.GetBool("evm.http_enabled"), "EVM HTTP should be disabled")
 				require.False(t, v.GetBool("evm.ws_enabled"), "EVM WS should be disabled")
-
-				// Verify pruning uses cosmos default (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -87,9 +85,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.True(t, v.GetBool("state-store.ss-enable"), "StateStore should be enabled")
 
 				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
-
-				// Verify pruning uses cosmos default (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -100,9 +95,6 @@ func TestInitModeConfiguration(t *testing.T) {
 				v.SetConfigFile(filepath.Join(configDir, "app.toml"))
 				err := v.ReadInConfig()
 				require.NoError(t, err)
-
-				// Verify no pruning for archive (now in iavl section)
-				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 
 				// Verify services are enabled
 				require.True(t, v.GetBool("api.enable"))
@@ -149,6 +141,7 @@ func TestInitModeConfiguration(t *testing.T) {
 
 			// Build custom template with all sections
 			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
+				seidbconfig.ReceiptStoreConfigTemplate +
 				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
 
 			srvconfig.SetConfigTemplate(customAppTemplate)
@@ -167,8 +160,36 @@ func TestInitModeConfiguration(t *testing.T) {
 			if tt.validateApp != nil {
 				tt.validateApp(t, configDir)
 			}
+
+			v := viper.New()
+			v.SetConfigFile(appTomlPath)
+			err = v.ReadInConfig()
+			require.NoError(t, err)
+			require.Equal(t, "pebbledb", v.GetString("receipt-store.rs-backend"))
+			require.Equal(t, "", v.GetString("receipt-store.db-directory"))
+			require.Equal(t, seidbconfig.DefaultReceiptStoreConfig().AsyncWriteBuffer, v.GetInt("receipt-store.async-write-buffer"))
+			require.Equal(t, seidbconfig.DefaultReceiptStoreConfig().PruneIntervalSeconds, v.GetInt("receipt-store.prune-interval-seconds"))
 		})
 	}
+}
+
+func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, customAppConfig)
+	require.NoError(t, err)
+
+	output := buf.String()
+	require.Contains(t, output, "[receipt-store]")
+	require.Contains(t, output, `rs-backend = "pebbledb"`)
+	require.Contains(t, output, `db-directory = ""`)
+	require.Contains(t, output, "async-write-buffer =")
+	require.Contains(t, output, "prune-interval-seconds =")
+	require.NotContains(t, output, "use-default-comparer")
 }
 
 // TestInitModeFlag verifies the mode flag validation
@@ -236,6 +257,49 @@ func TestModeConfigurationMatrix(t *testing.T) {
 	}
 }
 
+// TestCheckConfigOverwrite verifies that init refuses to overwrite existing config unless --overwrite is set.
+func TestCheckConfigOverwrite(t *testing.T) {
+	t.Run("no config files", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, checkConfigOverwrite(configPath, false))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("config.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.ErrorContains(t, err, "--overwrite")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("app.toml exists without overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+
+		err := checkConfigOverwrite(configPath, false)
+		require.ErrorContains(t, err, "configuration files already exist")
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+
+	t.Run("both exist with overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config")
+		require.NoError(t, os.MkdirAll(configPath, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "config.toml"), []byte("# test"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configPath, "app.toml"), []byte("# test"), 0644))
+		require.NoError(t, checkConfigOverwrite(configPath, true))
+	})
+}
+
 // TestLoadOrWriteGenesis_ExplicitConfigWins: existing genesis + no overwrite leaves file unchanged.
 func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	dir := t.TempDir()
@@ -250,7 +314,7 @@ func TestLoadOrWriteGenesis_ExplicitConfigWins(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -270,7 +334,7 @@ func TestLoadOrWriteGenesis_WrongChainID(t *testing.T) {
 	require.NoError(t, err)
 
 	encCfg := app.MakeEncodingConfig()
-	_, err = loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err = loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "chain_id")
 }
@@ -282,7 +346,7 @@ func TestLoadOrWriteGenesis_PathIsDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(genFile, 0755))
 
 	encCfg := app.MakeEncodingConfig()
-	_, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
+	_, err := loadOrWriteGenesis(genFile, "atlantic-2", false, app.ModuleBasics, encCfg.Marshaler)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "directory")
 }
@@ -295,7 +359,7 @@ func TestLoadOrWriteGenesis_WellKnownWritesEmbedded(t *testing.T) {
 	require.True(t, genesis.IsWellKnown(chainID), "atlantic-2 should be well-known")
 	encCfg := app.MakeEncodingConfig()
 
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)
@@ -315,7 +379,7 @@ func TestLoadOrWriteGenesis_OverwriteReplacesFile(t *testing.T) {
 	require.NoError(t, existing.SaveAs(genFile))
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, true, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	// Should be overwritten
@@ -330,7 +394,7 @@ func TestLoadOrWriteGenesis_UnknownChainWritesDefault(t *testing.T) {
 	require.False(t, genesis.IsWellKnown(chainID), "custom-chain-1 should not be well-known")
 
 	encCfg := app.MakeEncodingConfig()
-	genDoc, err := loadOrWriteGenesis(log.NewNopLogger(), genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
+	genDoc, err := loadOrWriteGenesis(genFile, chainID, false, app.ModuleBasics, encCfg.Marshaler)
 	require.NoError(t, err)
 	require.NotNil(t, genDoc)
 	require.Equal(t, chainID, genDoc.ChainID)

@@ -9,7 +9,6 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -20,6 +19,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// the maximum amount of addresses that can be included in a PEX batch.
+const MaxPexAddrs = 100
+
 type errBadNetwork struct{ error }
 
 type PeerManager = peerManager[*ConnV2]
@@ -29,7 +31,6 @@ type ConnSet = connSet[*ConnV2]
 // Router manages peer connections and routes messages between peers and channels.
 type Router struct {
 	*service.BaseService
-	logger log.Logger
 
 	metrics *Metrics
 	lc      *metricsLabelCache
@@ -38,7 +39,7 @@ type Router struct {
 	privKey     NodeSecretKey
 	peerManager *PeerManager
 
-	peerDB           utils.Mutex[*peerDB]
+	peerDB           utils.Watch[*peerDB]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
@@ -60,7 +61,6 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 
 // NewRouter creates a new Router.
 func NewRouter(
-	logger log.Logger,
 	metrics *Metrics,
 	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
@@ -70,14 +70,28 @@ func NewRouter(
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	selfID := privKey.Public().NodeID()
-	peerManager := newPeerManager[*ConnV2](selfID, options)
-	peerDB, err := newPeerDB(db, options.maxPeers())
+	// 100 is arbitrary - we need some bound, otherwise peerDB will
+	// maintain the whole connection history without pruning.
+	// 100 is more or less an upper bound on how many concurrent
+	// connections sei-v2 can effectively handle currently.
+	peerDB, err := newPeerDB(db, min(options.maxOutbound(), 100))
 	if err != nil {
 		return nil, fmt.Errorf("newPeerDB(): %w", err)
 	}
+	var initialAddrs []NodeAddress
+	for addr := range peerDB.All() {
+		if err := addr.Validate(); err != nil {
+			logger.Error("peerDB: bad address", "addr", addr.String(), "err", err)
+		}
+		initialAddrs = append(initialAddrs, addr)
+	}
+	selfID := privKey.Public().NodeID()
+	peerManager := newPeerManager[*ConnV2](selfID, options)
+	// initialAddrs will stay around util pex table fills the whole "extra" cache.
+	if err := peerManager.PushPex(utils.None[types.NodeID](), initialAddrs); err != nil {
+		return nil, fmt.Errorf("peerManager.PushPex(initialAddrs): %w", err)
+	}
 	router := &Router{
-		logger:           logger,
 		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
@@ -85,23 +99,18 @@ func NewRouter(
 		peerManager:      peerManager,
 		options:          options,
 		channels:         utils.NewRWMutex(map[ChannelID]*channel{}),
-		peerDB:           utils.NewMutex(peerDB),
+		peerDB:           utils.NewWatch(peerDB),
 		started:          make(chan struct{}),
 	}
 	if gigaCfg, ok := options.Giga.Get(); ok {
-		router.giga = utils.Some(NewGigaRouter(gigaCfg, privKey))
+		gr, err := NewGigaRouter(gigaCfg, privKey)
+		if err != nil {
+			return nil, fmt.Errorf("NewGigaRouter(): %w", err)
+		}
+		router.giga = utils.Some(gr)
 	}
-	router.BaseService = service.NewBaseService(logger, "router", router)
+	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
-}
-
-// PeerRatio returns the ratio of peer addresses stored to the maximum size.
-func (r *Router) PeerRatio() float64 {
-	m, ok := r.options.MaxConnected.Get()
-	if !ok || m == 0 {
-		return 0
-	}
-	return float64(r.peerManager.Conns().Len()) / float64(m)
 }
 
 func (r *Router) Endpoint() Endpoint {
@@ -113,8 +122,8 @@ func (r *Router) WaitForStart(ctx context.Context) error {
 	return err
 }
 
-func (r *Router) AddAddrs(addrs []NodeAddress) error {
-	return r.peerManager.AddAddrs(addrs)
+func (r *Router) AddAddrs(sender types.NodeID, addrs []NodeAddress) error {
+	return r.peerManager.PushPex(utils.Some(sender), addrs)
 }
 
 func (r *Router) Subscribe() *PeerUpdatesRecv {
@@ -122,25 +131,17 @@ func (r *Router) Subscribe() *PeerUpdatesRecv {
 }
 
 func (r *Router) Connected(id types.NodeID) bool {
-	_, ok := r.peerManager.Conns().Get(id)
+	_, ok := GetAny(r.peerManager.Conns(), id)
 	return ok
 }
 
-func (r *Router) State(id types.NodeID) string {
-	return r.peerManager.State(id)
-}
-
-func (r *Router) Peers() []types.NodeID {
-	return r.peerManager.Peers()
-}
-
-func (r *Router) Addresses(id types.NodeID) []NodeAddress {
-	return r.peerManager.Addresses(id)
-}
-
 func (r *Router) Advertise(maxAddrs int) []NodeAddress {
-	return r.peerManager.Advertise(maxAddrs)
+	addrs := r.peerManager.Advertise()
+	return addrs[:min(len(addrs), maxAddrs)]
 }
+
+func (r *Router) ConnInfos() []PeerConnInfo { return r.peerManager.ConnInfos() }
+func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
@@ -196,9 +197,6 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 				release := sync.OnceFunc(func() { sem.Release(1) })
 				defer release()
 				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-					if err := r.options.filterPeerByIP(ctx, addr); err != nil {
-						return fmt.Errorf("peer filtered by IP: %w", err)
-					}
 					if err := connTracker.AddConn(addr); err != nil {
 						return fmt.Errorf("rate limiting incoming: %w", err)
 					}
@@ -212,7 +210,20 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						handshakeCtx, cancel = context.WithTimeout(ctx, d)
 						defer cancel()
 					}
-					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, r.giga.IsPresent())
+					var pexAddrs []NodeAddress
+					if r.options.PexOnHandshake {
+						pexAddrs = r.Advertise(MaxPexAddrs)
+					}
+					hConn, err := handshake(handshakeCtx, tcpConn, r.privKey, handshakeSpec{
+						SelfAddr: r.options.SelfAddress,
+						// Listener has to send pex data, so that dialer can learn about more peers in
+						// case listener does not have capacity for new connections.
+						// Dialer also could potentially send pex data, but there is no benefit from doing so:
+						// - if listener is full, then it won't use the new data and it won't gossip it further either, since only verified data is gossiped.
+						// - if it is not full, then the connection will be established and pex data will be sent the regular way using PEX protocol.
+						PexAddrs:          pexAddrs,
+						SeiGigaConnection: r.giga.IsPresent(),
+					})
 					if err != nil {
 						return fmt.Errorf("handshake(): %w", err)
 					}
@@ -220,18 +231,14 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
-					peerID := hConn.msg.NodeAuth.Key().NodeID()
-					if err := r.options.filterPeerByID(ctx, peerID); err != nil {
-						return fmt.Errorf("peer filtered by ID (%v): %w", peerID, err)
-					}
 					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 					if err != nil {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
 					}
 					release()
-					return r.runConn(ctx, hConn.conn, info, utils.None[NodeAddress]())
+					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				r.logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -240,73 +247,96 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 
 func (r *Router) dialPeersRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		limiter := rate.NewLimiter(r.options.maxDialRate(), r.options.maxDials())
-		// Separate routine for dialing persistent/regular peers.
-		for _, persistentPeer := range utils.Slice(true, false) {
+		// Task feeding the upgrade permit to peer manager.
+		s.Spawn(func() error {
+			const upgradeInterval = time.Minute
+			for {
+				r.peerManager.PushUpgradePermit()
+				if err := utils.Sleep(ctx, upgradeInterval); err != nil {
+					return err
+				}
+			}
+		})
+		const dialBurst = 10
+		limiter := rate.NewLimiter(r.options.maxDialRate(), dialBurst)
+		for {
+			if err := limiter.Wait(ctx); err != nil {
+				return err
+			}
+			addrs, err := r.peerManager.StartDial(ctx)
+			if err != nil {
+				return err
+			}
+			id := addrs[0].NodeID
 			s.Spawn(func() error {
-				for {
-					if err := limiter.Wait(ctx); err != nil {
-						return err
-					}
-					addr, err := r.peerManager.StartDial(ctx, persistentPeer)
+				err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+					tcpConn, err := r.dial(ctx, addrs)
 					if err != nil {
-						return err
+						r.peerManager.DialFailed(id)
+						return fmt.Errorf("r.dial(): %w", err)
 					}
-					s.Spawn(func() error {
-						err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-							tcpConn, err := r.dial(ctx, addr)
-							if err != nil {
-								r.peerManager.DialFailed(addr)
-								return fmt.Errorf("r.dial(): %w", err)
-							}
-							s.SpawnBg(func() error { return tcpConn.Run(ctx) })
-
-							var hConn *handshakedConn
-							var info types.NodeInfo
-							err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
-								var err error
-								hConn, err = handshake(ctx, tcpConn, r.privKey, false)
-								if err != nil {
-									return fmt.Errorf("handshake(): %w", err)
-								}
-								if got := hConn.msg.NodeAuth.Key().NodeID(); got != addr.NodeID {
-									return fmt.Errorf("peer NodeID = %v, want %v", got, addr.NodeID)
-								}
-								info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
-								if err != nil {
-									return fmt.Errorf("exchangeNodeInfo(): %w", err)
-								}
-								return nil
-							})
-							if err != nil {
-								r.peerManager.DialFailed(addr)
-								return err
-							}
-							if err := r.runConn(ctx, hConn.conn, info, utils.Some(addr)); err != nil {
-								return fmt.Errorf("r.runConn(): %w", err)
-							}
-							return nil
+					s.SpawnBg(func() error { return tcpConn.Run(ctx) })
+					var hConn *handshakedConn
+					var info types.NodeInfo
+					err = utils.WithOptTimeout(ctx, r.options.HandshakeTimeout, func(ctx context.Context) error {
+						var err error
+						hConn, err = handshake(ctx, tcpConn, r.privKey, handshakeSpec{
+							SelfAddr:          r.options.SelfAddress,
+							SeiGigaConnection: false,
 						})
-						r.logger.Error("r.runConn(outbound)", "addr", addr.String(), "err", err)
+						if err != nil {
+							return fmt.Errorf("handshake(): %w", err)
+						}
+						if got := hConn.msg.NodeAuth.Key().NodeID(); got != id {
+							return fmt.Errorf("peer NodeID = %v, want %v", got, id)
+						}
+						if r.options.PexOnHandshake {
+							// Since the connection is not established yet, the handshake pex data
+							// will end up in a bounded cache, rather than main index. That's fine because
+							// we use the handshake pex data only for a local search,
+							// which is not supposed to be exhaustive.
+							if err := r.AddAddrs(id, hConn.msg.PexAddrs); err != nil {
+								return fmt.Errorf("r.AddAddrs(): %w", err)
+							}
+						}
+						info, err = exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
+						if err != nil {
+							return fmt.Errorf("exchangeNodeInfo(): %w", err)
+						}
 						return nil
 					})
-				}
+					if err != nil {
+						r.peerManager.DialFailed(id)
+						return err
+					}
+					dialAddrRaw := hConn.conn.RemoteAddr()
+					dialAddr := NodeAddress{NodeID: id, Hostname: dialAddrRaw.Addr().String(), Port: dialAddrRaw.Port()}
+					if err := r.runConn(ctx, hConn, info, utils.Some(dialAddr)); err != nil {
+						return fmt.Errorf("r.runConn(): %w", err)
+					}
+					return nil
+				})
+				logger.Error("r.runConn(outbound)", "id", id, "err", err)
+				return nil
 			})
 		}
-		return nil
 	})
 }
 
 // storePeersRoutine periodically snapshots the current connection set to disk,
 // so that peers are immediately rediscovered on restart.
 func (r *Router) storePeersRoutine(ctx context.Context) error {
-	const storeInterval = 10 * time.Second
+	storeInterval := r.options.peerStoreInterval()
 	for {
-		for db := range r.peerDB.Lock() {
+		for db, ctrl := range r.peerDB.Lock() {
 			// Mark connections as still available.
 			now := time.Now()
-			for _, conn := range r.peerManager.Conns().All() {
-				if addr, ok := conn.dialAddr.Get(); ok {
+			conns := r.peerManager.Conns()
+			if conns.Len() > 0 {
+				ctrl.Updated()
+			}
+			for _, conn := range conns.All() {
+				if addr, ok := conn.DialedAddr.Get(); ok {
 					if err := db.Insert(addr, now); err != nil {
 						return fmt.Errorf("db.Insert(): %w", err)
 					}
@@ -325,13 +355,13 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 			return err
 		}
 		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
-		r.peerManager.LogState(r.logger)
+		r.peerManager.LogState()
 	}
 }
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	r.logger.Error("evicting", "peer", id, "err", err)
+	logger.Error("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 
@@ -339,8 +369,8 @@ func (r *Router) IsBlockSyncPeer(id types.NodeID) bool {
 	return r.peerManager.IsBlockSyncPeer(id)
 }
 
-// dialPeer connects to a peer by dialing it.
-func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err error) {
+// dial connects to a peer by dialing it.
+func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err error) {
 	defer func() {
 		success := "true"
 		if err != nil {
@@ -355,31 +385,35 @@ func (r *Router) dial(ctx context.Context, addr NodeAddress) (_ tcp.Conn, err er
 		defer cancel()
 	}
 
-	r.logger.Debug("dialing peer address", "peer", addr)
-	endpoints, err := addr.Resolve(resolveCtx)
-	if err != nil {
-		return tcp.Conn{}, fmt.Errorf("address.Resolve(): %w", err)
-	}
-	if len(endpoints) == 0 {
-		return tcp.Conn{}, fmt.Errorf("address %q did not resolve to any endpoints", addr)
-	}
-
-	for _, endpoint := range endpoints {
-		dialCtx := ctx
-		if d, ok := r.options.DialTimeout.Get(); ok {
-			var cancel context.CancelFunc
-			dialCtx, cancel = context.WithTimeout(dialCtx, d)
-			defer cancel()
+	endpointSet := map[Endpoint]struct{}{}
+	// Resolve addresses in parallel. No errors expected,
+	// just resolve as many addresses as possible within timeout.
+	utils.OrPanic(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		endpointSet := utils.NewMutex(endpointSet)
+		for _, addr := range addrs {
+			s.Spawn(func() error {
+				endpoints, err := addr.Resolve(resolveCtx)
+				if err != nil {
+					logger.Info("address.Resolve() failed", "addr", addr, "err", err)
+					return nil
+				}
+				if len(endpoints) > 0 {
+					for endpointSet := range endpointSet.Lock() {
+						endpointSet[endpoints[0]] = struct{}{}
+					}
+				}
+				return nil
+			})
 		}
-		if err := endpoint.Validate(); err != nil {
-			return tcp.Conn{}, err
-		}
-		c, err := tcp.Dial(dialCtx, endpoint.AddrPort)
+		return nil
+	}))
+	for endpoint := range endpointSet {
+		c, err := utils.WithOptTimeout1(ctx, r.options.DialTimeout, func(ctx context.Context) (tcp.Conn, error) {
+			return tcp.Dial(ctx, endpoint.AddrPort)
+		})
 		if err != nil {
-			r.logger.Debug("failed to dial endpoint", "peer", addr.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		r.logger.Debug("dialed peer", "peer", addr.NodeID, "endpoint", endpoint)
 		return c, nil
 	}
 	return tcp.Conn{}, errors.New("all endpoints failed")

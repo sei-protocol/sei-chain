@@ -1,7 +1,7 @@
 package types
 
 import (
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
@@ -16,11 +16,6 @@ type MidBlocker func(ctx Context, height int64) []abci.Event
 // Note: applications which set create_empty_blocks=false will not have regular block timing and should use
 // e.g. BFT timestamps rather than block height for any periodic EndBlock logic
 type EndBlocker func(ctx Context, req abci.RequestEndBlock) abci.ResponseEndBlock
-
-// PeerFilter responds to p2p filtering queries from Tendermint
-type PeerFilter func(info string) abci.ResponseQuery
-
-type PrepareProposalHandler func(ctx Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error)
 
 type ProcessProposalHandler func(ctx Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
 

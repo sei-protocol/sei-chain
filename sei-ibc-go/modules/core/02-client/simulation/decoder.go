@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"

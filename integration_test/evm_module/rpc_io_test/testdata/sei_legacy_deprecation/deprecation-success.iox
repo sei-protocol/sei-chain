@@ -1,0 +1,4 @@
+// Docker localnet: all gated sei_* enabled except sei_sign. Asserts deprecation HTTP header on a successful sei_* call (JSON body unchanged).
+>> {"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["latest",false]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ expect_response_header Sei-Legacy-RPC-Deprecation

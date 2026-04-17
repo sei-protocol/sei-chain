@@ -12,15 +12,15 @@ import (
 
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -247,7 +247,7 @@ func TestGetTransactionReceiptFailedTxWithZeroGas(t *testing.T) {
 }
 
 func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
-	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0xFFFFFFFFFF"],"id":"test"}`)
+	body := `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0xFFFFFFFFFF"],"id":"test"}`
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -262,7 +262,7 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	errMap := resObj["error"].(map[string]interface{})
 	require.Contains(t, errMap["message"].(string), "invalid tx index")
 
-	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`)
+	body = `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -375,7 +375,7 @@ func TestGetTransactionErrorByHashNotFound(t *testing.T) {
 }
 
 func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
-	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0x999"],"id":"test"}`)
+	body := `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0x999"],"id":"test"}`
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -707,7 +707,7 @@ func TestGetTransactionWithBlockNonEVMTransaction(t *testing.T) {
 	// Test coverage for lines 307-310: non-EVM transaction in getTransactionWithBlock
 	// This would require a block with a non-EVM transaction at index 0
 	// The test exercises the error path when msg is not a MsgEVMTransaction
-	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0x0"],"id":"test"}`)
+	body := `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x8","0x0"],"id":"test"}`
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")

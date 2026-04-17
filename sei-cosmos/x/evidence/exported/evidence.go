@@ -4,7 +4,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // Evidence defines the contract which concrete evidence types of misbehavior

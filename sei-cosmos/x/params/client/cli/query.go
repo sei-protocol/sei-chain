@@ -4,11 +4,11 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/x/params/types"
-	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 )
 
 // NewQueryCmd returns a root CLI command handler for all x/params query commands.
@@ -76,7 +76,9 @@ func NewQueryFeeParamsCmd() *cobra.Command {
 			}
 
 			feeParams := types.FeesParams{}
-			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &feeParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &feeParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&feeParams)
 		},
@@ -105,7 +107,9 @@ func NewQueryCosmosGasParamsCmd() *cobra.Command {
 			}
 
 			cosmosGasParams := types.CosmosGasParams{}
-			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &cosmosGasParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &cosmosGasParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&cosmosGasParams)
 		},
@@ -134,7 +138,9 @@ func NewQueryBlockParamsCmd() *cobra.Command {
 			}
 
 			blockParams := tmproto.BlockParams{}
-			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &blockParams)
+			if err := clientCtx.Codec.UnmarshalAsJSON([]byte(res.Param.Value), &blockParams); err != nil {
+				return err
+			}
 
 			return clientCtx.PrintProto(&blockParams)
 		},

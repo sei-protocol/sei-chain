@@ -9,7 +9,6 @@ import (
 
 	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -45,7 +44,6 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Evidence] {
 // Reactor handles evpool evidence broadcasting amongst peers.
 type Reactor struct {
 	service.BaseService
-	logger log.Logger
 
 	evpool *Pool
 	router *p2p.Router
@@ -60,7 +58,6 @@ type Reactor struct {
 // service.Service interface. It accepts a p2p Channel dedicated for handling
 // envelopes with EvidenceList messages.
 func NewReactor(
-	logger log.Logger,
 	router *p2p.Router,
 	evpool *Pool,
 ) (*Reactor, error) {
@@ -69,14 +66,13 @@ func NewReactor(
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
 	r := &Reactor{
-		logger:       logger,
 		evpool:       evpool,
 		router:       router,
 		channel:      channel,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 	}
 
-	r.BaseService = *service.NewBaseService(logger, "Evidence", r)
+	r.BaseService = *service.NewBaseService("Evidence", r)
 
 	return r, nil
 }
@@ -103,7 +99,7 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg[*pb.E
 	defer func() {
 		if e := recover(); e != nil {
 			err = fmt.Errorf("panic in processing message: %v", e)
-			r.logger.Error(
+			logger.Error(
 				"recovering from processing message panic",
 				"err", err,
 				"stack", string(debug.Stack()),
@@ -154,7 +150,7 @@ func (r *Reactor) processEvidenceCh(ctx context.Context) error {
 // REF: https://github.com/tendermint/tendermint/issues/4727
 func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
 	evidenceCh := r.channel
-	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
+	logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
@@ -225,7 +221,7 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 		r.mtx.Unlock()
 
 		if e := recover(); e != nil {
-			r.logger.Error(
+			logger.Error(
 				"recovering from broadcasting evidence loop",
 				"err", e,
 				"stack", string(debug.Stack()),
@@ -264,7 +260,7 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 		// removed frequently from the broadcasting peer.
 
 		evidenceCh.Send(evProto, peerID)
-		r.logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
+		logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
 
 		select {
 		case <-timer.C:

@@ -13,7 +13,7 @@ import (
 func MarshalYAML(cdc JSONCodec, toPrint proto.Message) ([]byte, error) {
 	// We are OK with the performance hit of the additional JSON roundtip. MarshalYAML is not
 	// used in any critical parts of the system.
-	bz, err := cdc.MarshalJSON(toPrint)
+	bz, err := cdc.MarshalAsJSON(toPrint)
 	if err != nil {
 		return nil, err
 	}

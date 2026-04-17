@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -168,6 +168,16 @@ func (tx *LegacyTx) Validate() error {
 		if err := ValidateAddress(tx.To); err != nil {
 			return errors.New("invalid to address")
 		}
+	}
+
+	if err := validateSignatureValue("v", tx.V, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("r", tx.R, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("s", tx.S, 32); err != nil {
+		return err
 	}
 
 	chainID := tx.GetChainID()

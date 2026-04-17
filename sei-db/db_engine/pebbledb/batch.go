@@ -1,9 +1,10 @@
 package pebbledb
 
 import (
-	"github.com/cockroachdb/pebble/v2"
+	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine"
+	"github.com/cockroachdb/pebble/v2"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // pebbleBatch wraps a Pebble batch for atomic writes.
@@ -13,28 +14,26 @@ type pebbleBatch struct {
 	b *pebble.Batch
 }
 
-var _ db_engine.Batch = (*pebbleBatch)(nil)
+var _ types.Batch = (*pebbleBatch)(nil)
 
-func newPebbleBatch(db *pebble.DB) *pebbleBatch {
-	return &pebbleBatch{b: db.NewBatch()}
-}
-
-func (p *pebbleDB) NewBatch() db_engine.Batch {
-	return newPebbleBatch(p.db)
+func (p *pebbleDB) NewBatch() types.Batch {
+	return &pebbleBatch{b: p.db.NewBatch()}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
-	// Durability options are applied on Commit.
 	return pb.b.Set(key, value, nil)
 }
 
 func (pb *pebbleBatch) Delete(key []byte) error {
-	// Durability options are applied on Commit.
 	return pb.b.Delete(key, nil)
 }
 
-func (pb *pebbleBatch) Commit(opts db_engine.WriteOptions) error {
-	return pb.b.Commit(toPebbleWriteOpts(opts))
+func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
+	err := pb.b.Commit(toPebbleWriteOpts(opts))
+	if err != nil {
+		return fmt.Errorf("failed to commit batch: %w", err)
+	}
+	return nil
 }
 
 func (pb *pebbleBatch) Len() int {

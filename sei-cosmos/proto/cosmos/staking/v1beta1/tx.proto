@@ -8,7 +8,7 @@ import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/cosmos/cosmos-sdk/x/staking/types";
+option go_package = "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types";
 
 // Msg defines the staking Msg service.
 service Msg {
@@ -39,7 +39,7 @@ message MsgCreateValidator {
   Description description = 1 [(gogoproto.nullable) = false];
   CommissionRates commission = 2 [(gogoproto.nullable) = false];
   string min_self_delegation = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.moretags) = "yaml:\"min_self_delegation\"",
     (gogoproto.nullable) = false
   ];
@@ -65,11 +65,11 @@ message MsgEditValidator {
   // zero with no way to distinguish if an update was intended.
   // REF: #2373
   string commission_rate = 3 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.moretags) = "yaml:\"commission_rate\""
   ];
   string min_self_delegation = 4 [
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
     (gogoproto.moretags) = "yaml:\"min_self_delegation\""
   ];
 }

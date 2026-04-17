@@ -1,47 +1,44 @@
 package bindings
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type EVMQueryType string
 
 const (
-	StaticCallType        EVMQueryType = "evm_query_static_call"
-	ERC20TransferType     EVMQueryType = "evm_query_erc20_transfer"
-	ERC20TransferFromType EVMQueryType = "evm_query_erc20_transfer_from"
-	ERC20ApproveType      EVMQueryType = "evm_query_erc20_approve"
-	ERC20AllowanceType    EVMQueryType = "evm_query_erc20_allowance"
-	// #nosec G101 -- the word Token triggers the credential detection
-	ERC20TokenInfoType          EVMQueryType = "evm_query_erc20_token_info"
-	ERC20BalanceType            EVMQueryType = "evm_query_erc20_balance"
-	ERC721OwnerType             EVMQueryType = "evm_query_erc721_owner"
-	ERC721TransferType          EVMQueryType = "evm_query_erc721_transfer"
-	ERC721ApproveType           EVMQueryType = "evm_query_erc721_approve"
-	ERC721SetApprovalAllType    EVMQueryType = "evm_query_erc721_set_approval_all"
-	ERC721ApprovedType          EVMQueryType = "evm_query_erc721_approved"
-	ERC721IsApprovedForAllType  EVMQueryType = "evm_query_erc721_is_approved_for_all"
-	ERC721TotalSupplyType       EVMQueryType = "evm_query_erc721_total_supply"
-	ERC721NameSymbolType        EVMQueryType = "evm_query_erc721_name_symbol"
-	ERC721UriType               EVMQueryType = "evm_query_erc721_uri"
-	ERC721RoyaltyInfoType       EVMQueryType = "evm_query_erc721_royalty_info"
-	ERC1155TransferType         EVMQueryType = "evm_query_erc1155_transfer"
-	ERC1155BatchTransferType    EVMQueryType = "evm_query_erc1155_batch_transfer"
-	ERC1155SetApprovalAllType   EVMQueryType = "evm_query_erc1155_set_approval_all"
-	ERC1155IsApprovedForAllType EVMQueryType = "evm_query_erc1155_is_approved_for_all"
-	ERC1155BalanceOfType        EVMQueryType = "evm_query_erc1155_balance_of"
-	ERC1155BalanceOfBatchType   EVMQueryType = "evm_query_erc1155_balance_of_batch"
-	ERC1155TotalSupplyType      EVMQueryType = "evm_query_erc1155_total_supply"
-	// #nosec G101 -- the word Token triggers the credential detection
-	ERC1155TotalSupplyForTokenType EVMQueryType = "evm_query_erc1155_total_supply_for_token"
-	// #nosec G101 -- the word Token triggers the credential detection
-	ERC1155TokenExistsType EVMQueryType = "evm_query_erc1155_token_exists"
-	ERC1155NameSymbolType  EVMQueryType = "evm_query_erc1155_name_symbol"
-	ERC1155UriType         EVMQueryType = "evm_query_erc1155_uri"
-	ERC1155RoyaltyInfoType EVMQueryType = "evm_query_erc1155_royalty_info"
-	GetEvmAddressType      EVMQueryType = "evm_query_get_evm_address"
-	GetSeiAddressType      EVMQueryType = "evm_query_get_sei_address"
-	SupportsInterfaceType  EVMQueryType = "evm_query_supports_interface"
+	StaticCallType                 EVMQueryType = "evm_query_static_call"
+	ERC20TransferType              EVMQueryType = "evm_query_erc20_transfer"
+	ERC20TransferFromType          EVMQueryType = "evm_query_erc20_transfer_from"
+	ERC20ApproveType               EVMQueryType = "evm_query_erc20_approve"
+	ERC20AllowanceType             EVMQueryType = "evm_query_erc20_allowance"
+	ERC20TokenInfoType             EVMQueryType = "evm_query_erc20_token_info" //nolint:gosec
+	ERC20BalanceType               EVMQueryType = "evm_query_erc20_balance"
+	ERC721OwnerType                EVMQueryType = "evm_query_erc721_owner"
+	ERC721TransferType             EVMQueryType = "evm_query_erc721_transfer"
+	ERC721ApproveType              EVMQueryType = "evm_query_erc721_approve"
+	ERC721SetApprovalAllType       EVMQueryType = "evm_query_erc721_set_approval_all"
+	ERC721ApprovedType             EVMQueryType = "evm_query_erc721_approved"
+	ERC721IsApprovedForAllType     EVMQueryType = "evm_query_erc721_is_approved_for_all"
+	ERC721TotalSupplyType          EVMQueryType = "evm_query_erc721_total_supply"
+	ERC721NameSymbolType           EVMQueryType = "evm_query_erc721_name_symbol"
+	ERC721UriType                  EVMQueryType = "evm_query_erc721_uri"
+	ERC721RoyaltyInfoType          EVMQueryType = "evm_query_erc721_royalty_info"
+	ERC1155TransferType            EVMQueryType = "evm_query_erc1155_transfer"
+	ERC1155BatchTransferType       EVMQueryType = "evm_query_erc1155_batch_transfer"
+	ERC1155SetApprovalAllType      EVMQueryType = "evm_query_erc1155_set_approval_all"
+	ERC1155IsApprovedForAllType    EVMQueryType = "evm_query_erc1155_is_approved_for_all"
+	ERC1155BalanceOfType           EVMQueryType = "evm_query_erc1155_balance_of"
+	ERC1155BalanceOfBatchType      EVMQueryType = "evm_query_erc1155_balance_of_batch"
+	ERC1155TotalSupplyType         EVMQueryType = "evm_query_erc1155_total_supply"
+	ERC1155TotalSupplyForTokenType EVMQueryType = "evm_query_erc1155_total_supply_for_token" //nolint:gosec
+	ERC1155TokenExistsType         EVMQueryType = "evm_query_erc1155_token_exists"           //nolint:gosec
+	ERC1155NameSymbolType          EVMQueryType = "evm_query_erc1155_name_symbol"
+	ERC1155UriType                 EVMQueryType = "evm_query_erc1155_uri"
+	ERC1155RoyaltyInfoType         EVMQueryType = "evm_query_erc1155_royalty_info"
+	GetEvmAddressType              EVMQueryType = "evm_query_get_evm_address"
+	GetSeiAddressType              EVMQueryType = "evm_query_get_sei_address"
+	SupportsInterfaceType          EVMQueryType = "evm_query_supports_interface"
 )
 
 func (q *SeiEVMQuery) GetQueryType() EVMQueryType {

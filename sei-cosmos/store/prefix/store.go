@@ -5,9 +5,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/tracekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 var _ types.KVStore = Store{}
@@ -45,6 +45,12 @@ func (s Store) key(key []byte) (res []byte) {
 // Implements Store
 func (s Store) GetStoreType() types.StoreType {
 	return s.parent.GetStoreType()
+}
+
+// Parent returns the underlying KVStore (without the key prefix). Used when unwrapping
+// to a root store that supports ABCI proofs (e.g. eth_getProof).
+func (s Store) Parent() types.KVStore {
+	return s.parent
 }
 
 // Implements CacheWrap

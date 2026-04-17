@@ -2,8 +2,6 @@ package debug
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (
@@ -12,7 +10,7 @@ const (
 	flagFrequency   = "frequency"
 )
 
-func GetDebugCommand(logger log.Logger) *cobra.Command {
+func GetDebugCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "debug",
 		Short: "A utility to kill or watch a Tendermint process while aggregating debugging data",
@@ -24,8 +22,8 @@ func GetDebugCommand(logger log.Logger) *cobra.Command {
 		"the Tendermint node's RPC address <host>:<port>)",
 	)
 
-	cmd.AddCommand(getKillCmd(logger))
-	cmd.AddCommand(getDumpCmd(logger))
+	cmd.AddCommand(getKillCmd())
+	cmd.AddCommand(getDumpCmd())
 	return cmd
 
 }

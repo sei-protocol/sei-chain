@@ -40,7 +40,7 @@
     # verify total counts GEQ expected: not asserting equal due to block movement between evaluation
     - type: eval
       expr: TOTAL_COUNT == EXPECTED_COUNTS or TOTAL_COUNT == EXPECTED_COUNTS + 1
-    # verify success rate > 5% to ensure some successes and that theyre about slash threshold
+    # with the price-feeder retired, success rate should remain very low
     - type: eval
-      expr: SUCCESS_PERCENT >= 5
+      expr: SUCCESS_PERCENT < 5
 

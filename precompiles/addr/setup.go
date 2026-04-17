@@ -14,6 +14,7 @@ import (
 	addrv610 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v610"
 	addrv614 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v614"
 	addrv620 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v620"
+	addrv630 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v630"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -32,6 +33,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.1.0":      check(addrv610.NewPrecompile(keepers)),
 		"v6.1.4":      check(addrv614.NewPrecompile(keepers)),
 		"v6.2.0":      check(addrv620.NewPrecompile(keepers)),
+		"v6.3.0":      check(addrv630.NewPrecompile(keepers)),
 	}
 }
 

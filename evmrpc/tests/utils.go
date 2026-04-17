@@ -12,16 +12,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -57,10 +57,13 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		height := blockHeight + int64(i)
 		blockTime := time.Now()
 		res, err := ts.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:    block,
-			Hash:   mockHash(height, 0),
-			Height: height,
-			Time:   blockTime,
+			Txs:  block,
+			Hash: mockHash(height, 0),
+			Header: &tmproto.Header{
+				ChainID: ts.app.ChainID,
+				Height:  height,
+				Time:    blockTime,
+			},
 		})
 		if err != nil {
 			panic(err)
@@ -78,10 +81,13 @@ func initializeApp(
 	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-		Txs:    [][]byte{},
-		Hash:   mockHash(1, 0),
-		Height: 1,
-		Time:   time.Now(),
+		Txs:  [][]byte{},
+		Hash: mockHash(1, 0),
+		Header: &tmproto.Header{
+			ChainID: chainID,
+			Height:  1,
+			Time:    time.Now(),
+		},
 	})
 	if err != nil {
 		panic(err)
@@ -106,10 +112,13 @@ func SetupTestServer(
 		height := int64(i + 2)
 		blockTime := time.Now()
 		res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:    block,
-			Hash:   mockHash(height, 0),
-			Height: height,
-			Time:   blockTime,
+			Txs:  block,
+			Hash: mockHash(height, 0),
+			Header: &tmproto.Header{
+				ChainID: a.ChainID,
+				Height:  height,
+				Time:    blockTime,
+			},
 		})
 		if err != nil {
 			panic(err)
@@ -141,8 +150,8 @@ func setupTestServer(
 	cfg := evmrpcconfig.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
+	cfg.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	s, err := evmrpc.NewEVMHTTPServer(
-		log.NewNopLogger(),
 		cfg,
 		mockClient,
 		&a.EvmKeeper,
@@ -152,7 +161,7 @@ func setupTestServer(
 		ctxProvider,
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
-		a.GetStateStore(),
+		nil,
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil
 		},

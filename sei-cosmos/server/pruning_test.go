@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
 func TestGetPruningOptionsFromFlags(t *testing.T) {
@@ -21,15 +21,6 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 			initParams: func() *viper.Viper {
 				v := viper.New()
 				v.Set(FlagPruning, types.PruningOptionNothing)
-				return v
-			},
-			expectedOptions: types.PruneNothing,
-		},
-		{
-			name: FlagIAVLPruning,
-			initParams: func() *viper.Viper {
-				v := viper.New()
-				v.Set(FlagIAVLPruning, types.PruningOptionNothing)
 				return v
 			},
 			expectedOptions: types.PruneNothing,
@@ -52,23 +43,6 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 			},
 		},
 		{
-			name: "custom pruning options iavl",
-			initParams: func() *viper.Viper {
-				v := viper.New()
-				v.Set(FlagIAVLPruning, types.PruningOptionCustom)
-				v.Set(FlagIAVLPruningKeepRecent, 1234)
-				v.Set(FlagIAVLPruningKeepEvery, 4321)
-				v.Set(FlagIAVLPruningInterval, 10)
-
-				return v
-			},
-			expectedOptions: types.PruningOptions{
-				KeepRecent: 1234,
-				KeepEvery:  4321,
-				Interval:   10,
-			},
-		},
-		{
 			name: types.PruningOptionDefault,
 			initParams: func() *viper.Viper {
 				v := viper.New()
@@ -76,17 +50,6 @@ func TestGetPruningOptionsFromFlags(t *testing.T) {
 				return v
 			},
 			expectedOptions: types.PruneDefault,
-		},
-		{
-			name: "new format takes priority over legacy",
-			initParams: func() *viper.Viper {
-				v := viper.New()
-				// Both old and new format present - new format should win
-				v.Set(FlagPruning, types.PruningOptionNothing)
-				v.Set(FlagIAVLPruning, types.PruningOptionEverything)
-				return v
-			},
-			expectedOptions: types.PruneEverything,
 		},
 	}
 

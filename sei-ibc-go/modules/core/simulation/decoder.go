@@ -3,7 +3,7 @@ package simulation
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 
 	clientsim "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/simulation"
 	connectionsim "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/simulation"

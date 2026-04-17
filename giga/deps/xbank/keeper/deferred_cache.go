@@ -1,11 +1,11 @@
 package keeper
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 type DeferredCache struct {
@@ -103,7 +103,7 @@ func (d *DeferredCache) IterateDeferredBalances(ctx sdk.Context, cb func(moduleA
 		d.cdc.MustUnmarshal(iterator.Value(), &balance)
 		moduleAddr, err := types.AddressFromDeferredCacheStore(iterator.Key())
 		if err != nil {
-			ctx.Logger().With("key", iterator.Key(), "err", err).Error("failed to get address from deferred cache store")
+			logger.Error("failed to get address from deferred cache store", "key", iterator.Key(), "err", err)
 			panic(err)
 		}
 

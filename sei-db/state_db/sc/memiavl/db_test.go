@@ -14,14 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/logger"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func TestRewriteSnapshot(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             t.TempDir(),
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -57,7 +55,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
 		t.Fatalf("Failed to create dummy snapshot directory: %v", err)
 	}
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config:          Config{SnapshotKeepRecent: 0},
 		Dir:             dbDir,
 		CreateIfMissing: true,
@@ -72,7 +70,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	err = os.MkdirAll(tmpDir, os.ModePerm)
 	require.NoError(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{
+	_, err = OpenDB(0, Options{
 		Dir:      dbDir,
 		ReadOnly: true,
 	})
@@ -81,7 +79,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	_, err = os.Stat(tmpDir)
 	require.False(t, os.IsNotExist(err))
 
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err = OpenDB(0, Options{
 		Dir: dbDir,
 	})
 	require.NoError(t, err)
@@ -93,7 +91,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 }
 
 func TestRewriteSnapshotBackground(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config:          Config{SnapshotKeepRecent: 0}, // only a single snapshot is kept
 		Dir:             t.TempDir(),
 		CreateIfMissing: true,
@@ -165,9 +163,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 // helper to commit one change to bump height
 func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
-	pairs := []*iavl.KVPair{{Key: []byte(key), Value: []byte(val)}}
+	pairs := []*proto.KVPair{{Key: []byte(key), Value: []byte(val)}}
 	cs := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{Pairs: pairs}},
+		{Name: "test", Changeset: proto.ChangeSet{Pairs: pairs}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs))
 	v, err := db.Commit()
@@ -179,7 +177,7 @@ func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
 // exceeds the configured snapshot interval (strictly greater).
 func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:        5,
 			SnapshotKeepRecent:      0,
@@ -203,7 +201,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 			return db.snapshotRewriteChan != nil
 		}, 100*time.Millisecond, 10*time.Millisecond, "rewrite should not start at height %d", i)
 		// snapshot version should remain 0 until rewrite
-		require.EqualValues(t, 0, db.MultiTree.SnapshotVersion())
+		require.EqualValues(t, 0, db.SnapshotVersion())
 	}
 
 	// Wait for minimum time interval to elapse (1 second + buffer)
@@ -223,7 +221,7 @@ func TestSnapshotTriggerOnIntervalDiff(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// After completion, snapshot version should be 5
-	require.EqualValues(t, 5, db.MultiTree.SnapshotVersion())
+	require.EqualValues(t, 5, db.SnapshotVersion())
 
 	require.NoError(t, db.Close())
 }
@@ -232,7 +230,7 @@ func TestRlog(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test", "delete"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -270,7 +268,7 @@ func TestRlog(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Reopen (MemIAVL will open the changelog from disk)
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
+	db, err = OpenDB(0, Options{Dir: dir, InitialStores: initialStores})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 
@@ -283,7 +281,7 @@ func mockNameChangeSet(name, key, value string) []*proto.NamedChangeSet {
 	return []*proto.NamedChangeSet{
 		{
 			Name: name,
-			Changeset: iavl.ChangeSet{
+			Changeset: proto.ChangeSet{
 				Pairs: mockKVPairs(key, value),
 			},
 		},
@@ -303,7 +301,7 @@ func TestInitialVersion(t *testing.T) {
 		dir := t.TempDir()
 		initialStores := []string{name}
 
-		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		db, err := OpenDB(0, Options{
 			Dir:             dir,
 			CreateIfMissing: true,
 			InitialStores:   initialStores,
@@ -336,7 +334,7 @@ func TestInitialVersion(t *testing.T) {
 		require.NoError(t, db.Close())
 
 		// Reopen (MemIAVL will open the changelog from disk)
-		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, InitialStores: initialStores})
+		db, err = OpenDB(0, Options{Dir: dir, InitialStores: initialStores})
 		require.NoError(t, err)
 		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
@@ -389,7 +387,7 @@ func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -419,7 +417,7 @@ func TestLoadVersion(t *testing.T) {
 			continue
 		}
 		// Read-only loads use the same WAL to replay
-		tmp, err := OpenDB(logger.NewNopLogger(), int64(v), Options{
+		tmp, err := OpenDB(int64(v), Options{
 			Dir:           dir,
 			ReadOnly:      true,
 			InitialStores: initialStores,
@@ -432,7 +430,7 @@ func TestLoadVersion(t *testing.T) {
 }
 
 func TestZeroCopy(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             t.TempDir(),
 		InitialStores:   []string{"test", "test2"},
 		CreateIfMissing: true,
@@ -539,7 +537,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			initialStores := []string{"test"}
 
 			// Open DB with initial version
-			db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			db, err := OpenDB(0, Options{
 				Dir:             dir,
 				CreateIfMissing: true,
 				InitialStores:   initialStores,
@@ -552,8 +550,8 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 				cs := []*proto.NamedChangeSet{
 					{
 						Name: "test",
-						Changeset: iavl.ChangeSet{
-							Pairs: []*iavl.KVPair{
+						Changeset: proto.ChangeSet{
+							Pairs: []*proto.KVPair{
 								{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
 							},
 						},
@@ -575,7 +573,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, db.Close())
 
 			// Reopen to verify delta is computed correctly from WAL entries
-			dbReopen, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			dbReopen, err := OpenDB(0, Options{
 				Dir:           dir,
 				InitialStores: initialStores,
 			})
@@ -607,7 +605,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, dbReopen.Close())
 
 			// Now test rollback with LoadForOverwriting
-			db2, err := OpenDB(logger.NewNopLogger(), tc.rollbackTo, Options{
+			db2, err := OpenDB(tc.rollbackTo, Options{
 				Dir:                dir,
 				InitialStores:      initialStores,
 				LoadForOverwriting: true,
@@ -626,7 +624,7 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 			require.NoError(t, db2.Close())
 
 			// Reopen without LoadForOverwriting to verify persistence
-			db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			db3, err := OpenDB(0, Options{
 				Dir:           dir,
 				InitialStores: initialStores,
 			})
@@ -646,7 +644,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	initialStores := []string{"test"}
 
 	// Create DB with default initial version (0, so versions start at 1)
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -658,8 +656,8 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
 					},
 				},
@@ -677,7 +675,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Rollback to version 3
-	db2, err := OpenDB(logger.NewNopLogger(), 3, Options{
+	db2, err := OpenDB(3, Options{
 		Dir:                dir,
 		InitialStores:      initialStores,
 		LoadForOverwriting: true,
@@ -695,7 +693,7 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 	require.NoError(t, db2.Close())
 
 	// Verify rollback persisted after reopen
-	db3, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db3, err := OpenDB(0, Options{
 		Dir:           dir,
 		InitialStores: initialStores,
 	})
@@ -709,7 +707,7 @@ func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		InitialStores:   initialStores,
 		CreateIfMissing: true,
@@ -718,8 +716,8 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, err)
 
 	cs1 := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello1"), Value: []byte("")},
 				{Key: []byte("hello2"), Value: []byte("")},
 				{Key: []byte("hello3"), Value: []byte("")},
@@ -731,8 +729,8 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, err)
 
 	cs2 := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("hello1"), Delete: true}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("hello1"), Delete: true}},
 		}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs2))
@@ -742,7 +740,7 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Reopen (MemIAVL will open the changelog from disk)
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
+	db, err = OpenDB(0, Options{Dir: dir, ZeroCopy: true, InitialStores: initialStores})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) }) // Close the reopened DB
 	require.Equal(t, version, db.Version())
@@ -751,45 +749,45 @@ func TestEmptyValue(t *testing.T) {
 func TestInvalidOptions(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err := OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
 	require.Error(t, err)
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
+	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, LoadForOverwriting: true, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, LoadForOverwriting: true, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 }
 
 func TestExclusiveLock(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
+	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+	_, err = OpenDB(0, Options{Dir: dir})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
+	_, err = OpenDB(0, Options{Dir: dir})
 	require.NoError(t, err)
 }
 
 func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:        3,
 			AsyncCommitBuffer:       10,
@@ -802,8 +800,8 @@ func TestFastCommit(t *testing.T) {
 	require.NoError(t, err)
 	initialSnapshotTime := db.lastSnapshotTime
 
-	cs := iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	cs := proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello1"), Value: make([]byte, 1024*1024)},
 		},
 	}
@@ -831,7 +829,7 @@ func TestFastCommit(t *testing.T) {
 }
 
 func TestRepeatedApplyChangeSet(t *testing.T) {
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:  3,
 			AsyncCommitBuffer: 10,
@@ -843,13 +841,13 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test1", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test1", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello1"), Value: []byte("world1")},
 			},
 		}},
-		{Name: "test2", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test2", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello2"), Value: []byte("world2")},
 			},
 		}},
@@ -860,8 +858,8 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	// The "one changeset per tree per version" validation is enforced by CommitStore.
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test1"}})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
@@ -870,14 +868,14 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	_, err = db.Commit()
 	require.NoError(t, err)
 
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test2", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
@@ -885,24 +883,87 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 
 	// Note: At DB level, multiple ApplyChangeSet calls with the same tree name are now allowed.
 	// The "one changeset per tree per version" validation is enforced by CommitStore.
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test2", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
 	require.NoError(t, err)
 }
 
+// TestApplyChangeSetMergesWALEntries verifies that multiple ApplyChangeSet calls
+// for the same store merge into a single WAL entry rather than appending duplicates.
+// This prevents a state divergence on WAL replay where Catchup would treat each
+// entry as a separate version bump.
+func TestApplyChangeSetMergesWALEntries(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:  3,
+			AsyncCommitBuffer: 10,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"store1", "store2"},
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	// First call for store1
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Second call for store1 — should merge, not create a duplicate WAL entry
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key2"), Value: []byte("val2")},
+		},
+	})
+	require.NoError(t, err)
+
+	// One call for store2
+	err = db.ApplyChangeSet("store2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key3"), Value: []byte("val3")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify: pendingLogEntry should have exactly 2 entries (one per store),
+	// NOT 3 (which would happen if ApplyChangeSet blindly appended).
+	require.Equal(t, 2, len(db.pendingLogEntry.Changesets),
+		"WAL should have exactly one entry per store, got %d", len(db.pendingLogEntry.Changesets))
+
+	// Verify store1's entry has both pairs merged
+	var store1Entry *proto.NamedChangeSet
+	for _, cs := range db.pendingLogEntry.Changesets {
+		if cs.Name == "store1" {
+			store1Entry = cs
+			break
+		}
+	}
+	require.NotNil(t, store1Entry, "store1 entry should exist in WAL")
+	require.Equal(t, 2, len(store1Entry.Changeset.Pairs),
+		"store1 should have 2 merged pairs, got %d", len(store1Entry.Changeset.Pairs))
+
+	// Commit and verify it succeeds
+	_, err = db.Commit()
+	require.NoError(t, err)
+}
+
 func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 	// Create a DB with some data first
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -911,8 +972,8 @@ func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 
 	// Add some data and create a snapshot
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()
@@ -927,7 +988,6 @@ func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 	_, err = LoadMultiTree(ctx, filepath.Join(dir, "current"), Options{
 		Dir:      dir,
 		ZeroCopy: true,
-		Logger:   logger.NewNopLogger(),
 	})
 	require.Error(t, err)
 	require.Equal(t, context.Canceled, err)
@@ -938,7 +998,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	initialStores := []string{"test"}
 
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   initialStores,
@@ -952,8 +1012,8 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	// Add multiple versions to have changelog entries
 	for i := 0; i < 5; i++ {
 		cs := []*proto.NamedChangeSet{
-			{Name: "test", Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
+			{Name: "test", Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
 			}},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
@@ -968,7 +1028,6 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	mtree, err := LoadMultiTree(context.Background(), filepath.Join(dir, "current"), Options{
 		Dir:      dir,
 		ZeroCopy: true,
-		Logger:   logger.NewNopLogger(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, mtree.Close()) })
@@ -986,7 +1045,7 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 
 func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config:          Config{SnapshotInterval: 1}, // Trigger snapshot on every commit
 		Dir:             dir,
 		CreateIfMissing: true,
@@ -996,8 +1055,8 @@ func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 
 	// Add some data to trigger background snapshot
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()
@@ -1010,7 +1069,7 @@ func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 
 func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+	db, err := OpenDB(0, Options{
 		Config: Config{
 			SnapshotInterval:        0, // Disable auto snapshot
 			SnapshotMinTimeInterval: 0,
@@ -1023,8 +1082,8 @@ func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 
 	// Add data and commit
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()

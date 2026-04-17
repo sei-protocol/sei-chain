@@ -16,11 +16,9 @@ package state
 import (
 	"math/big"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // TopOffAmount is the amount to mint when an account needs more funds (100 ETH)
@@ -64,7 +62,7 @@ func (s *DBImpl) topOffAccount(seiAddr sdk.AccAddress, amt *big.Int) {
 	// Mint and send (use NopLogger to suppress log spam)
 	usei, wei := SplitUseiWeiAmount(amt)
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei.Add(sdk.OneInt())))
-	ctx := s.ctx.WithLogger(log.NewNopLogger())
+	ctx := s.ctx
 	if err := s.k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt); err != nil {
 		return
 	}

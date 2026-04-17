@@ -1,0 +1,12 @@
+// Data-dependent: bind block hash from latest and contract from deploy, then getProof(contractAddress, [], blockHash). Run evm_rpc_tests.sh when local.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",false]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind blockHash = result.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["__SEED__",true]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind deployTxHash = result.transactions.1.hash
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}
+@ bind contractAddress = result.contractAddress
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getProof","params":["${contractAddress}",[],"${blockHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":{}}

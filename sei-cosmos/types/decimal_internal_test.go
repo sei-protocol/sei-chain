@@ -23,20 +23,20 @@ func (s *decimalInternalTestSuite) TestPrecisionMultiplier() {
 
 func (s *decimalInternalTestSuite) TestZeroDeserializationJSON() {
 	d := Dec{new(big.Int)}
-	err := cdc.UnmarshalJSON([]byte(`"0"`), &d)
+	err := cdc.UnmarshalAsJSON([]byte(`"0"`), &d)
 	s.Require().Nil(err)
-	err = cdc.UnmarshalJSON([]byte(`"{}"`), &d)
+	err = cdc.UnmarshalAsJSON([]byte(`"{}"`), &d)
 	s.Require().NotNil(err)
 }
 
 func (s *decimalInternalTestSuite) TestSerializationGocodecJSON() {
 	d := MustNewDecFromStr("0.333")
 
-	bz, err := cdc.MarshalJSON(d)
+	bz, err := cdc.MarshalAsJSON(d)
 	s.Require().NoError(err)
 
 	d2 := Dec{new(big.Int)}
-	err = cdc.UnmarshalJSON(bz, &d2)
+	err = cdc.UnmarshalAsJSON(bz, &d2)
 	s.Require().NoError(err)
 	s.Require().True(d.Equal(d2), "original: %v, unmarshalled: %v", d, d2)
 }

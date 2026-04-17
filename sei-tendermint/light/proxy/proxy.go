@@ -8,19 +8,20 @@ import (
 
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	lrpc "github.com/sei-protocol/sei-chain/sei-tendermint/light/rpc"
 	rpchttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "light", "proxy")
 
 // A Proxy defines parameters for running an HTTP server proxy.
 type Proxy struct {
 	Addr     string // TCP address to listen on, ":http" if empty
 	Config   *rpcserver.Config
 	Client   *lrpc.Client
-	Logger   log.Logger
 	Listener net.Listener
 }
 
@@ -30,7 +31,6 @@ func NewProxy(
 	lightClient *light.Client,
 	listenAddr, providerAddr string,
 	config *rpcserver.Config,
-	logger log.Logger,
 	opts ...lrpc.Option,
 ) (*Proxy, error) {
 	rpcClient, err := rpchttp.NewWithTimeout(providerAddr, config.WriteTimeout)
@@ -41,8 +41,7 @@ func NewProxy(
 	return &Proxy{
 		Addr:   listenAddr,
 		Config: config,
-		Client: lrpc.NewClient(logger, rpcClient, lightClient, opts...),
-		Logger: logger,
+		Client: lrpc.NewClient(rpcClient, lightClient, opts...),
 	}, nil
 }
 
@@ -61,7 +60,6 @@ func (p *Proxy) ListenAndServe(ctx context.Context) error {
 		ctx,
 		listener,
 		mux,
-		p.Logger,
 		p.Config,
 	)
 }
@@ -82,7 +80,6 @@ func (p *Proxy) ListenAndServeTLS(ctx context.Context, certFile, keyFile string)
 		mux,
 		certFile,
 		keyFile,
-		p.Logger,
 		p.Config,
 	)
 }
@@ -92,15 +89,14 @@ func (p *Proxy) listen(ctx context.Context) (net.Listener, *http.ServeMux, error
 
 	// 1) Register regular routes.
 	r := rpccore.NewRoutesMap(proxyService{Client: p.Client}, nil)
-	rpcserver.RegisterRPCFuncs(mux, r, p.Logger)
+	rpcserver.RegisterRPCFuncs(mux, r)
 
 	// 2) Allow websocket connections.
-	wmLogger := p.Logger.With("protocol", "websocket")
-	wm := rpcserver.NewWebsocketManager(wmLogger, r,
+	wm := rpcserver.NewWebsocketManager(r,
 		rpcserver.OnDisconnect(func(remoteAddr string) {
 			err := p.Client.UnsubscribeAll(context.Background(), remoteAddr)
 			if err != nil && err != tmpubsub.ErrSubscriptionNotFound {
-				wmLogger.Error("Failed to unsubscribe addr from events", "addr", remoteAddr, "err", err)
+				logger.Error("Failed to unsubscribe addr from events", "protocol", "websocket", "addr", remoteAddr, "err", err)
 			}
 		}),
 		rpcserver.ReadLimit(p.Config.MaxBodyBytes),

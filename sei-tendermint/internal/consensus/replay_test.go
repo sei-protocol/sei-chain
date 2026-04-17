@@ -16,20 +16,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	dbm "github.com/tendermint/tm-db"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -77,6 +74,12 @@ func getConfig(t *testing.T) *config.Config {
 	return c
 }
 
+func newApp(validators []abci.ValidatorUpdate) *kvstore.Application {
+	app := kvstore.NewApplication()
+	app.SetValidators(validators)
+	return app
+}
+
 func waitForBlock(ctx context.Context, cs *State, lastBlock int64) error {
 	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: testSubscriber,
@@ -101,14 +104,14 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	ctx := t.Context()
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
-		log.NewNopLogger(),
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -149,7 +152,7 @@ func sendTxs(ctx context.Context, cs *State) error {
 			return nil
 		}
 		tx := []byte{byte(i)}
-		if err := cs.txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+		if err := cs.txMempool.CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
@@ -227,14 +230,14 @@ func crashWALandCheckLiveness(
 	t.Logf("Generate WAL with sendTxsFn running in parallel.")
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
-		log.NewNopLogger(),
 		cfg,
 		state,
 		loadPrivValidator(cfg),
-		kvstore.NewApplication(),
+		newApp(genDoc.ValidatorUpdates()),
 		store.NewBlockStore(dbm.NewMemDB()),
 	)
 	defer cs.wal.Close()
@@ -266,7 +269,7 @@ type simulatorTestSuite struct {
 	Commits      []*types.Commit
 	CleanupFunc  cleanupFunc
 
-	Mempool mempool.Mempool
+	Mempool *mempool.TxMempool
 	Evpool  sm.EvidencePool
 }
 
@@ -289,7 +292,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	cfg := configSetup(t)
 
 	sim := &simulatorTestSuite{
-		Mempool: emptyMempool{},
+		Mempool: newReplayTxMempool(kvstore.NewApplication()),
 		Evpool:  sm.EmptyEvidencePool{},
 	}
 
@@ -303,7 +306,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		nVals,
 		nPeers,
 		newMockTickerFunc(true),
-		newEpehemeralKVStore)
+	)
 	sim.Config = cfg
 	defer func() { t.Cleanup(cleanup) }()
 
@@ -344,7 +347,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err := css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -380,7 +383,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -415,14 +418,14 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	pv, _ = css[nVals+2].privValidator.Get()
 	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -468,7 +471,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	ensureNewProposal(t, proposalCh, height, round)
 
 	removeValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, 0)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, removeValidatorTx2, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	rs = css[0].GetRoundState()
@@ -512,7 +515,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	height++
 	incrementHeight(vss...)
 	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
+	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
 	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
 	require.NoError(t, err)
@@ -644,7 +647,6 @@ func testHandshakeReplay(
 
 	cfg := sim.Config
 
-	logger := log.NewNopLogger()
 	if testValidatorsChange {
 		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_m", t.Name(), mode))
 		require.NoError(t, err)
@@ -682,7 +684,6 @@ func testHandshakeReplay(
 	state = buildTMStateFromChain(
 		ctx,
 		t,
-		logger,
 		sim.Mempool,
 		sim.Evpool,
 		stateStore,
@@ -693,19 +694,19 @@ func testHandshakeReplay(
 	)
 	latestAppHash := state.AppHash
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	client := abciclient.NewLocalClient(logger, kvstore.NewApplication())
+	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
+	app := newApp(genDoc.ValidatorUpdates())
 	if nBlocks > 0 {
 		// run nBlocks against a new client to build up the app state.
 		// use a throwaway tendermint state
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
 		stateDB1 := dbm.NewMemDB()
 		stateStore := sm.NewStore(stateDB1)
 		err := stateStore.Save(genesisState)
 		require.NoError(t, err)
-		buildAppStateFromChain(ctx, t, proxyApp, stateStore, sim.Mempool, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
+		buildAppStateFromChain(ctx, t, app, stateStore, sim.Mempool, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
 	}
 
 	// Prune block store if requested
@@ -720,14 +721,8 @@ func testHandshakeReplay(
 	// now start the app using the handshake - it should sync
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx), "Error starting proxy app connections")
-	require.True(t, proxyApp.IsRunning())
-	require.NotNil(t, proxyApp)
-	t.Cleanup(func() { cancel(); proxyApp.Wait() })
-
-	err = handshaker.Handshake(ctx, proxyApp)
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
+	err = handshaker.Handshake(ctx, app)
 	if expectError {
 		require.Error(t, err)
 		return
@@ -735,7 +730,7 @@ func testHandshakeReplay(
 	require.NoError(t, err, "Error on abci handshake")
 
 	// get the latest app hash from the app
-	res, err := proxyApp.Info(ctx, &abci.RequestInfo{Version: ""})
+	res, err := app.Info(ctx, &abci.RequestInfo{Version: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -764,16 +759,16 @@ func applyBlock(
 	ctx context.Context,
 	t *testing.T,
 	stateStore sm.Store,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	st sm.State,
 	blk *types.Block,
-	appClient abciclient.Client,
+	appClient abci.Application,
 	blockStore *mockBlockStore,
 	eventBus *eventbus.EventBus,
 ) sm.State {
 	testPartSize := types.BlockPartSizeBytes
-	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -786,9 +781,9 @@ func applyBlock(
 func buildAppStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	appClient abciclient.Client,
+	appClient *kvstore.Application,
 	stateStore sm.Store,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	state sm.State,
 	chain []*types.Block,
@@ -799,15 +794,9 @@ func buildAppStateFromChain(
 ) {
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
-	require.NoError(t, appClient.Start(ctx))
-
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
-
 	require.NoError(t, stateStore.Save(state)) // save height 1's validatorsInfo
 
 	switch mode {
@@ -836,8 +825,7 @@ func buildAppStateFromChain(
 func buildTMStateFromChain(
 	ctx context.Context,
 	t *testing.T,
-	logger log.Logger,
-	mempool mempool.Mempool,
+	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	stateStore sm.Store,
 	state sm.State,
@@ -848,40 +836,33 @@ func buildTMStateFromChain(
 	t.Helper()
 
 	// run the whole chain against this client to build up the tendermint state
-	client := abciclient.NewLocalClient(logger, kvstore.NewApplication())
-
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx))
-
+	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	validators := types.TM2PB.ValidatorUpdates(state.Validators)
-	_, err := proxyApp.InitChain(ctx, &abci.RequestInitChain{
-		Validators: validators,
-	})
+	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
 
 	require.NoError(t, stateStore.Save(state))
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	switch mode {
 	case 0:
 		// sync right up
 		for _, block := range chain {
-			state = applyBlock(ctx, t, stateStore, mempool, evpool, state, block, proxyApp, blockStore, eventBus)
+			state = applyBlock(ctx, t, stateStore, mempool, evpool, state, block, app, blockStore, eventBus)
 		}
 
 	case 1, 2, 3:
 		// sync up to the penultimate as if we stored the block.
 		// whether we commit or not depends on the appHash
 		for _, block := range chain[:len(chain)-1] {
-			state = applyBlock(ctx, t, stateStore, mempool, evpool, state, block, proxyApp, blockStore, eventBus)
+			state = applyBlock(ctx, t, stateStore, mempool, evpool, state, block, app, blockStore, eventBus)
 		}
 
 		// apply the final block to a state copy so we can
 		// get the right next appHash but keep the state back
-		applyBlock(ctx, t, stateStore, mempool, evpool, state, chain[len(chain)-1], proxyApp, blockStore, eventBus)
+		applyBlock(ctx, t, stateStore, mempool, evpool, state, chain[len(chain)-1], app, blockStore, eventBus)
 	default:
 		require.Fail(t, "unknown mode %v", mode)
 	}
@@ -899,7 +880,6 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_test_")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 	privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
 	require.NoError(t, err)
 	const appVersion = 0x0
@@ -915,9 +895,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 
 	store.chain = blocks
 
-	logger := log.NewNopLogger()
-
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	// 2. Tendermint must panic if app returns wrong hash for the first block
@@ -926,14 +904,8 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- 0x03
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
-		client := abciclient.NewLocalClient(logger, app)
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
-		err := proxyApp.Start(ctx)
-		require.NoError(t, err)
-		t.Cleanup(func() { proxyApp.Wait() })
-
-		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-		assert.Error(t, h.Handshake(ctx, proxyApp))
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
+		assert.Error(t, h.Handshake(ctx, app))
 	}
 
 	// 3. Tendermint must panic if app returns wrong hash for the last block
@@ -942,14 +914,8 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- RANDOM HASH
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
-		client := abciclient.NewLocalClient(logger, app)
-		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
-		err := proxyApp.Start(ctx)
-		require.NoError(t, err)
-		t.Cleanup(func() { proxyApp.Wait() })
-
-		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-		require.Error(t, h.Handshake(ctx, proxyApp))
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
+		require.Error(t, h.Handshake(ctx, app))
 	}
 }
 
@@ -1144,15 +1110,13 @@ func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 func TestHandshakeUpdatesValidators(t *testing.T) {
 	ctx := t.Context()
 
-	logger := log.NewNopLogger()
 	votePower := 10 + int64(rand.Uint32())
 	val, _, err := factory.Validator(ctx, votePower)
 	require.NoError(t, err)
 	vals := types.NewValidatorSet([]*types.Validator{val})
 	app := &initChainApp{vals: types.TM2PB.ValidatorUpdates(vals)}
-	client := abciclient.NewLocalClient(logger, app)
 
-	eventBus := eventbus.NewDefault(logger)
+	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_test_")
@@ -1167,16 +1131,19 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	stateStore := sm.NewStore(stateDB)
 
 	oldValAddr := state.Validators.Validators[0].Address
+	genDoc := utils.OrPanic1(sm.MakeGenesisDocFromFile(cfg.GenesisFile()))
+	genDoc.Validators = []types.GenesisValidator{{
+		Address: val.Address,
+		PubKey:  val.PubKey,
+		Power:   val.VotingPower,
+	}}
+	require.NoError(t, genDoc.SaveAs(cfg.GenesisFile()))
 
 	// now start the app using the handshake - it should sync
-	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
+	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-
-	handshaker := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
-	proxyApp := proxy.New(client, logger, proxy.NopMetrics())
-	require.NoError(t, proxyApp.Start(ctx), "Error starting proxy app connections")
-
-	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
+	require.NoError(t, handshaker.Handshake(ctx, app), "error on abci handshake")
 
 	// reload the state, check the validator set was updated
 	state, err = stateStore.Load()

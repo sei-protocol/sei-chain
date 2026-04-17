@@ -13,7 +13,6 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	dbs "github.com/sei-protocol/sei-chain/sei-tendermint/light/store/db"
@@ -21,7 +20,6 @@ import (
 )
 
 func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	// primary performs a lunatic attack
 	var (
@@ -93,7 +91,6 @@ func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -136,8 +133,6 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
-
-			logger := log.NewNopLogger()
 
 			// primary performs an equivocation attack
 			var (
@@ -209,7 +204,6 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 				[]provider.Provider{mockWitness},
 				dbs.New(dbm.NewMemDB()),
 				5*time.Minute,
-				light.Logger(logger),
 				tc.lightOption,
 			)
 			require.NoError(t, err)
@@ -239,7 +233,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
 	witnessHeaders, witnessValidators, chainKeys := genLightBlocksWithKeys(t, latestHeight, valSize, 2, bTime)
 	for _, unusedHeader := range []int64{3, 5, 6, 8} {
@@ -308,7 +301,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		[]provider.Provider{mockWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
 	)
@@ -370,7 +362,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		[]provider.Provider{mockLaggingWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
 	)
@@ -395,8 +386,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 	headers, vals, _ = genLightBlocksWithKeys(t, 1, 5, 2, bTime)
 	mockWitness := mockNodeFromHeadersAndVals(headers, vals)
 
-	logger := log.NewNopLogger()
-
 	_, err = light.NewClient(
 		ctx,
 		chainID,
@@ -409,7 +398,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match primary")
@@ -421,7 +409,6 @@ func TestClientDivergentTraces1(t *testing.T) {
 // => verification should be successful but two unresponsive witnesses should be blacklisted
 func TestClientDivergentTraces2(t *testing.T) {
 	ctx := t.Context()
-	logger := log.NewNopLogger()
 
 	headers, vals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
 	mockPrimaryNode := mockNodeFromHeadersAndVals(headers, vals)
@@ -441,7 +428,6 @@ func TestClientDivergentTraces2(t *testing.T) {
 		[]provider.Provider{mockDeadNode, mockDeadNode, mockPrimaryNode},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -457,7 +443,6 @@ func TestClientDivergentTraces2(t *testing.T) {
 // => creation should succeed, but the verification should fail
 // nolint: dupl
 func TestClientDivergentTraces3(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
@@ -485,7 +470,6 @@ func TestClientDivergentTraces3(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
@@ -500,7 +484,6 @@ func TestClientDivergentTraces3(t *testing.T) {
 // It should be ignored
 // nolint: dupl
 func TestClientDivergentTraces4(t *testing.T) {
-	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
@@ -528,13 +511,57 @@ func TestClientDivergentTraces4(t *testing.T) {
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
 		5*time.Minute,
-		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
 	_, err = c.VerifyLightBlockAtHeight(ctx, 2, bTime.Add(1*time.Hour))
 	assert.Error(t, err)
 	assert.Equal(t, 1, len(c.Witnesses()))
+	mockWitness.AssertExpectations(t)
+	mockPrimary.AssertExpectations(t)
+}
+
+// 5. Witness returns a valid header but with mismatched validator set metadata.
+// => detectDivergence should surface the error instead of swallowing it.
+func TestClientDivergentTraces5(t *testing.T) {
+	ctx := t.Context()
+
+	headers, vals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
+	mockPrimary := mockNodeFromHeadersAndVals(headers, vals)
+
+	firstBlock, err := mockPrimary.LightBlock(ctx, 1)
+	require.NoError(t, err)
+
+	// Witness shares the same block at height 1 (so NewClient succeeds),
+	// but at height 2 returns a validator set with shifted priorities.
+	mockWitness := &provider_mocks.Provider{}
+	mockWitness.On("LightBlock", mock.Anything, int64(1)).Return(
+		&types.LightBlock{SignedHeader: headers[1], ValidatorSet: vals[1]}, nil,
+	)
+	witnessVals2 := vals[2].Copy()
+	witnessVals2.IncrementProposerPriority(3)
+	mockWitness.On("LightBlock", mock.Anything, int64(2)).Return(
+		&types.LightBlock{SignedHeader: headers[2], ValidatorSet: witnessVals2}, nil,
+	)
+
+	c, err := light.NewClient(
+		ctx,
+		chainID,
+		light.TrustOptions{
+			Height: 1,
+			Hash:   firstBlock.Hash(),
+			Period: 4 * time.Hour,
+		},
+		mockPrimary,
+		[]provider.Provider{mockWitness},
+		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
+	)
+	require.NoError(t, err)
+
+	_, err = c.VerifyLightBlockAtHeight(ctx, 2, bTime.Add(1*time.Hour))
+	require.Error(t, err)
+	assert.IsType(t, light.ErrProposerPrioritiesDiverge{}, err)
 	mockWitness.AssertExpectations(t)
 	mockPrimary.AssertExpectations(t)
 }

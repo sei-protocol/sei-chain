@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -13,19 +14,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/legacy"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -33,6 +34,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"golang.org/x/mod/semver"
 )
 
 const LatestCtxHeight int64 = -1
@@ -40,9 +42,18 @@ const LatestCtxHeight int64 = -1
 // EVM launch block heights for different chains
 const Pacific1EVMLaunchHeight int64 = 79123881
 
+// ErrBlockNotFoundByHash is returned when no block exists for the given hash (e.g. empty or unknown hash).
+// Ethereum-compatible RPCs should return result: null for this case instead of an error.
+var ErrBlockNotFoundByHash = errors.New("block not found by hash")
+
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
+		// Synthetic genesis from eth_getBlockByNumber("0x0") is not stored under this hash in Tendermint.
+		if *blockNrOrHash.BlockHash == genesisBlockHash {
+			z := int64(0)
+			return &z, nil
+		}
 		block, err := blockByHashRespectingWatermarks(ctx, tmClient, wm, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
 			return nil, err
@@ -143,10 +154,6 @@ func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height 
 	return blockRes, err
 }
 
-func blockByNumber(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlock, error) {
-	return blockByNumberWithRetry(ctx, client, height, 0)
-}
-
 func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	var retryCount = 0
@@ -185,7 +192,7 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
+		return nil, ErrBlockNotFoundByHash
 	}
 	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
@@ -356,7 +363,7 @@ func getTxHashesFromBlock(
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
-	if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
+	if semver.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
 		return receipt.EffectiveGasPrice == 0
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||

@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/psql"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -29,7 +28,7 @@ const (
 )
 
 // MakeReindexEventCommand constructs a command to re-index events in a block height interval.
-func MakeReindexEventCommand(conf *tmcfg.Config, logger log.Logger) *cobra.Command {
+func MakeReindexEventCommand(conf *tmcfg.Config) *cobra.Command {
 	var (
 		startHeight int64
 		endHeight   int64

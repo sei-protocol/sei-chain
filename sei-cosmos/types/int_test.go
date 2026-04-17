@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type intTestSuite struct {
@@ -305,6 +305,16 @@ func (s *intTestSuite) TestEncodingTableInt() {
 		s.Require().Nil(err, "Error unmarshaling Int. tc #%d, err %s", tcnum, err)
 		s.Require().Equal(tc.i, i, "Unmarshaled value is different from exported. tc #%d", tcnum)
 	}
+}
+
+func (s *intTestSuite) TestIntUnmarshalEmptyResetsReceiver() {
+	i := sdk.NewInt(42)
+	s.Require().NoError((&i).Unmarshal(nil))
+	s.Require().True(i.Equal(sdk.ZeroInt()), "nil protobuf bytes should reset Int to zero")
+
+	i = sdk.NewInt(7)
+	s.Require().NoError((&i).Unmarshal([]byte{}))
+	s.Require().True(i.Equal(sdk.ZeroInt()), "empty protobuf bytes should reset Int to zero")
 }
 
 func (s *intTestSuite) TestEncodingTableUint() {

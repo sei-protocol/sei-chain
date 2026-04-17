@@ -6,8 +6,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 )
 
 func TestPrepareConfigForTxCreateValidator(t *testing.T) {
@@ -39,10 +39,8 @@ func TestPrepareConfigForTxCreateValidator(t *testing.T) {
 		expectedCfg TxCreateValidatorConfig
 	}{
 		{
-			name: "all defaults",
-			fsModify: func(fs *pflag.FlagSet) {
-				return
-			},
+			name:        "all defaults",
+			fsModify:    func(fs *pflag.FlagSet) {},
 			expectedCfg: mkTxValCfg(defaultAmount, "0.1", "0.2", "0.01", "1"),
 		}, {
 			name: "Custom amount",

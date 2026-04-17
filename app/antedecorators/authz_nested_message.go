@@ -3,8 +3,8 @@ package antedecorators
 import (
 	"errors"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/authz"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

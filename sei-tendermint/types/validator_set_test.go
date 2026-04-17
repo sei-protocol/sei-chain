@@ -34,18 +34,14 @@ func TestValidatorSetBasic(t *testing.T) {
 
 	assert.EqualValues(t, vset, vset.Copy())
 	assert.False(t, vset.HasAddress([]byte("some val")))
-	idx, val := vset.GetByAddress([]byte("some val"))
-	assert.EqualValues(t, -1, idx)
-	assert.Nil(t, val)
-	addr, val := vset.GetByIndex(-100)
-	assert.Nil(t, addr)
-	assert.Nil(t, val)
-	addr, val = vset.GetByIndex(0)
-	assert.Nil(t, addr)
-	assert.Nil(t, val)
-	addr, val = vset.GetByIndex(100)
-	assert.Nil(t, addr)
-	assert.Nil(t, val)
+	_, _, ok := vset.GetByAddress([]byte("some val"))
+	require.False(t, ok)
+	_, _, ok = vset.GetByIndex(-100)
+	require.False(t, ok)
+	_, _, ok = vset.GetByIndex(0)
+	require.False(t, ok)
+	_, _, ok = vset.GetByIndex(100)
+	require.False(t, ok)
 	assert.Zero(t, vset.Size())
 	assert.Equal(t, int64(0), vset.TotalVotingPower())
 	assert.Nil(t, vset.GetProposer())
@@ -53,13 +49,15 @@ func TestValidatorSetBasic(t *testing.T) {
 		0xc8, 0x99, 0x6f, 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95,
 		0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55}, vset.Hash())
 	// add
-	val = randModuloValidator(vset.TotalVotingPower())
+	val := randModuloValidator(vset.TotalVotingPower())
 	assert.NoError(t, vset.UpdateWithChangeSet([]*Validator{val}))
 
 	assert.True(t, vset.HasAddress(val.Address))
-	idx, _ = vset.GetByAddress(val.Address)
+	idx, _, ok := vset.GetByAddress(val.Address)
+	assert.True(t, ok)
 	assert.EqualValues(t, 0, idx)
-	addr, _ = vset.GetByIndex(0)
+	addr, _, ok := vset.GetByIndex(0)
+	assert.True(t, ok)
 	assert.Equal(t, []byte(val.Address), addr)
 	assert.Equal(t, 1, vset.Size())
 	assert.Equal(t, val.VotingPower, vset.TotalVotingPower())
@@ -70,15 +68,16 @@ func TestValidatorSetBasic(t *testing.T) {
 	// update
 	val = randModuloValidator(vset.TotalVotingPower())
 	assert.NoError(t, vset.UpdateWithChangeSet([]*Validator{val}))
-	_, val = vset.GetByAddress(val.Address)
+	_, val, ok = vset.GetByAddress(val.Address)
+	assert.True(t, ok)
 	val.VotingPower += 100
 	proposerPriority := val.ProposerPriority
 
 	val.ProposerPriority = 0
 	assert.NoError(t, vset.UpdateWithChangeSet([]*Validator{val}))
-	_, val = vset.GetByAddress(val.Address)
+	_, val, ok = vset.GetByAddress(val.Address)
+	assert.True(t, ok)
 	assert.Equal(t, proposerPriority, val.ProposerPriority)
-
 }
 
 func TestValidatorSetValidateBasic(t *testing.T) {
@@ -181,6 +180,14 @@ func TestValidatorSet_ProposerPriorityHash(t *testing.T) {
 	vset.IncrementProposerPriority(1)
 	assert.Equal(t, vset.Hash(), vsetCopy.Hash())
 	assert.NotEqual(t, vset.ProposerPriorityHash(), vsetCopy.ProposerPriorityHash())
+
+	// Changing only one validator's priority must change the hash.
+	// This verifies that each validator's priority occupies a distinct
+	// position in the buffer rather than overwriting the same offset.
+	vsetA := vset.Copy()
+	vsetB := vset.Copy()
+	vsetB.Validators[0].ProposerPriority += 1
+	assert.NotEqual(t, vsetA.ProposerPriorityHash(), vsetB.ProposerPriorityHash())
 }
 
 // Test that IncrementProposerPriority requires positive times.
@@ -534,7 +541,8 @@ func TestAveragingInIncrementProposerPriority(t *testing.T) {
 		// work on copy to have the old ProposerPriorities:
 		newVset := tc.vs.CopyIncrementProposerPriority(tc.times)
 		for _, val := range tc.vs.Validators {
-			_, updatedVal := newVset.GetByAddress(val.Address)
+			_, updatedVal, ok := newVset.GetByAddress(val.Address)
+			assert.True(t, ok)
 			assert.Equal(t, updatedVal.ProposerPriority, val.ProposerPriority-tc.avg, "test case: %v", i)
 		}
 	}

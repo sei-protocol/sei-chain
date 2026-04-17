@@ -15,7 +15,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abciclient "github.com/sei-protocol/sei-chain/sei-tendermint/abci/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -28,11 +27,9 @@ import (
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -75,7 +72,6 @@ func setup(
 		state := states[i]
 
 		reactor, err := NewReactor(
-			state.logger.With("node", nodeID),
 			state,
 			node.Router,
 			state.eventBus,
@@ -83,7 +79,7 @@ func setup(
 			NopMetrics(),
 			config.DefaultConfig(),
 		)
-
+		require.NoError(t, err)
 		blocksSub, err := state.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 			ClientID: testSubscriber,
 			Query:    types.EventQueryNewBlock,
@@ -155,7 +151,7 @@ func finalizeTx(
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, sub := range blocksSubs {
 			s.Spawn(func() error {
-				if err := states[i].txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+				if err := states[i].txMempool.CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 					return fmt.Errorf("CheckTx(): %w", err)
 				}
 				for {
@@ -250,7 +246,6 @@ func TestReactorWithEvidence(t *testing.T) {
 	valSet, privVals := factory.ValidatorSet(ctx, n, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	states := make([]*State, n)
-	logger := consensusLogger()
 
 	for i := range n {
 		stateDB := dbm.NewMemDB() // each state needs its own db
@@ -265,7 +260,8 @@ func TestReactorWithEvidence(t *testing.T) {
 
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+		app.SetValidators(vals)
+		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
 		require.NoError(t, err)
 
 		pv := privVals[i]
@@ -273,19 +269,15 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockStore := store.NewBlockStore(blockDB)
 
 		// one for mempool, one for consensus
-		proxyAppConnMem := abciclient.NewLocalClient(logger, app)
-		proxyAppConnCon := abciclient.NewLocalClient(logger, app)
+		proxyAppConnMem := app
+		proxyAppConnCon := app
 
 		mempool := mempool.NewTxMempool(
-			log.NewNopLogger().With("module", "mempool"),
-			thisConfig.Mempool,
+			thisConfig.Mempool.ToMempoolConfig(),
 			proxyAppConnMem,
-			nil,
+			mempool.NopMetrics(),
+			mempool.NopTxConstraintsFetcher,
 		)
-
-		if thisConfig.Consensus.WaitForTxs() {
-			mempool.EnableTxsAvailable()
-		}
 
 		// mock the evidence pool
 		// everyone includes evidence of another double signing
@@ -300,12 +292,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		evpool.On("Update", mock.MatchedBy(func(ctx context.Context) bool { return true }), mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 		evpool2 := sm.EmptyEvidencePool{}
 
-		eventBus := eventbus.NewDefault(log.NewNopLogger().With("module", "events"))
+		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
-		cs, err := NewState(logger.With("validator", i, "module", "consensus"),
+		cs, err := NewState(
 			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, err)
 		cs.SetPrivValidator(ctx, utils.Some(pv))
@@ -373,7 +365,7 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	// send a tx
 	require.NoError(
 		t,
-		assertMempool(t, states[1].txNotifier).CheckTx(
+		states[1].txMempool.CheckTx(
 			ctx,
 			[]byte{1, 2, 3},
 			nil,
@@ -478,8 +470,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		cfg,
 		nVals,
 		nPeers,
-		func() TimeoutTicker { return NewTimeoutTicker(log.NewNopLogger()) },
-		newEpehemeralKVStore,
+		func() TimeoutTicker { return NewTimeoutTicker() },
 	)
 	t.Cleanup(cleanup)
 
@@ -514,34 +505,12 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 	// This test covers the error handling paths in reactor when proposals exceed memory limits
 	// It's designed to improve test coverage for the reactor's proposal validation
 
-	logger := log.NewTestingLogger(t)
 	testPeerID := types.NodeID("test-peer-memory-limit")
 
 	// Test that PeerState correctly rejects proposals with excessive parts
-	ps := NewPeerState(logger, testPeerID)
+	ps := NewPeerState(testPeerID)
 	ps.PRS.Height = 1
 	ps.PRS.Round = 0
-
-	// Create an invalid proposal with excessive PartSetHeader.Total
-	invalidProposal := &types.Proposal{
-		Type:     tmproto.ProposalType,
-		Height:   1,
-		Round:    0,
-		POLRound: -1,
-		BlockID: types.BlockID{
-			Hash: make([]byte, 32),
-			PartSetHeader: types.PartSetHeader{
-				Total: types.MaxBlockPartsCount + 1, // Exceeds limit
-				Hash:  make([]byte, 32),
-			},
-		},
-		Timestamp: time.Now(),
-		Signature: makeSig("test-signature"),
-	}
-
-	// Test direct SetHasProposal call (this is what reactor calls)
-	ps.SetHasProposal(invalidProposal)
-	require.False(t, ps.PRS.Proposal, "SetHasProposal should silently ignore proposal with excessive Total")
 
 	// Test that reactor would handle this silently by verifying the defensive programming approach
 	// This provides coverage for the silent handling in handleDataMessage

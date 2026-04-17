@@ -8,11 +8,11 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clientrest "github.com/cosmos/cosmos-sdk/client/rest"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clientrest "github.com/sei-protocol/sei-chain/sei-cosmos/client/rest"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {
@@ -184,7 +184,7 @@ func delegatorTxsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			txs = append(txs, foundTxs)
 		}
 
-		res, err := clientCtx.LegacyAmino.MarshalJSON(txs)
+		res, err := clientCtx.LegacyAmino.MarshalAsJSON(txs)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -239,7 +239,7 @@ func redelegationsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			params.DstValidatorAddr = dstValidatorAddr
 		}
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -302,7 +302,7 @@ func validatorsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.NewQueryValidatorsParams(page, limit, status)
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
@@ -348,7 +348,7 @@ func historicalInfoHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		params := types.QueryHistoricalInfoRequest{Height: height}
 
-		bz, err := clientCtx.LegacyAmino.MarshalJSON(params)
+		bz, err := clientCtx.LegacyAmino.MarshalAsJSON(params)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -6,11 +6,6 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
@@ -19,6 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -30,7 +30,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("app", "ante")
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
@@ -72,45 +75,8 @@ func EvmCheckTxAnte(
 }
 
 func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
-	txBody, ok := tx.(TxBody)
-	if ok {
-		body := txBody.GetBody()
-		if body.Memo != "" {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "memo must be empty for EVM txs")
-		}
-		if body.TimeoutHeight != 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "timeout_height must be zero for EVM txs")
-		}
-		if len(body.ExtensionOptions) > 0 || len(body.NonCriticalExtensionOptions) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "extension options must be empty for EVM txs")
-		}
-	}
-
-	txAuth, ok := tx.(TxAuthInfo)
-	if ok {
-		authInfo := txAuth.GetAuthInfo()
-		if len(authInfo.SignerInfos) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signer_infos must be empty for EVM txs")
-		}
-		if authInfo.Fee != nil {
-			if len(authInfo.Fee.Amount) > 0 {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee amount must be empty for EVM txs")
-			}
-			if authInfo.Fee.Payer != "" || authInfo.Fee.Granter != "" {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee payer and granter must be empty for EVM txs")
-			}
-		}
-	}
-
-	txSig, ok := tx.(TxSignaturesV2)
-	if ok {
-		sigs, err := txSig.GetSignaturesV2()
-		if err != nil {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "could not get signatures")
-		}
-		if len(sigs) > 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "signatures must be empty for EVM txs")
-		}
+	if err := evmante.ValidateNoCosmosTxFields(tx); err != nil {
+		return err
 	}
 
 	if len(tx.GetMsgs()) != 1 {
@@ -174,13 +140,13 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	case ethtypes.LegacyTxType:
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
 			return sdkerrors.ErrInvalidChainID
 		}
 	}
@@ -287,11 +253,11 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	if txData.GetGasFeeCap().Cmp(GetMinimumFee(ctx, ek)) < 0 {
 		return nil, sdkerrors.ErrInsufficientFee
 	}
+	ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 	if version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
-		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
-		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
+		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(ethCfg, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
 			return nil, sdkerrors.ErrInsufficientFee
 		}
 	}
@@ -302,9 +268,8 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	if err != nil {
 		return nil, err
 	}
-	cfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, ek.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, ek.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
 	if statelessChecks {

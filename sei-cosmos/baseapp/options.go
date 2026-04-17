@@ -6,10 +6,10 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // File for storing in-package BaseApp optional functions,
@@ -59,16 +59,6 @@ func SetTrace(trace bool) func(*BaseApp) {
 // SetIndexEvents provides a BaseApp option function that sets the events to index.
 func SetIndexEvents(ie []string) func(*BaseApp) {
 	return func(app *BaseApp) { app.setIndexEvents(ie) }
-}
-
-// SetIAVLCacheSize provides a BaseApp option function that sets the size of IAVL cache.
-func SetIAVLCacheSize(size int) func(*BaseApp) {
-	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
-}
-
-// SetIAVLDisableFastNode enables(false)/disables(true) fast node usage from the IAVL store.
-func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
-	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }
 }
 
 // SetInterBlockCache provides a BaseApp option function that sets the
@@ -175,14 +165,6 @@ func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	app.endBlocker = endBlocker
 }
 
-func (app *BaseApp) SetPrepareProposalHandler(prepareProposalHandler sdk.PrepareProposalHandler) {
-	if app.sealed {
-		panic("SetPrepareProposalHandler() on sealed BaseApp")
-	}
-
-	app.prepareProposalHandler = prepareProposalHandler
-}
-
 func (app *BaseApp) SetPreCommitHandler(preCommitHandler sdk.PreCommitHandler) {
 	if app.sealed {
 		panic("SetPreCommitHandler() on sealed BaseApp")
@@ -239,22 +221,6 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	app.anteHandler = ah
 }
 
-func (app *BaseApp) SetAddrPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetAddrPeerFilter() on sealed BaseApp")
-	}
-
-	app.addrPeerFilter = pf
-}
-
-func (app *BaseApp) SetIDPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetIDPeerFilter() on sealed BaseApp")
-	}
-
-	app.idPeerFilter = pf
-}
-
 func (app *BaseApp) SetFauxMerkleMode() {
 	if app.sealed {
 		panic("SetFauxMerkleMode() on sealed BaseApp")
@@ -295,7 +261,7 @@ func (app *BaseApp) SetSnapshotStore(snapshotStore *snapshots.Store) {
 		app.snapshotManager = nil
 		return
 	}
-	app.snapshotManager = snapshots.NewManager(snapshotStore, app.cms, app.logger)
+	app.snapshotManager = snapshots.NewManager(snapshotStore, app.cms)
 }
 
 // SetSnapshotInterval sets the snapshot interval.

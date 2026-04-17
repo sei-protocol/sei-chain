@@ -1,0 +1,1 @@
+When working within a specific package, always check for and read any AGENTS.md file in that package directory before making changes. These contain domain-specific architecture decisions, conventions, and constraints that supplement this top-level guide.

@@ -6,13 +6,14 @@ package testdata
 import (
 	encoding_binary "encoding/binary"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	tx "github.com/cosmos/cosmos-sdk/types/tx"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	tx "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

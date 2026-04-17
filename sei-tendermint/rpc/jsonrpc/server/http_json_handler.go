@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -17,19 +16,19 @@ import (
 const REQUEST_BATCH_SIZE_LIMIT = 10
 
 // jsonrpc calls grab the given method's function info and runs reflect.Call
-func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.HandlerFunc {
+func makeJSONRPCHandler(funcMap map[string]*RPCFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, hreq *http.Request) {
 		// For POST requests, reject a non-root URL path. This should not happen
 		// in the standard configuration, since the wrapper checks the path.
 		if hreq.URL.Path != "/" {
-			writeRPCResponse(w, logger, rpctypes.RPCRequest{}.MakeErrorf(
+			writeRPCResponse(w, rpctypes.RPCRequest{}.MakeErrorf(
 				rpctypes.CodeInvalidRequest, "invalid path: %q", hreq.URL.Path))
 			return
 		}
 
 		b, err := io.ReadAll(hreq.Body)
 		if err != nil {
-			writeRPCResponse(w, logger, rpctypes.RPCRequest{}.MakeErrorf(
+			writeRPCResponse(w, rpctypes.RPCRequest{}.MakeErrorf(
 				rpctypes.CodeInvalidRequest, "reading request body: %v", err))
 			return
 		}
@@ -43,12 +42,12 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 
 		requests, err := parseRequests(b)
 		if len(requests) > REQUEST_BATCH_SIZE_LIMIT {
-			writeRPCResponse(w, logger, rpctypes.RPCRequest{}.MakeErrorf(
+			writeRPCResponse(w, rpctypes.RPCRequest{}.MakeErrorf(
 				rpctypes.CodeParseError, "Batch size limit exceeded."))
 			return
 		}
 		if err != nil {
-			writeRPCResponse(w, logger, rpctypes.RPCRequest{}.MakeErrorf(
+			writeRPCResponse(w, rpctypes.RPCRequest{}.MakeErrorf(
 				rpctypes.CodeParseError, "decoding request: %v", err))
 			return
 		}
@@ -83,7 +82,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 		if len(responses) == 0 {
 			return
 		}
-		writeRPCResponse(w, logger, responses...)
+		writeRPCResponse(w, responses...)
 	}
 }
 
