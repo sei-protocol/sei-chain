@@ -90,7 +90,7 @@ func (gs *Store) Has(key []byte) bool {
 	gs.gasMeter.ConsumeGas(gs.gasConfig.HasCost, types.GasHasDesc)
 	start := time.Now()
 	res := gs.parent.Has(key)
-	if gs.tracer != nil && res {
+	if gs.tracer != nil {
 		gs.tracer.Has(key, gs.moduleName, time.Since(start))
 	}
 	return res
