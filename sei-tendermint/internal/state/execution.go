@@ -553,7 +553,7 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 
 	var (
 		commitSize = block.LastCommit.Size()
-		valSetLen  = len(lastValSet.Validators)
+		valSetLen  = lastValSet.Size()
 	)
 
 	// ensure that the size of the validator set in the last commit matches
@@ -561,12 +561,16 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 	if commitSize != valSetLen {
 		panic(fmt.Sprintf(
 			"commit size (%d) doesn't match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, block.Height, block.LastCommit.Signatures, lastValSet.Validators,
+			commitSize, valSetLen, block.Height, block.LastCommit.Signatures, lastValSet,
 		))
 	}
 
 	votes := make([]abci.VoteInfo, block.LastCommit.Size())
-	for i, val := range lastValSet.Validators {
+	for i := range lastValSet.Size() {
+		val, ok := lastValSet.GetByIndex(int32(i))
+		if !ok {
+			panic(fmt.Errorf("missing validator at index %d of %d", i, lastValSet.Size()))
+		}
 		commitSig := block.LastCommit.Signatures[i]
 		votes[i] = abci.VoteInfo{
 			Validator:       types.TM2PB.Validator(val),
@@ -602,7 +606,7 @@ func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abc
 
 	var (
 		commitSize = commit.Size()
-		valSetLen  = len(valSet.Validators)
+		valSetLen  = valSet.Size()
 	)
 
 	// Ensure that the size of the validator set in the commit matches
@@ -610,12 +614,16 @@ func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abc
 	if commitSize != valSetLen {
 		panic(fmt.Errorf(
 			"commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, commit.Height, commit.Signatures, valSet.Validators,
+			commitSize, valSetLen, commit.Height, commit.Signatures, valSet,
 		))
 	}
 
 	votes := make([]abci.VoteInfo, commitSize)
-	for i, val := range valSet.Validators {
+	for i := range valSet.Size() {
+		val, ok := valSet.GetByIndex(int32(i))
+		if !ok {
+			panic(fmt.Errorf("missing validator at index %d of %d", i, valSet.Size()))
+		}
 		commitSig := commit.Signatures[i]
 
 		// Absent signatures have empty validator addresses, but otherwise we

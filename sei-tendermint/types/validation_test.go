@@ -292,7 +292,7 @@ func TestValidatorSet_VerifyCommitLightTrusting(t *testing.T) {
 		},
 		// good - first two are different but the rest of the same -> >1/3
 		2: {
-			valSet: NewValidatorSet(append(newValSet.Validators, originalValset.Validators...)),
+			valSet: NewValidatorSet(append(newValSet.validators, originalValset.validators...)),
 			err:    false,
 		},
 	}

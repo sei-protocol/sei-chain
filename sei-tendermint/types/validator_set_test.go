@@ -106,33 +106,33 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 		},
 		{
 			vals: ValidatorSet{
-				Validators: []*Validator{},
+				validators: []*Validator{},
 			},
 			err: utils.Some(ErrValidatorSetEmpty),
 		},
 		{
 			vals: ValidatorSet{
-				Validators: []*Validator{val},
+				validators: []*Validator{val},
 			},
 			err: utils.Some(ErrNilValidator),
 		},
 		{
 			vals: ValidatorSet{
-				Validators: []*Validator{badVal},
-				Proposer:   val,
+				validators: []*Validator{badVal},
+				proposer:   val,
 			},
 			err: utils.Some(ErrNegativeVotingPower),
 		},
 		{
 			vals: ValidatorSet{
-				Validators: []*Validator{val},
-				Proposer:   val,
+				validators: []*Validator{val},
+				proposer:   val,
 			},
 		},
 		{
 			vals: ValidatorSet{
-				Validators: []*Validator{val},
-				Proposer:   val2,
+				validators: []*Validator{val},
+				proposer:   val2,
 			},
 			err: utils.Some(ErrProposerNotInVals),
 		},
@@ -480,25 +480,25 @@ func TestAvgProposerPriority(t *testing.T) {
 		vs   ValidatorSet
 		want int64
 	}{
-		0: {ValidatorSet{Validators: []*Validator{{ProposerPriority: 0}, {ProposerPriority: 0}, {ProposerPriority: 0}}}, 0},
+		0: {ValidatorSet{validators: []*Validator{{ProposerPriority: 0}, {ProposerPriority: 0}, {ProposerPriority: 0}}}, 0},
 		1: {
 			ValidatorSet{
-				Validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: 0}, {ProposerPriority: 0}},
+				validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: 0}, {ProposerPriority: 0}},
 			}, math.MaxInt64 / 3,
 		},
 		2: {
 			ValidatorSet{
-				Validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: 0}},
+				validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: 0}},
 			}, math.MaxInt64 / 2,
 		},
 		3: {
 			ValidatorSet{
-				Validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: math.MaxInt64}},
+				validators: []*Validator{{ProposerPriority: math.MaxInt64}, {ProposerPriority: math.MaxInt64}},
 			}, math.MaxInt64,
 		},
 		4: {
 			ValidatorSet{
-				Validators: []*Validator{{ProposerPriority: math.MinInt64}, {ProposerPriority: math.MinInt64}},
+				validators: []*Validator{{ProposerPriority: math.MinInt64}, {ProposerPriority: math.MinInt64}},
 			}, math.MinInt64,
 		},
 	}
@@ -518,13 +518,13 @@ func TestAveragingInIncrementProposerPriority(t *testing.T) {
 		avg   int64
 	}{
 		0: {ValidatorSet{
-			Validators: []*Validator{
+			validators: []*Validator{
 				{Address: []byte("a"), ProposerPriority: 1},
 				{Address: []byte("b"), ProposerPriority: 2},
 				{Address: []byte("c"), ProposerPriority: 3}}},
 			1, 2},
 		1: {ValidatorSet{
-			Validators: []*Validator{
+			validators: []*Validator{
 				{Address: []byte("a"), ProposerPriority: 10},
 				{Address: []byte("b"), ProposerPriority: -10},
 				{Address: []byte("c"), ProposerPriority: 1}}},
@@ -532,7 +532,7 @@ func TestAveragingInIncrementProposerPriority(t *testing.T) {
 			// (voting power is 0 -> no changes)
 			11, 0},
 		2: {ValidatorSet{
-			Validators: []*Validator{
+			validators: []*Validator{
 				{Address: []byte("a"), ProposerPriority: 100},
 				{Address: []byte("b"), ProposerPriority: -10},
 				{Address: []byte("c"), ProposerPriority: 1}}},
@@ -541,7 +541,7 @@ func TestAveragingInIncrementProposerPriority(t *testing.T) {
 	for i, tc := range tcs {
 		// work on copy to have the old ProposerPriorities:
 		newVset := tc.vs.CopyIncrementProposerPriority(tc.times)
-		for _, val := range tc.vs.Validators {
+		for _, val := range tc.vs.validators {
 			_, updatedVal, ok := newVset.GetByAddress(val.Address)
 			assert.True(t, ok)
 			assert.Equal(t, updatedVal.ProposerPriority, val.ProposerPriority-tc.avg, "test case: %v", i)
@@ -558,7 +558,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 	vp2 := int64(1)
 	total := vp0 + vp1 + vp2
 	avg := (vp0 + vp1 + vp2 - total) / 3
-	vals := ValidatorSet{Validators: []*Validator{
+	vals := ValidatorSet{validators: []*Validator{
 		{Address: []byte{0}, ProposerPriority: 0, VotingPower: vp0},
 		{Address: []byte{1}, ProposerPriority: 0, VotingPower: vp1},
 		{Address: []byte{2}, ProposerPriority: 0, VotingPower: vp2}}}
@@ -577,7 +577,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + vp1,
 				0 + vp2},
 			1,
-			vals.Validators[0]},
+			vals.validators[0]},
 		1: {
 			vals.Copy(),
 			[]int64{
@@ -585,7 +585,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				(0 + vp1) + vp1,
 				(0 + vp2) + vp2},
 			2,
-			vals.Validators[0]}, // increment twice -> expect average to be subtracted twice
+			vals.validators[0]}, // increment twice -> expect average to be subtracted twice
 		2: {
 			vals.Copy(),
 			[]int64{
@@ -593,7 +593,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 3*vp1,
 				0 + 3*vp2},
 			3,
-			vals.Validators[0]},
+			vals.validators[0]},
 		3: {
 			vals.Copy(),
 			[]int64{
@@ -601,7 +601,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 4*vp1,
 				0 + 4*vp2},
 			4,
-			vals.Validators[0]},
+			vals.validators[0]},
 		4: {
 			vals.Copy(),
 			[]int64{
@@ -609,7 +609,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 5*vp1 - total,       // now this val is mostest for the 1st time (hence -12==totalVotingPower)
 				0 + 5*vp2},
 			5,
-			vals.Validators[1]},
+			vals.validators[1]},
 		5: {
 			vals.Copy(),
 			[]int64{
@@ -617,7 +617,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 6*vp1 - total,   // mostest once up to here
 				0 + 6*vp2},
 			6,
-			vals.Validators[0]},
+			vals.validators[0]},
 		6: {
 			vals.Copy(),
 			[]int64{
@@ -625,7 +625,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 7*vp1 - total,   // in 7 iters this val is mostest 1 time
 				0 + 7*vp2},
 			7,
-			vals.Validators[0]},
+			vals.validators[0]},
 		7: {
 			vals.Copy(),
 			[]int64{
@@ -633,7 +633,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 8*vp1 - total,
 				0 + 8*vp2},
 			8,
-			vals.Validators[0]},
+			vals.validators[0]},
 		8: {
 			vals.Copy(),
 			[]int64{
@@ -641,7 +641,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 9*vp1 - total,
 				0 + 9*vp2 - total}, // mostest
 			9,
-			vals.Validators[2]},
+			vals.validators[2]},
 		9: {
 			vals.Copy(),
 			[]int64{
@@ -649,7 +649,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 10*vp1 - total,   // after 6 iters this val is "mostest" once and not in between
 				0 + 10*vp2 - total},  // in between 10 iters this val is "mostest" once
 			10,
-			vals.Validators[0]},
+			vals.validators[0]},
 		10: {
 			vals.Copy(),
 			[]int64{
@@ -657,7 +657,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 				0 + 11*vp1 - total,  // after 6 iters this val is "mostest" once and not in between
 				0 + 11*vp2 - total}, // after 10 iters this val is "mostest" once
 			11,
-			vals.Validators[0]},
+			vals.validators[0]},
 	}
 	for i, tc := range tcs {
 		tc.vals.IncrementProposerPriority(tc.times)
@@ -666,7 +666,7 @@ func TestAveragingInIncrementProposerPriorityWithVotingPower(t *testing.T) {
 			"test case: %v",
 			i)
 
-		for valIdx, val := range tc.vals.Validators {
+		for valIdx, val := range tc.vals.validators {
 			assert.Equal(t,
 				tc.wantProposerPrioritys[valIdx],
 				val.ProposerPriority,
@@ -792,7 +792,7 @@ func createNewValidatorSet(testValList []testVal) *ValidatorSet {
 
 func valSetTotalProposerPriority(valSet *ValidatorSet) int64 {
 	sum := int64(0)
-	for _, val := range valSet.Validators {
+	for _, val := range valSet.validators {
 		// mind overflow
 		sum = safeAddClip(sum, val.ProposerPriority)
 	}
@@ -801,7 +801,7 @@ func valSetTotalProposerPriority(valSet *ValidatorSet) int64 {
 
 func verifyValidatorSet(t *testing.T, valSet *ValidatorSet) {
 	// verify that the capacity and length of validators is the same
-	assert.Equal(t, len(valSet.Validators), cap(valSet.Validators))
+	assert.Equal(t, len(valSet.validators), cap(valSet.validators))
 
 	// verify that the set's total voting power has been updated
 	tvp := valSet.totalVotingPower
@@ -811,7 +811,7 @@ func verifyValidatorSet(t *testing.T, valSet *ValidatorSet) {
 		"expected TVP %d. Got %d, valSet=%s", expectedTvp, tvp, valSet)
 
 	// verify that validator priorities are centered
-	valsCount := int64(len(valSet.Validators))
+	valsCount := int64(len(valSet.validators))
 	tpp := valSetTotalProposerPriority(valSet)
 	assert.True(t, tpp < valsCount && tpp > -valsCount,
 		"expected total priority in (-%d, %d). Got %d", valsCount, valsCount, tpp)
@@ -1021,18 +1021,18 @@ func TestValSetUpdatesBasicTestsExecute(t *testing.T) {
 		err := valSet.UpdateWithChangeSet(valList)
 		assert.NoError(t, err, "test %d", i)
 
-		valListCopy := validatorListCopy(valSet.Validators)
+		valListCopy := validatorListCopy(valSet.validators)
 		// check that the voting power in the set's validators is not changing if the voting power
 		// is changed in the list of validators previously passed as parameter to UpdateWithChangeSet.
 		// this is to make sure copies of the validators are made by UpdateWithChangeSet.
 		if len(valList) > 0 {
 			valList[0].VotingPower++
-			assert.Equal(t, toTestValList(valListCopy), toTestValList(valSet.Validators), "test %v", i)
+			assert.Equal(t, toTestValList(valListCopy), toTestValList(valSet.validators), "test %v", i)
 
 		}
 
 		// check the final validator list is as expected and the set is properly scaled and centered.
-		assert.Equal(t, tt.expectedVals, toTestValList(valSet.Validators), "test %v", i)
+		assert.Equal(t, tt.expectedVals, toTestValList(valSet.validators), "test %v", i)
 		verifyValidatorSet(t, valSet)
 	}
 }
@@ -1151,7 +1151,7 @@ func TestValSetApplyUpdatesTestsExecute(t *testing.T) {
 		valSet.applyUpdates(valList)
 
 		// check the new list of validators for proper merge
-		assert.Equal(t, toTestValList(valSet.Validators), tt.expectedVals, "test %v", i)
+		assert.Equal(t, toTestValList(valSet.validators), tt.expectedVals, "test %v", i)
 	}
 }
 
@@ -1293,14 +1293,14 @@ func verifyValSetUpdatePriorityOrder(t *testing.T, valSet *ValidatorSet, cfg tes
 	applyChangesToValSet(t, nil, valSet, cfg.addedVals, cfg.updatedVals, cfg.deletedVals)
 
 	// basic checks
-	assert.Equal(t, cfg.expectedVals, toTestValList(valSet.Validators))
+	assert.Equal(t, cfg.expectedVals, toTestValList(valSet.validators))
 	verifyValidatorSet(t, valSet)
 
 	// verify that the added validators have the smallest priority:
 	//  - they should be at the beginning of updatedValsPriSorted since it is
 	//  sorted by priority
 	if len(cfg.addedVals) > 0 {
-		updatedValsPriSorted := validatorListCopy(valSet.Validators)
+		updatedValsPriSorted := validatorListCopy(valSet.validators)
 		sort.Sort(validatorsByPriority(updatedValsPriSorted))
 
 		addedValsPriSlice := updatedValsPriSorted[:len(cfg.addedVals)]
@@ -1327,10 +1327,10 @@ func TestNewValidatorSetFromExistingValidators(t *testing.T) {
 	valSet := NewValidatorSet(vals)
 	valSet.IncrementProposerPriority(5)
 
-	newValSet := NewValidatorSet(valSet.Validators)
+	newValSet := NewValidatorSet(valSet.validators)
 	assert.NotEqual(t, valSet, newValSet)
 
-	existingValSet, err := ValidatorSetFromExistingValidators(valSet.Validators)
+	existingValSet, err := ValidatorSetFromExistingValidators(valSet.validators)
 	assert.NoError(t, err)
 	assert.Equal(t, valSet, existingValSet)
 	assert.Equal(t, valSet.CopyIncrementProposerPriority(3), existingValSet.CopyIncrementProposerPriority(3))
@@ -1401,7 +1401,7 @@ func TestValSetUpdateOverflowRelated(t *testing.T) {
 			applyChangesToValSet(t, tt.expErr, valSet, tt.addedVals, tt.updatedVals, tt.deletedVals)
 
 			// verify updated validator set is as expected
-			assert.Equal(t, tt.expectedVals, toTestValList(valSet.Validators))
+			assert.Equal(t, tt.expectedVals, toTestValList(valSet.validators))
 			verifyValidatorSet(t, valSet)
 		})
 	}
@@ -1438,7 +1438,7 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 
 	valset, _ := randValidatorPrivValSet(ctx, t, 10, 100)
 	valset3, _ := randValidatorPrivValSet(ctx, t, 10, 100)
-	valset3.Proposer = nil
+	valset3.proposer = &Validator{}
 	testCases := []struct {
 		msg      string
 		v1       *ValidatorSet
@@ -1446,7 +1446,7 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 		expPass2 bool
 	}{
 		{"success", valset, true, true},
-		{"fail nil Proposer", valset3, false, false},
+		{"fail invalid proposer", valset3, true, false},
 		{"fail empty valSet", &ValidatorSet{}, true, false},
 		{"false nil", nil, true, false},
 	}
@@ -1522,7 +1522,7 @@ func BenchmarkUpdates(b *testing.B) {
 		vs[j] = newValidator([]byte(fmt.Sprintf("v%d", j)), 100)
 	}
 	valSet := NewValidatorSet(vs)
-	l := len(valSet.Validators)
+	l := len(valSet.validators)
 
 	// Make m new validators
 	newValList := make([]*Validator, m)

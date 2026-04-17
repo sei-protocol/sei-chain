@@ -17,6 +17,7 @@ import (
 
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/inspect"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -461,13 +462,9 @@ func TestBlockchain(t *testing.T) {
 func TestValidators(t *testing.T) {
 	testHeight := int64(1)
 	testVotingPower := int64(100)
-	testValidators := types.ValidatorSet{
-		Validators: []*types.Validator{
-			{
-				VotingPower: testVotingPower,
-			},
-		},
-	}
+	testValidators := *types.NewValidatorSet([]*types.Validator{
+		types.NewValidator(ed25519.GenerateSecretKey().Public(), testVotingPower),
+	})
 	stateStoreMock := &statemocks.Store{}
 	stateStoreMock.On("LoadValidators", testHeight).Return(&testValidators, nil)
 

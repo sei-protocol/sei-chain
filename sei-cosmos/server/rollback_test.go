@@ -154,7 +154,7 @@ func setupTendermintStateDB(t *testing.T, tempDir string, height int64) *tmconfi
 	// We need at least one validator for rollback to work
 	valPrivKey := ed25519.GenerateSecretKey()
 	valPubKey := valPrivKey.Public()
-	validator := tmtypes.NewValidator(valPubKey,100)
+	validator := tmtypes.NewValidator(valPubKey, 100)
 	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{validator})
 
 	// Convert validator set to proto
@@ -307,7 +307,7 @@ func setupBlockstore(t *testing.T, db dbm.DB, height int64, valSet *tmtypes.Vali
 				AppHash:            crypto.CRandBytes(tmhash.Size),
 				LastResultsHash:    crypto.CRandBytes(tmhash.Size),
 				EvidenceHash:       crypto.CRandBytes(tmhash.Size),
-				ProposerAddress:    valSet.Validators[0].Address,
+				ProposerAddress:    valSet.GetProposer().Address,
 			},
 			Data:       tmtypes.Data{},
 			Evidence:   tmtypes.EvidenceList{},

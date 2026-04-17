@@ -50,7 +50,11 @@ func TestValidator_Sets(t *testing.T) {
 					break
 				}
 			}
-			require.Equal(t, valSchedule.Set.Validators, validators,
+			expected := make([]*types.Validator, 0, valSchedule.Set.Size())
+			for val := range valSchedule.Set.All() {
+				expected = append(expected, val)
+			}
+			require.Equal(t, expected, validators,
 				"incorrect validator set at height %v", h)
 			require.NoError(t, valSchedule.Increment(1))
 		}
@@ -73,7 +77,7 @@ func TestValidator_Propose(t *testing.T) {
 		expectCount := 0
 		proposeCount := 0
 		for _, block := range blocks {
-			if bytes.Equal(valSchedule.Set.Proposer.Address, address) {
+			if bytes.Equal(valSchedule.Set.GetProposer().Address, address) {
 				expectCount++
 				if bytes.Equal(block.ProposerAddress, address) {
 					proposeCount++

@@ -313,7 +313,11 @@ func (cs *State) GetRoundStateSimpleJSON() ([]byte, error) {
 func (cs *State) GetValidators() (int64, []*types.Validator) {
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
-	return cs.state.LastBlockHeight, cs.state.Validators.Copy().Validators
+	validators := make([]*types.Validator, 0, cs.state.Validators.Size())
+	for val := range cs.state.Validators.Copy().All() {
+		validators = append(validators, val)
+	}
+	return cs.state.LastBlockHeight, validators
 }
 
 // SetPrivValidator sets the private validator account for signing votes. It
@@ -1994,13 +1998,13 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		// after first block.
 		var (
 			commitSize = block.LastCommit.Size()
-			valSetLen  = len(cs.roundState.LastValidators().Validators)
+			valSetLen  = cs.roundState.LastValidators().Size()
 			pubKey     crypto.PubKey
 		)
 		if commitSize != valSetLen {
 			logger.Error("commit size doesn't match valset length",
 				"commit-size", commitSize, "valset-len", valSetLen, "height", block.Height,
-				"signatures", block.LastCommit.Signatures, "validators", cs.roundState.LastValidators().Validators)
+				"signatures", block.LastCommit.Signatures, "validators", cs.roundState.LastValidators())
 			return
 		}
 
@@ -2013,7 +2017,12 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			}
 		}
 
-		for i, val := range cs.roundState.LastValidators().Validators {
+		for i := range cs.roundState.LastValidators().Size() {
+			val, ok := cs.roundState.LastValidators().GetByIndex(int32(i))
+			if !ok {
+				logger.Error("recordMetrics", "err", fmt.Errorf("missing validator at index %d", i))
+				return
+			}
 			commitSig := block.LastCommit.Signatures[i]
 			if commitSig.BlockIDFlag == types.BlockIDFlagAbsent {
 				missingValidators++

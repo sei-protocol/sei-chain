@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"math/big"
 	"sort"
@@ -55,9 +56,8 @@ var ErrProposerNotInVals = errors.New("proposer not in validator set")
 // NOTE: Not goroutine-safe.
 // NOTE: All get/set to validators should copy the value for safety.
 type ValidatorSet struct {
-	// NOTE: persisted via reflect, must be exported.
-	Validators []*Validator `json:"validators"`
-	Proposer   *Validator   `json:"proposer"`
+	validators []*Validator
+	proposer   *Validator
 
 	// cached (unexported)
 	totalVotingPower int64
@@ -74,7 +74,7 @@ type ValidatorSet struct {
 // MaxVotesCount - commits by a validator set larger than this will fail
 // validation.
 func NewValidatorSet(valz []*Validator) *ValidatorSet {
-	vals := &ValidatorSet{Validators: []*Validator{}}
+	vals := &ValidatorSet{validators: []*Validator{}}
 	err := vals.updateWithChangeSet(valz, false)
 	if err != nil {
 		panic(fmt.Errorf("cannot create validator set: %w", err))
@@ -92,18 +92,18 @@ func (vals *ValidatorSet) ValidateBasic() error {
 		return ErrValidatorSetEmpty
 	}
 
-	for idx, val := range vals.Validators {
+	for idx, val := range vals.validators {
 		if err := val.ValidateBasic(); err != nil {
 			return fmt.Errorf("invalid validator #%d: %w", idx, err)
 		}
 	}
 
-	if err := vals.Proposer.ValidateBasic(); err != nil {
+	if err := vals.proposer.ValidateBasic(); err != nil {
 		return fmt.Errorf("proposer: %w", err)
 	}
 
-	for _, val := range vals.Validators {
-		if val.PubKey == vals.Proposer.PubKey {
+	for _, val := range vals.validators {
+		if val.PubKey == vals.proposer.PubKey {
 			return nil
 		}
 	}
@@ -113,7 +113,7 @@ func (vals *ValidatorSet) ValidateBasic() error {
 
 // IsNilOrEmpty returns true if validator set is nil or empty.
 func (vals *ValidatorSet) IsNilOrEmpty() bool {
-	return vals == nil || len(vals.Validators) == 0
+	return vals == nil || len(vals.validators) == 0
 }
 
 // CopyIncrementProposerPriority increments ProposerPriority and updates the
@@ -144,11 +144,11 @@ func (vals *ValidatorSet) IncrementProposerPriority(times int32) {
 
 	var proposer *Validator
 	// Call IncrementProposerPriority(1) times times.
-	for i := int32(0); i < times; i++ {
+	for range times {
 		proposer = vals.incrementProposerPriority()
 	}
 
-	vals.Proposer = proposer
+	vals.proposer = proposer
 }
 
 // RescalePriorities rescales the priorities such that the distance between the
@@ -171,14 +171,14 @@ func (vals *ValidatorSet) RescalePriorities(diffMax int64) {
 	diff := computeMaxMinPriorityDiff(vals)
 	ratio := (diff + diffMax - 1) / diffMax
 	if diff > diffMax {
-		for _, val := range vals.Validators {
+		for _, val := range vals.validators {
 			val.ProposerPriority /= ratio
 		}
 	}
 }
 
 func (vals *ValidatorSet) incrementProposerPriority() *Validator {
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		// Check for overflow for sum.
 		newPrio := safeAddClip(val.ProposerPriority, val.VotingPower)
 		val.ProposerPriority = newPrio
@@ -193,9 +193,9 @@ func (vals *ValidatorSet) incrementProposerPriority() *Validator {
 
 // Should not be called on an empty validator set.
 func (vals *ValidatorSet) computeAvgProposerPriority() int64 {
-	n := int64(len(vals.Validators))
+	n := int64(len(vals.validators))
 	sum := big.NewInt(0)
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		sum.Add(sum, big.NewInt(val.ProposerPriority))
 	}
 	avg := sum.Div(sum, big.NewInt(n))
@@ -214,7 +214,7 @@ func computeMaxMinPriorityDiff(vals *ValidatorSet) int64 {
 	}
 	max := int64(math.MinInt64)
 	min := int64(math.MaxInt64)
-	for _, v := range vals.Validators {
+	for _, v := range vals.validators {
 		if v.ProposerPriority < min {
 			min = v.ProposerPriority
 		}
@@ -231,7 +231,7 @@ func computeMaxMinPriorityDiff(vals *ValidatorSet) int64 {
 
 func (vals *ValidatorSet) getValWithMostPriority() *Validator {
 	var res *Validator
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		res = res.CompareProposerPriority(val)
 	}
 	return res
@@ -242,7 +242,7 @@ func (vals *ValidatorSet) shiftByAvgProposerPriority() {
 		panic("empty validator set")
 	}
 	avgProposerPriority := vals.computeAvgProposerPriority()
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		val.ProposerPriority = safeSubClip(val.ProposerPriority, avgProposerPriority)
 	}
 }
@@ -259,8 +259,8 @@ func validatorListCopy(valsList []*Validator) []*Validator {
 // Copy each validator into a new ValidatorSet.
 func (vals *ValidatorSet) Copy() *ValidatorSet {
 	return &ValidatorSet{
-		Validators:       validatorListCopy(vals.Validators),
-		Proposer:         vals.Proposer,
+		validators:       validatorListCopy(vals.validators),
+		proposer:         vals.proposer,
 		totalVotingPower: vals.totalVotingPower,
 	}
 }
@@ -268,7 +268,7 @@ func (vals *ValidatorSet) Copy() *ValidatorSet {
 // HasAddress returns true if address given is in the validator set, false -
 // otherwise.
 func (vals *ValidatorSet) HasAddress(address []byte) bool {
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		if bytes.Equal(val.Address, address) {
 			return true
 		}
@@ -279,7 +279,7 @@ func (vals *ValidatorSet) HasAddress(address []byte) bool {
 // GetByAddress returns an index of the validator with address and validator
 // itself (copy) if found. Otherwise, -1 and nil are returned.
 func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator, ok bool) {
-	for idx, val := range vals.Validators {
+	for idx, val := range vals.validators {
 		if bytes.Equal(val.Address, address) {
 			return int32(idx), val.Copy(), true //nolint:gosec // validator set size is consensus-bounded, fits in int32
 		}
@@ -290,7 +290,7 @@ func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Valida
 // GetByKey returns an index of the validator with pubkey and validator
 // itself (copy) if found. Otherwise, -1 and nil are returned.
 func (vals *ValidatorSet) GetByKey(pubKey crypto.PubKey) (index int32, val *Validator, ok bool) {
-	for idx, val := range vals.Validators {
+	for idx, val := range vals.validators {
 		if val.PubKey == pubKey {
 			return int32(idx), val.Copy(), true //nolint:gosec // validator set size is consensus-bounded, fits in int32
 		}
@@ -303,22 +303,33 @@ func (vals *ValidatorSet) GetByKey(pubKey crypto.PubKey) (index int32, val *Vali
 // It returns nil values if index is less than 0 or greater or equal to
 // len(ValidatorSet.Validators).
 func (vals *ValidatorSet) GetByIndex(index int32) (val *Validator, ok bool) {
-	if index < 0 || int(index) >= len(vals.Validators) {
+	if index < 0 || int(index) >= len(vals.validators) {
 		return nil, false
 	}
-	return vals.Validators[index].Copy(), true
+	return vals.validators[index].Copy(), true
 }
 
 // Size returns the length of the validator set.
 func (vals *ValidatorSet) Size() int {
-	return len(vals.Validators)
+	return len(vals.validators)
+}
+
+// All iterates over validator copies in index order.
+func (vals *ValidatorSet) All() iter.Seq[*Validator] {
+	return func(yield func(*Validator) bool) {
+		for _, val := range vals.validators {
+			if !yield(val.Copy()) {
+				return
+			}
+		}
+	}
 }
 
 // Forces recalculation of the set's total voting power.
 // Panics if total voting power is bigger than MaxTotalVotingPower.
 func (vals *ValidatorSet) updateTotalVotingPower() {
 	sum := int64(0)
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		// mind overflow
 		sum = safeAddClip(sum, val.VotingPower)
 		if sum > MaxTotalVotingPower {
@@ -344,20 +355,20 @@ func (vals *ValidatorSet) TotalVotingPower() int64 {
 // GetProposer returns the current proposer. If the validator set is empty, nil
 // is returned.
 func (vals *ValidatorSet) GetProposer() *Validator {
-	if len(vals.Validators) == 0 {
+	if len(vals.validators) == 0 {
 		return nil
 	}
-	if vals.Proposer == nil {
-		vals.Proposer = vals.getValWithMostPriority()
+	if vals.proposer == nil {
+		vals.proposer = vals.getValWithMostPriority()
 	}
-	return vals.Proposer.Copy()
+	return vals.proposer.Copy()
 }
 
 // Hash returns the Merkle root hash build using validators (as leaves) in the
 // set.
 func (vals *ValidatorSet) Hash() []byte {
-	bzs := make([][]byte, len(vals.Validators))
-	for i, val := range vals.Validators {
+	bzs := make([][]byte, len(vals.validators))
+	for i, val := range vals.validators {
 		bzs[i] = val.Bytes()
 	}
 	return merkle.HashFromByteSlices(bzs)
@@ -366,14 +377,14 @@ func (vals *ValidatorSet) Hash() []byte {
 // Validator set must be sorted to get the same hash.
 // If the validator set is empty, nil is returned.
 func (vals *ValidatorSet) ProposerPriorityHash() []byte {
-	if len(vals.Validators) == 0 {
+	if len(vals.validators) == 0 {
 		return nil
 	}
 
-	buf := make([]byte, binary.MaxVarintLen64*len(vals.Validators))
+	buf := make([]byte, binary.MaxVarintLen64*len(vals.validators))
 
 	total := 0
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		n := binary.PutVarint(buf, val.ProposerPriority)
 		total += n
 	}
@@ -382,7 +393,7 @@ func (vals *ValidatorSet) ProposerPriorityHash() []byte {
 
 // Iterate will run the given function over the set.
 func (vals *ValidatorSet) Iterate(fn func(index int, val *Validator) bool) {
-	for i, val := range vals.Validators {
+	for i, val := range vals.validators {
 		stop := fn(i, val.Copy())
 		if stop {
 			break
@@ -529,7 +540,7 @@ func computeNewPriorities(updates []*Validator, vals *ValidatorSet, updatedTotal
 // Expects updates to be a list of updates sorted by address with no duplicates or errors,
 // must have been validated with verifyUpdates() and priorities computed with computeNewPriorities().
 func (vals *ValidatorSet) applyUpdates(updates []*Validator) {
-	existing := vals.Validators
+	existing := vals.validators
 	sort.Sort(ValidatorsByAddress(existing))
 
 	merged := make([]*Validator, len(existing)+len(updates))
@@ -562,7 +573,7 @@ func (vals *ValidatorSet) applyUpdates(updates []*Validator) {
 		i++
 	}
 
-	vals.Validators = merged[:i]
+	vals.validators = merged[:i]
 }
 
 // Checks that the validators to be removed are part of the validator set.
@@ -577,7 +588,7 @@ func verifyRemovals(deletes []*Validator, vals *ValidatorSet) (votingPower int64
 		}
 		removedVotingPower += val.VotingPower
 	}
-	if len(deletes) > len(vals.Validators) {
+	if len(deletes) > len(vals.validators) {
 		panic("more deletes than validators")
 	}
 	return removedVotingPower, nil
@@ -587,7 +598,7 @@ func verifyRemovals(deletes []*Validator, vals *ValidatorSet) (votingPower int64
 // Should not fail as verification has been done before.
 // Expects vals to be sorted by address (done by applyUpdates).
 func (vals *ValidatorSet) applyRemovals(deletes []*Validator) {
-	existing := vals.Validators
+	existing := vals.validators
 
 	merged := make([]*Validator, len(existing)-len(deletes))
 	i := 0
@@ -609,7 +620,7 @@ func (vals *ValidatorSet) applyRemovals(deletes []*Validator) {
 		i++
 	}
 
-	vals.Validators = merged[:i]
+	vals.validators = merged[:i]
 }
 
 // Main function used by UpdateWithChangeSet() and NewValidatorSet().
@@ -632,7 +643,7 @@ func (vals *ValidatorSet) updateWithChangeSet(changes []*Validator, allowDeletes
 	}
 
 	// Check that the resulting set will not be empty.
-	if numNewValidators(updates, vals) == 0 && len(vals.Validators) == len(deletes) {
+	if numNewValidators(updates, vals) == 0 && len(vals.validators) == len(deletes) {
 		return errors.New("applying the validator changes would result in empty set")
 	}
 
@@ -663,7 +674,7 @@ func (vals *ValidatorSet) updateWithChangeSet(changes []*Validator, allowDeletes
 	vals.RescalePriorities(PriorityWindowSizeFactor * vals.TotalVotingPower())
 	vals.shiftByAvgProposerPriority()
 
-	sort.Sort(ValidatorsByVotingPower(vals.Validators))
+	sort.Sort(ValidatorsByVotingPower(vals.validators))
 
 	return nil
 }
@@ -712,7 +723,7 @@ func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Comm
 // Is used when recreating a validator set from an existing array of validators.
 func (vals *ValidatorSet) findPreviousProposer() *Validator {
 	var previousProposer *Validator
-	for _, val := range vals.Validators {
+	for _, val := range vals.validators {
 		if previousProposer == nil {
 			previousProposer = val
 			continue
@@ -816,9 +827,9 @@ func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 	}
 
 	vp := new(tmproto.ValidatorSet)
-	valsProto := make([]*tmproto.Validator, len(vals.Validators))
-	for i := 0; i < len(vals.Validators); i++ {
-		valp, err := vals.Validators[i].ToProto()
+	valsProto := make([]*tmproto.Validator, len(vals.validators))
+	for i := 0; i < len(vals.validators); i++ {
+		valp, err := vals.validators[i].ToProto()
 		if err != nil {
 			return nil, err
 		}
@@ -826,7 +837,7 @@ func (vals *ValidatorSet) ToProto() (*tmproto.ValidatorSet, error) {
 	}
 	vp.Validators = valsProto
 
-	valProposer, err := vals.Proposer.ToProto()
+	valProposer, err := vals.GetProposer().ToProto()
 	if err != nil {
 		return nil, fmt.Errorf("toProto: validatorSet proposer error: %w", err)
 	}
@@ -856,14 +867,14 @@ func ValidatorSetFromProto(vp *tmproto.ValidatorSet) (*ValidatorSet, error) {
 		}
 		valsProto[i] = v
 	}
-	vals.Validators = valsProto
+	vals.validators = valsProto
 
 	p, err := ValidatorFromProto(vp.GetProposer())
 	if err != nil {
 		return nil, fmt.Errorf("fromProto: validatorSet proposer error: %w", err)
 	}
 
-	vals.Proposer = p
+	vals.proposer = p
 
 	// NOTE: We can't trust the total voting power given to us by other peers. If someone were to
 	// inject a non-zeo value that wasn't the correct voting power we could assume a wrong total
@@ -891,11 +902,11 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 	}
 
 	vals := &ValidatorSet{
-		Validators: valz,
+		validators: valz,
 	}
-	vals.Proposer = vals.findPreviousProposer()
+	vals.proposer = vals.findPreviousProposer()
 	vals.updateTotalVotingPower()
-	sort.Sort(ValidatorsByVotingPower(vals.Validators))
+	sort.Sort(ValidatorsByVotingPower(vals.validators))
 	return vals, nil
 }
 

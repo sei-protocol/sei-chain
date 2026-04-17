@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
@@ -25,6 +26,14 @@ import (
 
 func TestSyncer_SyncAny(t *testing.T) {
 	ctx := t.Context()
+	valSet := types.NewValidatorSet([]*types.Validator{
+		types.NewValidator(ed25519.GenerateSecretKey().Public(), 1),
+		types.NewValidator(ed25519.GenerateSecretKey().Public(), 1),
+		types.NewValidator(ed25519.GenerateSecretKey().Public(), 1),
+	})
+	lastVals := valSet.Copy()
+	vals := valSet.CopyIncrementProposerPriority(1)
+	nextVals := valSet.CopyIncrementProposerPriority(2)
 
 	state := sm.State{
 		ChainID: "chain",
@@ -42,9 +51,9 @@ func TestSyncer_SyncAny(t *testing.T) {
 		LastResultsHash: []byte("last_results_hash"),
 		AppHash:         []byte("app_hash"),
 
-		LastValidators: &types.ValidatorSet{Proposer: &types.Validator{Address: []byte("val1")}},
-		Validators:     &types.ValidatorSet{Proposer: &types.Validator{Address: []byte("val2")}},
-		NextValidators: &types.ValidatorSet{Proposer: &types.Validator{Address: []byte("val3")}},
+		LastValidators: lastVals,
+		Validators:     vals,
+		NextValidators: nextVals,
 
 		ConsensusParams:                  *types.DefaultConsensusParams(),
 		LastHeightConsensusParamsChanged: 1,

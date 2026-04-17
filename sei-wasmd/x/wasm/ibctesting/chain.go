@@ -476,13 +476,15 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		AppHash:            chain.CurrentHeader.AppHash,
 		LastResultsHash:    tmhash.Sum([]byte("last_results_hash")),
 		EvidenceHash:       tmhash.Sum([]byte("evidence_hash")),
-		ProposerAddress:    tmValSet.Proposer.Address, //nolint:staticcheck
+		ProposerAddress:    tmValSet.GetProposer().Address, //nolint:staticcheck
 	}
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
-	require.LessOrEqual(chain.t, len(tmValSet.Validators), math.MaxInt32, "validator set size exceeds max int32")
-	for i, val := range tmValSet.Validators {
+	require.LessOrEqual(chain.t, tmValSet.Size(), math.MaxInt32, "validator set size exceeds max int32")
+	for i := range tmValSet.Size() {
+		val, ok := tmValSet.GetByIndex(int32(i))
+		require.True(chain.t, ok)
 		privVal := signers[i]
 		vote := &tmtypes.Vote{
 			Type:             tmproto.PrecommitType,

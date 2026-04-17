@@ -162,7 +162,7 @@ func TestLightClientAttackEvidenceBasic(t *testing.T) {
 		CommonHeight:        commonHeight,
 		TotalVotingPower:    valSet.TotalVotingPower(),
 		Timestamp:           header.Time,
-		ByzantineValidators: valSet.Validators[:nValidators/2],
+		ByzantineValidators: valSet.validators[:nValidators/2],
 	}
 	assert.NotNil(t, lcae.String())
 	assert.NotNil(t, lcae.Hash())
@@ -192,7 +192,7 @@ func TestLightClientAttackEvidenceBasic(t *testing.T) {
 			CommonHeight:        commonHeight,
 			TotalVotingPower:    valSet.TotalVotingPower(),
 			Timestamp:           header.Time,
-			ByzantineValidators: valSet.Validators[:nValidators/2],
+			ByzantineValidators: valSet.validators[:nValidators/2],
 		}
 		hash := lcae.Hash()
 		tc.malleateEvidence(lcae)
@@ -226,7 +226,7 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 		CommonHeight:        commonHeight,
 		TotalVotingPower:    valSet.TotalVotingPower(),
 		Timestamp:           header.Time,
-		ByzantineValidators: valSet.Validators[:nValidators/2],
+		ByzantineValidators: valSet.validators[:nValidators/2],
 	}
 	assert.NoError(t, lcae.ValidateBasic())
 
@@ -265,7 +265,7 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 				CommonHeight:        commonHeight,
 				TotalVotingPower:    valSet.TotalVotingPower(),
 				Timestamp:           header.Time,
-				ByzantineValidators: valSet.Validators[:nValidators/2],
+				ByzantineValidators: valSet.validators[:nValidators/2],
 			}
 			tc.malleateEvidence(lcae)
 			if tc.expectErr {
@@ -429,7 +429,7 @@ func TestEvidenceVectors(t *testing.T) {
 		CommonHeight:        commonHeight,
 		TotalVotingPower:    valSet.TotalVotingPower(),
 		Timestamp:           header.Time,
-		ByzantineValidators: valSet.Validators[:nValidators/2],
+		ByzantineValidators: valSet.validators[:nValidators/2],
 	}
 	// assert.NoError(t, lcae.ValidateBasic())
 

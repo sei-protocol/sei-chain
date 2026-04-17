@@ -244,7 +244,11 @@ func TestReactorWithEvidence(t *testing.T) {
 	tickerFunc := newMockTickerFunc(true)
 
 	valSet, privVals := factory.ValidatorSet(ctx, n, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 	states := make([]*State, n)
 
 	for i := range n {

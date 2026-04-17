@@ -735,7 +735,11 @@ func loadStatefromGenesis(ctx context.Context, t *testing.T) sm.State {
 	require.True(t, loadedState.IsEmpty())
 
 	valSet, _ := factory.ValidatorSet(ctx, 0, 10)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 
 	state, err := LoadStateFromDBOrGenesisDocProvider(
 		stateStore,

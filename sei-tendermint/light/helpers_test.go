@@ -118,7 +118,7 @@ func genHeader(chainID string, height int64, bTime time.Time, txs types.Txs,
 		AppHash:            appHash,
 		ConsensusHash:      consHash,
 		LastResultsHash:    resHash,
-		ProposerAddress:    valset.Validators[0].Address,
+		ProposerAddress:    valset.GetProposer().Address,
 	}
 }
 

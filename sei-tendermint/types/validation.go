@@ -186,7 +186,7 @@ func verifyCommitBatch(
 		// If the vals and commit have a 1-to-1 correspondance we can retrieve
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
-			val = vals.Validators[idx]
+			val = vals.validators[idx]
 			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
 				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
 			}
@@ -286,7 +286,7 @@ func verifyCommitSingle(
 		// If the vals and commit have a 1-to-1 correspondance we can retrieve
 		// them by index else we need to retrieve them by address
 		if lookUpByIndex {
-			val = vals.Validators[idx]
+			val = vals.validators[idx]
 			if !bytes.Equal(val.Address, commitSig.ValidatorAddress) {
 				return fmt.Errorf("commit.Signatures[%v].ValidatorAddress = %v, want %v", idx, commitSig.ValidatorAddress, val.Address)
 			}

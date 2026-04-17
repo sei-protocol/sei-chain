@@ -785,7 +785,11 @@ func makeConsensusState(
 	tempDir := t.TempDir()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 	css := make([]*State, nValidators)
 
 	closeFuncs := make([]func() error, 0, nValidators)
@@ -842,7 +846,11 @@ func randConsensusNetWithPeers(
 	t.Helper()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 	css := make([]*State, nPeers)
 
 	var peer0Config *config.Config
@@ -914,7 +922,11 @@ func makeGenesisState(ctx context.Context, t *testing.T, cfg *config.Config, arg
 	if args.Time.IsZero() {
 		args.Time = time.Now()
 	}
-	genDoc := factory.GenesisDoc(cfg, args.Time, valSet.Validators, args.Params)
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, args.Time, validators, args.Params)
 	s0, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	return s0, privValidators

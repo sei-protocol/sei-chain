@@ -457,7 +457,11 @@ func (suite *KeeperTestSuite) TestCheckMisbehaviourAndUpdateState() {
 	valsHash := valSet.Hash()
 
 	// Create bothValSet with both suite validator and altVal
-	bothValSet := tmtypes.NewValidatorSet(append(suite.valSet.Validators, altVal))
+	vals := make([]*tmtypes.Validator, 0, suite.valSet.Size()+1)
+	for val := range suite.valSet.All() {
+		vals = append(vals, val)
+	}
+	bothValSet := tmtypes.NewValidatorSet(append(vals, altVal))
 	bothValsHash := bothValSet.Hash()
 	// Create alternative validator set with only altVal
 	altValSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{altVal})

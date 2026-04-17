@@ -2,9 +2,11 @@ package core
 
 import (
 	"context"
+	"fmt"
 
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Validators gets the validator set at the given block height.
@@ -26,7 +28,7 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 		return nil, err
 	}
 
-	totalCount := len(validators.Validators)
+	totalCount := validators.Size()
 	perPage := env.validatePerPage(req.PerPage.IntPtr())
 	page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
 	if err != nil {
@@ -35,7 +37,15 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 
 	skipCount := validateSkipCount(page, perPage)
 
-	v := validators.Validators[skipCount : skipCount+tmmath.MinInt(perPage, totalCount-skipCount)]
+	count := tmmath.MinInt(perPage, totalCount-skipCount)
+	v := make([]*types.Validator, count)
+	for i := range count {
+		val, ok := validators.GetByIndex(int32(skipCount + i))
+		if !ok {
+			return nil, fmt.Errorf("validator index %d out of range for set of size %d", skipCount+i, totalCount)
+		}
+		v[i] = val
+	}
 
 	return &coretypes.ResultValidators{
 		BlockHeight: height,

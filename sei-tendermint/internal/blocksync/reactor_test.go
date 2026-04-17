@@ -225,7 +225,11 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 	require.NoError(t, err)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 	maxBlockHeight := int64(64)
 
 	rts := setup(ctx, t, genDoc, privVals[0], []int64{maxBlockHeight, 0})
@@ -259,7 +263,11 @@ func TestReactor_SyncTime(t *testing.T) {
 	require.NoError(t, err)
 
 	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	validators := make([]*types.Validator, 0, valSet.Size())
+	for val := range valSet.All() {
+		validators = append(validators, val)
+	}
+	genDoc := factory.GenesisDoc(cfg, time.Now(), validators, factory.ConsensusParams())
 	maxBlockHeight := int64(101)
 
 	rts := setup(ctx, t, genDoc, privVals[0], []int64{maxBlockHeight, 0})

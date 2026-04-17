@@ -116,7 +116,9 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			require.NoError(t, eventBus.Start(ctx))
 
 			blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
-			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
+			nextProposer, ok := state.NextValidators.GetByIndex(0)
+			require.True(t, ok)
+			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), nextProposer.Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
 				if isAbsent {
@@ -151,7 +153,9 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	stateStore := sm.NewStore(stateDB)
 
 	defaultEvidenceTime := time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
-	privVal := privVals[state.Validators.Validators[0].Address.String()]
+	firstVal, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
+	privVal := privVals[firstVal.Address.String()]
 	blockID := makeBlockID([]byte("headerhash"), types.MaxBlockPartsCount, []byte("partshash"))
 	header := &types.Header{
 		Version:            version.Consensus{Block: version.BlockProtocol, App: 1},
@@ -192,7 +196,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 			ValidatorSet: state.Validators,
 		},
 		CommonHeight:        8,
-		ByzantineValidators: []*types.Validator{state.Validators.Validators[0]},
+		ByzantineValidators: []*types.Validator{firstVal},
 		TotalVotingPower:    12,
 		Timestamp:           defaultEvidenceTime,
 	}
@@ -204,14 +208,14 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 			Type:             abci.MisbehaviorType_DUPLICATE_VOTE,
 			Height:           3,
 			Time:             defaultEvidenceTime,
-			Validator:        types.TM2PB.Validator(state.Validators.Validators[0]),
+			Validator:        types.TM2PB.Validator(firstVal),
 			TotalVotingPower: 10,
 		},
 		{
 			Type:             abci.MisbehaviorType_LIGHT_CLIENT_ATTACK,
 			Height:           8,
 			Time:             defaultEvidenceTime,
-			Validator:        types.TM2PB.Validator(state.Validators.Validators[0]),
+			Validator:        types.TM2PB.Validator(firstVal),
 			TotalVotingPower: 12,
 		},
 	}
@@ -457,9 +461,17 @@ func TestUpdateValidators(t *testing.T) {
 
 				assert.Equal(t, tc.resultingSet.TotalVotingPower(), tc.currentSet.TotalVotingPower())
 
-				assert.Equal(t, tc.resultingSet.Validators[0].Address, tc.currentSet.Validators[0].Address)
+				expectedVal0, ok := tc.resultingSet.GetByIndex(0)
+				require.True(t, ok)
+				currentVal0, ok := tc.currentSet.GetByIndex(0)
+				require.True(t, ok)
+				assert.Equal(t, expectedVal0.Address, currentVal0.Address)
 				if tc.resultingSet.Size() > 1 {
-					assert.Equal(t, tc.resultingSet.Validators[1].Address, tc.currentSet.Validators[1].Address)
+					expectedVal1, ok := tc.resultingSet.GetByIndex(1)
+					require.True(t, ok)
+					currentVal1, ok := tc.currentSet.GetByIndex(1)
+					require.True(t, ok)
+					assert.Equal(t, expectedVal1.Address, currentVal1.Address)
 				}
 			}
 		})
@@ -571,7 +583,9 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
 
-	vp := crypto.PubKeyToProto(state.Validators.Validators[0].PubKey)
+	firstVal, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
+	vp := crypto.PubKeyToProto(firstVal.PubKey)
 	// Remove the only validator
 	app.ValidatorUpdates = []abci.ValidatorUpdate{
 		{PubKey: vp, Power: 0},
@@ -579,7 +593,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 
 	assert.NotPanics(t, func() { state, err = blockExec.ApplyBlock(ctx, state, blockID, block, nil) })
 	assert.Error(t, err)
-	assert.NotEmpty(t, state.NextValidators.Validators)
+	assert.Positive(t, state.NextValidators.Size())
 }
 
 func TestEmptyPrepareProposal(t *testing.T) {

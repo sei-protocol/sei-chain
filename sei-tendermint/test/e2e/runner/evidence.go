@@ -294,15 +294,23 @@ func mutateValidatorSet(ctx context.Context, privVals []types.MockPV, vals *type
 	}
 
 	var newVals *types.ValidatorSet
+	copied := make([]*types.Validator, 0, vals.Size())
+	for val := range vals.Copy().All() {
+		copied = append(copied, val)
+	}
 	if vals.Size() > 2 {
-		newVals = types.NewValidatorSet(append(vals.Copy().Validators[:vals.Size()-1], newVal))
+		newVals = types.NewValidatorSet(append(copied[:vals.Size()-1], newVal))
 	} else {
-		newVals = types.NewValidatorSet(append(vals.Copy().Validators, newVal))
+		newVals = types.NewValidatorSet(append(copied, newVal))
 	}
 
 	// we need to sort the priv validators with the same index as the validator set
 	pv := make([]types.PrivValidator, newVals.Size())
-	for idx, val := range newVals.Validators {
+	for idx := range newVals.Size() {
+		val, ok := newVals.GetByIndex(int32(idx))
+		if !ok {
+			return nil, nil, fmt.Errorf("missing validator at index %d", idx)
+		}
 		found := false
 		for _, p := range append(privVals, newPrivVal.(types.MockPV)) {
 			if p.PrivKey.Public() == val.PubKey {

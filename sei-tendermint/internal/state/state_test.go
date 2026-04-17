@@ -75,8 +75,8 @@ func TestMakeGenesisStateNilValidators(t *testing.T) {
 	require.Nil(t, doc.ValidateAndComplete())
 	state, err := sm.MakeGenesisState(&doc)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(state.Validators.Validators))
-	require.Equal(t, 0, len(state.NextValidators.Validators))
+	require.Zero(t, state.Validators.Size())
+	require.Zero(t, state.NextValidators.Size())
 }
 
 // TestStateSaveLoad tests saving and loading State from a db.
@@ -476,7 +476,9 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	assert.NoError(t, err)
 	curTotal := val1VotingPower
 	// one increment step and one validator: 0 + power - total_power == 0
-	assert.Equal(t, 0+val1VotingPower-curTotal, updatedState.NextValidators.Validators[0].ProposerPriority)
+	firstNextVal, ok := updatedState.NextValidators.GetByIndex(0)
+	require.True(t, ok)
+	assert.Equal(t, 0+val1VotingPower-curTotal, firstNextVal.ProposerPriority)
 
 	// add a validator
 	val2PubKey := ed25519.GenerateSecretKey().Public()
@@ -492,7 +494,7 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	updatedState2, err := updatedState.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	assert.NoError(t, err)
 
-	require.Equal(t, len(updatedState2.NextValidators.Validators), 2)
+	require.Equal(t, updatedState2.NextValidators.Size(), 2)
 	_, updatedVal1, ok := updatedState2.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
 	_, addedVal2, ok := updatedState2.NextValidators.GetByKey(val2PubKey)
@@ -536,7 +538,7 @@ func TestProposerPriorityDoesNotGetResetToZero(t *testing.T) {
 	updatedState3, err := updatedState2.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	assert.NoError(t, err)
 
-	require.Equal(t, len(updatedState3.NextValidators.Validators), 2)
+	require.Equal(t, updatedState3.NextValidators.Size(), 2)
 	_, prevVal1, ok := updatedState3.Validators.GetByKey(val1PubKey)
 	require.True(t, ok)
 	_, prevVal2, ok := updatedState3.Validators.GetByKey(val2PubKey)
@@ -587,7 +589,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	state.Validators = types.NewValidatorSet([]*types.Validator{val1})
 	state.NextValidators = state.Validators
 	// we only have one validator:
-	assert.Equal(t, val1PubKey, state.Validators.Proposer.PubKey)
+	assert.Equal(t, val1PubKey, state.Validators.GetProposer().PubKey)
 
 	block := statefactory.MakeBlock(state, state.LastBlockHeight+1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -609,8 +611,10 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	// 0 + 10 (initial prio) - 10 (avg) - 10 (mostest - total) = -10
 	totalPower := val1VotingPower
 	wantVal1Prio := 0 + val1VotingPower - totalPower
-	assert.Equal(t, wantVal1Prio, updatedState.NextValidators.Validators[0].ProposerPriority)
-	assert.Equal(t, val1PubKey, updatedState.NextValidators.Proposer.PubKey)
+	firstNextVal, ok := updatedState.NextValidators.GetByIndex(0)
+	require.True(t, ok)
+	assert.Equal(t, wantVal1Prio, firstNextVal.ProposerPriority)
+	assert.Equal(t, val1PubKey, updatedState.NextValidators.GetProposer().PubKey)
 
 	// add a validator with the same voting power as the first
 	val2PubKey := ed25519.GenerateSecretKey().Public()
@@ -625,14 +629,14 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	updatedState2, err := updatedState.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	assert.NoError(t, err)
 
-	require.Equal(t, len(updatedState2.NextValidators.Validators), 2)
+	require.Equal(t, updatedState2.NextValidators.Size(), 2)
 	assert.Equal(t, updatedState2.Validators, updatedState.NextValidators)
 
 	// val1 will still be proposer as val2 just got added:
-	assert.Equal(t, val1PubKey, updatedState.NextValidators.Proposer.PubKey)
-	assert.Equal(t, updatedState2.Validators.Proposer.PubKey, updatedState2.NextValidators.Proposer.PubKey)
-	assert.Equal(t, updatedState2.Validators.Proposer.PubKey, val1PubKey)
-	assert.Equal(t, updatedState2.NextValidators.Proposer.PubKey, val1PubKey)
+	assert.Equal(t, val1PubKey, updatedState.NextValidators.GetProposer().PubKey)
+	assert.Equal(t, updatedState2.Validators.GetProposer().PubKey, updatedState2.NextValidators.GetProposer().PubKey)
+	assert.Equal(t, updatedState2.Validators.GetProposer().PubKey, val1PubKey)
+	assert.Equal(t, updatedState2.NextValidators.GetProposer().PubKey, val1PubKey)
 
 	_, updatedVal1, ok := updatedState2.NextValidators.GetByKey(val1PubKey)
 	require.True(t, ok)
@@ -674,7 +678,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	updatedState3, err := updatedState2.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	assert.NoError(t, err)
 
-	assert.Equal(t, updatedState3.Validators.Proposer.PubKey, updatedState3.NextValidators.Proposer.PubKey)
+	assert.Equal(t, updatedState3.Validators.GetProposer().PubKey, updatedState3.NextValidators.GetProposer().PubKey)
 
 	assert.Equal(t, updatedState3.Validators, updatedState2.NextValidators)
 	_, updatedVal1, ok = updatedState3.NextValidators.GetByKey(val1PubKey)
@@ -683,7 +687,7 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 	require.True(t, ok)
 
 	// val1 will still be proposer:
-	assert.Equal(t, val1PubKey, updatedState3.NextValidators.Proposer.PubKey)
+	assert.Equal(t, val1PubKey, updatedState3.NextValidators.GetProposer().PubKey)
 
 	// check if expected proposer prio is matched:
 	// Increment
@@ -741,12 +745,12 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 		// alternate (and cyclic priorities):
 		assert.NotEqual(
 			t,
-			updatedState.Validators.Proposer.PubKey,
-			updatedState.NextValidators.Proposer.PubKey,
+			updatedState.Validators.GetProposer().PubKey,
+			updatedState.NextValidators.GetProposer().PubKey,
 			"iter: %v",
 			i,
 		)
-		assert.Equal(t, oldState.Validators.Proposer.PubKey, updatedState.NextValidators.Proposer.PubKey, "iter: %v", i)
+		assert.Equal(t, oldState.Validators.GetProposer().PubKey, updatedState.NextValidators.GetProposer().PubKey, "iter: %v", i)
 
 		_, updatedVal1, ok = updatedState.NextValidators.GetByKey(val1PubKey)
 		require.True(t, ok)
@@ -754,11 +758,11 @@ func TestProposerPriorityProposerAlternates(t *testing.T) {
 		require.True(t, ok)
 
 		if i%2 == 0 {
-			assert.Equal(t, updatedState.Validators.Proposer.PubKey, val2PubKey)
+			assert.Equal(t, updatedState.Validators.GetProposer().PubKey, val2PubKey)
 			assert.Equal(t, expectedVal1Prio, updatedVal1.ProposerPriority) // -19
 			assert.Equal(t, expectedVal2Prio, updatedVal2.ProposerPriority) // 0
 		} else {
-			assert.Equal(t, updatedState.Validators.Proposer.PubKey, val1PubKey)
+			assert.Equal(t, updatedState.Validators.GetProposer().PubKey, val1PubKey)
 			assert.Equal(t, expectedVal1Prio2, updatedVal1.ProposerPriority) // -9
 			assert.Equal(t, expectedVal2Prio2, updatedVal2.ProposerPriority) // -10
 		}
@@ -778,7 +782,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	// reset state validators to above validator
 	state.Validators = types.NewValidatorSet([]*types.Validator{genesisVal})
 	state.NextValidators = state.Validators
-	require.True(t, len(state.Validators.Validators) == 1)
+	require.Equal(t, 1, state.Validators.Size())
 
 	// update state a few times with no validator updates
 	// asserts that the single validator's ProposerPrio stays the same
@@ -805,7 +809,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 		// than -Total == -Voting)
 		// -> no change in ProposerPrio (stays zero):
 		assert.EqualValues(t, oldState.NextValidators, updatedState.NextValidators)
-		assert.EqualValues(t, 0, updatedState.NextValidators.Proposer.ProposerPriority)
+		assert.EqualValues(t, 0, updatedState.NextValidators.GetProposer().ProposerPriority)
 
 		oldState = updatedState
 	}
@@ -897,7 +901,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 		state, err = state.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 		require.NoError(t, err)
 	}
-	require.Equal(t, 10+2, len(state.NextValidators.Validators))
+	require.Equal(t, 10+2, state.NextValidators.Size())
 
 	// remove genesis validator:
 	gp := crypto.PubKeyToProto(genesisPubKey)
@@ -921,7 +925,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	updatedState, err = state.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 	require.NoError(t, err)
 	// only the first added val (not the genesis val) should be left
-	assert.Equal(t, 11, len(updatedState.NextValidators.Validators))
+	assert.Equal(t, 11, updatedState.NextValidators.Size())
 
 	// call update state until the effect for the 3rd added validator
 	// being proposer for a long time after the genesis validator left wears off:
@@ -945,7 +949,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 		h := merkle.HashFromByteSlices(rs)
 		curState, err = curState.Update(blockID, &block.Header, h, fb.ConsensusParamUpdates, validatorUpdates)
 		require.NoError(t, err)
-		if curState.Validators.Proposer.PubKey != curState.NextValidators.Proposer.PubKey {
+		if curState.Validators.GetProposer().PubKey != curState.NextValidators.GetProposer().PubKey {
 			isProposerUnchanged = false
 		}
 		count++
@@ -955,7 +959,7 @@ func TestLargeGenesisValidator(t *testing.T) {
 	firstProposerChangeExpectedAfter := 1
 	assert.Equal(t, firstProposerChangeExpectedAfter, count)
 	// store proposers here to see if we see them again in the same order:
-	numVals := len(updatedState.Validators.Validators)
+	numVals := updatedState.Validators.Size()
 	proposers := make([]*types.Validator, numVals)
 	for i := 0; i < 100; i++ {
 		// no updates:
@@ -979,9 +983,9 @@ func TestLargeGenesisValidator(t *testing.T) {
 		require.NoError(t, err)
 		if i > numVals { // expect proposers to cycle through after the first iteration (of numVals blocks):
 			if proposers[i%numVals] == nil {
-				proposers[i%numVals] = updatedState.NextValidators.Proposer
+				proposers[i%numVals] = updatedState.NextValidators.GetProposer()
 			} else {
-				assert.Equal(t, proposers[i%numVals], updatedState.NextValidators.Proposer)
+				assert.Equal(t, proposers[i%numVals].PubKey, updatedState.NextValidators.GetProposer().PubKey)
 			}
 		}
 	}
@@ -1001,11 +1005,15 @@ func TestStoreLoadValidatorsIncrementsProposerPriority(t *testing.T) {
 
 	v0, err := stateStore.LoadValidators(nextHeight)
 	assert.NoError(t, err)
-	acc0 := v0.Validators[0].ProposerPriority
+	val0, ok := v0.GetByIndex(0)
+	require.True(t, ok)
+	acc0 := val0.ProposerPriority
 
 	v1, err := stateStore.LoadValidators(nextHeight + 1)
 	assert.NoError(t, err)
-	acc1 := v1.Validators[0].ProposerPriority
+	val1, ok := v1.GetByIndex(0)
+	require.True(t, ok)
+	acc1 := val1.ProposerPriority
 
 	assert.NotEqual(t, acc1, acc0, "expected ProposerPriority value to change between heights")
 }

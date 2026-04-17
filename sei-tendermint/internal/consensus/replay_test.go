@@ -1129,7 +1129,9 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	stateDB, state, store := stateAndStore(t, cfg, 0x0)
 	stateStore := sm.NewStore(stateDB)
 
-	oldValAddr := state.Validators.Validators[0].Address
+	oldVal, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
+	oldValAddr := oldVal.Address
 
 	// now start the app using the handshake - it should sync
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
@@ -1142,7 +1144,9 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	state, err = stateStore.Load()
 	require.NoError(t, err)
 
-	newValAddr := state.Validators.Validators[0].Address
+	newVal, ok := state.Validators.GetByIndex(0)
+	require.True(t, ok)
+	newValAddr := newVal.Address
 	expectValAddr := val.Address
 	assert.NotEqual(t, oldValAddr, newValAddr)
 	assert.Equal(t, newValAddr, expectValAddr)

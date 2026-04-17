@@ -575,7 +575,7 @@ func (c *Client) Validators(
 		return nil, err
 	}
 
-	totalCount := len(l.ValidatorSet.Validators)
+	totalCount := l.ValidatorSet.Size()
 	perPage := validatePerPage(perPagePtr)
 	page, err := validatePage(pagePtr, perPage, totalCount)
 	if err != nil {
@@ -583,7 +583,15 @@ func (c *Client) Validators(
 	}
 
 	skipCount := validateSkipCount(page, perPage)
-	v := l.ValidatorSet.Validators[skipCount : skipCount+tmmath.MinInt(int(perPage), totalCount-skipCount)] //nolint:gosec // perPage is bounded to maxPerPage (100); no overflow risk
+	count := tmmath.MinInt(int(perPage), totalCount-skipCount)
+	v := make([]*types.Validator, count)
+	for i := range count {
+		val, ok := l.ValidatorSet.GetByIndex(int32(skipCount + i))
+		if !ok {
+			return nil, fmt.Errorf("validator index %d out of range for set of size %d", skipCount+i, totalCount)
+		}
+		v[i] = val
+	}
 
 	return &coretypes.ResultValidators{
 		BlockHeight: l.Height,

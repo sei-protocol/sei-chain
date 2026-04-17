@@ -29,7 +29,7 @@ func (tm2pb) ValidatorUpdate(val *Validator) abci.ValidatorUpdate {
 
 func (tm2pb) ValidatorUpdates(vals *ValidatorSet) []abci.ValidatorUpdate {
 	validators := make([]abci.ValidatorUpdate, vals.Size())
-	for i, val := range vals.Validators {
+	for i, val := range vals.validators {
 		validators[i] = TM2PB.ValidatorUpdate(val)
 	}
 	return validators

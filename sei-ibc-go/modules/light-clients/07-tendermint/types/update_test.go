@@ -314,7 +314,11 @@ func (suite *TendermintTestSuite) TestCheckHeaderAndUpdateState() {
 		suite.Run(fmt.Sprintf("Case: %s", tc.name), func() {
 			suite.SetupTest() // reset metadata writes
 			// Create bothValSet with both suite validator and altVal. Would be valid update
-			bothValSet = tmtypes.NewValidatorSet(append(suite.valSet.Validators, altVal))
+			vals := make([]*tmtypes.Validator, 0, suite.valSet.Size()+1)
+			for val := range suite.valSet.All() {
+				vals = append(vals, val)
+			}
+			bothValSet = tmtypes.NewValidatorSet(append(vals, altVal))
 			signers = []tmtypes.PrivValidator{suite.privVal}
 
 			// Create signer array and ensure it is in same order as bothValSet

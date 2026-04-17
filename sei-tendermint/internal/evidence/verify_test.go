@@ -237,7 +237,7 @@ func TestVerifyLightClientAttack_Equivocation(t *testing.T) {
 			ValidatorSet: conflictingVals,
 		},
 		CommonHeight:        10,
-		ByzantineValidators: conflictingVals.Validators[:4],
+		ByzantineValidators: firstValidators(t, conflictingVals, 4),
 		TotalVotingPower:    50,
 		Timestamp:           defaultEvidenceTime,
 	}
@@ -505,7 +505,7 @@ func makeLunaticEvidence(
 	require.Greater(t, totalVals, byzVals)
 
 	// extract out the subset of byzantine validators in the common validator set
-	byzValSet, byzPrivVals := commonValSet.Validators[:byzVals], commonPrivVals[:byzVals]
+	byzValSet, byzPrivVals := firstValidators(t, commonValSet, byzVals), commonPrivVals[:byzVals]
 
 	phantomValSet, phantomPrivVals := factory.ValidatorSet(ctx, phantomVals, defaultVotingPower)
 
@@ -619,7 +619,9 @@ func makeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) types.Bloc
 
 func orderPrivValsByValSet(ctx context.Context, t *testing.T, vals *types.ValidatorSet, privVals []types.PrivValidator) []types.PrivValidator {
 	output := make([]types.PrivValidator, len(privVals))
-	for idx, v := range vals.Validators {
+	for idx := range vals.Size() {
+		v, ok := vals.GetByIndex(int32(idx))
+		require.True(t, ok)
 		for _, p := range privVals {
 			pubKey, err := p.GetPubKey(ctx)
 			require.NoError(t, err)
@@ -631,4 +633,15 @@ func orderPrivValsByValSet(ctx context.Context, t *testing.T, vals *types.Valida
 		require.NotEmpty(t, output[idx])
 	}
 	return output
+}
+
+func firstValidators(t *testing.T, vals *types.ValidatorSet, n int) []*types.Validator {
+	t.Helper()
+	out := make([]*types.Validator, 0, n)
+	for i := range n {
+		val, ok := vals.GetByIndex(int32(i))
+		require.True(t, ok)
+		out = append(out, val)
+	}
+	return out
 }
