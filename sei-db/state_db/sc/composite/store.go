@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite/verifier"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -38,6 +39,11 @@ type CompositeCommitStore struct {
 
 	// config holds the store configuration
 	config config.StateCommitConfig
+
+	// verifier runs optional correctness oracles (mainnet shadow). Always
+	// non-nil; when no oracles are enabled via env vars it is a no-op.
+	// Read-only clones built by LoadVersion do not install a verifier.
+	verifier *verifier.Verifier
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -72,7 +78,50 @@ func NewCompositeCommitStore(
 		}
 	}
 
+	store.verifier = verifier.New(verifier.LoadFromEnv(), (*compositeAccessor)(store))
+
 	return store
+}
+
+// CosmosCommitter returns the memiavl backend. Used by the verifier and by
+// tests that need to reach memiavl directly. Non-nil for any live store.
+func (cs *CompositeCommitStore) CosmosCommitter() *memiavl.CommitStore {
+	return cs.cosmosCommitter
+}
+
+// FlatKVStore returns the FlatKV backend or nil when FlatKV is not enabled in
+// the current write mode. Exposed primarily for the in-process correctness
+// verifier and offline tooling.
+func (cs *CompositeCommitStore) FlatKVStore() flatkv.Store {
+	return cs.flatkvCommitter
+}
+
+// compositeAccessor adapts CompositeCommitStore to verifier.BackendAccessor
+// without exporting the package-internal fields on the composite type.
+type compositeAccessor CompositeCommitStore
+
+func (a *compositeAccessor) CosmosCommitter() *memiavl.CommitStore {
+	return (*CompositeCommitStore)(a).cosmosCommitter
+}
+
+func (a *compositeAccessor) FlatKVStore() flatkv.Store {
+	return (*CompositeCommitStore)(a).flatkvCommitter
+}
+
+// LoadReadOnlyAt opens a composite read-only view at the given version for
+// Oracle 4. The returned accessor and closer are owned by the caller.
+func (a *compositeAccessor) LoadReadOnlyAt(version int64) (verifier.BackendAccessor, func() error, error) {
+	cs := (*CompositeCommitStore)(a)
+	ro, err := cs.LoadVersion(version, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	roStore, ok := ro.(*CompositeCommitStore)
+	if !ok {
+		return nil, nil, fmt.Errorf("LoadVersion did not return *CompositeCommitStore, got %T", ro)
+	}
+	closer := func() error { return roStore.Close() }
+	return (*compositeAccessor)(roStore), closer, nil
 }
 
 // Initialize initializes the store with the given store names
@@ -196,6 +245,13 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 		}
 	}
 
+	// Oracle 1: per-block write-time diff. Runs only under dual_write
+	// (both backends received the EVM changeset and should now read back
+	// byte-identical values) and only when env-var enabled.
+	if cs.config.WriteMode == config.DualWrite && cs.flatkvCommitter != nil && len(evmChangeset) > 0 {
+		cs.verifier.OnApplyChangeSets(evmChangeset)
+	}
+
 	return nil
 }
 
@@ -211,6 +267,7 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to commit cosmos: %w", err)
 	}
+	cs.verifier.NoteCosmosCommit()
 
 	// Commit to FlatKV as well if enabled
 	if cs.flatkvCommitter != nil {
@@ -218,10 +275,13 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit to EVM store: %w", err)
 		}
+		cs.verifier.NoteFlatKVCommit()
 		if cosmosVersion != evmVersion {
 			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, evmVersion)
 		}
 	}
+
+	cs.verifier.OnCommit(cosmosVersion)
 
 	return cosmosVersion, nil
 }
@@ -394,6 +454,10 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error
+
+	if cs.verifier != nil {
+		cs.verifier.Close()
+	}
 
 	if cs.cosmosCommitter != nil {
 		if err := cs.cosmosCommitter.Close(); err != nil {
