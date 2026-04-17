@@ -2132,6 +2132,22 @@ func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
 	return typedTxs
 }
 
+// finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
+// Panics and preprocess errors clear typedTxs[idx].
+func (app *App) finalizeDecodedEVMSlot(ctx sdk.Context, idx int, typedTx sdk.Tx, typedTxs []sdk.Tx) {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error("encountered panic during transaction preprocessing", "err", err)
+			typedTxs[idx] = nil
+		}
+	}()
+	msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
+	if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
+		logger.Error("error preprocessing EVM tx", "err", err)
+		typedTxs[idx] = nil
+	}
+}
+
 // FinalizeDecodedTransactionsConcurrently runs EVM preprocessing on typedTxs in place.
 // Non-EVM entries are unchanged; failed preprocessing clears the slot (nil).
 func (app *App) FinalizeDecodedTransactionsConcurrently(ctx sdk.Context, typedTxs []sdk.Tx) {
@@ -2150,26 +2166,49 @@ func (app *App) FinalizeDecodedTransactionsConcurrently(ctx sdk.Context, typedTx
 		wg.Add(1)
 		go func(idx int, tx sdk.Tx) {
 			defer wg.Done()
-			defer func() {
-				if err := recover(); err != nil {
-					logger.Error("encountered panic during transaction preprocessing", "err", err)
-					typedTxs[idx] = nil
-				}
-			}()
-			msg := evmtypes.MustGetEVMTransactionMessage(tx)
-			if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
-				logger.Error("error preprocessing EVM tx", "err", err)
-				typedTxs[idx] = nil
-				return
-			}
+			app.finalizeDecodedEVMSlot(ctx, idx, tx, typedTxs)
 		}(i, typedTx)
 	}
 	wg.Wait()
 }
 
+// DecodeTransactionsConcurrently decodes each tx and runs EVM preprocessing in one goroutine per index.
+// Failed decodes, decode panics, and failed preprocessing clear the slot (nil), matching prior behavior.
 func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
-	typedTxs := app.DecodeTxBytesConcurrently(txs)
-	app.FinalizeDecodedTransactionsConcurrently(ctx, typedTxs)
+	typedTxs := make([]sdk.Tx, len(txs))
+	giga := app.GigaExecutorEnabled
+	wg := sync.WaitGroup{}
+	for i, tx := range txs {
+		wg.Add(1)
+		go func(idx int, encodedTx []byte) {
+			defer wg.Done()
+			var typedTx sdk.Tx
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						logger.Error("encountered panic during transaction decoding", "err", err)
+						typedTx = nil
+					}
+				}()
+				var err error
+				typedTx, err = app.txDecoder(encodedTx)
+				if err != nil {
+					logger.Error("error decoding transaction at index", "index", idx, "error", err)
+					typedTx = nil
+				}
+			}()
+			typedTxs[idx] = typedTx
+			if giga || typedTx == nil {
+				return
+			}
+			isEVM, _ := evmante.IsEVMMessage(typedTx)
+			if !isEVM {
+				return
+			}
+			app.finalizeDecodedEVMSlot(ctx, idx, typedTx, typedTxs)
+		}(i, tx)
+	}
+	wg.Wait()
 	return typedTxs
 }
 
