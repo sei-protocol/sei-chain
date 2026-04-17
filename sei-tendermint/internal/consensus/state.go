@@ -1203,7 +1203,8 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 		return
 	}
 
-	if cs.roundState.Leader() == privValidatorPubKey {
+	leader := cs.roundState.Leader()
+	if leader == privValidatorPubKey {
 		logger.Debug(
 			"propose step; our turn to propose",
 			"proposer", addr,
@@ -1213,7 +1214,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 	} else {
 		logger.Debug(
 			"propose step; not our turn to propose",
-			"proposer", cs.roundState.Validators().GetProposer().Address,
+			"proposer", leader.Address(),
 		)
 	}
 }
@@ -2125,7 +2126,8 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
-	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+	leader := cs.roundState.Leader()
+	if want, got := leader.Address(), proposal.ProposerAddress; !bytes.Equal(want, got) {
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
 	}
 	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
@@ -2133,9 +2135,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 	}
 	p := proposal.ToProto()
 	// Verify signature
-	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(
-		types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature,
-	); err != nil {
+	if err := leader.Verify(types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature); err != nil {
 		return ErrInvalidProposalSignature
 	}
 	cs.roundState.SetProposal(proposal)
@@ -2752,6 +2752,7 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 	})
 
 	var votingPowerSeen int64
+	leaderAddr := cs.roundState.Leader().Address()
 	for _, v := range pl {
 		_, val, ok := cs.roundState.Validators().GetByAddress(v.ValidatorAddress)
 		if !ok {
@@ -2759,12 +2760,12 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 		}
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.roundState.Validators().TotalVotingPower()*2/3+1 {
-			cs.metrics.QuorumPrevoteDelay.With("proposer_address", cs.roundState.Validators().GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+			cs.metrics.QuorumPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 			break
 		}
 	}
 	if ps.HasAll() {
-		cs.metrics.FullPrevoteDelay.With("proposer_address", cs.roundState.Validators().GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+		cs.metrics.FullPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 	}
 }
 

@@ -336,8 +336,8 @@ func (vals *ValidatorSet) TotalVotingPower() int64 {
 	return vals.totalVotingPower
 }
 
-// GetProposer returns the current proposer. If the validator set is empty, nil
-// is returned.
+// Deprecated in favor of RoundState.Leader()
+// Should be removed in future release.
 func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil

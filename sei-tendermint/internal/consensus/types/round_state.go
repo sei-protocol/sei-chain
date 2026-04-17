@@ -440,7 +440,7 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 		panic(err)
 	}
 
-	addr := rs.Validators.GetProposer().Address
+	addr := rs.Leader().Address()
 	idx, _, ok := rs.Validators.GetByAddress(addr)
 	if !ok {
 		panic(fmt.Errorf("validator %v not in committee", addr))
@@ -462,7 +462,7 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 
 // NewRoundEvent returns the RoundState with proposer information as an event.
 func (rs *RoundState) NewRoundEvent() types.EventDataNewRound {
-	addr := rs.Validators.GetProposer().Address
+	addr := rs.Leader().Address()
 	idx, _, ok := rs.Validators.GetByAddress(addr)
 	if !ok {
 		panic(fmt.Errorf("validator %v not in committee", addr))
