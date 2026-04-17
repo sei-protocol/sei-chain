@@ -23,7 +23,8 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
 
-# Enable Giga Storage: FlatKV SC split + EVM SS split + parquet receipts.
+# Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
+# Receipt backend is NOT changed here; use RECEIPT_BACKEND env var to override.
 # Set GIGA_STORAGE=false to disable.
 if [ "$GIGA_STORAGE" = "true" ]; then
   echo "Enabling Giga Storage for node $NODE_ID..."
@@ -52,15 +53,6 @@ if [ "$GIGA_STORAGE" = "true" ]; then
   # --- SS layer: EVM split_write + split_read ---
   sed -i 's/evm-ss-write-mode = .*/evm-ss-write-mode = "split_write"/' ~/.sei/config/app.toml
   sed -i 's/evm-ss-read-mode = .*/evm-ss-read-mode = "split_read"/' ~/.sei/config/app.toml
-
-  # --- Receipt store: parquet backend ---
-  if grep -q "\[receipt-store\]" ~/.sei/config/app.toml; then
-    sed -i 's/rs-backend = .*/rs-backend = "parquet"/' ~/.sei/config/app.toml
-  else
-    echo "" >> ~/.sei/config/app.toml
-    echo "[receipt-store]" >> ~/.sei/config/app.toml
-    echo 'rs-backend = "parquet"' >> ~/.sei/config/app.toml
-  fi
 fi
 
 # Enable Giga Executor (evmone-based) if requested
