@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,10 +137,6 @@ type traceSummary struct {
 	TopBlocks              []blockSummary `json:"topBlocks"`
 }
 
-type traceReportData struct {
-	Summary traceSummary
-}
-
 func TraceProfileReportCmd() *cobra.Command {
 	var (
 		endpoint        string
@@ -188,7 +182,7 @@ func TraceProfileReportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "RPC endpoint, e.g. http://localhost:8545")
 	cmd.Flags().Int64Var(&startBlock, "start-block", 0, "Starting block number")
 	cmd.Flags().Int64Var(&endBlock, "end-block", 0, "Ending block number")
-	cmd.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Directory for raw output and generated report")
+	cmd.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Directory for raw_profiles.jsonl and summary.json")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 4, "Concurrent traceTransactionProfile requests")
 	cmd.Flags().StringVar(&traceConfigJSON, "trace-config-json", "{}", "JSON object passed as the trace config")
 	cmd.Flags().IntVar(&maxTransactions, "max-transactions", 0, "Optional cap on the number of transactions processed")
@@ -235,14 +229,8 @@ func runTraceProfileReport(endpoint string, startBlock, endBlock int64, outputDi
 		return err
 	}
 
-	reportPath := filepath.Join(outputDir, "report.html")
-	if err := writeTraceHTMLReport(reportPath, traceReportData{Summary: summary}); err != nil {
-		return err
-	}
-
 	fmt.Printf("Wrote raw profiles to %s\n", rawPath)
 	fmt.Printf("Wrote summary to %s\n", summaryPath)
-	fmt.Printf("Wrote report to %s\n", reportPath)
 	return nil
 }
 
@@ -516,340 +504,4 @@ func doRPC(endpoint, method string, params []interface{}, out interface{}) error
 		return fmt.Errorf("empty result for %s", method)
 	}
 	return json.Unmarshal(rpcResp.Result, out)
-}
-
-func writeTraceHTMLReport(path string, data traceReportData) error {
-	const tpl = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Trace Profile Report</title>
-  <style>
-    :root {
-      --bg: #0b1020;
-      --panel: #121933;
-      --panel-soft: #182142;
-      --text: #eef2ff;
-      --muted: #9fb0d9;
-      --border: #2b3766;
-      --blue: #5b8cff;
-      --cyan: #4fd1c5;
-      --green: #68d391;
-      --orange: #f6ad55;
-      --red: #fc8181;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: Inter, Arial, sans-serif;
-      margin: 0;
-      background: linear-gradient(180deg, #0a0f1f 0%, #10172f 100%);
-      color: var(--text);
-      padding: 28px;
-    }
-    h1, h2, h3 { margin: 0 0 10px; }
-    h1 { font-size: 28px; }
-    h2 { font-size: 20px; margin-top: 28px; }
-    .subtle { color: var(--muted); }
-    .hero, .section, .card {
-      border: 1px solid var(--border);
-      background: rgba(18, 25, 51, 0.96);
-      border-radius: 14px;
-      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.25);
-    }
-    .hero {
-      padding: 22px 24px;
-      margin-bottom: 18px;
-    }
-    .hero-meta {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px 18px;
-      margin-top: 12px;
-      font-size: 13px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-      gap: 14px;
-      margin: 16px 0 22px;
-    }
-    .card {
-      padding: 16px;
-      background: rgba(24, 33, 66, 0.96);
-    }
-    .label {
-      color: var(--muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .value {
-      font-size: 24px;
-      font-weight: 700;
-      margin-top: 8px;
-    }
-    .section {
-      padding: 18px 20px;
-      margin-bottom: 18px;
-    }
-    .insights {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 14px;
-    }
-    .insight {
-      padding: 16px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(26,36,72,1) 0%, rgba(18,25,51,1) 100%);
-    }
-    .insight .title { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-    .insight .main { margin-top: 8px; font-size: 18px; font-weight: 700; }
-    .insight .detail { margin-top: 6px; color: var(--muted); font-size: 13px; }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-top: 10px;
-      margin-bottom: 4px;
-      overflow: hidden;
-      border-radius: 10px;
-    }
-    th, td {
-      border-bottom: 1px solid rgba(43, 55, 102, 0.65);
-      padding: 10px 8px;
-      text-align: left;
-      font-size: 13px;
-      vertical-align: middle;
-    }
-    th {
-      color: var(--muted);
-      font-weight: 600;
-      background: rgba(255,255,255,0.02);
-    }
-    tr:last-child td { border-bottom: none; }
-    .bar-cell { min-width: 320px; }
-    .bar-wrap {
-      background: rgba(255,255,255,0.08);
-      height: 14px;
-      border-radius: 999px;
-      overflow: hidden;
-    }
-    .bar {
-      background: linear-gradient(90deg, var(--blue) 0%, var(--cyan) 100%);
-      height: 100%;
-      border-radius: 999px;
-    }
-    .mono {
-      font-family: Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
-      word-break: break-all;
-    }
-    .footnote {
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 8px;
-    }
-  </style>
-</head>
-<body>
-  <div class="hero">
-    <h1>debug_traceTransactionProfile Report</h1>
-    <div class="subtle">A block-range view of trace latency, historical replay cost, and low-level SS / MVCC / Pebble hotspots.</div>
-    <div class="hero-meta">
-      <div>Endpoint: <span class="mono">{{ .Summary.Endpoint }}</span></div>
-      <div>Block range: {{ .Summary.StartBlock }} to {{ .Summary.EndBlock }}</div>
-      <div>Generated at: {{ .Summary.GeneratedAt }}</div>
-      <div>Success rate: {{ percentInt .Summary.SuccessCount .Summary.TxCount }}%</div>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card"><div class="label">Transactions</div><div class="value">{{ .Summary.TxCount }}</div></div>
-    <div class="card"><div class="label">Successful Profiles</div><div class="value">{{ .Summary.SuccessCount }}</div></div>
-    <div class="card"><div class="label">Average Total</div><div class="value">{{ nanos .Summary.AverageTotalNanos }}</div></div>
-    <div class="card"><div class="label">Average Historical DB</div><div class="value">{{ nanos .Summary.AverageHistoricalNanos }}</div></div>
-    <div class="card"><div class="label">Average Execution</div><div class="value">{{ nanos .Summary.AverageExecutionNanos }}</div></div>
-    <div class="card"><div class="label">P50 Total</div><div class="value">{{ nanos .Summary.P50TotalNanos }}</div></div>
-    <div class="card"><div class="label">P95 Total</div><div class="value">{{ nanos .Summary.P95TotalNanos }}</div></div>
-    <div class="card"><div class="label">P95 Historical DB</div><div class="value">{{ nanos .Summary.P95HistoricalNanos }}</div></div>
-  </div>
-
-  <div class="section">
-    <h2>Top Takeaways</h2>
-    <div class="insights">
-      <div class="insight">
-        <div class="title">Dominant Phase</div>
-        <div class="main">{{ primaryName .Summary.PhaseTotals }}</div>
-        <div class="detail">{{ nanos (primaryTotal .Summary.PhaseTotals) }} total</div>
-      </div>
-      <div class="insight">
-        <div class="title">Dominant Low-Level Op</div>
-        <div class="main mono">{{ primaryName .Summary.LowLevelTotals }}</div>
-        <div class="detail">{{ nanos (primaryTotal .Summary.LowLevelTotals) }} total</div>
-      </div>
-      <div class="insight">
-        <div class="title">Slowest Transaction</div>
-        <div class="main mono">{{ primaryTxHash .Summary.TopTransactions }}</div>
-        <div class="detail">block {{ primaryTxBlock .Summary.TopTransactions }} · {{ nanos (primaryTxTotal .Summary.TopTransactions) }}</div>
-      </div>
-      <div class="insight">
-        <div class="title">Slowest Block</div>
-        <div class="main">{{ primaryBlockNum .Summary.TopBlocks }}</div>
-        <div class="detail">{{ nanos (primaryBlockTotal .Summary.TopBlocks) }} across {{ primaryBlockTxs .Summary.TopBlocks }} txs</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>Phase Totals</h2>
-    <div class="subtle">Which top-level trace phases dominate wall time across the sampled transactions.</div>
-    {{ template "ops" .Summary.PhaseTotals }}
-  </div>
-
-  <div class="section">
-    <h2>Top Low-Level Operations</h2>
-    <div class="subtle">Low-level SS / MVCC / Pebble operations like <span class="mono">bank.pebble.first</span> or <span class="mono">slashing.pebble.last</span>.</div>
-    {{ template "ops" .Summary.LowLevelTotals }}
-  </div>
-
-  <div class="section">
-    <h2>Top Store Operations</h2>
-    <div class="subtle">Higher-level module store activity, including repeated <span class="mono">*.get</span> and iterator-heavy paths.</div>
-    {{ template "ops" .Summary.StoreTotals }}
-  </div>
-
-  <div class="section">
-    <h2>Slowest Transactions</h2>
-    <table>
-      <tr><th>Block</th><th>Tx Hash</th><th>Total</th><th>Historical</th><th>Execution</th></tr>
-      {{ range .Summary.TopTransactions }}
-      <tr>
-        <td>{{ .BlockNumber }}</td>
-        <td class="mono">{{ .TxHash }}</td>
-        <td>{{ nanos .TotalNanos }}</td>
-        <td>{{ nanos .HistoricalNanos }}</td>
-        <td>{{ nanos .ExecutionNanos }}</td>
-      </tr>
-      {{ end }}
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Slowest Blocks</h2>
-    <table>
-      <tr><th>Block</th><th>Tx Count</th><th>Total Profile Time</th></tr>
-      {{ range .Summary.TopBlocks }}
-      <tr>
-        <td>{{ .BlockNumber }}</td>
-        <td>{{ .TxCount }}</td>
-        <td>{{ nanos .TotalNanos }}</td>
-      </tr>
-      {{ end }}
-    </table>
-    <div class="footnote">Totals shown here come from the trace profile output and are best used as attribution signals, not exact additive wall-clock accounting.</div>
-  </div>
-</body>
-</html>
-
-{{ define "ops" }}
-<table>
-  <tr><th>Name</th><th>Count</th><th>Total</th><th class="bar-cell">Relative</th></tr>
-  {{ $max := maxNanos . }}
-  {{ range . }}
-  <tr>
-    <td class="mono">{{ .Name }}</td>
-    <td>{{ .Count }}</td>
-    <td>{{ nanos .TotalNanos }}</td>
-    <td class="bar-cell">
-      <div class="bar-wrap"><div class="bar" style="width: {{ percent .TotalNanos $max }}%;"></div></div>
-    </td>
-  </tr>
-  {{ end }}
-</table>
-{{ end }}`
-
-	funcs := template.FuncMap{
-		"nanos": func(v int64) string {
-			return (time.Duration(v) * time.Nanosecond).String()
-		},
-		"percentInt": func(part, total int) int {
-			if total == 0 {
-				return 0
-			}
-			return int(math.Round((float64(part) / float64(total)) * 100))
-		},
-		"maxNanos": func(ops []aggregateOp) int64 {
-			var max int64
-			for _, op := range ops {
-				if op.TotalNanos > max {
-					max = op.TotalNanos
-				}
-			}
-			return max
-		},
-		"percent": func(v, max int64) string {
-			if max <= 0 {
-				return "0"
-			}
-			return strconv.FormatFloat((float64(v)/float64(max))*100, 'f', 1, 64)
-		},
-		"primaryName": func(ops []aggregateOp) string {
-			if len(ops) == 0 {
-				return "n/a"
-			}
-			return ops[0].Name
-		},
-		"primaryTotal": func(ops []aggregateOp) int64 {
-			if len(ops) == 0 {
-				return 0
-			}
-			return ops[0].TotalNanos
-		},
-		"primaryTxHash": func(txs []txSummary) string {
-			if len(txs) == 0 {
-				return "n/a"
-			}
-			return txs[0].TxHash
-		},
-		"primaryTxBlock": func(txs []txSummary) int64 {
-			if len(txs) == 0 {
-				return 0
-			}
-			return txs[0].BlockNumber
-		},
-		"primaryTxTotal": func(txs []txSummary) int64 {
-			if len(txs) == 0 {
-				return 0
-			}
-			return txs[0].TotalNanos
-		},
-		"primaryBlockNum": func(blocks []blockSummary) int64 {
-			if len(blocks) == 0 {
-				return 0
-			}
-			return blocks[0].BlockNumber
-		},
-		"primaryBlockTotal": func(blocks []blockSummary) int64 {
-			if len(blocks) == 0 {
-				return 0
-			}
-			return blocks[0].TotalNanos
-		},
-		"primaryBlockTxs": func(blocks []blockSummary) int {
-			if len(blocks) == 0 {
-				return 0
-			}
-			return blocks[0].TxCount
-		},
-	}
-
-	t, err := template.New("trace-report").Funcs(funcs).Parse(tpl)
-	if err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return err
-	}
-	return os.WriteFile(path, buf.Bytes(), 0o600)
 }
