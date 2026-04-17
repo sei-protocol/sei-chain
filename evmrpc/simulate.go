@@ -490,7 +490,6 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	if txIndex < 0 {
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
-
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
