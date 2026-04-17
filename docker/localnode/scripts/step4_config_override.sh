@@ -4,6 +4,7 @@ NODE_ID=${ID:-0}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 AUTOBAHN=${AUTOBAHN:-false}
+GIGA_STORAGE=${GIGA_STORAGE:-false}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -21,6 +22,42 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
+
+# Enable Giga Storage: FlatKV SC split + EVM SS split + parquet receipts.
+# Set GIGA_STORAGE=false to disable.
+if [ "$GIGA_STORAGE" = "true" ]; then
+  echo "Enabling Giga Storage for node $NODE_ID..."
+
+  # --- SC layer: split_write, split_read, lattice hash ---
+  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "split_write"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "split_write"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-read-mode = "split_read"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-enable-lattice-hash" ~/.sei/config/app.toml; then
+    sed -i 's/sc-enable-lattice-hash = .*/sc-enable-lattice-hash = true/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
+  fi
+
+  # --- SS layer: EVM split_write + split_read ---
+  sed -i 's/evm-ss-write-mode = .*/evm-ss-write-mode = "split_write"/' ~/.sei/config/app.toml
+  sed -i 's/evm-ss-read-mode = .*/evm-ss-read-mode = "split_read"/' ~/.sei/config/app.toml
+
+  # --- Receipt store: parquet backend ---
+  if grep -q "\[receipt-store\]" ~/.sei/config/app.toml; then
+    sed -i 's/rs-backend = .*/rs-backend = "parquet"/' ~/.sei/config/app.toml
+  else
+    echo "" >> ~/.sei/config/app.toml
+    echo "[receipt-store]" >> ~/.sei/config/app.toml
+    echo 'rs-backend = "parquet"' >> ~/.sei/config/app.toml
+  fi
+fi
 
 # Enable Giga Executor (evmone-based) if requested
 if [ "$GIGA_EXECUTOR" = "true" ]; then
