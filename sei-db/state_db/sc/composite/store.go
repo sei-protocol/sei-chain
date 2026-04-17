@@ -215,15 +215,15 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 
 	// Commit to FlatKV as well if enabled
 	if cs.flatkvCommitter != nil {
-		version, err := cs.flatkvCommitter.Commit()
+		flatkvVersion, err := cs.flatkvCommitter.Commit()
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit to EVM store: %w", err)
 		}
-		if cosmosVersion != version {
-			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, evmVersion)
+		if cosmosVersion != flatkvVersion {
+			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, flatkvVersion)
 		}
-		logger.Info("flatkv state committed",
-			"height", version,
+		logger.Info("flatkv st ate committed",
+			"height", flatkvVersion,
 			"latticeHash", hex.EncodeToString(cs.flatkvCommitter.CommittedRootHash()))
 	}
 
