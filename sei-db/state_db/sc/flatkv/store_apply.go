@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -47,8 +47,8 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 
 	// Gather account pairs
 	accountWrites, err := mergeAccountUpdates(
-		changesByType[evm.EVMKeyNonce],
-		changesByType[evm.EVMKeyCodeHash],
+		changesByType[keys.EVMKeyNonce],
+		changesByType[keys.EVMKeyCodeHash],
 		nil, // TODO: update this when we add a balance key!
 	)
 	if err != nil {
@@ -58,21 +58,21 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
 	maps.Copy(s.accountWrites, newAccountValues)
 
-	storageChanges, err := processStorageChanges(changesByType[evm.EVMKeyStorage], blockHeight)
+	storageChanges, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
 	maps.Copy(s.storageWrites, storageChanges)
 
-	codeChanges, err := processCodeChanges(changesByType[evm.EVMKeyCode], blockHeight)
+	codeChanges, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
 	codePairs := gatherLTHashPairs(codeChanges, codeOld)
 	maps.Copy(s.codeWrites, codeChanges)
 
-	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy])
+	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy])
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
@@ -121,15 +121,15 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 }
 
 // classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
-// already in physical format ("module/" + memiavl_key). Non-EVM modules are
+// already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
 // merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
 //
 // This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
 // avoiding an extra map allocation and repeated string concatenation per key.
-func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[evm.EVMKeyKind]map[string][]byte, 5)
+func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
+	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
 
-	getOrCreate := func(kind evm.EVMKeyKind, sizeHint int) map[string][]byte {
+	getOrCreate := func(kind keys.EVMKeyKind, sizeHint int) map[string][]byte {
 		m, ok := result[kind]
 		if !ok {
 			m = make(map[string][]byte, sizeHint)
@@ -139,20 +139,20 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 	}
 
 	for _, cs := range changeSets {
-		if cs.Changeset.Pairs == nil {
+		if len(cs.Changeset.Pairs) == 0 {
 			continue
 		}
 
-		if cs.Name == evm.EVMStoreKey {
+		if cs.Name == keys.EVMStoreKey {
 			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := evm.ParseEVMKey(pair.Key)
-				if kind == evm.EVMKeyEmpty {
+				kind, keyBytes := keys.ParseEVMKey(pair.Key)
+				if kind == keys.EVMKeyEmpty {
 					return nil, fmt.Errorf("flatkv: empty key in changeset")
 				}
 
 				var physKey string
-				if kind == evm.EVMKeyLegacy {
-					physKey = string(ktype.ModulePhysicalKey(evm.EVMStoreKey, pair.Key))
+				if kind == keys.EVMKeyLegacy {
+					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
 				} else {
 					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
 				}
@@ -165,7 +165,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 				}
 			}
 		} else {
-			legacyMap := getOrCreate(evm.EVMKeyLegacy, len(cs.Changeset.Pairs))
+			legacyMap := getOrCreate(keys.EVMKeyLegacy, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
 				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
 				if pair.Delete {

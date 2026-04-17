@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -61,7 +62,7 @@ func (s *CommitStore) closeDBsOnly() error {
 		s.legacyDB = nil
 	}
 
-	s.localMeta = make(map[string]*LocalMeta)
+	s.localMeta = make(map[string]*ktype.LocalMeta)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
