@@ -197,6 +197,7 @@ func NewState(
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
+		roundState:        cstypes.NewSafeRoundState(cfg.StatelessLeaderElection),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
@@ -213,7 +214,6 @@ func NewState(
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
 	}
-	cs.roundState.SetStatelessLeaderElection(cfg.StatelessLeaderElection)
 
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
@@ -652,7 +652,6 @@ func (cs *State) updateToState(state sm.State) {
 	// RoundState fields
 	cs.updateHeight(height)
 	cs.updateRoundStep(0, cstypes.RoundStepNewHeight)
-	cs.roundState.SetStatelessLeaderElection(cs.config.StatelessLeaderElection)
 
 	if cs.roundState.CommitTime().IsZero() {
 		// "Now" makes it easier to sync up dev nodes.

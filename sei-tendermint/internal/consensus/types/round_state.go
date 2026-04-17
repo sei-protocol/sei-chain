@@ -69,6 +69,14 @@ type SafeRoundState struct {
 	mtx      sync.RWMutex
 }
 
+func NewSafeRoundState(statelessLeaderElection bool) SafeRoundState {
+	return SafeRoundState{
+		internal: RoundState{
+			StatelessLeaderElection: statelessLeaderElection,
+		},
+	}
+}
+
 func (s *SafeRoundState) CopyInternal() *RoundState {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
@@ -128,12 +136,6 @@ func (s *SafeRoundState) SetStartTime(t time.Time) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	s.internal.StartTime = t
-}
-
-func (s *SafeRoundState) SetStatelessLeaderElection(enabled bool) {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-	s.internal.StatelessLeaderElection = enabled
 }
 
 func (s *SafeRoundState) CommitTime() time.Time {
