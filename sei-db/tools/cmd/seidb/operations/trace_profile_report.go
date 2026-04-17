@@ -201,7 +201,7 @@ func runTraceProfileReport(endpoint string, startBlock, endBlock int64, outputDi
 	}
 
 	rawPath := filepath.Join(outputDir, "raw_profiles.jsonl")
-	rawFile, err := os.OpenFile(rawPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	rawFile, err := os.OpenFile(rawPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600) //nolint:gosec // outputDir is an operator-supplied CLI flag for this offline seidb tool
 	if err != nil {
 		return err
 	}
