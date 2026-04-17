@@ -1,4 +1,4 @@
-package flatkv
+package config
 
 import (
 	"path/filepath"
@@ -27,7 +27,7 @@ func smallTestCacheConfig() dbcache.CacheConfig {
 func DefaultTestConfig(t *testing.T) *Config {
 	t.Helper()
 	return &Config{
-		DataDir:                filepath.Join(t.TempDir(), flatkvRootDir),
+		DataDir:                filepath.Join(t.TempDir(), "flatkv"),
 		SnapshotInterval:       DefaultSnapshotInterval,
 		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
 		AccountDBConfig:        smallTestPebbleConfig(),

@@ -7,20 +7,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"github.com/stretchr/testify/require"
 )
 
 func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot ktype.Slot, value []byte) int64 {
 	t.Helper()
 	padded := make([]byte, 32)
 	copy(padded[32-len(value):], value)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{
@@ -35,7 +37,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot k
 
 func TestSnapshotCreatesDir(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -65,7 +67,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 func TestSnapshotIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -88,7 +90,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create store, commit v1 and v2, snapshot at v2, commit v3
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -108,7 +110,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen - should catchup from v2 snapshot + WAL entry for v3
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -120,12 +122,12 @@ func TestOpenFromSnapshot(t *testing.T) {
 	require.Equal(t, hashAtV3, s2.RootHash())
 
 	// Verify data from all 3 versions is present
-	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x01}))
-	key3 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x03}))
-	v, ok := s2.Get(evm.EVMStoreKey, key1)
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x01}))
+	key3 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x03}))
+	v, ok := s2.Get(keys.EVMStoreKey, key1)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
-	v, ok = s2.Get(evm.EVMStoreKey, key3)
+	v, ok = s2.Get(keys.EVMStoreKey, key3)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x03), v)
 }
@@ -133,7 +135,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 func TestCatchupUpdatesLtHash(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -154,7 +156,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen: catchup from v2 snapshot through v3,v4,v5 via WAL
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -169,7 +171,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 }
 
 func TestRollbackRewindsState(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -192,13 +194,13 @@ func TestRollbackRewindsState(t *testing.T) {
 	require.Equal(t, hashAtV4, s.RootHash())
 
 	// v5's data should not exist (WAL truncated, snapshot pruned)
-	key5 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x05}))
-	_, ok := s.Get(evm.EVMStoreKey, key5)
+	key5 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x05}))
+	_, ok := s.Get(keys.EVMStoreKey, key5)
 	require.False(t, ok, "v5 data should be gone after rollback to v4")
 
 	// v4's data should still exist
-	key4 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x04}))
-	v, ok := s.Get(evm.EVMStoreKey, key4)
+	key4 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x04}))
+	v, ok := s.Get(keys.EVMStoreKey, key4)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), v)
 
@@ -206,7 +208,7 @@ func TestRollbackRewindsState(t *testing.T) {
 }
 
 func TestRollbackToSnapshotExact(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -229,7 +231,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 
 func TestPartialSnapshotCleanup(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -291,7 +293,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 
 	// Open the store - should trigger migration
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -325,7 +327,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create store, commit some data
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -349,11 +351,11 @@ func TestOpenVersionValidation(t *testing.T) {
 	acctCfg.EnableMetrics = false
 	db, err := pebbledb.Open(t.Context(), &acctCfg)
 	require.NoError(t, err)
-	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -425,7 +427,7 @@ func TestSeekSnapshot(t *testing.T) {
 func TestLoadVersionWithTarget(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -441,7 +443,7 @@ func TestLoadVersionWithTarget(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen at specific version 3
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -460,10 +462,10 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 
 	addr := ktype.Address{0x7A}
 	slot := ktype.Slot{0x7B}
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	// Phase 1: build baseline at v2 and snapshot it.
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -475,7 +477,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	require.NoError(t, s1.WriteSnapshot(""))
 
 	// Record baseline value at v2 for the same key.
-	vAtV2, ok := s1.Get(evm.EVMStoreKey, key)
+	vAtV2, ok := s1.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), vAtV2)
 
@@ -487,19 +489,19 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 
 	// Phase 3: reopen exactly at v2. If later commits had mutated the snapshot
 	// baseline in place, we'd incorrectly read 0x04 here.
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(2, false)
 	require.NoError(t, err)
-	gotV2, ok := s2.Get(evm.EVMStoreKey, key)
+	gotV2, ok := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), gotV2, "snapshot baseline should remain stable")
 	require.NoError(t, s2.Close())
 
 	// Phase 4: reopen latest again to ensure catchup/replay still reaches v4.
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s3, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -508,7 +510,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 	defer s3.Close()
 
 	require.Equal(t, int64(4), s3.Version())
-	gotLatest, ok := s3.Get(evm.EVMStoreKey, key)
+	gotLatest, ok := s3.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), gotLatest)
 }
@@ -520,9 +522,9 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 
 	addr := ktype.Address{0x80}
 	slot := ktype.Slot{0x81}
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -540,7 +542,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// Round 1: load exactly v2
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -548,13 +550,13 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), s1.Version())
 	require.Equal(t, hashAtV2, s1.RootHash())
-	v, ok := s1.Get(evm.EVMStoreKey, key)
+	v, ok := s1.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s1.Close())
 
 	// Round 2: load latest (catches up through v3, v4)
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -562,13 +564,13 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(4), s2.Version())
 	require.Equal(t, hashAtV4, s2.RootHash())
-	v, ok = s2.Get(evm.EVMStoreKey, key)
+	v, ok = s2.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x04), v)
 	require.NoError(t, s2.Close())
 
 	// Round 3: load v2 AGAIN — snapshot must still be clean.
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s3, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -576,7 +578,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 	require.NoError(t, err, "LoadVersion(2) must succeed after LoadVersion(0) dirtied working dir")
 	require.Equal(t, int64(2), s3.Version())
 	require.Equal(t, hashAtV2, s3.RootHash())
-	v, ok = s3.Get(evm.EVMStoreKey, key)
+	v, ok = s3.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v)
 	require.NoError(t, s3.Close())
@@ -587,7 +589,7 @@ func TestLoadVersionMixedSequence(t *testing.T) {
 func TestRollbackTargetBeforeWALStart(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -624,7 +626,7 @@ func TestRollbackTargetBeforeWALStart(t *testing.T) {
 
 	// Simulate restart: should stay at v2.
 	require.NoError(t, s.Close())
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -824,7 +826,7 @@ func TestCreateWorkingDirReclones(t *testing.T) {
 // =============================================================================
 
 func TestPruneSnapshotsKeepsRecent(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
 	cfg.SnapshotKeepRecent = 1
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -850,7 +852,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 }
 
 func TestPruneSnapshotsKeepAll(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotKeepRecent = 100
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -888,7 +890,7 @@ func TestOrphanSnapshotRecovery(t *testing.T) {
 	_, err := os.Lstat(currentPath(flatkvDir))
 	require.True(t, os.IsNotExist(err), "no current symlink should exist")
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -952,7 +954,7 @@ func TestTraverseSnapshotsEarlyStop(t *testing.T) {
 // =============================================================================
 
 func TestVerifyWALTailSuccess(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -967,7 +969,7 @@ func TestVerifyWALTailSuccess(t *testing.T) {
 }
 
 func TestVerifyWALTailMismatch(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -991,7 +993,7 @@ func TestTryTruncateWAL(t *testing.T) {
 	// SnapshotKeepRecent=0 so pruneSnapshots removes snapshot-0 once
 	// the manual snapshot at v5 is created; this makes v5 the earliest
 	// snapshot and gives tryTruncateWAL a positive truncation offset.
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	cfg.SnapshotKeepRecent = 0
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -1019,7 +1021,7 @@ func TestTryTruncateWAL(t *testing.T) {
 }
 
 func TestTryTruncateWALNoSnapshot(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -1042,7 +1044,7 @@ func TestTryTruncateWALNoSnapshot(t *testing.T) {
 
 func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1143,7 +1145,7 @@ func TestSeekSnapshotExact(t *testing.T) {
 
 func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	cfg.SnapshotKeepRecent = 10
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -1161,7 +1163,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 	for i, expectedHash := range hashes {
 		ver := int64(i + 1)
-		cfg2 := DefaultTestConfig(t)
+		cfg2 := config.DefaultTestConfig(t)
 		cfg2.DataDir = filepath.Join(dir, flatkvRootDir)
 		cfg2.SnapshotKeepRecent = 10
 		s2, err := NewCommitStore(t.Context(), cfg2)
@@ -1180,7 +1182,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 
 func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(context.Background(), cfg)
 	require.NoError(t, err)
@@ -1209,7 +1211,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
 	// so committedVersion should be 5 (from working dir metadata), not 2
 	// (from the snapshot). Catchup should replay 0 entries.
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(context.Background(), cfg)
 	require.NoError(t, err)
@@ -1223,7 +1225,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 
 func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1234,9 +1236,9 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	slot := ktype.Slot{0xCD}
 
 	pairs := []*proto.KVPair{
-		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: padLeft32(0x11)},
-		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
-		{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
+		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: padLeft32(0x11)},
+		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
+		{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
 	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1247,7 +1249,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1258,18 +1260,18 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.Equal(t, int64(1), s2.Version())
 	require.Equal(t, hash, s2.RootHash())
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	v, ok := s2.Get(evm.EVMStoreKey, storageKey)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v)
 
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	v, ok = s2.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	v, ok = s2.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 7}, v)
 
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	v, ok = s2.Get(evm.EVMStoreKey, codeKey)
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	v, ok = s2.Get(keys.EVMStoreKey, codeKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0x60, 0x80}, v)
 }
@@ -1282,7 +1284,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1299,7 +1301,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	hashBefore := s.RootHash()
 	require.NoError(t, s.Close())
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1319,7 +1321,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1333,10 +1335,10 @@ func TestReopenAfterDeletes(t *testing.T) {
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: padLeft32(0x11)},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: ch[:]},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), Value: padLeft32(0x11)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: ch[:]},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1346,10 +1348,10 @@ func TestReopenAfterDeletes(t *testing.T) {
 	delCS := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)), Delete: true},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
@@ -1359,7 +1361,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	hashBefore := s.RootHash()
 	require.NoError(t, s.Close())
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1369,22 +1371,22 @@ func TestReopenAfterDeletes(t *testing.T) {
 
 	require.Equal(t, hashBefore, s2.RootHash())
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	_, found := s2.Get(evm.EVMStoreKey, storageKey)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	_, found := s2.Get(keys.EVMStoreKey, storageKey)
 	require.False(t, found, "storage should stay deleted after reopen")
 
-	codeKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s2.Get(evm.EVMStoreKey, codeKey2)
+	codeKey2 := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	_, found = s2.Get(keys.EVMStoreKey, codeKey2)
 	require.False(t, found, "code should stay deleted after reopen")
 
 	// With Account Row GC, all-zero account row is physically deleted.
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s2.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal, found := s2.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
 	require.Nil(t, nonceVal)
 
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s2.Get(evm.EVMStoreKey, chKey)
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	chVal, found := s2.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should not be found after reopen (row deleted)")
 	require.Nil(t, chVal)
 }
@@ -1394,7 +1396,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 // =============================================================================
 
 func TestWALTruncationThenRollback(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 1
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -1412,18 +1414,18 @@ func TestWALTruncationThenRollback(t *testing.T) {
 	require.Equal(t, int64(5), s.Version())
 
 	for i := 1; i <= 5; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
 		var val []byte
 		var found bool
-		val, found = s.Get(evm.EVMStoreKey, key)
+		val, found = s.Get(keys.EVMStoreKey, key)
 		require.True(t, found, "key at block %d should exist after rollback to v5", i)
 		require.Equal(t, padLeft32(byte(i)), val)
 	}
 
 	for i := 6; i <= 10; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
 		var found bool
-		_, found = s.Get(evm.EVMStoreKey, key)
+		_, found = s.Get(keys.EVMStoreKey, key)
 		require.False(t, found, "key at block %d should NOT exist after rollback to v5", i)
 	}
 
@@ -1435,7 +1437,7 @@ func TestWALTruncationThenRollback(t *testing.T) {
 // =============================================================================
 
 func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 1
 
@@ -1462,10 +1464,10 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	require.Equal(t, hashBefore, s2.RootHash())
 
 	for i := 1; i <= 10; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
 		var val []byte
 		var found bool
-		val, found = s2.Get(evm.EVMStoreKey, key)
+		val, found = s2.Get(keys.EVMStoreKey, key)
 		require.True(t, found, "key at block %d should exist after reopen", i)
 		require.Equal(t, padLeft32(byte(i)), val)
 	}
@@ -1479,7 +1481,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1501,7 +1503,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	}
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1517,7 +1519,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1533,7 +1535,7 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	metaCfg.EnableMetrics = false
 	db, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
-	require.NoError(t, db.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	snapMeta := filepath.Join(dbDir, snapshotName(1), metadataDir)
@@ -1542,11 +1544,11 @@ func TestGlobalMetadataCorruption(t *testing.T) {
 	metaCfg2.EnableMetrics = false
 	db2, err := pebbledb.Open(context.Background(), &metaCfg2)
 	require.NoError(t, err)
-	require.NoError(t, db2.Set(metaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1562,7 +1564,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1577,7 +1579,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	walDir := filepath.Join(dbDir, changelogDir)
 	require.NoError(t, os.RemoveAll(walDir))
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1590,8 +1592,8 @@ func TestWALDirectoryDeleted(t *testing.T) {
 	commitStorageEntry(t, s2, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 	require.Equal(t, int64(3), s2.Version())
 
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
-	val, found := s2.Get(evm.EVMStoreKey, key)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
+	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xCC), val)
 }
@@ -1600,7 +1602,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1617,7 +1619,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg.EnableMetrics = false
 	db, err := pebbledb.Open(context.Background(), &acctCfg)
 	require.NoError(t, err)
-	require.NoError(t, db.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Same corruption in the snapshot dir.
@@ -1627,13 +1629,13 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg2.EnableMetrics = false
 	db2, err := pebbledb.Open(context.Background(), &acctCfg2)
 	require.NoError(t, err)
-	require.NoError(t, db2.Set(metaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
+	require.NoError(t, db2.Set(ktype.MetaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
 
 	// Remove SNAPSHOT_BASE to force re-clone from corrupted snapshot.
 	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1650,7 +1652,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -1669,7 +1671,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	metaCfg.EnableMetrics = false
 	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
-	require.NoError(t, mdb.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())
 
 	// Corrupt WAL segments: tidwall/wal will auto-truncate, losing all entries.
@@ -1692,7 +1694,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
 	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -1708,7 +1710,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(context.Background(), cfg)
@@ -1717,13 +1719,13 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xE1}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Value: make([]byte, vtype.CodeHashLength)},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: make([]byte, vtype.CodeHashLength)},
 		}},
 	}
 	ch := vtype.CodeHash{0xAA}
@@ -1735,8 +1737,8 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
@@ -1754,7 +1756,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 
 	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should match after reopen")
 
-	nonceVal, found := s2.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s2.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
 	require.Nil(t, nonceVal)
 }
@@ -1763,7 +1765,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(context.Background(), cfg)
@@ -1776,7 +1778,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -1786,7 +1788,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
@@ -1803,7 +1805,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.NoError(t, err)
 	versionBuf := make([]byte, 8)
 	versionBuf[7] = 1 // version = 1
-	require.NoError(t, mdb.Set(metaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
+	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionBuf, types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())
 
 	s2, err := NewCommitStore(context.Background(), cfg)
@@ -1815,14 +1817,14 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	require.Equal(t, int64(2), s2.Version())
 	require.Equal(t, hashAtV2, s2.RootHash(), "LtHash should match after WAL replay")
 
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	_, found := s2.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	_, found := s2.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after WAL replay (row deleted)")
 }
 
 func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	cfg.SnapshotInterval = 1
 	cfg.SnapshotKeepRecent = 2
@@ -1833,40 +1835,40 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xE3}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	_, err = s.Commit() // v1 (snapshot taken)
 	require.NoError(t, err)
 
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
 
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	_, err = s.Commit() // v2 (row deleted, snapshot taken)
 	require.NoError(t, err)
 
-	_, found = s.Get(evm.EVMStoreKey, nonceKey)
+	_, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should be gone at v2")
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
 
-	nonceVal, found = s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be restored after rollback to v1")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
 
@@ -1877,7 +1879,7 @@ func TestRollbackOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1894,13 +1896,13 @@ func TestRollbackOnReadOnlyStore(t *testing.T) {
 }
 
 func TestRollbackToCurrentVersion(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
 	addr := addrN(0x02)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s) // v1 + snapshot
@@ -1912,19 +1914,19 @@ func TestRollbackToCurrentVersion(t *testing.T) {
 	require.Equal(t, int64(1), s.Version())
 	require.Equal(t, hashV1, s.RootHash())
 
-	val, found := s.Get(evm.EVMStoreKey, key)
+	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x22), val)
 }
 
 func TestRollbackToFutureVersionFails(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
 		padLeft32(0x33), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -1935,41 +1937,41 @@ func TestRollbackToFutureVersionFails(t *testing.T) {
 }
 
 func TestRollbackDiscardsUncommittedPendingWrites(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
 	addr := addrN(0x04)
-	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs1 := makeChangeSet(key1, padLeft32(0x44), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s) // v1
 
 	// Apply but do NOT commit.
-	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
+	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
 	cs2 := makeChangeSet(key2, padLeft32(0x55), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
 
-	val, found := s.Get(evm.EVMStoreKey, key1)
+	val, found := s.Get(keys.EVMStoreKey, key1)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x44), val)
 
-	_, found = s.Get(evm.EVMStoreKey, key2)
+	_, found = s.Get(keys.EVMStoreKey, key2)
 	require.False(t, found, "uncommitted pending write should be discarded after rollback")
 }
 
 func TestRollbackThenNewTimeline(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
 	addr := addrN(0x05)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	cs1 := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -1989,14 +1991,14 @@ func TestRollbackThenNewTimeline(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v) // Version 2 in the new timeline.
 
-	val, found := s.Get(evm.EVMStoreKey, key)
+	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xFF), val)
 }
 
 func TestRollbackPreservesWALContinuity(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	cfg.SnapshotInterval = 2
 
@@ -2007,7 +2009,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 
 	addr := addrN(0x06)
 	for i := 1; i <= 4; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
@@ -2018,7 +2020,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 
 	// Continue committing.
 	for i := 5; i <= 6; i++ {
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		_, err := s.Commit()
@@ -2042,7 +2044,7 @@ func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -2071,7 +2073,7 @@ func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))),
 		padLeft32(0x77), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -2085,7 +2087,7 @@ func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 
 	// RO clone should still work.
-	val, found := ro.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))))
+	val, found := ro.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))))
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x77), val)
 	require.NoError(t, s.Close())
@@ -2096,7 +2098,7 @@ func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
 	defer s.Close()
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))),
 		padLeft32(0x88), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -2106,7 +2108,7 @@ func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot("/tmp/this-should-be-ignored"))
 
 	// Verify snapshot was created in the correct location (not the passed dir).
-	val, found := s.Get(evm.EVMStoreKey, evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))))
+	val, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))))
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x88), val)
 }
